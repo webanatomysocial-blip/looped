@@ -1,0 +1,141 @@
+.approvals-list { display: flex; flex-direction: column; gap: 12px;}
+
+.approval-card {
+  background: var(--bg-white);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.approval-card__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.approval-card__row:hover { background: rgba(237,232,223,0.35); }
+
+.approval-card__info { flex: 1; min-width: 0; }
+.approval-card__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.approval-card__meta { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+
+/* mini step dots */
+.approval-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.approval-step-dot  { width: 8px; height: 8px; border-radius: 50%; }
+.approval-step-line { width: 14px; height: 1.5px; background: var(--bg-sand); }
+
+.approval-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Expanded detail */
+.approval-card__detail {
+  border-top: 1.5px solid var(--bg-sand);
+  background: rgba(237,232,223,0.28);
+  padding: 18px 20px;
+  animation: slideDown 0.18s ease;
+}
+@keyframes slideDown {
+  from { opacity:0; transform: translateY(-6px); }
+  to   { opacity:1; transform: translateY(0); }
+}
+
+.approval-timeline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.timeline-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+}
+.timeline-chip--done    { background: rgba(76,175,125,0.18); color: #257a50; }
+.timeline-chip--active  { background: rgba(245,196,24,0.2);  color: #8a6d00; }
+.timeline-chip--pending { background: var(--bg-sand);        color: var(--ink-muted); }
+.timeline-chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+.timeline-line { width: 16px; height: 1.5px; background: var(--sand-border); }
+
+.approval-note {
+  background: var(--bg-white);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+.approval-note strong { color: var(--ink); font-weight: 700; font-size: 11px; display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Review modal */
+.review-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.review-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 700;
+  border: 2px solid var(--bg-sand);
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: all 0.16s;
+}
+.review-action-btn.approve.selected  { background: var(--green);  border-color: var(--green);  color: #fff; }
+.review-action-btn.changes.selected  { background: var(--red);    border-color: var(--red);    color: #fff; }
+.review-action-btn:hover:not(.selected) { border-color: rgba(26,26,26,0.2); color: var(--ink); }
+
+.review-submit-approve { background: var(--green); color:#fff; border:none; border-radius: var(--r); padding: 11px; font-size:13px; font-weight:800; cursor:pointer; flex:1; transition: opacity 0.15s; }
+.review-submit-changes { background: var(--red);   color:#fff; border:none; border-radius: var(--r); padding: 11px; font-size:13px; font-weight:800; cursor:pointer; flex:1; transition: opacity 0.15s; }
+.review-submit-approve:hover, .review-submit-changes:hover { opacity: 0.88; }
+
+.review-desc { font-size: 13px; color: var(--ink-muted); margin-bottom: 16px; line-height: 1.5; }
+
+/* Dynamic status pill */
+.approval-status-pill {
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--pill-color, #000) 15%, transparent);
+  color: var(--pill-color, var(--ink-muted));
+}
+
+/* Rejection note variant */
+.approval-note--danger {
+  border-left: 3px solid var(--red);
+  background: rgba(232,66,74,0.06);
+}
+.approval-note--danger strong { color: var(--red); }

@@ -1,0 +1,21 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.badge--active            { background: rgba(245,196,24,0.18); color: #8a6d00; }
+.badge--in_review         { background: rgba(244,115,38,0.15); color: #b54a00; }
+.badge--on_hold           { background: var(--bg-sand);        color: var(--ink-muted); }
+.badge--completed         { background: rgba(76,175,125,0.18); color: #257a50; }
+.badge--todo              { background: var(--bg-sand);        color: var(--ink-muted); }
+.badge--in_progress       { background: rgba(244,115,38,0.15); color: #b54a00; }
+.badge--overdue           { background: rgba(232,66,74,0.14);  color: #b52028; }
+.badge--pending_manager   { background: rgba(74,144,226,0.14); color: #1a5fa0; }
+.badge--pending_admin     { background: rgba(155,89,182,0.14); color: #6a3090; }
+.badge--pending_client    { background: rgba(244,115,38,0.15); color: #b54a00; }
+.badge--approved          { background: rgba(76,175,125,0.18); color: #257a50; }
+.badge--changes_requested { background: rgba(232,66,74,0.14);  color: #b52028; }

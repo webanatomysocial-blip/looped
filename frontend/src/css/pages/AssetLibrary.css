@@ -1,0 +1,48 @@
+.assets-upload-bar {
+  background: var(--bg-white);
+  border-radius: var(--r-xl);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+.assets-upload-bar .form-input { flex: 1; min-width: 160px; }
+.assets-upload-bar select.form-input { width: 180px; flex: none; }
+
+.assets-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.assets-count { font-size: 13px; color: var(--ink-muted); }
+
+.assets-table-wrap {
+  background: var(--bg-white);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.asset-file-cell { display: flex; align-items: center; gap: 12px; }
+.asset-file-icon {
+  width: 34px; height: 34px;
+  border-radius: var(--r);
+  background: var(--bg-sand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.asset-file-name { font-size: 13px; font-weight: 700; color: var(--ink); }
+
+.asset-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.data-table tbody tr:hover .asset-actions { opacity: 1; }

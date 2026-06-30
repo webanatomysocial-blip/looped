@@ -1,0 +1,179 @@
+/* ── Assignee multi-select picker ── */
+.assignee-picker { position: relative; }
+
+.assignee-picker__box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  cursor: pointer;
+  padding: 6px 12px;
+  height: auto;
+}
+
+.assignee-picker__placeholder { color: var(--ink-muted); font-size: 13px; }
+
+.assignee-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-sand);
+  border-radius: var(--r-pill);
+  padding: 2px 8px 2px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.assignee-pill__remove {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-muted);
+  line-height: 1;
+}
+.assignee-pill__remove:hover { color: var(--red); }
+
+.assignee-picker__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-white);
+  border: 1.5px solid var(--sand-border);
+  border-radius: var(--r);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.assignee-picker__search {
+  width: 100%;
+  border: none;
+  border-bottom: 1.5px solid var(--bg-sand);
+  padding: 9px 12px;
+  font-size: 13px;
+  outline: none;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.assignee-picker__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  transition: background 0.13s;
+}
+.assignee-picker__option:hover { background: var(--bg-sand); }
+.assignee-picker__option.selected { background: rgba(99,102,241,0.07); }
+
+.assignee-picker__check {
+  margin-left: auto;
+  font-size: 12px;
+  color: #6366f1;
+  font-weight: 700;
+}
+
+/* ── Tasks page layout ── */
+.tasks-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.tasks-table-wrap {
+  background: var(--bg-white);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.task-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.task-status-dot--todo        { background: var(--sand-border); }
+.task-status-dot--in_progress { background: var(--orange); }
+.task-status-dot--in_review   { background: var(--blue); }
+.task-status-dot--overdue     { background: var(--red); }
+.task-status-dot--completed   { background: var(--green); }
+
+.task-cell-main { display: flex; align-items: center; gap: 10px; }
+.task-cell-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+.task-cell-sub   { font-size: 11px; color: var(--ink-muted); }
+
+.task-date        { font-size: 12px; font-weight: 600; color: var(--ink-muted); }
+.task-date--over  { color: var(--red); font-weight: 700; }
+
+.task-checklist-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: var(--bg-sand);
+  border-radius: var(--r-sm);
+  padding: 3px 10px;
+}
+
+.task-status-select {
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg-sand);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  color: var(--ink);
+  cursor: pointer;
+  outline: none;
+  transition: box-shadow 0.15s;
+}
+.task-status-select:focus { box-shadow: 0 0 0 2px rgba(26,26,26,0.15); }
+
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.data-table tbody tr:hover .task-actions { opacity: 1; }
+
+/* checklist modal */
+.checklist-wrap { display: flex; flex-direction: column; gap: 8px; }
+.checklist-row  { display: flex; align-items: center; gap: 8px; }
+.checklist-row input[type="text"] { flex: 1; }
+
+.checklist-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  background: none;
+  border: none;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.checklist-add-btn:hover { opacity: 1; }
+
+.checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
