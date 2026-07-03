@@ -202,8 +202,19 @@
 .member-list {
   background: var(--bg-sand);
   border-radius: var(--r);
-  max-height: 180px;
+  max-height: 260px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(26,26,26,0.2) transparent;
+}
+.member-list::-webkit-scrollbar { width: 4px; }
+.member-list::-webkit-scrollbar-thumb { background: rgba(26,26,26,0.2); border-radius: 4px; }
+.member-list::-webkit-scrollbar-track { background: transparent; }
+.member-list-count {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-weight: 600;
+  padding: 4px 2px 6px;
 }
 .member-list-empty {
   font-size: 12px;

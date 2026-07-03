@@ -33,15 +33,15 @@ function getGoogleAuth() {
   });
 }
 
-async function getAccessToken(): Promise<string | null> {
+async function getAccessToken(): Promise<{ token: string | null; error?: string }> {
   const auth = getGoogleAuth();
-  if (!auth) return null;
+  if (!auth) return { token: null, error: 'Google service account not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_PATH to .env' };
   try {
     const client = await auth.getClient();
-    const token = await (client as any).getAccessToken();
-    return token.token ?? null;
-  } catch {
-    return null;
+    const t = await (client as any).getAccessToken();
+    return { token: t.token ?? null };
+  } catch (e: any) {
+    return { token: null, error: `Google auth failed: ${e.message}` };
   }
 }
 
@@ -65,17 +65,8 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
         .where({ id: user.client_company_id })
         .select('id', 'name', 'ga_property_id', 'gsc_site_url');
       res.json(companies);
-    } else if (role === 'employee') {
-      // Employee sees only clients for projects they're assigned to
-      const companies = await db('client_companies as cc')
-        .join('projects as p', 'p.client_company_id', 'cc.id')
-        .join('project_members as pm', 'pm.project_id', 'p.id')
-        .where('pm.user_id', userId)
-        .select('cc.id', 'cc.name', 'cc.ga_property_id', 'cc.gsc_site_url')
-        .distinct();
-      res.json(companies);
     } else {
-      // Admin and manager see all clients
+      // Admin, manager, and employee all see every company
       const clients = await db('client_companies').select('id', 'name', 'ga_property_id', 'gsc_site_url').orderBy('name');
       res.json(clients);
     }
@@ -109,23 +100,15 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
       if (String(user?.client_company_id) !== String(req.params.clientId)) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
-    } else if (role === 'employee') {
-      // Employee: only clients linked to their projects
-      const allowed = await db('project_members as pm')
-        .join('projects as p', 'pm.project_id', 'p.id')
-        .where('pm.user_id', userId)
-        .where('p.client_company_id', req.params.clientId)
-        .first();
-      if (!allowed) { res.status(403).json({ error: 'Access denied' }); return; }
     }
-    // admin and manager: unrestricted
+    // admin, manager, employee: unrestricted
 
     const client = await db('client_companies').where({ id: req.params.clientId }).first();
     if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
     if (!client.ga_property_id) { res.status(400).json({ error: 'GA4 Property ID not configured for this client' }); return; }
 
-    const token = await getAccessToken();
-    if (!token) { res.status(500).json({ error: 'Google service account not configured. Add GOOGLE_SERVICE_ACCOUNT_JSON to .env' }); return; }
+    const { token, error: authError } = await getAccessToken();
+    if (!token) { res.status(500).json({ error: authError ?? 'Google auth failed' }); return; }
 
     const range        = String(req.query.range || '28d');
     const customStart  = req.query.startDate ? String(req.query.startDate) : null;
@@ -187,25 +170,26 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
         }),
       }).then((r) => r.json()),
 
-      // 4. Demographics — India cities only
-      fetch(ga4Base, {
-        method: 'POST', headers,
-        body: JSON.stringify({
-          dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
-          dimensions: [{ name: 'city' }],
-          metrics: [{ name: 'activeUsers' }, { name: 'sessions' }],
-          orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
-          limit: 20,
-          dimensionFilter: {
-            andGroup: {
-              expressions: [
-                { filter: { fieldName: 'country', stringFilter: { value: 'India', matchType: 'EXACT' } } },
-                { notExpression: { filter: { fieldName: 'city', stringFilter: { value: '(not set)', matchType: 'EXACT' } } } },
-              ],
-            },
-          },
-        }),
-      }).then((r) => r.json()),
+      // 4. Demographics — cities filtered by selected country (or all countries)
+      (() => {
+        const demoCountry = req.query.country ? String(req.query.country) : 'India';
+        const countryFilter = demoCountry !== 'all'
+          ? { filter: { fieldName: 'country', stringFilter: { value: demoCountry, matchType: 'EXACT' } } }
+          : null;
+        const notSetFilter = { notExpression: { filter: { fieldName: 'city', stringFilter: { value: '(not set)', matchType: 'EXACT' } } } };
+        const expressions = countryFilter ? [countryFilter, notSetFilter] : [notSetFilter];
+        return fetch(ga4Base, {
+          method: 'POST', headers,
+          body: JSON.stringify({
+            dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+            dimensions: [{ name: 'city' }, { name: 'country' }],
+            metrics: [{ name: 'activeUsers' }, { name: 'sessions' }],
+            orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }],
+            limit: 20,
+            dimensionFilter: { andGroup: { expressions } },
+          }),
+        }).then((r) => r.json());
+      })(),
 
       // 5. GSC pages — auto-detects sc-domain: vs URL prefix format
       siteUrl
@@ -257,6 +241,7 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     const demographics = demoRes.status === 'fulfilled'
       ? (demoRes.value.rows || []).map((r: any) => ({
           city: r.dimensionValues[0].value,
+          country: r.dimensionValues[1].value,
           users: Number(r.metricValues[0].value),
           sessions: Number(r.metricValues[1].value),
         }))
@@ -345,14 +330,21 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
     const row = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
     if (!row) { res.json({}); return; }
     res.json({
-      keyword_rankings: row.keyword_rankings ? JSON.parse(row.keyword_rankings) : [],
-      targets:          row.targets          ? JSON.parse(row.targets)          : [],
+      keyword_rankings:  row.keyword_rankings  ? JSON.parse(row.keyword_rankings)  : [],
+      targets:           row.targets           ? JSON.parse(row.targets)           : [],
+      key_insights:      row.key_achievements || '',
       organic_submissions: row.organic_submissions ?? 0,
-      gmb_rating:       row.gmb_rating,
-      gmb_reviews:      row.gmb_reviews,
-      gmb_profile_url:  row.gmb_profile_url,
-      linkedin_url:     row.linkedin_url,
-      linkedin_followers: row.linkedin_followers,
+      gmb_rating:        row.gmb_rating,
+      gmb_reviews:       row.gmb_reviews,
+      gmb_profile_url:   row.gmb_profile_url,
+      linkedin_url:        row.linkedin_url,
+      linkedin_followers:  row.linkedin_followers,
+      linkedin_data:       row.linkedin_data       ? JSON.parse(row.linkedin_data)       : null,
+      gmb_overview:        row.gmb_overview        || '',
+      gmb_calls:           row.gmb_calls           ?? null,
+      gmb_bookings:        row.gmb_bookings        ?? null,
+      gmb_website_clicks:  row.gmb_website_clicks  ?? null,
+      organic_form_data:   row.organic_form_data   ? JSON.parse(row.organic_form_data)   : [],
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -364,17 +356,23 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   }
   try {
     const db = getDB();
-    const { keyword_rankings, targets, organic_submissions, gmb_rating, gmb_reviews, gmb_profile_url, linkedin_url, linkedin_followers } = req.body;
+    const { keyword_rankings, targets, key_insights, linkedin_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers } = req.body;
     const payload = {
-      keyword_rankings: keyword_rankings !== undefined ? JSON.stringify(keyword_rankings) : undefined,
-      targets:          targets          !== undefined ? JSON.stringify(targets)          : undefined,
-      organic_submissions: organic_submissions ?? 0,
-      gmb_rating:       gmb_rating       ?? null,
-      gmb_reviews:      gmb_reviews      ?? null,
-      gmb_profile_url:  gmb_profile_url  || null,
-      linkedin_url:     linkedin_url     || null,
-      linkedin_followers: linkedin_followers ?? null,
-      updated_at:       new Date(),
+      keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
+      targets:             targets            !== undefined ? JSON.stringify(targets)            : undefined,
+      key_achievements:    key_insights       !== undefined ? key_insights                       : undefined,
+      linkedin_data:       linkedin_data      !== undefined ? JSON.stringify(linkedin_data)      : undefined,
+      organic_form_data:   organic_form_data  !== undefined ? JSON.stringify(organic_form_data)  : undefined,
+      gmb_rating:          gmb_rating         ?? null,
+      gmb_reviews:         gmb_reviews        ?? null,
+      gmb_profile_url:     gmb_profile_url    || null,
+      gmb_overview:        gmb_overview       || null,
+      gmb_calls:           gmb_calls          ?? null,
+      gmb_bookings:        gmb_bookings       ?? null,
+      gmb_website_clicks:  gmb_website_clicks ?? null,
+      linkedin_url:        linkedin_url       || null,
+      linkedin_followers:  linkedin_followers ?? null,
+      updated_at:          new Date(),
     };
     const existing = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
     if (existing) {

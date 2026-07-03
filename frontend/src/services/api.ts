@@ -113,8 +113,8 @@ export const reportsApi = {
 
 export const seoApi = {
   clients: () => api.get('/seo/clients'),
-  report: (clientId: number, range: string, startDate?: string, endDate?: string) =>
-    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate } }),
+  report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string) =>
+    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country } }),
   configClient: (clientId: number, data: { ga_property_id: string; gsc_site_url: string }) =>
     api.put(`/seo/clients/${clientId}`, data),
   getManual: (clientId: number) => api.get(`/seo/manual/${clientId}`),

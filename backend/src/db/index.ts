@@ -105,7 +105,7 @@ async function createSchema(): Promise<void> {
     }
   });
 
-  // seo manual data (keyword rankings, targets, gmb, linkedin, organic submissions)
+  // seo manual data (keyword rankings, targets, gmb, linkedin, organic submissions, key achievements)
   await db.schema.hasTable('seo_manual_data').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('seo_manual_data', (t) => {
@@ -113,6 +113,13 @@ async function createSchema(): Promise<void> {
         t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE').unique();
         t.text('keyword_rankings').nullable();   // JSON: [{keyword, rank, change}]
         t.text('targets').nullable();            // JSON: [{name, target, achieved, unit}]
+        t.text('key_achievements').nullable();   // JSON: [{title, value}]
+        t.text('linkedin_data').nullable();      // JSON: rich linkedin metrics + posts
+        t.text('gmb_overview').nullable();
+        t.integer('gmb_calls').nullable();
+        t.integer('gmb_bookings').nullable();
+        t.integer('gmb_website_clicks').nullable();
+        t.text('organic_form_data').nullable();  // JSON: [{url, count}]
         t.integer('organic_submissions').defaultTo(0);
         t.decimal('gmb_rating', 3, 1).nullable();
         t.integer('gmb_reviews').nullable();
@@ -120,6 +127,21 @@ async function createSchema(): Promise<void> {
         t.string('linkedin_url').nullable();
         t.integer('linkedin_followers').nullable();
         t.timestamp('updated_at').defaultTo(db.fn.now());
+      });
+    } else {
+      const hasKa = await db.schema.hasColumn('seo_manual_data', 'key_achievements');
+      if (!hasKa) {
+        await db.schema.table('seo_manual_data', (t) => { t.text('key_achievements').nullable(); });
+      }
+      const hasLiData = await db.schema.hasColumn('seo_manual_data', 'linkedin_data');
+      if (!hasLiData) await db.schema.table('seo_manual_data', (t) => { t.text('linkedin_data').nullable(); });
+      const hasGmbOverview = await db.schema.hasColumn('seo_manual_data', 'gmb_overview');
+      if (!hasGmbOverview) await db.schema.table('seo_manual_data', (t) => {
+        t.text('gmb_overview').nullable();
+        t.integer('gmb_calls').nullable();
+        t.integer('gmb_bookings').nullable();
+        t.integer('gmb_website_clicks').nullable();
+        t.text('organic_form_data').nullable();
       });
     }
   });
@@ -362,7 +384,7 @@ async function createSchema(): Promise<void> {
 }
 
 async function seedAdmin(): Promise<void> {
-  // Seed default employee categories
+  // Seed default employee categories (always, in all environments)
   const defaultCategories = [
     'Web Developer', 'UI/UX Designer', 'Social Media Manager',
     'Ads Specialist', 'Sales Executive', 'SEO Specialist',
@@ -372,7 +394,23 @@ async function seedAdmin(): Promise<void> {
     if (!exists) await db('employee_categories').insert({ name });
   }
 
-  // Seed demo users
+  // In production, create the first admin from env vars if no users exist yet
+  if (process.env.NODE_ENV === 'production') {
+    const anyUser = await db('users').first();
+    if (!anyUser && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+      const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
+      await db('users').insert({
+        name: process.env.ADMIN_NAME || 'Admin',
+        email: process.env.ADMIN_EMAIL,
+        password_hash: hash,
+        role: 'admin',
+        avatar_color: '#6366f1',
+      });
+      console.log(`Production admin created: ${process.env.ADMIN_EMAIL}`);
+    }
+    return;
+  }
+
   const demoUsers = [
     { name: 'Admin User',    email: 'admin@agency.com',    password: 'Admin@123',    role: 'admin',    avatar_color: '#E8424A' },
     { name: 'Sara Manager',  email: 'manager@agency.com',  password: 'Manager@123',  role: 'manager',  avatar_color: '#F47326' },

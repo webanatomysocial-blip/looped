@@ -5,17 +5,16 @@ import Layout from '../../components/Layout/Layout';
 import Header from '../../components/Layout/Header';
 import Avatar from '../../components/UI/Avatar';
 import Modal from '../../components/UI/Modal';
-import { usersApi, categoriesApi, projectsApi } from '../../services/api';
-import { User, Role, EmployeeCategory, Project } from '../../types';
+import { usersApi, categoriesApi } from '../../services/api';
+import { User, Role, EmployeeCategory } from '../../types';
 import '../../css/admin/UserManagement.css';
 
 const ROLE_OPTIONS: Role[] = ['admin', 'manager', 'employee', 'client'];
-const defaultForm = { name: '', email: '', password: '', role: 'employee' as Role, company_name: '', category_ids: [] as number[], project_ids: [] as number[] };
+const defaultForm = { name: '', email: '', password: '', role: 'employee' as Role, company_name: '', category_ids: [] as number[] };
 
 export default function UserManagement() {
   const [users, setUsers]         = useState<User[]>([]);
   const [categories, setCategories] = useState<EmployeeCategory[]>([]);
-  const [projects, setProjects]   = useState<Project[]>([]);
   const [loading, setLoading]     = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser]   = useState<User | null>(null);
@@ -31,9 +30,8 @@ export default function UserManagement() {
     usersApi.list().then((r) => setUsers(r.data)).finally(() => setLoading(false));
   };
   const loadCats = () => { categoriesApi.list().then((r) => setCategories(r.data)); };
-  const loadProjects = () => { projectsApi.list().then((r) => setProjects(r.data)); };
 
-  useEffect(() => { load(); loadCats(); loadProjects(); }, []);
+  useEffect(() => { load(); loadCats(); }, []);
 
   const openCreate = () => {
     setEditUser(null);
@@ -41,20 +39,12 @@ export default function UserManagement() {
     setError('');
     setShowModal(true);
   };
-  const openEdit = async (u: User) => {
+  const openEdit = (u: User) => {
     setEditUser(u);
-    let projectIds: number[] = [];
-    if (u.role === 'client') {
-      try {
-        const r = await usersApi.userProjects(u.id);
-        projectIds = r.data.map((p: any) => p.id);
-      } catch {}
-    }
     setForm({
       name: u.name, email: u.email, password: '', role: u.role,
       company_name: (u as any).company_name || '',
       category_ids: u.categories?.map((c) => c.id) || [],
-      project_ids: projectIds,
     });
     setError('');
     setShowModal(true);
@@ -68,14 +58,6 @@ export default function UserManagement() {
         : [...f.category_ids, id],
     }));
 
-  const toggleProject = (id: number) =>
-    setForm((f) => ({
-      ...f,
-      project_ids: f.project_ids.includes(id)
-        ? f.project_ids.filter((x) => x !== id)
-        : [...f.project_ids, id],
-    }));
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -84,16 +66,12 @@ export default function UserManagement() {
         const payload: any = { name: form.name, email: form.email, role: form.role };
         if (form.password) payload.password = form.password;
         if (form.role === 'employee') payload.category_ids = form.category_ids;
-        if (form.role === 'client') {
-          payload.project_ids  = form.project_ids;
-          if (form.company_name) payload.company_name = form.company_name;
-        }
+        if (form.role === 'client' && form.company_name) payload.company_name = form.company_name;
         await usersApi.update(editUser.id, payload);
       } else {
         if (!form.password) { setError('Password is required'); return; }
-        const payload: any = { ...form };
-        if (form.role !== 'employee') delete payload.category_ids;
-        if (form.role !== 'client')   delete payload.project_ids;
+        const payload: any = { name: form.name, email: form.email, password: form.password, role: form.role, company_name: form.company_name };
+        if (form.role === 'employee') payload.category_ids = form.category_ids;
         await usersApi.create(payload);
       }
       setShowModal(false);
@@ -267,39 +245,6 @@ export default function UserManagement() {
               <div className="modal-form-row">
                 <label className="form-label">Company name</label>
                 <input className="form-input" placeholder="Client company" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-              </div>
-            )}
-            {form.role === 'client' && (
-              <div className="modal-form-row">
-                <label className="form-label">
-                  Assign to projects
-                  {form.project_ids.length > 0 && (
-                    <span className="form-label-badge">{form.project_ids.length} selected</span>
-                  )}
-                </label>
-                <div className="project-assign-list">
-                  {projects.length === 0 && (
-                    <p style={{ fontSize: 12, color: 'var(--ink-muted)', padding: '8px 0' }}>No projects yet. Create a project first.</p>
-                  )}
-                  {projects.map((p) => (
-                    <label
-                      key={p.id}
-                      className={`project-assign-row${form.project_ids.includes(p.id) ? ' selected' : ''}`}
-                      onClick={() => toggleProject(p.id)}
-                    >
-                      <div className="project-assign-row__check">
-                        {form.project_ids.includes(p.id) && <span className="project-assign-row__tick">✓</span>}
-                      </div>
-                      <div className="project-assign-row__info">
-                        <span className="project-assign-row__name">{p.name}</span>
-                        {p.client_name && <span className="project-assign-row__client">{p.client_name}</span>}
-                      </div>
-                      <span className={`project-assign-row__status project-assign-row__status--${p.status}`}>
-                        {p.status.replace('_', ' ')}
-                      </span>
-                    </label>
-                  ))}
-                </div>
               </div>
             )}
             {/* Employee categories */}

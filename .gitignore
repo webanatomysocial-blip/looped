@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build output
+backend/dist/
+backend/public/
+frontend/dist/
+
+# Environment files — never commit real credentials
+.env
+.env.production
+.env.local
+.env.*.local
+
+# Secrets & credentials
+backend/service-account.json
+
+# Databases
+backend/*.db
+backend/*.sqlite
+*.db
+*.sqlite
+
+# Uploads (user content)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

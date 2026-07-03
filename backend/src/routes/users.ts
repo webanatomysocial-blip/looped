@@ -103,25 +103,22 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
       avatar_color: color, created_by: req.user!.id,
     });
 
-    if (role === 'client' && company_name) {
-      let company = await db('client_companies').where({ name: company_name }).first();
+    let clientCompanyId: number | null = null;
+    if (role === 'client') {
+      const resolvedName = company_name?.trim() || name;
+      let company = await db('client_companies').where({ name: resolvedName }).first();
       if (!company) {
-        const [cid] = await db('client_companies').insert({ name: company_name });
-        await db('users').where({ id }).update({ client_company_id: cid });
+        const [cid] = await db('client_companies').insert({ name: resolvedName });
+        clientCompanyId = cid;
       } else {
-        await db('users').where({ id }).update({ client_company_id: company.id });
+        clientCompanyId = company.id;
       }
+      await db('users').where({ id }).update({ client_company_id: clientCompanyId });
     }
 
     if (role === 'employee' && Array.isArray(category_ids) && category_ids.length) {
       const rows = category_ids.map((cid: number) => ({ user_id: id, category_id: cid }));
       await db('user_categories').insert(rows);
-    }
-
-    // Assign client to selected projects
-    if (role === 'client' && Array.isArray(req.body.project_ids) && req.body.project_ids.length) {
-      const rows = req.body.project_ids.map((pid: number) => ({ project_id: pid, user_id: id }));
-      await db('project_members').insert(rows).onConflict(['project_id', 'user_id']).ignore();
     }
 
     res.status(201).json({ id, name, email, role, avatar_color: color });
@@ -141,14 +138,39 @@ router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response
     if (role)     updates.role = role;
     if (password) updates.password_hash = await bcrypt.hash(password, 10);
 
-    // Sync client_company_id when company_name provided for client role
-    if (company_name) {
-      let company = await db('client_companies').where({ name: company_name }).first();
-      if (!company) {
-        const [cid] = await db('client_companies').insert({ name: company_name });
-        updates.client_company_id = cid;
-      } else {
-        updates.client_company_id = company.id;
+    // Sync client_company_id when company_name provided
+    if (company_name !== undefined) {
+      const currentUser = await db('users').where({ id: req.params.id }).select('client_company_id', 'role').first();
+      const oldCompanyId: number | null = currentUser?.client_company_id ?? null;
+
+      if (company_name.trim()) {
+        // Rename the existing company if this user is its sole owner; otherwise find/create
+        const existing = await db('client_companies').where({ name: company_name.trim() }).first();
+        if (existing) {
+          updates.client_company_id = existing.id;
+        } else if (oldCompanyId) {
+          const otherUsers = await db('users').where({ client_company_id: oldCompanyId }).whereNot({ id: req.params.id }).count('id as n').first();
+          if ((otherUsers as any).n === 0) {
+            // Sole owner — just rename the existing company record
+            await db('client_companies').where({ id: oldCompanyId }).update({ name: company_name.trim() });
+          } else {
+            // Shared company — create a new one for this user
+            const [cid] = await db('client_companies').insert({ name: company_name.trim() });
+            updates.client_company_id = cid;
+          }
+        } else {
+          const [cid] = await db('client_companies').insert({ name: company_name.trim() });
+          updates.client_company_id = cid;
+        }
+      }
+
+      // If the user is now linked to a different company, clean up the old one if orphaned
+      if (updates.client_company_id && oldCompanyId && updates.client_company_id !== oldCompanyId) {
+        const remaining = await db('users').where({ client_company_id: oldCompanyId }).count('id as n').first();
+        if ((remaining as any).n === 0) {
+          await db('seo_manual_data').where({ client_id: oldCompanyId }).delete();
+          await db('client_companies').where({ id: oldCompanyId }).delete();
+        }
       }
     }
 
@@ -162,17 +184,6 @@ router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response
       if (category_ids.length) {
         const rows = category_ids.map((cid: number) => ({ user_id: Number(req.params.id), category_id: cid }));
         await db('user_categories').insert(rows);
-      }
-    }
-
-    // Sync project assignments for client
-    if (Array.isArray(req.body.project_ids)) {
-      await db('project_members').where({ user_id: req.params.id }).delete();
-      if (req.body.project_ids.length) {
-        const rows = req.body.project_ids.map((pid: number) => ({
-          project_id: pid, user_id: Number(req.params.id),
-        }));
-        await db('project_members').insert(rows).onConflict(['project_id', 'user_id']).ignore();
       }
     }
 
@@ -191,26 +202,45 @@ router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Respo
     const db = getDB();
     const uid = req.params.id;
 
+    // Remember the company this client belonged to (so we can clean it up after)
+    const deletedUser = await db('users').where({ id: uid }).select('role', 'client_company_id').first();
+    const clientCompanyId: number | null = deletedUser?.role === 'client' ? (deletedUser?.client_company_id ?? null) : null;
+
     // 1. Nullify nullable FK references first
     await db('tasks').where({ assigned_to: uid }).update({ assigned_to: null });
     await db('approvals').whereNotNull('manager_approved_by').where({ manager_approved_by: uid }).update({ manager_approved_by: null });
     await db('approvals').whereNotNull('admin_approved_by').where({ admin_approved_by: uid }).update({ admin_approved_by: null });
     await db('approvals').whereNotNull('rejected_by').where({ rejected_by: uid }).update({ rejected_by: null });
     await db('approvals').whereNotNull('final_approved_by').where({ final_approved_by: uid }).update({ final_approved_by: null });
+    await db('email_recipients').where({ user_id: uid }).update({ user_id: null });
+
+    // Reassign projects created by this user to the deleting admin
+    await db('projects').where({ created_by: uid }).update({ created_by: req.user!.id });
 
     // 2. Remove from junction / membership tables
     await db('project_members').where({ user_id: uid }).delete();
     await db('user_categories').where({ user_id: uid }).delete();
     await db('internal_chat_members').where({ user_id: uid }).delete();
+    // Remove task assignments (SQLite doesn't auto-cascade ON DELETE CASCADE)
+    await db('task_assignees').where({ user_id: uid }).delete();
 
     // 3. Delete user-owned content
     await db('notifications').where({ user_id: uid }).delete();
     await db('messages').where({ sender_id: uid }).delete();
     await db('internal_messages').where({ sender_id: uid }).delete();
 
+    // Delete internal chats created by this user (created_by is NOT NULL, blocks deletion)
+    const chatIds: number[] = (await db('internal_chats').where({ created_by: uid }).select('id')).map((c: any) => c.id);
+    if (chatIds.length) {
+      await db('internal_messages').whereIn('chat_id', chatIds).delete();
+      await db('internal_chat_members').whereIn('chat_id', chatIds).delete();
+      await db('internal_chats').whereIn('id', chatIds).delete();
+    }
+
     // 4. Delete task checklists → approvals → tasks created by this user
     const taskIds: number[] = (await db('tasks').where({ created_by: uid }).select('id')).map((t: any) => t.id);
     if (taskIds.length) {
+      await db('task_assignees').whereIn('task_id', taskIds).delete();
       await db('task_checklist').whereIn('task_id', taskIds).delete();
       await db('approvals').whereIn('task_id', taskIds).delete();
       await db('tasks').whereIn('id', taskIds).delete();
@@ -224,6 +254,15 @@ router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Respo
 
     // 7. Finally delete the user
     await db('users').where({ id: uid }).delete();
+
+    // 8. Clean up the client company if no other users are linked to it
+    if (clientCompanyId) {
+      const remaining = await db('users').where({ client_company_id: clientCompanyId }).count('id as n').first();
+      if ((remaining as any).n === 0) {
+        await db('seo_manual_data').where({ client_id: clientCompanyId }).delete();
+        await db('client_companies').where({ id: clientCompanyId }).delete();
+      }
+    }
 
     res.json({ message: 'Deleted' });
   } catch (err) {

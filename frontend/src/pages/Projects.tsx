@@ -296,6 +296,12 @@ export default function Projects() {
               )}
 
               {/* User list */}
+              {visibleUsers().length > 0 && (
+                <p className="member-list-count">
+                  {visibleUsers().length} {memberTab === 'clients' ? 'client' : memberTab === 'admins' ? 'admin' : memberTab === 'managers' ? 'manager' : 'employee'}{visibleUsers().length !== 1 ? 's' : ''}
+                  {countSelected(memberTab) > 0 && ` · ${countSelected(memberTab)} selected`}
+                </p>
+              )}
               <div className="member-list">
                 {visibleUsers().length === 0 && (
                   <p className="member-list-empty">No users in this category</p>

@@ -17,14 +17,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .select('p.*', 'c.name as client_name', 'u.name as created_by_name');
 
     if (role === 'client') {
-      // Clients see only projects of their company
-      const clientCompany = await db('project_members as pm')
-        .join('projects as proj', 'pm.project_id', 'proj.id')
-        .join('client_companies as cc', 'proj.client_company_id', 'cc.id')
-        .where('pm.user_id', userId)
-        .first();
-      if (!clientCompany) { res.json([]); return; }
-      query = query.where('p.client_company_id', clientCompany.client_company_id);
+      query = query
+        .join('project_members as pm', 'p.id', 'pm.project_id')
+        .where('pm.user_id', userId);
     } else if (role === 'employee') {
       query = query
         .join('project_members as pm', 'p.id', 'pm.project_id')
@@ -136,10 +131,27 @@ router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, re
 router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    await db('project_members').where({ project_id: req.params.id }).delete();
-    await db('projects').where({ id: req.params.id }).delete();
+    const pid = req.params.id;
+
+    // Clean up tasks and their dependents
+    const taskIds: number[] = (await db('tasks').where({ project_id: pid }).select('id')).map((t: any) => t.id);
+    if (taskIds.length) {
+      await db('task_assignees').whereIn('task_id', taskIds).delete();
+      await db('task_checklist').whereIn('task_id', taskIds).delete();
+      await db('approvals').whereIn('task_id', taskIds).delete();
+      await db('tasks').whereIn('id', taskIds).delete();
+    }
+
+    // Clean up remaining project-level data
+    await db('approvals').where({ project_id: pid }).delete();
+    await db('assets').where({ project_id: pid }).update({ project_id: null });
+    await db('messages').where({ project_id: pid }).delete();
+    await db('project_members').where({ project_id: pid }).delete();
+    await db('projects').where({ id: pid }).delete();
+
     res.json({ message: 'Deleted' });
-  } catch {
+  } catch (err) {
+    console.error('Delete project error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

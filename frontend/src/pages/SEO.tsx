@@ -17,13 +17,34 @@ interface PageRow { page: string; clicks: number; impressions: number; ctr: numb
 interface QueryRow { query: string; clicks: number; impressions: number; ctr: number; position: number; }
 interface KeywordRank { keyword: string; rank: number; change: number; }
 interface Target { name: string; target: number; achieved: number; unit: string; }
+interface OrganicForm  { url: string; count: number; }
+interface LinkedInPost { title: string; impressions: number; clicks: number; }
+interface LinkedInData {
+  impressions: number | null;
+  impressions_organic: number | null;
+  impressions_sponsored: number | null;
+  clicks: number | null;
+  clicks_organic: number | null;
+  clicks_sponsored: number | null;
+  new_followers: number | null;
+  new_followers_period: string;
+  growth_rate: string;
+  growth_label: string;
+  posts: LinkedInPost[];
+}
 interface ManualData {
   keyword_rankings: KeywordRank[];
   targets: Target[];
-  organic_submissions: number;
+  key_insights: string;
+  linkedin_data: LinkedInData | null;
+  organic_form_data: OrganicForm[];
   gmb_rating: number | null;
   gmb_reviews: number | null;
   gmb_profile_url: string;
+  gmb_overview: string;
+  gmb_calls: number | null;
+  gmb_bookings: number | null;
+  gmb_website_clicks: number | null;
   linkedin_url: string;
   linkedin_followers: number | null;
 }
@@ -46,7 +67,7 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 
-function downloadPDF(report: Report, clientName: string, range: string) {
+function downloadPDF(report: Report, clientName: string, range: string, manual: ManualData, demoCountry: string) {
   const eng = report.engagement;
   const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
   const W = 700, H = 160, pad = 32, barW = Math.max(4, Math.floor((W - pad * 2) / report.traffic.length) - 2);
@@ -82,20 +103,84 @@ function downloadPDF(report: Report, clientName: string, range: string) {
       <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
     </tr>`).join('');
 
-  const demoRows = report.demographics.slice(0, 10).map((r, i) => `
+  const showCountryCol = manual !== undefined && demoCountry === 'all';
+  const demoRows = report.demographics.slice(0, 10).map((r: any, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.city}</td>
+      ${showCountryCol ? `<td style="padding:8px 12px;color:#888">${r.country ?? ''}</td>` : ''}
       <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
       <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
     </tr>`).join('');
 
   const pageRows = report.pages.slice(0, 6).map((r, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortenUrl(r.page)}</td>
+      <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortenUrl(r.page)}</td>
       <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
       <td style="padding:8px 12px;text-align:right">${r.impressions.toLocaleString()}</td>
       <td style="padding:8px 12px;text-align:right">${r.ctr}%</td>
       <td style="padding:8px 12px;text-align:right">${r.position}</td>
+    </tr>`).join('');
+
+  const queryRows = report.queries.slice(0, 10).map((r, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.query}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right">${r.impressions.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right">${r.ctr}%</td>
+      <td style="padding:8px 12px;text-align:right">${r.position}</td>
+    </tr>`).join('');
+
+  // ── Manual sections ──
+  const kwRows = manual.keyword_rankings.map((k, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-weight:600">${k.keyword}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700">${k.rank ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:${(k.change ?? 0) > 0 ? '#16a34a' : (k.change ?? 0) < 0 ? '#dc2626' : '#888'}">${(k.change ?? 0) > 0 ? '+' : ''}${k.change ?? '—'}</td>
+    </tr>`).join('');
+
+  const targetRows = manual.targets.map((t, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-weight:600">${t.name}</td>
+      <td style="padding:8px 12px;text-align:right">${t.achieved ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:right">${t.target ?? '—'}</td>
+    </tr>`).join('');
+
+  const gmbCards = [
+    manual.gmb_rating != null ? ['Rating', manual.gmb_rating.toFixed(1)] : null,
+    manual.gmb_reviews != null ? ['Reviews', manual.gmb_reviews.toLocaleString()] : null,
+    manual.gmb_calls != null ? ['Calls', manual.gmb_calls.toLocaleString()] : null,
+    manual.gmb_bookings != null ? ['Bookings', manual.gmb_bookings.toLocaleString()] : null,
+    manual.gmb_website_clicks != null ? ['Website Clicks', manual.gmb_website_clicks.toLocaleString()] : null,
+  ].filter(Boolean) as [string, string][];
+
+  const li = manual.linkedin_data;
+  const liCards = li ? [
+    li.impressions != null ? ['Total Impressions', li.impressions.toLocaleString()] : null,
+    li.clicks != null ? ['Total Clicks', li.clicks.toLocaleString()] : null,
+    manual.linkedin_followers != null ? ['Followers', manual.linkedin_followers.toLocaleString()] : null,
+    li.new_followers != null ? [`New Followers${li.new_followers_period ? ' (' + li.new_followers_period + ')' : ''}`, li.new_followers.toLocaleString()] : null,
+    li.growth_rate ? ['Growth Rate', li.growth_rate] : null,
+  ].filter(Boolean) as [string, string][] : [];
+
+  const liHasImpressions = !!li && li.posts.some(p => p.impressions > 0);
+  const liHasClicks      = !!li && li.posts.some(p => p.clicks > 0);
+  const liPostHead = li && li.posts.length > 0
+    ? `<tr><th style="text-align:left;font-size:10px;font-weight:700;color:#888;padding:8px 12px;background:#f5f5f0;text-transform:uppercase;letter-spacing:0.05em">Post</th>${liHasImpressions ? '<th style="text-align:right;font-size:10px;font-weight:700;color:#888;padding:8px 12px;background:#f5f5f0;text-transform:uppercase;letter-spacing:0.05em">Impressions</th>' : ''}${liHasClicks ? '<th style="text-align:right;font-size:10px;font-weight:700;color:#888;padding:8px 12px;background:#f5f5f0;text-transform:uppercase;letter-spacing:0.05em">Clicks</th>' : ''}${liHasImpressions ? '<th style="text-align:right;font-size:10px;font-weight:700;color:#888;padding:8px 12px;background:#f5f5f0;text-transform:uppercase;letter-spacing:0.05em">CTR</th>' : ''}</tr>`
+    : '';
+  const liPostRows = li && li.posts.length > 0 ? li.posts.map((p, i) => {
+    const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : null;
+    return `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px">${p.title}</td>
+      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:right">${p.impressions.toLocaleString()}</td>` : ''}
+      ${liHasClicks ? `<td style="padding:8px 12px;text-align:right">${p.clicks.toLocaleString()}</td>` : ''}
+      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:right">${ctr ?? '—'}%</td>` : ''}
+    </tr>`;
+  }).join('') : '';
+
+  const organicRows = manual.organic_form_data.map((row, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-size:11px">${row.url}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700">${row.count.toLocaleString()}</td>
     </tr>`).join('');
 
   const rangeLabel = range === '7d' ? 'Last 7 days' : range === '28d' ? 'Last 28 days' : 'Last 90 days';
@@ -115,16 +200,25 @@ function downloadPDF(report: Report, clientName: string, range: string) {
   .card { background: #f5f5f0; border-radius: 10px; padding: 14px 16px; }
   .card-val { font-size: 20px; font-weight: 800; color: #1a1a1a; }
   .card-label { font-size: 10px; font-weight: 600; color: #888; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .mini-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .mini-card { background: #f5f5f0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
+  .mini-card-val { font-size: 16px; font-weight: 800; color: #1a1a1a; }
+  .mini-card-label { font-size: 10px; font-weight: 600; color: #888; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { text-align: left; font-size: 10px; font-weight: 700; color: #888; padding: 8px 12px; background: #f5f5f0; text-transform: uppercase; letter-spacing: 0.05em; }
   th:not(:first-child) { text-align: right; }
   .section { border: 1px solid #e8e8e0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
-  .section-title { font-size: 13px; font-weight: 700; padding: 14px 16px 0; margin: 0; text-transform: none; letter-spacing: 0; }
+  .section-inner { padding: 14px 16px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .badge { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
   svg { display: block; }
   .legend { display: flex; gap: 16px; padding: 10px 16px; font-size: 10px; color: #888; font-weight: 600; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .insights-body { font-size: 13px; line-height: 1.7; padding: 14px 16px; }
+  .insights-body ul, .insights-body ol { padding-left: 20px; }
+  .insights-body li { margin-bottom: 4px; }
+  .gmb-link { font-size: 11px; color: #6366f1; margin-top: 8px; display: inline-block; }
+  .overview-text { font-size: 12px; color: #555; margin-top: 10px; line-height: 1.55; white-space: pre-line; }
   @media print {
     body { padding: 20px 24px; }
     @page { margin: 0.5cm; size: A4 portrait; }
@@ -163,19 +257,79 @@ function downloadPDF(report: Report, clientName: string, range: string) {
     </div>
   </div>
   <div>
-    <h2>Demographics — Cities (India)</h2>
+    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
     <div class="section">
-      <table><thead><tr><th>City</th><th>Users</th><th>Sessions</th></tr></thead>
+      <table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead>
       <tbody>${demoRows}</tbody></table>
     </div>
   </div>
 </div>
 
-${report.pages.length > 0 ? `
-<h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
+<div class="two-col">
+  ${report.pages.length > 0 ? `<div>
+    <h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
+    <div class="section">
+      <table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
+      <tbody>${pageRows}</tbody></table>
+    </div>
+  </div>` : ''}
+  ${queryRows ? `<div>
+    <h2>Top Queries <span class="badge">Search Console</span></h2>
+    <div class="section">
+      <table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
+      <tbody>${queryRows}</tbody></table>
+    </div>
+  </div>` : ''}
+</div>
+
+${kwRows ? `
+<h2>Keyword Rankings</h2>
 <div class="section">
-  <table><thead><tr><th>Page</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
-  <tbody>${pageRows}</tbody></table>
+  <table><thead><tr><th>Keyword</th><th>Rank</th><th>Change</th></tr></thead>
+  <tbody>${kwRows}</tbody></table>
+</div>` : ''}
+
+${targetRows ? `
+<h2>Targets</h2>
+<div class="section">
+  <table><thead><tr><th>Metric</th><th>Achieved</th><th>Target</th></tr></thead>
+  <tbody>${targetRows}</tbody></table>
+</div>` : ''}
+
+${manual.key_insights ? `
+<h2>Key Insights</h2>
+<div class="section">
+  <div class="insights-body">${manual.key_insights}</div>
+</div>` : ''}
+
+${gmbCards.length > 0 ? `
+<h2>Google My Business</h2>
+<div class="section">
+  <div class="section-inner">
+    <div class="mini-cards">
+      ${gmbCards.map(([label, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${label}</div></div>`).join('')}
+    </div>
+    ${manual.gmb_overview ? `<div class="overview-text">${manual.gmb_overview}</div>` : ''}
+    ${manual.gmb_profile_url ? `<a href="${manual.gmb_profile_url}" class="gmb-link">View GMB Profile →</a>` : ''}
+  </div>
+</div>` : ''}
+
+${liCards.length > 0 || liPostRows ? `
+<h2>LinkedIn Analytics</h2>
+<div class="section">
+  <div class="section-inner">
+    ${liCards.length > 0 ? `<div class="mini-cards">${liCards.map(([label, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${label}</div></div>`).join('')}</div>` : ''}
+    ${liPostRows ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:12px 0 6px">Top Posts</p>
+    <table><thead>${liPostHead}</thead><tbody>${liPostRows}</tbody></table>` : ''}
+    ${manual.linkedin_url ? `<a href="${manual.linkedin_url}" class="gmb-link">LinkedIn Page →</a>` : ''}
+  </div>
+</div>` : ''}
+
+${organicRows ? `
+<h2>Organic Form Submissions</h2>
+<div class="section">
+  <table><thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+  <tbody>${organicRows}</tbody></table>
 </div>` : ''}
 
 </body></html>`;
@@ -187,9 +341,18 @@ ${report.pages.length > 0 ? `
   setTimeout(() => { win.focus(); win.print(); }, 400);
 }
 
+const emptyLinkedIn = (): LinkedInData => ({
+  impressions: null, impressions_organic: null, impressions_sponsored: null,
+  clicks: null, clicks_organic: null, clicks_sponsored: null,
+  new_followers: null, new_followers_period: '', growth_rate: '', growth_label: '', posts: [],
+});
+
 const emptyManual = (): ManualData => ({
-  keyword_rankings: [], targets: [], organic_submissions: 0,
-  gmb_rating: null, gmb_reviews: null, gmb_profile_url: '', linkedin_url: '', linkedin_followers: null,
+  keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null,
+  organic_form_data: [],
+  gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
+  gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
+  linkedin_url: '', linkedin_followers: null,
 });
 
 export default function SEO() {
@@ -202,6 +365,7 @@ export default function SEO() {
   const [range, setRange]               = useState<Range>('28d');
   const [customStart, setCustomStart]   = useState('');
   const [customEnd, setCustomEnd]       = useState('');
+  const [demoCountry, setDemoCountry]   = useState('India');
   const [report, setReport]             = useState<Report | null>(null);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
@@ -216,7 +380,7 @@ export default function SEO() {
   // Manual data
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
-  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | null>(null);
+  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
 
   useEffect(() => {
@@ -232,11 +396,11 @@ export default function SEO() {
     if (range === 'custom' && (!customStart || !customEnd)) return;
     setLoading(true);
     setError('');
-    seoApi.report(selectedClient.id, range, range === 'custom' ? customStart : undefined, range === 'custom' ? customEnd : undefined)
+    seoApi.report(selectedClient.id, range, range === 'custom' ? customStart : undefined, range === 'custom' ? customEnd : undefined, demoCountry)
       .then((r) => setReport(r.data))
       .catch((e) => setError(e.response?.data?.error || 'Failed to load report'))
       .finally(() => setLoading(false));
-  }, [selectedClient, range, customStart, customEnd]);
+  }, [selectedClient, range, customStart, customEnd, demoCountry]);
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -246,7 +410,9 @@ export default function SEO() {
   }, [selectedClient]);
 
   const openManualPanel = (panel: typeof manualPanel) => {
-    setManualEdit({ ...manual });
+    const base = { ...manual };
+    if (panel === 'linkedin' && !base.linkedin_data) base.linkedin_data = emptyLinkedIn();
+    setManualEdit(base);
     setManualPanel(panel);
   };
   const saveManual = async () => {
@@ -286,7 +452,6 @@ export default function SEO() {
     finally { setSaving(false); }
   };
 
-  const maxUsers = Math.max(...(report?.traffic.map((r) => r.users) ?? [1]), 1);
   const maxAcq   = Math.max(...(report?.acquisition.map((r) => r.sessions) ?? [1]), 1);
   const maxDemo  = Math.max(...(report?.demographics.map((r) => r.users) ?? [1]), 1);
 
@@ -328,7 +493,7 @@ export default function SEO() {
             {report && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range)}
+                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -437,20 +602,64 @@ export default function SEO() {
               ))}
             </div>
 
-            {/* ── Traffic chart ── */}
+            {/* ── Traffic chart (SVG) ── */}
             <div className="seo-section">
               <h3 className="seo-section__title">Website Traffic</h3>
-              <div className="seo-chart-wrap">
-                {report.traffic.map((row) => (
-                  <div key={row.date} className="seo-bar-col" title={`${row.date} — ${row.users} users, ${row.sessions} sessions`}>
-                    <div className="seo-bar-stack">
-                      <div className="seo-bar seo-bar--sessions" style={{ height: `${(row.sessions / maxUsers) * 100}%` }} />
-                      <div className="seo-bar seo-bar--users"    style={{ height: `${(row.users   / maxUsers) * 100}%` }} />
-                    </div>
-                    {report.traffic.length <= 28 && <span className="seo-bar-label">{fmtDate(row.date)}</span>}
-                  </div>
-                ))}
-              </div>
+              {(() => {
+                const W = 900, H = 220;
+                const ML = 52, MR = 16, MT = 12, MB = 38;
+                const PW = W - ML - MR, PH = H - MT - MB;
+                const n = report.traffic.length;
+                const groupW = PW / n;
+                const barW = Math.max(4, Math.min(28, groupW * 0.65));
+                const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
+                const yTicks = [0, 0.25, 0.5, 0.75, 1];
+                const xEvery = n <= 7 ? 1 : n <= 14 ? 2 : n <= 31 ? 4 : 9;
+                return (
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+                    {/* gridlines + Y labels */}
+                    {yTicks.map((f) => {
+                      const y = MT + PH - f * PH;
+                      return (
+                        <g key={f}>
+                          <line x1={ML} y1={y} x2={ML + PW} y2={y} stroke={f === 0 ? '#d0d0c8' : '#ececec'} strokeWidth={1} />
+                          {f > 0 && (
+                            <text x={ML - 8} y={y + 4} textAnchor="end" fontSize={9} fill="#aaa" fontFamily="inherit">
+                              {Math.round(maxV * f).toLocaleString()}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+
+                    {/* bars */}
+                    {report.traffic.map((row, i) => {
+                      const cx = ML + (i + 0.5) * groupW;
+                      const bx = cx - barW / 2;
+                      const sH = Math.max(2, (row.sessions / maxV) * PH);
+                      const uH = Math.max(2, (row.users    / maxV) * PH);
+                      return (
+                        <g key={row.date} className="seo-svg-bar-group">
+                          <title>{`${fmtDateLabel(row.date)}  •  Users: ${row.users.toLocaleString()}  •  Sessions: ${row.sessions.toLocaleString()}`}</title>
+                          <rect x={bx} y={MT + PH - sH} width={barW} height={sH} rx={2} fill="rgba(99,102,241,0.18)" />
+                          <rect x={bx} y={MT + PH - uH} width={barW} height={uH} rx={2} fill="#6366f1" />
+                        </g>
+                      );
+                    })}
+
+                    {/* X date labels */}
+                    {report.traffic.map((row, i) => {
+                      if (i % xEvery !== 0) return null;
+                      const cx = ML + (i + 0.5) * groupW;
+                      return (
+                        <text key={row.date} x={cx} y={H - 4} textAnchor="middle" fontSize={9} fill="#bbb" fontFamily="inherit">
+                          {fmtDateLabel(row.date)}
+                        </text>
+                      );
+                    })}
+                  </svg>
+                );
+              })()}
               <div className="seo-legend">
                 <span className="seo-legend__dot seo-legend__dot--users" /> Users
                 <span className="seo-legend__dot seo-legend__dot--sessions" style={{ marginLeft: 16 }} /> Sessions
@@ -481,13 +690,32 @@ export default function SEO() {
               </div>
 
               <div className="seo-section">
-                <h3 className="seo-section__title"><MapPin size={13} style={{ marginRight: 6 }} />Demographics — Cities</h3>
+                <h3 className="seo-section__title">
+                  <MapPin size={13} style={{ marginRight: 6 }} />Demographics — Cities
+                  <select
+                    className="seo-demo-country-select"
+                    value={demoCountry}
+                    onChange={(e) => setDemoCountry(e.target.value)}
+                  >
+                    <option value="India">India</option>
+                    <option value="United States">United States</option>
+                    <option value="United Kingdom">United Kingdom</option>
+                    <option value="Australia">Australia</option>
+                    <option value="Canada">Canada</option>
+                    <option value="Germany">Germany</option>
+                    <option value="France">France</option>
+                    <option value="Singapore">Singapore</option>
+                    <option value="United Arab Emirates">UAE</option>
+                    <option value="all">All Countries</option>
+                  </select>
+                </h3>
                 <table className="seo-table">
-                  <thead><tr><th>City</th><th>Users</th><th>Sessions</th><th></th></tr></thead>
+                  <thead><tr><th>City</th>{demoCountry === 'all' && <th>Country</th>}<th>Users</th><th>Sessions</th><th></th></tr></thead>
                   <tbody>
                     {report.demographics.map((row, i) => (
                       <tr key={i}>
                         <td className="seo-source">{row.city}</td>
+                        {demoCountry === 'all' && <td className="seo-source" style={{ color: 'var(--ink-muted)' }}>{(row as any).country}</td>}
                         <td>{row.users.toLocaleString()}</td>
                         <td>{row.sessions.toLocaleString()}</td>
                         <td>
@@ -546,7 +774,7 @@ export default function SEO() {
             </div>
 
             {/* ── Keyword Rankings (manual) ── */}
-            <div className="seo-section">
+            <div className="seo-section" style={!canEdit && manual.keyword_rankings.length === 0 ? { display: 'none' } : undefined}>
               <h3 className="seo-section__title">
                 Keyword Rankings
                 {canEdit && (
@@ -558,6 +786,12 @@ export default function SEO() {
 
               {manualPanel === 'keywords' && canEdit && (
                 <div className="seo-manual-panel">
+                  <div className="seo-manual-col-headers">
+                    <span style={{ flex: 1 }}>Keyword</span>
+                    <span style={{ width: 80 }}>Rank #</span>
+                    <span style={{ width: 80 }}>Change ±</span>
+                    <span style={{ width: 28 }} />
+                  </div>
                   {manualEdit.keyword_rankings.map((kw, i) => (
                     <div key={i} className="seo-manual-row">
                       <input className="form-input seo-manual-input" placeholder="Keyword" value={kw.keyword}
@@ -600,7 +834,7 @@ export default function SEO() {
             </div>
 
             {/* ── Targets ── */}
-            <div className="seo-section">
+            <div className="seo-section" style={!canEdit && manual.targets.length === 0 ? { display: 'none' } : undefined}>
               <h3 className="seo-section__title">
                 Targets — Achieved vs Set
                 {canEdit && (
@@ -612,6 +846,13 @@ export default function SEO() {
 
               {manualPanel === 'targets' && canEdit && (
                 <div className="seo-manual-panel">
+                  <div className="seo-manual-col-headers">
+                    <span style={{ flex: 1 }}>Target name</span>
+                    <span style={{ width: 80 }}>Target</span>
+                    <span style={{ width: 80 }}>Achieved</span>
+                    <span style={{ width: 60 }}>Unit</span>
+                    <span style={{ width: 28 }} />
+                  </div>
                   {manualEdit.targets.map((t, i) => (
                     <div key={i} className="seo-manual-row">
                       <input className="form-input seo-manual-input" placeholder="Target name" value={t.name}
@@ -656,126 +897,267 @@ export default function SEO() {
                 : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add targets.' : 'No targets set yet.'}</p>}
             </div>
 
-            {/* ── GMB + LinkedIn + Organic Submissions ── */}
-            <div className="seo-two-col">
+            {/* ── Key Insights ── */}
+            <div className="seo-section" style={!canEdit && !manual.key_insights ? { display: 'none' } : undefined}>
+              <h3 className="seo-section__title">
+                Key Insights
+                {canEdit && (
+                  <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'insights' ? null : 'insights')}>
+                    <Edit2 size={11} /> {manualPanel === 'insights' ? 'Cancel' : 'Edit'}
+                  </button>
+                )}
+              </h3>
+
+              {manualPanel === 'insights' && canEdit && (
+                <div className="seo-manual-panel">
+                  <textarea
+                    className="seo-insights-editor"
+                    placeholder={`<ul>\n  <li>Domain Authority 4 → 5</li>\n  <li>Priority keywords in Top 5</li>\n</ul>`}
+                    value={manualEdit.key_insights}
+                    onChange={(e) => setManualEdit({ ...manualEdit, key_insights: e.target.value })}
+                  />
+                  <div className="seo-manual-actions" style={{ marginTop: 10 }}>
+                    <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
+
+              {manual.key_insights
+                ? <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: manual.key_insights }} />
+                : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add key insights.' : 'No insights yet.'}</p>}
+            </div>
+
+            {/* ── GMB ── */}
+            {(() => {
+              const hasGmb = manual.gmb_rating != null || manual.gmb_reviews != null || manual.gmb_calls != null || manual.gmb_bookings != null || manual.gmb_website_clicks != null || !!manual.gmb_overview || !!manual.gmb_profile_url;
+              if (!canEdit && !hasGmb) return null;
+              return (
+                <div className="seo-section">
+                  <h3 className="seo-section__title">
+                    <Star size={13} style={{ marginRight: 6 }} />Google My Business
+                    {canEdit && (
+                      <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'gmb' ? null : 'gmb')}>
+                        <Edit2 size={11} /> {manualPanel === 'gmb' ? 'Cancel' : 'Edit'}
+                      </button>
+                    )}
+                  </h3>
+                  {manualPanel === 'gmb' && canEdit && (
+                    <div className="seo-manual-panel">
+                      <div className="seo-manual-grid">
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">GMB Rating</label>
+                          <input className="form-input seo-inline-input" placeholder="4.5" type="number" step="0.1" min="0" max="5"
+                            value={manualEdit.gmb_rating ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_rating: e.target.value ? Number(e.target.value) : null })} />
+                        </div>
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">GMB Reviews</label>
+                          <input className="form-input seo-inline-input" placeholder="120" type="number"
+                            value={manualEdit.gmb_reviews ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_reviews: e.target.value ? Number(e.target.value) : null })} />
+                        </div>
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">Calls</label>
+                          <input className="form-input seo-inline-input" placeholder="45" type="number"
+                            value={manualEdit.gmb_calls ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_calls: e.target.value ? Number(e.target.value) : null })} />
+                        </div>
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">Bookings</label>
+                          <input className="form-input seo-inline-input" placeholder="12" type="number"
+                            value={manualEdit.gmb_bookings ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_bookings: e.target.value ? Number(e.target.value) : null })} />
+                        </div>
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">Website Clicks</label>
+                          <input className="form-input seo-inline-input" placeholder="230" type="number"
+                            value={manualEdit.gmb_website_clicks ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_website_clicks: e.target.value ? Number(e.target.value) : null })} />
+                        </div>
+                        <div className="seo-inline-field">
+                          <label className="seo-inline-label">GMB Profile URL</label>
+                          <input className="form-input seo-inline-input" placeholder="https://g.page/…"
+                            value={manualEdit.gmb_profile_url} onChange={(e) => setManualEdit({ ...manualEdit, gmb_profile_url: e.target.value })} />
+                        </div>
+                      </div>
+                      <div className="seo-inline-field" style={{ marginTop: 10 }}>
+                        <label className="seo-inline-label">Overview</label>
+                        <textarea className="form-input seo-gmb-overview-input" placeholder="Brief description of GMB performance…"
+                          value={manualEdit.gmb_overview} onChange={(e) => setManualEdit({ ...manualEdit, gmb_overview: e.target.value })} />
+                      </div>
+                      <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                        <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="seo-gmb-grid">
+                    {manual.gmb_rating != null && (<div className="seo-gmb-card"><Star size={14} className="seo-gmb-icon seo-gmb-icon--star" /><div><p className="seo-card__val">{manual.gmb_rating.toFixed(1)}</p><p className="seo-card__label">Rating</p></div></div>)}
+                    {manual.gmb_reviews != null && (<div className="seo-gmb-card"><FileText size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_reviews.toLocaleString()}</p><p className="seo-card__label">Reviews</p></div></div>)}
+                    {manual.gmb_calls != null && (<div className="seo-gmb-card"><MousePointer size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_calls.toLocaleString()}</p><p className="seo-card__label">Calls</p></div></div>)}
+                    {manual.gmb_bookings != null && (<div className="seo-gmb-card"><Check size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_bookings.toLocaleString()}</p><p className="seo-card__label">Bookings</p></div></div>)}
+                    {manual.gmb_website_clicks != null && (<div className="seo-gmb-card"><Globe size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_website_clicks.toLocaleString()}</p><p className="seo-card__label">Website Clicks</p></div></div>)}
+                  </div>
+                  {manual.gmb_overview && <p className="seo-gmb-overview-text">{manual.gmb_overview}</p>}
+                  {manual.gmb_profile_url && <div className="seo-gmb-links"><a href={manual.gmb_profile_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Star size={11} /> GMB Profile</a></div>}
+                </div>
+              );
+            })()}
+
+            {/* ── Organic Form Submissions ── */}
+            {(canEdit || manual.organic_form_data.length > 0) && (
               <div className="seo-section">
                 <h3 className="seo-section__title">
-                  <Star size={13} style={{ marginRight: 6 }} />GMB &amp; LinkedIn
+                  <FileText size={13} style={{ marginRight: 6 }} />Organic Form Submissions
                   {canEdit && (
-                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'gmb' ? null : 'gmb')}>
-                      <Edit2 size={11} /> {manualPanel === 'gmb' ? 'Cancel' : 'Edit'}
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'organic' ? null : 'organic')}>
+                      <Edit2 size={11} /> {manualPanel === 'organic' ? 'Cancel' : 'Edit'}
                     </button>
                   )}
                 </h3>
-
-                {manualPanel === 'gmb' && canEdit && (
+                {manualPanel === 'organic' && canEdit && (
                   <div className="seo-manual-panel">
-                    <div className="seo-manual-grid">
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">GMB Rating</label>
-                        <input className="form-input seo-inline-input" placeholder="4.5" type="number" step="0.1" min="0" max="5"
-                          value={manualEdit.gmb_rating ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_rating: e.target.value ? Number(e.target.value) : null })} />
-                      </div>
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">GMB Reviews</label>
-                        <input className="form-input seo-inline-input" placeholder="120" type="number"
-                          value={manualEdit.gmb_reviews ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_reviews: e.target.value ? Number(e.target.value) : null })} />
-                      </div>
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">GMB Profile URL</label>
-                        <input className="form-input seo-inline-input" placeholder="https://g.page/…"
-                          value={manualEdit.gmb_profile_url} onChange={(e) => setManualEdit({ ...manualEdit, gmb_profile_url: e.target.value })} />
-                      </div>
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">LinkedIn URL</label>
-                        <input className="form-input seo-inline-input" placeholder="https://linkedin.com/company/…"
-                          value={manualEdit.linkedin_url} onChange={(e) => setManualEdit({ ...manualEdit, linkedin_url: e.target.value })} />
-                      </div>
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">LinkedIn Followers</label>
-                        <input className="form-input seo-inline-input" placeholder="500" type="number"
-                          value={manualEdit.linkedin_followers ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, linkedin_followers: e.target.value ? Number(e.target.value) : null })} />
-                      </div>
-                      <div className="seo-inline-field">
-                        <label className="seo-inline-label">Organic Submissions</label>
-                        <input className="form-input seo-inline-input" placeholder="0" type="number"
-                          value={manualEdit.organic_submissions} onChange={(e) => setManualEdit({ ...manualEdit, organic_submissions: Number(e.target.value) })} />
-                      </div>
+                    <div className="seo-manual-col-headers">
+                      <span style={{ flex: 1 }}>Page URL</span>
+                      <span style={{ width: 110 }}>Submissions</span>
+                      <span style={{ width: 28 }} />
                     </div>
-                    <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                    {manualEdit.organic_form_data.map((row, i) => (
+                      <div key={i} className="seo-manual-row">
+                        <input className="form-input seo-manual-input" placeholder="https://example.com/contact" value={row.url}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], url: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" style={{ flex: '0 0 110px' }} type="number" placeholder="0" value={row.count || ''}
+                          onChange={(e) => { const v = Number(e.target.value); setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], count: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: prev.organic_form_data.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+                      </div>
+                    ))}
+                    <div className="seo-manual-actions">
+                      <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: [...prev.organic_form_data, { url: '', count: 0 }] }))}><Plus size={12} /> Add page</button>
                       <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                     </div>
                   </div>
                 )}
-
-                <div className="seo-gmb-grid">
-                  {manual.gmb_rating != null && (
-                    <div className="seo-gmb-card">
-                      <Star size={14} className="seo-gmb-icon seo-gmb-icon--star" />
-                      <div>
-                        <p className="seo-card__val">{manual.gmb_rating.toFixed(1)}</p>
-                        <p className="seo-card__label">GMB Rating</p>
-                      </div>
-                    </div>
-                  )}
-                  {manual.gmb_reviews != null && (
-                    <div className="seo-gmb-card">
-                      <FileText size={14} className="seo-gmb-icon" />
-                      <div>
-                        <p className="seo-card__val">{manual.gmb_reviews.toLocaleString()}</p>
-                        <p className="seo-card__label">GMB Reviews</p>
-                      </div>
-                    </div>
-                  )}
-                  {manual.linkedin_followers != null && (
-                    <div className="seo-gmb-card">
-                      <Linkedin size={14} className="seo-gmb-icon seo-gmb-icon--li" />
-                      <div>
-                        <p className="seo-card__val">{manual.linkedin_followers.toLocaleString()}</p>
-                        <p className="seo-card__label">LinkedIn Followers</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="seo-gmb-links">
-                  {manual.gmb_profile_url && <a href={manual.gmb_profile_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Star size={11} /> GMB Profile</a>}
-                  {manual.linkedin_url    && <a href={manual.linkedin_url}    target="_blank" rel="noreferrer" className="seo-gmb-link"><Linkedin size={11} /> LinkedIn Page</a>}
-                </div>
-                {!manual.gmb_rating && !manual.gmb_reviews && !manual.linkedin_followers && !manual.gmb_profile_url && !manual.linkedin_url && !manualPanel && (
-                  <p className="page-subtitle" style={{ padding: '4px 0 8px' }}>{canEdit ? 'Click Edit to add GMB & LinkedIn data.' : 'No data yet.'}</p>
-                )}
+                {manual.organic_form_data.length > 0
+                  ? <table className="seo-table">
+                      <thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+                      <tbody>
+                        {manual.organic_form_data.map((row, i) => (
+                          <tr key={i}><td className="seo-page-url" title={row.url}>{row.url}</td><td style={{ fontWeight: 700 }}>{row.count.toLocaleString()}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add form submission data.</p>}
               </div>
+            )}
 
+            {/* ── LinkedIn Analytics ── */}
+            {(canEdit || !!manual.linkedin_data) && (
               <div className="seo-section">
-                <h3 className="seo-section__title"><FileText size={13} style={{ marginRight: 6 }} />Organic Form Submissions</h3>
-                <div className="seo-organic-wrap">
-                  <p className="seo-card__val seo-organic-val">{manual.organic_submissions.toLocaleString()}</p>
-                  <p className="seo-card__label">Total submissions this period</p>
+                <h3 className="seo-section__title">
+                  <Linkedin size={13} style={{ marginRight: 6, color: '#0a66c2' }} />LinkedIn Analytics
                   {canEdit && (
-                    <div className="seo-organic-edit">
-                      <input
-                        className="form-input"
-                        type="number"
-                        min={0}
-                        placeholder="0"
-                        style={{ width: 120, fontSize: 13 }}
-                        defaultValue={manual.organic_submissions}
-                        key={manual.organic_submissions}
-                        onBlur={(e) => {
-                          const val = Number(e.target.value);
-                          if (val !== manual.organic_submissions) {
-                            seoApi.updateManual(selectedClient!.id, { ...manual, organic_submissions: val })
-                              .then(() => setManual({ ...manual, organic_submissions: val }))
-                              .catch(() => {});
-                          }
-                        }}
-                      />
-                      <span className="seo-hint">Tab / click away to save</span>
-                    </div>
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'linkedin' ? null : 'linkedin')}>
+                      <Edit2 size={11} /> {manualPanel === 'linkedin' ? 'Cancel' : 'Edit'}
+                    </button>
                   )}
-                </div>
+                </h3>
+                {manualPanel === 'linkedin' && canEdit && (() => {
+                  const li = manualEdit.linkedin_data!;
+                  const setLi = (patch: Partial<LinkedInData>) => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, ...patch } }));
+                  const setLiPost = (i: number, field: keyof LinkedInPost, val: string | number) =>
+                    setManualEdit(prev => { const posts = [...prev.linkedin_data!.posts]; posts[i] = { ...posts[i], [field]: val }; return { ...prev, linkedin_data: { ...prev.linkedin_data!, posts } }; });
+                  return (
+                    <div className="seo-manual-panel">
+                      <div className="seo-manual-grid" style={{ marginBottom: 12 }}>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Total Impressions</label><input className="form-input seo-inline-input" type="number" placeholder="42123" value={li.impressions ?? ''} onChange={(e) => setLi({ impressions: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Organic</label><input className="form-input seo-inline-input" type="number" placeholder="1685" value={li.impressions_organic ?? ''} onChange={(e) => setLi({ impressions_organic: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Sponsored</label><input className="form-input seo-inline-input" type="number" placeholder="40438" value={li.impressions_sponsored ?? ''} onChange={(e) => setLi({ impressions_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Total Clicks</label><input className="form-input seo-inline-input" type="number" placeholder="298" value={li.clicks ?? ''} onChange={(e) => setLi({ clicks: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Organic</label><input className="form-input seo-inline-input" type="number" placeholder="90" value={li.clicks_organic ?? ''} onChange={(e) => setLi({ clicks_organic: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Sponsored</label><input className="form-input seo-inline-input" type="number" placeholder="208" value={li.clicks_sponsored ?? ''} onChange={(e) => setLi({ clicks_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" type="number" placeholder="2619" value={manualEdit.linkedin_followers ?? ''} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_followers: e.target.value ? Number(e.target.value) : null }))} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">New Followers (this period)</label><input className="form-input seo-inline-input" type="number" placeholder="152" value={li.new_followers ?? ''} onChange={(e) => setLi({ new_followers: e.target.value ? Number(e.target.value) : null })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">New Followers Period</label><input className="form-input seo-inline-input" placeholder="e.g. May" value={li.new_followers_period} onChange={(e) => setLi({ new_followers_period: e.target.value })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Follower Growth Rate</label><input className="form-input seo-inline-input" placeholder="+4,967%" value={li.growth_rate} onChange={(e) => setLi({ growth_rate: e.target.value })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">Follower Growth Description</label><input className="form-input seo-inline-input" placeholder="Strong momentum" value={li.growth_label} onChange={(e) => setLi({ growth_label: e.target.value })} /></div>
+                        <div className="seo-inline-field"><label className="seo-inline-label">LinkedIn URL</label><input className="form-input seo-inline-input" placeholder="https://linkedin.com/company/…" value={manualEdit.linkedin_url} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_url: e.target.value }))} /></div>
+                      </div>
+                      <p className="seo-inline-label" style={{ marginBottom: 6 }}>Top Posts</p>
+                      <div className="seo-manual-col-headers">
+                        <span style={{ flex: 1 }}>Post title</span>
+                        <span style={{ width: 90 }}>Impressions</span>
+                        <span style={{ width: 70 }}>Clicks</span>
+                        <span style={{ width: 28 }} />
+                      </div>
+                      {li.posts.map((p, i) => (
+                        <div key={i} className="seo-manual-row">
+                          <input className="form-input seo-manual-input" placeholder="Post title" value={p.title} onChange={(e) => setLiPost(i, 'title', e.target.value)} />
+                          <input className="form-input seo-manual-input" style={{ flex: '0 0 90px' }} type="number" placeholder="Impressions" value={p.impressions || ''} onChange={(e) => setLiPost(i, 'impressions', Number(e.target.value))} />
+                          <input className="form-input seo-manual-input" style={{ flex: '0 0 70px' }} type="number" placeholder="Clicks" value={p.clicks || ''} onChange={(e) => setLiPost(i, 'clicks', Number(e.target.value))} />
+                          <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: prev.linkedin_data!.posts.filter((_, j) => j !== i) } }))}><Trash2 size={13} /></button>
+                        </div>
+                      ))}
+                      <div className="seo-manual-actions" style={{ marginTop: 8 }}>
+                        <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: [...prev.linkedin_data!.posts, { title: '', impressions: 0, clicks: 0 }] } }))}><Plus size={12} /> Add post</button>
+                        <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const li = manual.linkedin_data;
+                  if (!li) return !manualPanel ? <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add LinkedIn analytics.' : 'No LinkedIn data yet.'}</p> : null;
+                  const impOrg = li.impressions_organic ?? 0, impSpon = li.impressions_sponsored ?? 0, impTot = impOrg + impSpon || 1;
+                  const clkOrg = li.clicks_organic ?? 0, clkSpon = li.clicks_sponsored ?? 0, clkTot = clkOrg + clkSpon || 1;
+                  const impSponPct = Math.round((impSpon / impTot) * 100), impOrgPct = 100 - impSponPct;
+                  const clkSponPct = Math.round((clkSpon / clkTot) * 100), clkOrgPct = 100 - clkSponPct;
+                  return (
+                    <>
+                      <div className="seo-li-stats">
+                        {li.impressions != null && <div className="seo-li-stat"><p className="seo-card__val">{li.impressions.toLocaleString()}</p><p className="seo-card__label">Total Impressions</p>{(li.impressions_organic != null || li.impressions_sponsored != null) && <p className="seo-li-sub">Organic + Sponsored</p>}</div>}
+                        {li.clicks != null && <div className="seo-li-stat"><p className="seo-card__val">{li.clicks.toLocaleString()}</p><p className="seo-card__label">Total Clicks</p>{(li.clicks_organic != null || li.clicks_sponsored != null) && <p className="seo-li-sub">{li.clicks_organic?.toLocaleString()} organic · {li.clicks_sponsored?.toLocaleString()} paid</p>}</div>}
+                        {manual.linkedin_followers != null && <div className="seo-li-stat"><p className="seo-card__val">{manual.linkedin_followers.toLocaleString()}</p><p className="seo-card__label">Total Followers</p>{li.new_followers != null && <p className="seo-li-sub">↑ {li.new_followers.toLocaleString()} new{li.new_followers_period ? ` in ${li.new_followers_period}` : ''}</p>}</div>}
+                        {li.growth_rate && <div className="seo-li-stat"><p className="seo-card__val seo-li-growth">{li.growth_rate}</p><p className="seo-card__label">Follower Growth Rate</p>{li.growth_label && <p className="seo-li-sub">↑ {li.growth_label}</p>}</div>}
+                      </div>
+                      {(impOrg > 0 || impSpon > 0) && (
+                        <div className="seo-li-breakdown-row">
+                          <div className="seo-li-breakdown"><p className="seo-li-breakdown__title">Impressions breakdown</p><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${impSponPct}%` }}>{impSponPct > 10 && <span>Sponsored {impSponPct}%</span>}</div></div><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${impOrgPct}%` }}>{impOrgPct > 5 && <span>Organic {impOrgPct}%</span>}</div></div></div>
+                          <div className="seo-li-breakdown"><p className="seo-li-breakdown__title">Clicks breakdown</p><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${clkSponPct}%` }}>{clkSponPct > 10 && <span>Sponsored {clkSponPct}%</span>}</div></div><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${clkOrgPct}%` }}>{clkOrgPct > 5 && <span>Organic {clkOrgPct}%</span>}</div></div></div>
+                        </div>
+                      )}
+                      {li.posts.length > 0 && (() => {
+                        const hasImpressions = li.posts.some(p => p.impressions > 0);
+                        const hasClicks = li.posts.some(p => p.clicks > 0);
+                        const hasCtr = hasImpressions;
+                        return (
+                          <>
+                            <p className="seo-li-posts-title">Top performing LinkedIn posts</p>
+                            <table className="seo-table">
+                              <thead>
+                                <tr>
+                                  <th>Post</th>
+                                  {hasImpressions && <th>Impressions</th>}
+                                  {hasClicks && <th>Clicks</th>}
+                                  {hasCtr && <th>CTR</th>}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {li.posts.map((p, i) => {
+                                  const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : null;
+                                  return (
+                                    <tr key={i}>
+                                      <td className="seo-source">{p.title}</td>
+                                      {hasImpressions && <td>{p.impressions.toLocaleString()}</td>}
+                                      {hasClicks && <td>{p.clicks.toLocaleString()}</td>}
+                                      {hasCtr && <td>{ctr}%</td>}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </>
+                        );
+                      })()}
+                      {manual.linkedin_url && <div style={{ marginTop: 12 }}><a href={manual.linkedin_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Linkedin size={11} /> LinkedIn Page</a></div>}
+                    </>
+                  );
+                })()}
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

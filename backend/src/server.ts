@@ -31,7 +31,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'https://agency.webanatomy.in'],
   credentials: true,
 }));
-app.use(morgan('dev'));
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -55,6 +55,21 @@ app.use('/api/content', contentRoutes);
 app.use('/api/seo', seoRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', env: process.env.NODE_ENV }));
+
+// Serve built frontend in production (frontend/dist → backend/public via build script)
+if (process.env.NODE_ENV === 'production') {
+  const frontendDist = path.join(__dirname, '../public');
+  app.use(express.static(frontendDist));
+  // SPA fallback — use app.use (Express 5 no longer accepts '*' wildcard in app.get)
+  app.use((req, res) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      res.status(404).json({ error: 'Not found' });
+    } else {
+      
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    }
+  });
+}
 
 initDB()
   .then(() => {
