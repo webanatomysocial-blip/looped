@@ -357,8 +357,7 @@ const emptyManual = (): ManualData => ({
 
 export default function SEO() {
   const { user } = useAuth();
-  const isAdmin   = user?.role === 'admin';
-  const canEdit   = user?.role === 'admin' || user?.role === 'manager';
+  const canEdit   = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
 
   const [clients, setClients]           = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -513,7 +512,7 @@ export default function SEO() {
                 >
                   <span>{c.name}</span>
                   {!c.ga_property_id && <span className="seo-badge-warn">Setup</span>}
-                  {isAdmin && (
+                  {canEdit && (
                     <span
                       className={`seo-config-icon${editingId === c.id ? ' open' : ''}`}
                       onClick={(e) => { e.stopPropagation(); openEdit(c); }}
@@ -528,7 +527,7 @@ export default function SEO() {
           </div>
 
           {/* Inline edit panel */}
-          {isAdmin && editingId && editingClient && (
+          {canEdit && editingId && editingClient && (
             <div className="seo-inline-config">
               <div className="seo-inline-config__header">
                 <span className="seo-inline-config__title">Configure — {editingClient.name}</span>
@@ -572,7 +571,7 @@ export default function SEO() {
           <div className="seo-empty-state">
             <Globe size={36} style={{ color: 'var(--sand-border)' }} />
             <p>GA4 Property ID not configured for <strong>{selectedClient.name}</strong>.</p>
-            {isAdmin
+            {canEdit
               ? <button className="btn-primary" onClick={() => openEdit(selectedClient)}>Configure now</button>
               : <p className="page-subtitle">Ask your admin to set this up.</p>}
           </div>

@@ -51,22 +51,40 @@ function ga4StartDate(range: string): string {
   return map[range] ?? '28daysAgo';
 }
 
-// GET /api/seo/clients — companies with GA configured (clients only see their own)
+// Helper: company IDs accessible to an employee via their assigned projects
+async function employeeCompanyIds(db: any, userId: number): Promise<number[]> {
+  return db('projects as p')
+    .join('project_members as pm', 'pm.project_id', 'p.id')
+    .where('pm.user_id', userId)
+    .whereNotNull('p.client_company_id')
+    .distinct('p.client_company_id')
+    .pluck('p.client_company_id');
+}
+
+// GET /api/seo/clients — companies visible to the logged-in user
 router.get('/clients', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const { role, id: userId } = req.user!;
 
     if (role === 'client') {
-      // Client sees only their own company
       const user = await db('users').where({ id: userId }).select('client_company_id').first();
       if (!user?.client_company_id) { res.json([]); return; }
       const companies = await db('client_companies')
         .where({ id: user.client_company_id })
         .select('id', 'name', 'ga_property_id', 'gsc_site_url');
       res.json(companies);
+    } else if (role === 'employee') {
+      // Employee only sees companies from projects they're assigned to
+      const ids = await employeeCompanyIds(db, userId);
+      if (!ids.length) { res.json([]); return; }
+      const clients = await db('client_companies')
+        .whereIn('id', ids)
+        .select('id', 'name', 'ga_property_id', 'gsc_site_url')
+        .orderBy('name');
+      res.json(clients);
     } else {
-      // Admin, manager, and employee all see every company
+      // Admin and manager see every company
       const clients = await db('client_companies').select('id', 'name', 'ga_property_id', 'gsc_site_url').orderBy('name');
       res.json(clients);
     }
@@ -75,9 +93,20 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PUT /api/seo/clients/:id — admin only: set GA property and GSC URL
+// PUT /api/seo/clients/:id — admin/manager/employee can set GA property and GSC URL
 router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
-  if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const { role, id: userId } = req.user!;
+  if (!['admin', 'manager', 'employee'].includes(role)) {
+    res.status(403).json({ error: 'Access denied' }); return;
+  }
+  // Employee must be assigned to a project with this company
+  if (role === 'employee') {
+    const db = getDB();
+    const ids = await employeeCompanyIds(db, userId);
+    if (!ids.map(String).includes(String(req.params.id))) {
+      res.status(403).json({ error: 'Access denied' }); return;
+    }
+  }
   const { ga_property_id, gsc_site_url } = req.body;
   try {
     const db = getDB();
@@ -95,13 +124,17 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     const { role, id: userId } = req.user!;
 
     if (role === 'client') {
-      // Client: only their own company
       const user = await db('users').where({ id: userId }).select('client_company_id').first();
       if (String(user?.client_company_id) !== String(req.params.clientId)) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
+    } else if (role === 'employee') {
+      const ids = await employeeCompanyIds(db, userId);
+      if (!ids.map(String).includes(String(req.params.clientId))) {
+        res.status(403).json({ error: 'Access denied' }); return;
+      }
     }
-    // admin, manager, employee: unrestricted
+    // admin and manager: unrestricted
 
     const client = await db('client_companies').where({ id: req.params.clientId }).first();
     if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
@@ -349,13 +382,21 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// PUT /api/seo/manual/:clientId — save manual data (admin/manager only)
+// PUT /api/seo/manual/:clientId — save manual data (admin/manager/employee)
 router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
-  if (!['admin', 'manager'].includes(req.user!.role)) {
+  const { role, id: userId } = req.user!;
+  if (!['admin', 'manager', 'employee'].includes(role)) {
     res.status(403).json({ error: 'Insufficient permissions' }); return;
   }
   try {
     const db = getDB();
+    // Employee must be assigned to this company's project
+    if (role === 'employee') {
+      const ids = await employeeCompanyIds(db, userId);
+      if (!ids.map(String).includes(String(req.params.clientId))) {
+        res.status(403).json({ error: 'Access denied' }); return;
+      }
+    }
     const { keyword_rankings, targets, key_insights, linkedin_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers } = req.body;
     const payload = {
       keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
