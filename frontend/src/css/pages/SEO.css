@@ -390,6 +390,28 @@
 .seo-medium { color: var(--ink-muted); }
 .seo-page-url { font-size: 11px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Top Queries: search + pagination */
+.seo-query-search { display: flex; gap: 8px; margin-bottom: 12px; }
+.seo-query-search .form-input { padding: 7px 12px; font-size: 12px; }
+.seo-query-search .filter-tab { background: var(--bg-sand); flex-shrink: 0; }
+
+.seo-pagination { display: flex; align-items: center; gap: 4px; margin-top: 12px; flex-wrap: wrap; }
+.seo-pagination button {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.seo-pagination button:hover:not(:disabled) { background: var(--bg-sand); color: var(--ink); }
+.seo-pagination button.active { background: var(--ink); color: #fff; }
+.seo-pagination button:disabled { opacity: 0.35; cursor: default; }
+
 .seo-bar-inline {
   width: 80px;
   height: 6px;

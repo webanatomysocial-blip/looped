@@ -67,7 +67,7 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 
-function downloadPDF(report: Report, clientName: string, range: string, manual: ManualData, demoCountry: string) {
+function downloadPDF(report: Report, clientName: string, range: string, manual: ManualData, demoCountry: string, selectedQueries: Set<string>) {
   const eng = report.engagement;
   const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
   const W = 700, H = 160, pad = 32, barW = Math.max(4, Math.floor((W - pad * 2) / report.traffic.length) - 2);
@@ -121,7 +121,7 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
       <td style="padding:8px 12px;text-align:right">${r.position}</td>
     </tr>`).join('');
 
-  const queryRows = report.queries.slice(0, 10).map((r, i) => `
+  const queryRows = report.queries.filter((r) => selectedQueries.has(r.query)).map((r, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.query}</td>
       <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
@@ -382,6 +382,21 @@ export default function SEO() {
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
 
+  // Top Queries: search + pagination + PDF selection
+  const QUERIES_PER_PAGE = 10;
+  const [querySearchInput, setQuerySearchInput] = useState('');
+  const [querySearch, setQuerySearch]           = useState('');
+  const [queryPage, setQueryPage]               = useState(1);
+  const [selectedQueries, setSelectedQueries]   = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    // New report loaded — select all its queries by default and reset search/pagination
+    setSelectedQueries(new Set(report?.queries.map((q) => q.query) ?? []));
+    setQuerySearchInput('');
+    setQuerySearch('');
+    setQueryPage(1);
+  }, [report]);
+
   useEffect(() => {
     seoApi.clients().then((r) => {
       setClients(r.data);
@@ -492,7 +507,7 @@ export default function SEO() {
             {report && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry)}
+                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry, selectedQueries)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -754,20 +769,85 @@ export default function SEO() {
               <div className="seo-section">
                 <h3 className="seo-section__title"><Search size={13} style={{ marginRight: 6 }} />Top Queries <span className="seo-badge">Search Console</span></h3>
                 {report.queries.length > 0
-                  ? <table className="seo-table">
-                      <thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
-                      <tbody>
-                        {report.queries.slice(0, 10).map((row, i) => (
-                          <tr key={i}>
-                            <td className="seo-page-url" title={row.query}>{row.query}</td>
-                            <td>{row.clicks.toLocaleString()}</td>
-                            <td>{row.impressions.toLocaleString()}</td>
-                            <td>{row.ctr}%</td>
-                            <td>{row.position}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  ? (() => {
+                      const filteredQueries = report.queries.filter((q) => q.query.toLowerCase().includes(querySearch.toLowerCase()));
+                      const totalQueryPages = Math.max(1, Math.ceil(filteredQueries.length / QUERIES_PER_PAGE));
+                      const page = Math.min(queryPage, totalQueryPages);
+                      const pageQueries = filteredQueries.slice((page - 1) * QUERIES_PER_PAGE, page * QUERIES_PER_PAGE);
+                      const allOnPageSelected = pageQueries.length > 0 && pageQueries.every((q) => selectedQueries.has(q.query));
+                      const toggleQuery = (q: string) => setSelectedQueries((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(q)) next.delete(q); else next.add(q);
+                        return next;
+                      });
+                      const toggleAllOnPage = () => setSelectedQueries((prev) => {
+                        const next = new Set(prev);
+                        pageQueries.forEach((q) => { if (allOnPageSelected) next.delete(q.query); else next.add(q.query); });
+                        return next;
+                      });
+                      const runSearch = () => { setQuerySearch(querySearchInput); setQueryPage(1); };
+                      return (
+                        <>
+                          <div className="seo-query-search">
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Search queries…"
+                              value={querySearchInput}
+                              onChange={(e) => setQuerySearchInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+                            />
+                            <button type="button" className="filter-tab" onClick={runSearch}>Search</button>
+                          </div>
+                          {filteredQueries.length > 0
+                            ? <table className="seo-table">
+                                <thead>
+                                  <tr>
+                                    <th style={{ width: 24 }}>
+                                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} title="Select all on this page" />
+                                    </th>
+                                    <th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pageQueries.map((row) => (
+                                    <tr key={row.query}>
+                                      <td>
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedQueries.has(row.query)}
+                                          onChange={() => toggleQuery(row.query)}
+                                        />
+                                      </td>
+                                      <td className="seo-page-url" title={row.query}>{row.query}</td>
+                                      <td>{row.clicks.toLocaleString()}</td>
+                                      <td>{row.impressions.toLocaleString()}</td>
+                                      <td>{row.ctr}%</td>
+                                      <td>{row.position}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            : <p className="page-subtitle" style={{ padding: '12px 0' }}>No queries match "{querySearch}".</p>}
+                          {totalQueryPages > 1 && (
+                            <div className="seo-pagination">
+                              <button type="button" disabled={page === 1} onClick={() => setQueryPage(page - 1)}>‹</button>
+                              {Array.from({ length: totalQueryPages }, (_, i) => i + 1).map((p) => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className={p === page ? 'active' : ''}
+                                  onClick={() => setQueryPage(p)}
+                                >
+                                  {p}
+                                </button>
+                              ))}
+                              <button type="button" disabled={page === totalQueryPages} onClick={() => setQueryPage(page + 1)}>›</button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()
                   : <p className="page-subtitle" style={{ padding: '12px 0' }}>No query data available.</p>}
               </div>
             </div>
