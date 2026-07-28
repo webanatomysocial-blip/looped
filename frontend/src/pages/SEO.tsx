@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, Users, MousePointer, Globe, MapPin, Settings, Check, X, Download, Plus, Trash2, Edit2, Search, Star, Linkedin, FileText } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
 import { useAuth } from '../contexts/AuthContext';
 import { seoApi } from '../services/api';
 import '../css/pages/SEO.css';
@@ -67,7 +66,17 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 
-function downloadPDF(report: Report, clientName: string, range: string, manual: ManualData, demoCountry: string, selectedQueries: Set<string>) {
+function downloadPDF(
+  report: Report,
+  clientName: string,
+  range: string,
+  manual: ManualData,
+  demoCountry: string,
+  selectedAcquisitions: Set<string>,
+  selectedDemographics: Set<string>,
+  selectedPages: Set<string>,
+  selectedQueries: Set<string>
+) {
   const eng = report.engagement;
   const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
   const W = 700, H = 160, pad = 32, barW = Math.max(4, Math.floor((W - pad * 2) / report.traffic.length) - 2);
@@ -96,7 +105,7 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
     ['Engagement Rate', `${eng.engagementRate}%`],
   ];
 
-  const acqRows = report.acquisition.map((r, i) => `
+  const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.channel}</td>
       <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
@@ -104,7 +113,7 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
     </tr>`).join('');
 
   const showCountryCol = manual !== undefined && demoCountry === 'all';
-  const demoRows = report.demographics.slice(0, 10).map((r: any, i) => `
+  const demoRows = report.demographics.filter((r) => selectedDemographics.has(r.city)).map((r: any, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.city}</td>
       ${showCountryCol ? `<td style="padding:8px 12px;color:#888">${r.country ?? ''}</td>` : ''}
@@ -112,7 +121,7 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
       <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
     </tr>`).join('');
 
-  const pageRows = report.pages.slice(0, 6).map((r, i) => `
+  const pageRows = report.pages.filter((r) => selectedPages.has(r.page)).map((r, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortenUrl(r.page)}</td>
       <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
@@ -248,25 +257,25 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
   </div>
 </div>
 
-<div class="two-col">
-  <div>
+${acqRows || demoRows ? `<div class="two-col">
+  ${acqRows ? `<div>
     <h2>User Acquisition</h2>
     <div class="section">
       <table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead>
       <tbody>${acqRows}</tbody></table>
     </div>
-  </div>
-  <div>
+  </div>` : ''}
+  ${demoRows ? `<div>
     <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
     <div class="section">
       <table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead>
       <tbody>${demoRows}</tbody></table>
     </div>
-  </div>
-</div>
+  </div>` : ''}
+</div>` : ''}
 
-<div class="two-col">
-  ${report.pages.length > 0 ? `<div>
+${pageRows || queryRows ? `<div class="two-col">
+  ${pageRows ? `<div>
     <h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
     <div class="section">
       <table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
@@ -280,7 +289,7 @@ function downloadPDF(report: Report, clientName: string, range: string, manual: 
       <tbody>${queryRows}</tbody></table>
     </div>
   </div>` : ''}
-</div>
+</div>` : ''}
 
 ${kwRows ? `
 <h2>Keyword Rankings</h2>
@@ -382,6 +391,17 @@ export default function SEO() {
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | null>(null);
   const [manualSaving, setManualSaving] = useState(false);
 
+  // User Acquisition & Demographics selection
+  const [selectedAcquisitions, setSelectedAcquisitions] = useState<Set<string>>(new Set());
+  const [selectedDemographics, setSelectedDemographics]   = useState<Set<string>>(new Set());
+
+  // Pages & Screens: search + pagination + PDF selection
+  const PAGES_PER_PAGE = 10;
+  const [pageSearchInput, setPageSearchInput] = useState('');
+  const [pageSearch, setPageSearch]           = useState('');
+  const [pagePage, setPagePage]               = useState(1);
+  const [selectedPages, setSelectedPages]     = useState<Set<string>>(new Set());
+
   // Top Queries: search + pagination + PDF selection
   const QUERIES_PER_PAGE = 10;
   const [querySearchInput, setQuerySearchInput] = useState('');
@@ -390,8 +410,14 @@ export default function SEO() {
   const [selectedQueries, setSelectedQueries]   = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // New report loaded — select all its queries by default and reset search/pagination
+    // New report loaded — select all items by default and reset search/pagination
+    setSelectedAcquisitions(new Set(report?.acquisition.map((a) => a.channel) ?? []));
+    setSelectedDemographics(new Set(report?.demographics.map((d) => d.city) ?? []));
+    setSelectedPages(new Set(report?.pages.map((p) => p.page) ?? []));
     setSelectedQueries(new Set(report?.queries.map((q) => q.query) ?? []));
+    setPageSearchInput('');
+    setPageSearch('');
+    setPagePage(1);
     setQuerySearchInput('');
     setQuerySearch('');
     setQueryPage(1);
@@ -474,7 +500,7 @@ export default function SEO() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header />
+        
 
         <div className="seo-top">
           <div>
@@ -507,7 +533,7 @@ export default function SEO() {
             {report && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry, selectedQueries)}
+                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry, selectedAcquisitions, selectedDemographics, selectedPages, selectedQueries)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -684,23 +710,54 @@ export default function SEO() {
             <div className="seo-two-col">
               <div className="seo-section">
                 <h3 className="seo-section__title">User Acquisition</h3>
-                <table className="seo-table">
-                  <thead><tr><th>Channel</th><th>Sessions</th><th>Users</th><th></th></tr></thead>
-                  <tbody>
-                    {report.acquisition.map((row, i) => (
-                      <tr key={i}>
-                        <td><span className="seo-source">{row.channel}</span></td>
-                        <td>{row.sessions.toLocaleString()}</td>
-                        <td>{row.users.toLocaleString()}</td>
-                        <td>
-                          <div className="seo-bar-inline">
-                            <div style={{ width: `${(row.sessions / maxAcq) * 100}%` }} className="seo-bar-inline__fill" />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {report.acquisition.length > 0
+                  ? (() => {
+                      const allAcqSelected = report.acquisition.length > 0 && report.acquisition.every((r) => selectedAcquisitions.has(r.channel));
+                      const toggleAcq = (channel: string) => setSelectedAcquisitions((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(channel)) next.delete(channel); else next.add(channel);
+                        return next;
+                      });
+                      const toggleAllAcq = () => setSelectedAcquisitions((prev) => {
+                        const next = new Set(prev);
+                        report.acquisition.forEach((r) => { if (allAcqSelected) next.delete(r.channel); else next.add(r.channel); });
+                        return next;
+                      });
+                      return (
+                        <table className="seo-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: 24 }}>
+                                <input type="checkbox" checked={allAcqSelected} onChange={toggleAllAcq} title="Select all channels" />
+                              </th>
+                              <th>Channel</th><th>Sessions</th><th>Users</th><th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {report.acquisition.map((row, i) => (
+                              <tr key={i}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedAcquisitions.has(row.channel)}
+                                    onChange={() => toggleAcq(row.channel)}
+                                  />
+                                </td>
+                                <td><span className="seo-source">{row.channel}</span></td>
+                                <td>{row.sessions.toLocaleString()}</td>
+                                <td>{row.users.toLocaleString()}</td>
+                                <td>
+                                  <div className="seo-bar-inline">
+                                    <div style={{ width: `${(row.sessions / maxAcq) * 100}%` }} className="seo-bar-inline__fill" />
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()
+                  : <p className="page-subtitle" style={{ padding: '12px 0' }}>No acquisition data available.</p>}
               </div>
 
               <div className="seo-section">
@@ -723,46 +780,142 @@ export default function SEO() {
                     <option value="all">All Countries</option>
                   </select>
                 </h3>
-                <table className="seo-table">
-                  <thead><tr><th>City</th>{demoCountry === 'all' && <th>Country</th>}<th>Users</th><th>Sessions</th><th></th></tr></thead>
-                  <tbody>
-                    {report.demographics.map((row, i) => (
-                      <tr key={i}>
-                        <td className="seo-source">{row.city}</td>
-                        {demoCountry === 'all' && <td className="seo-source" style={{ color: 'var(--ink-muted)' }}>{(row as any).country}</td>}
-                        <td>{row.users.toLocaleString()}</td>
-                        <td>{row.sessions.toLocaleString()}</td>
-                        <td>
-                          <div className="seo-bar-inline">
-                            <div style={{ width: `${(row.users / maxDemo) * 100}%` }} className="seo-bar-inline__fill seo-bar-inline__fill--green" />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                {report.demographics.length > 0
+                  ? (() => {
+                      const allDemoSelected = report.demographics.length > 0 && report.demographics.every((r) => selectedDemographics.has(r.city));
+                      const toggleDemo = (city: string) => setSelectedDemographics((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(city)) next.delete(city); else next.add(city);
+                        return next;
+                      });
+                      const toggleAllDemo = () => setSelectedDemographics((prev) => {
+                        const next = new Set(prev);
+                        report.demographics.forEach((r) => { if (allDemoSelected) next.delete(r.city); else next.add(r.city); });
+                        return next;
+                      });
+                      return (
+                        <table className="seo-table">
+                          <thead>
+                            <tr>
+                              <th style={{ width: 24 }}>
+                                <input type="checkbox" checked={allDemoSelected} onChange={toggleAllDemo} title="Select all cities" />
+                              </th>
+                              <th>City</th>{demoCountry === 'all' && <th>Country</th>}<th>Users</th><th>Sessions</th><th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {report.demographics.map((row, i) => (
+                              <tr key={i}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedDemographics.has(row.city)}
+                                    onChange={() => toggleDemo(row.city)}
+                                  />
+                                </td>
+                                <td className="seo-source">{row.city}</td>
+                                {demoCountry === 'all' && <td className="seo-source" style={{ color: 'var(--ink-muted)' }}>{(row as any).country}</td>}
+                                <td>{row.users.toLocaleString()}</td>
+                                <td>{row.sessions.toLocaleString()}</td>
+                                <td>
+                                  <div className="seo-bar-inline">
+                                    <div style={{ width: `${(row.users / maxDemo) * 100}%` }} className="seo-bar-inline__fill seo-bar-inline__fill--green" />
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()
+                  : <p className="page-subtitle" style={{ padding: '12px 0' }}>No demographics data available.</p>}
               </div>
             </div>
 
             {/* ── Pages & Screens + Top Queries ── */}
             <div className="seo-two-col">
               <div className="seo-section">
-                <h3 className="seo-section__title">Pages & Screens <span className="seo-badge">Search Console</span></h3>
+                <h3 className="seo-section__title">Pages &amp; Screens <span className="seo-badge">Search Console</span></h3>
                 {report.pages.length > 0
-                  ? <table className="seo-table">
-                      <thead><tr><th>Page</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Pos.</th></tr></thead>
-                      <tbody>
-                        {report.pages.slice(0, 6).map((row, i) => (
-                          <tr key={i}>
-                            <td className="seo-page-url" title={row.page}>{shortenUrl(row.page)}</td>
-                            <td>{row.clicks.toLocaleString()}</td>
-                            <td>{row.impressions.toLocaleString()}</td>
-                            <td>{row.ctr}%</td>
-                            <td>{row.position}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  ? (() => {
+                      const filteredPages = report.pages.filter((p) => p.page.toLowerCase().includes(pageSearch.toLowerCase()));
+                      const totalPagePages = Math.max(1, Math.ceil(filteredPages.length / PAGES_PER_PAGE));
+                      const currentPage = Math.min(pagePage, totalPagePages);
+                      const pageItems = filteredPages.slice((currentPage - 1) * PAGES_PER_PAGE, currentPage * PAGES_PER_PAGE);
+                      const allOnPageSelected = pageItems.length > 0 && pageItems.every((p) => selectedPages.has(p.page));
+                      const togglePage = (p: string) => setSelectedPages((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(p)) next.delete(p); else next.add(p);
+                        return next;
+                      });
+                      const toggleAllOnPage = () => setSelectedPages((prev) => {
+                        const next = new Set(prev);
+                        pageItems.forEach((p) => { if (allOnPageSelected) next.delete(p.page); else next.add(p.page); });
+                        return next;
+                      });
+                      const runSearch = () => { setPageSearch(pageSearchInput); setPagePage(1); };
+                      return (
+                        <>
+                          <div className="seo-query-search">
+                            <input
+                              type="text"
+                              className="form-input"
+                              placeholder="Search pages…"
+                              value={pageSearchInput}
+                              onChange={(e) => setPageSearchInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+                            />
+                            <button type="button" className="filter-tab" onClick={runSearch}>Search</button>
+                          </div>
+                          {filteredPages.length > 0
+                            ? <table className="seo-table">
+                                <thead>
+                                  <tr>
+                                    <th style={{ width: 24 }}>
+                                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} title="Select all on this page" />
+                                    </th>
+                                    <th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {pageItems.map((row) => (
+                                    <tr key={row.page}>
+                                      <td>
+                                        <input
+                                          type="checkbox"
+                                          checked={selectedPages.has(row.page)}
+                                          onChange={() => togglePage(row.page)}
+                                        />
+                                      </td>
+                                      <td className="seo-page-url" title={row.page}>{shortenUrl(row.page)}</td>
+                                      <td>{row.clicks.toLocaleString()}</td>
+                                      <td>{row.impressions.toLocaleString()}</td>
+                                      <td>{row.ctr}%</td>
+                                      <td>{row.position}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            : <p className="page-subtitle" style={{ padding: '12px 0' }}>No pages match "{pageSearch}".</p>}
+                          {totalPagePages > 1 && (
+                            <div className="seo-pagination">
+                              <button type="button" disabled={currentPage === 1} onClick={() => setPagePage(currentPage - 1)}>‹</button>
+                              {Array.from({ length: totalPagePages }, (_, i) => i + 1).map((p) => (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className={p === currentPage ? 'active' : ''}
+                                  onClick={() => setPagePage(p)}
+                                >
+                                  {p}
+                                </button>
+                              ))}
+                              <button type="button" disabled={currentPage === totalPagePages} onClick={() => setPagePage(currentPage + 1)}>›</button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()
                   : <p className="page-subtitle" style={{ padding: '12px 0' }}>No GSC site URL configured.</p>}
               </div>
 
