@@ -3,12 +3,6 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import '../css/pages/Login.css';
 
-const DEMO_ACCOUNTS = [
-  { role: 'Admin',    email: 'admin@agency.com',    password: 'Admin@123',    color: '#E8424A' },
-  { role: 'Manager',  email: 'manager@agency.com',  password: 'Manager@123',  color: '#F47326' },
-  { role: 'Employee', email: 'employee@agency.com', password: 'Employee@123', color: '#4A90E2' },
-  { role: 'Client',   email: 'client@agency.com',   password: 'Client@123',   color: '#4caf7d' },
-];
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -25,18 +19,6 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Invalid credentials');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const quickLogin = async (e: string, p: string) => {
-    setError('');
-    setLoading(true);
-    try {
-      await login(e, p);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid credentials');
     } finally {
@@ -96,23 +78,7 @@ export default function Login() {
             </div>
           </form>
 
-          {/* Demo quick-login */}
-          <div className="login-demo">
-            <p className="login-demo__label">Demo accounts</p>
-            <div className="login-demo__grid">
-              {DEMO_ACCOUNTS.map((a) => (
-                <button
-                  key={a.role}
-                  className="login-demo__btn"
-                  disabled={loading}
-                  onClick={() => quickLogin(a.email, a.password)}
-                >
-                  <span className="login-demo__dot" style={{ background: a.color }} />
-                  {a.role}
-                </button>
-              ))}
-            </div>
-          </div>
+
         </div>
       </div>
     </div>

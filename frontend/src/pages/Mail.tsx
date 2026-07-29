@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
 import { Send, Clock, CheckCircle, XCircle, Trash2, Plus, X, Search } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
+
 import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
 import { mailApi, usersApi } from '../services/api';
@@ -112,13 +112,14 @@ export default function Mail() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header action={{ label: 'Compose', onClick: () => { setShowCompose(true); setForm(defaultForm); setSearch(''); setError(''); } }} />
-
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h2 className="page-title">Mail</h2>
             <p className="page-subtitle">{filtered.length} email{filtered.length !== 1 ? 's' : ''}</p>
           </div>
+          <button className="btn-primary" onClick={() => { setShowCompose(true); setForm(defaultForm); setSearch(''); setError(''); }}>
+            <Plus size={14} /> Compose
+          </button>
           <div className="filter-bar">
             {(['all', 'scheduled', 'sent', 'failed'] as const).map((f) => (
               <button key={f} onClick={() => setFilter(f)} className={`filter-tab${filter === f ? ' active' : ''}`}>

@@ -94,9 +94,13 @@
 }
 
 .tasks-table-wrap {
-  background: var(--bg-white);
+
+
+
+
+
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
+
   overflow: hidden;
 }
 
@@ -177,3 +181,251 @@
   justify-content: space-between;
   margin-bottom: 8px;
 }
+
+/* ── Avatar Picker (ap-*) ── */
+.drawer-assign-grid { display: flex; flex-direction: column; gap: 14px; }
+
+.ap-slot {}
+
+.ap-slot__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.ap-slot__label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.ap-slot__clear {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.6;
+  transition: opacity 0.12s;
+}
+.ap-slot__clear:hover { opacity: 1; }
+
+.ap-selected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-sand);
+  border-radius: 12px;
+  border: 1.5px solid;
+  margin-bottom: 8px;
+}
+.ap-selected__name { font-size: 13px; font-weight: 700; color: var(--ink); }
+.ap-selected__role { font-size: 10px; color: var(--ink-muted); font-weight: 600; text-transform: capitalize; margin-top: 1px; }
+
+.ap-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  background: var(--bg-sand);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.ap-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.ap-tab:hover { color: var(--ink); background: rgba(255,255,255,0.6); }
+.ap-tab--active {
+  background: #fff;
+  color: var(--ap-accent, var(--ink));
+  box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+}
+.ap-tab__avatar {
+  width: 18px !important;
+  height: 18px !important;
+  font-size: 8px !important;
+}
+.ap-tab__dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--sand-border);
+  display: inline-block;
+}
+
+.ap-role-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.ap-role-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: none;
+  cursor: pointer;
+  transition: all 0.13s;
+}
+.ap-role-tab:hover { background: var(--bg-sand); color: var(--ink); }
+.ap-role-tab--active { background: var(--bg-sand); color: var(--ink); }
+.ap-role-tab__count {
+  font-size: 9px;
+  font-weight: 800;
+  background: rgba(0,0,0,0.07);
+  border-radius: 99px;
+  padding: 1px 5px;
+  color: var(--ink-muted);
+}
+
+.ap-group { margin-bottom: 6px; }
+.ap-group__label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+  opacity: 0.6;
+}
+.ap-group__chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.ap-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: background 0.13s, border-color 0.13s, transform 0.1s;
+}
+.ap-chip:hover { background: var(--bg-sand); transform: translateY(-1px); }
+.ap-chip--selected {
+  background: color-mix(in srgb, var(--ap-accent, #1a1a1a) 10%, transparent);
+  border-color: var(--ap-accent, #1a1a1a);
+}
+.ap-chip__name {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ap-avatar {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+.ap-avatar--lg {
+  width: 36px; height: 36px;
+  font-size: 13px;
+}
+
+/* ── Task-specific drawer styles (base drawer styles live in global.css) ── */
+
+.drawer-info-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  background: var(--bg-sand);
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.drawer-info-field {}
+.drawer-info-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+  margin-bottom: 5px;
+}
+
+.drawer-section {}
+.drawer-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-assign-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drawer-assign-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-assign-badge {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+  width: 72px;
+  text-align: center;
+}
+.drawer-assign-badge--worker    { background: rgba(34,197,94,0.12);  color: var(--green); }
+.drawer-assign-badge--alternate { background: rgba(99,102,241,0.12); color: var(--blue); }
+.drawer-assign-badge--manager   { background: rgba(244,115,38,0.12); color: var(--orange); }
+
+.drawer-est-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.drawer-est-row .est-field { flex: 1; }
+.drawer-est-row .est-total {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 600;
+  padding-bottom: 10px;
+  white-space: nowrap;
+}
+
+.drawer-checklist { display: flex; flex-direction: column; gap: 8px; }
+.drawer-checklist-row { display: flex; align-items: center; gap: 8px; }
+
+/* drawer-footer, drawer-submit, drawer-cancel — in global.css */

@@ -8,11 +8,32 @@ router.use(authenticate);
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const notifications = await db('notifications')
-      .where({ user_id: req.user!.id })
-      .orderBy('created_at', 'desc')
-      .limit(50);
-    res.json(notifications);
+    const rows = await db('notifications as n')
+      .leftJoin('projects as p', 'n.project_id', 'p.id')
+      .where({ 'n.user_id': req.user!.id })
+      .orderBy('n.created_at', 'desc')
+      .limit(100)
+      .select('n.*', 'p.name as project_name');
+
+    // Infer project for old notifications that predate the project_id column
+    const needsInference = rows.some((n: any) => !n.project_id);
+    if (needsInference) {
+      const approvals = await db('approvals as ap')
+        .join('projects as p', 'ap.project_id', 'p.id')
+        .select('ap.title', 'ap.project_id', 'p.name as project_name');
+
+      for (const n of rows) {
+        if (!n.project_id) {
+          const match = approvals.find((a: any) => n.message.includes(`"${a.title}"`));
+          if (match) {
+            n.project_id = match.project_id;
+            n.project_name = match.project_name;
+          }
+        }
+      }
+    }
+
+    res.json(rows);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

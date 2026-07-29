@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
 import { Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi, projectsApi, internalChatApi, usersApi } from '../services/api';
 import { Message, Project, InternalChat, InternalMessage, User } from '../types';
@@ -131,7 +130,7 @@ export default function Messages() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header />
+        
         <h2 className="page-title" style={{ marginBottom: 16 }}>Messages</h2>
 
         {/* Tab switcher */}

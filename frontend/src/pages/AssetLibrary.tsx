@@ -1,8 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { Upload, Download, Trash2, File, FileImage, FileText, Film } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
+import Pagination from '../components/UI/Pagination';
+
+const PAGE_SIZE = 7;
 import Avatar from '../components/UI/Avatar';
 import { projectsApi, assetsApi } from '../services/api';
 import { Asset, Project } from '../types';
@@ -31,6 +33,8 @@ export default function AssetLibrary() {
   const [projectFilter, setProjectFilter] = useState('');
   const [uploadProject, setUploadProject] = useState('');
   const [uploadName, setUploadName]       = useState('');
+  const [search, setSearch]               = useState('');
+  const [page, setPage]                   = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -40,7 +44,15 @@ export default function AssetLibrary() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [projectFilter]);
+  useEffect(() => { setPage(1); load(); }, [projectFilter]);
+
+  const displayed = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? assets.filter(a => a.name.toLowerCase().includes(q) || (a.project_name ?? '').toLowerCase().includes(q)) : assets;
+  }, [assets, search]);
+
+  const totalPages = Math.max(1, Math.ceil(displayed.length / PAGE_SIZE));
+  const paginated  = displayed.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,7 +76,7 @@ export default function AssetLibrary() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header />
+        
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
             <h2 className="page-title">Asset Library</h2>
@@ -87,11 +99,18 @@ export default function AssetLibrary() {
 
         {/* Filter */}
         <div className="assets-filter-row">
-          <select className="form-input" style={{ width: 200, background: 'var(--bg-white)' }} value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+          <input
+            className="form-input"
+            style={{ width: 200, background: 'var(--bg-white)' }}
+            placeholder="Search files…"
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+          <select className="form-input" style={{ width: 200, background: 'var(--bg-white)' }} value={projectFilter} onChange={(e) => { setProjectFilter(e.target.value); setPage(1); }}>
             <option value="">All projects</option>
             {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <span className="assets-count">{assets.length} file{assets.length !== 1 ? 's' : ''}</span>
+          <span className="assets-count">{displayed.length} file{displayed.length !== 1 ? 's' : ''}</span>
         </div>
 
         {loading && <p className="page-subtitle">Loading…</p>}
@@ -106,7 +125,7 @@ export default function AssetLibrary() {
               </tr>
             </thead>
             <tbody>
-              {assets.map((asset) => (
+              {paginated.map((asset) => (
                 <tr key={asset.id}>
                   <td>
                     <div className="asset-file-cell">
@@ -137,12 +156,13 @@ export default function AssetLibrary() {
                   </td>
                 </tr>
               ))}
-              {assets.length === 0 && !loading && (
-                <tr><td colSpan={6} className="empty-state">No files uploaded yet</td></tr>
+              {displayed.length === 0 && !loading && (
+                <tr><td colSpan={6} className="empty-state">No files found</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        <Pagination page={page} totalPages={totalPages} total={displayed.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </div>
     </Layout>
   );

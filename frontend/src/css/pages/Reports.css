@@ -27,10 +27,7 @@
 @media (max-width: 720px) { .reports-charts { grid-template-columns: 1fr; } }
 
 .report-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 22px;
-  box-shadow: var(--shadow);
 }
 .report-card--full { grid-column: 1 / -1; }
 .report-card__title { font-size: 14px; font-weight: 800; color: var(--ink); margin-bottom: 18px; }
@@ -88,3 +85,35 @@
 .client-bar-row__track { flex: 1; height: 8px; background: var(--bg-sand); border-radius: var(--r-pill); }
 .client-bar-row__fill { height: 100%; background: var(--yellow); border-radius: var(--r-pill); transition: width 0.6s; }
 .client-bar-row__count { font-size: 13px; font-weight: 800; color: var(--ink); width: 20px; text-align: right; }
+
+/* Report filter row */
+.report-filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+
+/* Time-log shared styles */
+.report-tl-summary { display: flex; align-items: center; gap: 16px; padding: 12px 0 4px; border-bottom: 1.5px solid var(--sand-border); margin-bottom: 4px; }
+.report-tl-total { font-size: 20px; font-weight: 800; color: var(--ink); }
+.report-tl-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--bg-sand); }
+.report-tl-row:last-child { border-bottom: none; }
+.report-tl-row--indent { padding-left: 24px; }
+.report-tl-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #fff; flex-shrink: 0; }
+.report-tl-name { flex: 1; font-size: 13px; font-weight: 700; color: var(--ink); }
+.report-tl-task { flex: 1; font-size: 12px; color: var(--ink-muted); }
+.report-tl-date { font-size: 12px; color: var(--ink-muted); }
+.report-tl-hrs { font-size: 13px; font-weight: 800; color: var(--ink); white-space: nowrap; }
+.report-tl-project-header { display: flex; align-items: center; padding: 8px 0 6px; border-bottom: 1.5px solid var(--sand-border); }
+.report-tl-project-name { flex: 1; font-size: 14px; font-weight: 800; color: var(--ink); }
+.report-tl-log-list { margin-top: 8px; }
+
+/* Section label */
+.report-section-label { font-size: 11px; font-weight: 800; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.07em; margin: 0 0 10px; }
+
+/* XLR8 bucket */
+.report-xlr8-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.report-xlr8-project { font-size: 18px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }
+.report-xlr8-nums { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.report-xlr8-pct { font-size: 13px; font-weight: 800; color: var(--ink); }
+.report-xlr8-pct--warn { color: var(--orange); }
+.report-xlr8-bar-wrap { height: 12px; background: var(--bg-sand); border-radius: var(--r-pill); overflow: hidden; }
+.report-xlr8-bar-fill { height: 100%; background: var(--green); border-radius: var(--r-pill); transition: width 0.6s; }
+.report-xlr8-bar-fill--warn { background: var(--orange); }
+.report-xlr8-bar-fill--over { background: var(--red); }

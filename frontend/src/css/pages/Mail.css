@@ -1,8 +1,5 @@
 /* Compose card */
 .mail-compose-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   padding: 22px 24px;
   margin-bottom: 24px;
 }
@@ -138,13 +135,10 @@
 }
 
 .mail-row {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   overflow: hidden;
   transition: box-shadow 0.15s;
 }
-.mail-row:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.09); }
+.mail-row:hover { box-shadow: 0 14px 48px rgba(0,0,0,0.08); }
 
 .mail-row__main {
   display: flex;

@@ -57,6 +57,18 @@ async function createSchema(): Promise<void> {
           t.integer('client_company_id').nullable();
         });
       }
+      const hasPod = await db.schema.hasColumn('users', 'pod');
+      if (!hasPod) {
+        await db.schema.table('users', (t) => {
+          t.string('pod', 10).nullable();
+        });
+      }
+      const hasSalary = await db.schema.hasColumn('users', 'monthly_salary');
+      if (!hasSalary) {
+        await db.schema.table('users', (t) => {
+          t.decimal('monthly_salary', 12, 2).nullable();
+        });
+      }
     }
   });
 
@@ -161,6 +173,23 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // Migrate projects: billing/service fields
+  const hasSvcType = await db.schema.hasColumn('projects', 'service_type');
+  if (!hasSvcType) {
+    await db.schema.table('projects', (t) => {
+      t.string('service_type', 20).defaultTo('per_project'); // 'per_project' | 'xlr8'
+      t.decimal('budget_amount', 12, 2).nullable();          // INR budget (both types)
+      t.decimal('budgeted_hours', 8, 2).nullable();          // total hours (per_project) — legacy
+      t.decimal('monthly_hours_bucket', 8, 2).nullable();    // monthly hour cap (xlr8)
+      t.integer('billing_cycle_start_day').defaultTo(1);     // day of month cycle resets (xlr8)
+    });
+  }
+  const hasCutoff = await db.schema.hasColumn('projects', 'budget_cutoff_pct');
+  if (!hasCutoff) {
+    await db.schema.table('projects', (t) => {
+      t.decimal('budget_cutoff_pct', 5, 2).nullable(); // agency cut % e.g. 20.00 means 20%
+    });
+  }
   // project members
   await db.schema.hasTable('project_members').then(async (exists) => {
     if (!exists) {
@@ -234,8 +263,153 @@ async function createSchema(): Promise<void> {
     }
   });
 
-  // approvals — status uses string so workflow can evolve without schema changes
-  // Statuses: pending_manager → pending_admin → pending_client → work_in_progress → pending_review → approved | revision_requested | rejected
+  // Migrate tasks: add estimated_hours
+  const hasEstHours = await db.schema.hasColumn('tasks', 'estimated_hours');
+  if (!hasEstHours) {
+    await db.schema.table('tasks', (t) => { t.decimal('estimated_hours', 4, 2).nullable(); });
+  }
+
+  // Migrate tasks: add due_time (HH:MM string, e.g. "14:30")
+  const hasDueTime = await db.schema.hasColumn('tasks', 'due_time');
+  if (!hasDueTime) {
+    await db.schema.table('tasks', (t) => { t.string('due_time', 5).nullable(); });
+  }
+
+  // Migrate task_assignees: add acceptance_status
+  const hasAccStatus = await db.schema.hasColumn('task_assignees', 'acceptance_status');
+  if (!hasAccStatus) {
+    await db.schema.table('task_assignees', (t) => { t.string('acceptance_status').defaultTo('pending'); });
+  }
+
+  // Migrate task_assignees: add assignee_role (worker | alternate | manager)
+  const hasAssigneeRole = await db.schema.hasColumn('task_assignees', 'assignee_role');
+  if (!hasAssigneeRole) {
+    await db.schema.table('task_assignees', (t) => { t.string('assignee_role').defaultTo('worker'); });
+  }
+
+  // task_sessions — tracks timer start/pause/stop per task per user per day
+  await db.schema.hasTable('task_sessions').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_sessions', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.datetime('started_at').notNullable();
+        t.datetime('ended_at').nullable();
+        t.date('session_date').notNullable();
+      });
+    }
+  });
+
+  // time_logs — one finalized row per timer session, the single aggregation source
+  await db.schema.hasTable('time_logs').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('time_logs', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('project_id').notNullable().references('id').inTable('projects').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_session_id').nullable().references('id').inTable('task_sessions').onDelete('SET NULL');
+        t.date('log_date').notNullable();
+        t.decimal('hours', 6, 2).notNullable();
+        t.decimal('hourly_rate', 12, 6).nullable();
+        t.text('notes').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    } else {
+      const hasSessionId = await db.schema.hasColumn('time_logs', 'task_session_id');
+      if (!hasSessionId) {
+        await db.schema.table('time_logs', (t) => {
+          t.integer('task_session_id').nullable();
+        });
+      }
+      const hasHourlyRate = await db.schema.hasColumn('time_logs', 'hourly_rate');
+      if (!hasHourlyRate) {
+        await db.schema.table('time_logs', (t) => {
+          t.decimal('hourly_rate', 12, 6).nullable(); // salary ÷ daysInMonth ÷ 7 at time of logging
+        });
+      }
+    }
+  });
+
+  // Migrate task_assignees: rename 'worker' role → 'employee'
+  try {
+    const hasAssignees = await db.schema.hasTable('task_assignees');
+    if (hasAssignees) {
+      await db('task_assignees').where({ assignee_role: 'worker' }).update({ assignee_role: 'employee' });
+    }
+  } catch (e) { console.error('task_assignees worker→employee migration error:', e); }
+
+  // Backfill time_logs from completed task_sessions that have no time_log yet.
+  // Uses orphan-linking: if an unlinked time_log already matches (same task/user/date/hours),
+  // update it to link the session rather than inserting a duplicate.
+  try {
+    const completedSessions = await db('task_sessions as ts')
+      .join('tasks as t', 'ts.task_id', 't.id')
+      .whereNotNull('ts.ended_at')
+      .whereNotIn('ts.id', function () {
+        this.select('task_session_id').from('time_logs').whereNotNull('task_session_id');
+      })
+      .select('ts.id as session_id', 'ts.task_id', 'ts.user_id', 'ts.started_at', 'ts.ended_at', 't.project_id');
+
+    for (const s of completedSessions) {
+      const startMs = Number(s.started_at);
+      const endMs = Number(s.ended_at);
+      const hours = Math.round((endMs - startMs) / 36000) / 100;
+      if (hours < 0.01) continue;
+      const logDate = new Date(startMs).toISOString().slice(0, 10);
+      const userRec = await db('users').where({ id: s.user_id }).select('monthly_salary').first();
+      const logDateObj = new Date(startMs);
+      const daysInM = new Date(logDateObj.getFullYear(), logDateObj.getMonth() + 1, 0).getDate();
+      const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInM / 7 : null;
+
+      // Try to link an existing orphan log written before task_session_id column existed
+      const orphan = await db('time_logs')
+        .where({ task_id: s.task_id, user_id: s.user_id, log_date: logDate, hours })
+        .whereNull('task_session_id')
+        .first();
+
+      if (orphan) {
+        await db('time_logs').where({ id: orphan.id }).update({
+          task_session_id: s.session_id,
+          hourly_rate: orphan.hourly_rate ?? hourlyRate,
+        });
+      } else {
+        await db('time_logs').insert({
+          task_id: s.task_id,
+          project_id: s.project_id,
+          user_id: s.user_id,
+          task_session_id: s.session_id,
+          log_date: logDate,
+          hours,
+          hourly_rate: hourlyRate,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('time_logs backfill error:', e);
+  }
+
+  // Backfill hourly_rate on any existing time_logs where hourly_rate is NULL but user has monthly_salary
+  try {
+    const nullRateLogs = await db('time_logs as tl')
+      .join('users as u', 'tl.user_id', 'u.id')
+      .whereNull('tl.hourly_rate')
+      .whereNotNull('u.monthly_salary')
+      .select('tl.id', 'tl.log_date', 'u.monthly_salary');
+
+    for (const log of nullRateLogs) {
+      if (!log.monthly_salary) continue;
+      const logD = log.log_date ? new Date(log.log_date) : new Date();
+      const daysInM = new Date(logD.getFullYear(), logD.getMonth() + 1, 0).getDate();
+      const rate = Number(log.monthly_salary) / daysInM / 7;
+      await db('time_logs').where({ id: log.id }).update({ hourly_rate: rate });
+    }
+  } catch (e) {
+    console.error('hourly_rate backfill error:', e);
+  }
+
+  // approvals
   await db.schema.hasTable('approvals').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('approvals', (t) => {
@@ -244,27 +418,48 @@ async function createSchema(): Promise<void> {
         t.string('title').notNullable();
         t.integer('project_id').notNullable().references('id').inTable('projects');
         t.integer('submitted_by').notNullable().references('id').inTable('users');
+        // workflow_type: employee | manager | admin_with_client | admin_no_client
+        t.string('workflow_type').nullable();
         t.string('status').defaultTo('pending_manager');
-        // Manager review
+        // Legacy columns (kept for backward compat)
         t.integer('manager_approved_by').nullable();
         t.timestamp('manager_approved_at').nullable();
         t.text('manager_notes').nullable();
-        // Admin review
         t.integer('admin_approved_by').nullable();
         t.timestamp('admin_approved_at').nullable();
         t.text('admin_notes').nullable();
-        // Completion review (after employee marks task complete)
         t.timestamp('work_submitted_at').nullable();
         t.text('revision_notes').nullable();
-        // Final approval by manager/admin/client
         t.integer('final_approved_by').nullable();
         t.timestamp('final_approved_at').nullable();
         t.text('final_notes').nullable();
-        // Rejection
         t.integer('rejected_by').nullable();
         t.timestamp('rejected_at').nullable();
         t.text('rejection_notes').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    } else {
+      const hasWfType = await db.schema.hasColumn('approvals', 'workflow_type');
+      if (!hasWfType) {
+        await db.schema.table('approvals', (t) => { t.string('workflow_type').nullable(); });
+      }
+    }
+  });
+
+  // approval_steps — full audit trail: one row per decision taken
+  await db.schema.hasTable('approval_steps').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('approval_steps', (t) => {
+        t.increments('id').primary();
+        t.integer('approval_id').notNullable().references('id').inTable('approvals').onDelete('CASCADE');
+        t.string('stage_key').notNullable();    // e.g. 'pending_manager'
+        t.string('required_role').notNullable(); // 'manager' | 'admin' | 'client'
+        t.string('action').notNullable();        // 'approve' | 'reject'
+        t.integer('actor_id').nullable().references('id').inTable('users');
+        t.string('actor_name').nullable();
+        t.string('actor_role').nullable();
+        t.text('comments').nullable();
+        t.timestamp('acted_at').notNullable();
       });
     }
   });
@@ -294,8 +489,16 @@ async function createSchema(): Promise<void> {
         t.string('message').notNullable();
         t.string('type').defaultTo('info');
         t.boolean('read').defaultTo(false);
+        t.integer('project_id').nullable().references('id').inTable('projects');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasProjectId = await db.schema.hasColumn('notifications', 'project_id');
+      if (!hasProjectId) {
+        await db.schema.table('notifications', (t) => {
+          t.integer('project_id').nullable().references('id').inTable('projects');
+        });
+      }
     }
   });
 
@@ -369,6 +572,45 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // custom per-task approval flow (sequential list of approvers)
+  await db.schema.hasTable('task_approval_flow').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_approval_flow', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users');
+        t.integer('position').notNullable();
+        t.unique(['task_id', 'position']);
+      });
+    }
+  });
+
+  // add current_step to approvals for custom workflow tracking
+  await db.schema.hasTable('approvals').then(async (exists) => {
+    if (exists) {
+      const hasStep = await db.schema.hasColumn('approvals', 'current_step');
+      if (!hasStep) {
+        await db.schema.table('approvals', (t) => {
+          t.integer('current_step').defaultTo(0);
+        });
+      }
+    }
+  });
+
+  // notification preferences
+  await db.schema.hasTable('notification_preferences').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('notification_preferences', (t) => {
+        t.increments('id').primary();
+        t.integer('user_id').notNullable().references('id').inTable('users');
+        t.integer('client_user_id').nullable().references('id').inTable('users');
+        t.string('pref_key', 50).notNullable(); // 'approvals' | 'responses' | 'comments'
+        t.boolean('enabled').notNullable().defaultTo(true);
+        t.unique(['user_id', 'client_user_id', 'pref_key']);
+      });
+    }
+  });
+
   // email recipients — snapshot of email + name at send time
   await db.schema.hasTable('email_recipients').then(async (exists) => {
     if (!exists) {
@@ -411,6 +653,10 @@ async function seedAdmin(): Promise<void> {
     return;
   }
 
+  // Only seed demo users if the table is completely empty (first run only)
+  const anyUser = await db('users').first();
+  if (anyUser) return;
+
   const demoUsers = [
     { name: 'Admin User',    email: 'admin@agency.com',    password: 'Admin@123',    role: 'admin',    avatar_color: '#E8424A' },
     { name: 'Sara Manager',  email: 'manager@agency.com',  password: 'Manager@123',  role: 'manager',  avatar_color: '#F47326' },
@@ -419,18 +665,36 @@ async function seedAdmin(): Promise<void> {
   ];
 
   for (const u of demoUsers) {
-    const existing = await db('users').where({ email: u.email }).first();
-    if (!existing) {
-      const hash = await bcrypt.hash(u.password, 10);
-      await db('users').insert({
-        name: u.name, email: u.email,
-        password_hash: hash, role: u.role, avatar_color: u.avatar_color,
-      });
-      console.log(`Demo user created: ${u.email} / ${u.password}`);
-    }
+    const hash = await bcrypt.hash(u.password, 10);
+    await db('users').insert({
+      name: u.name, email: u.email,
+      password_hash: hash, role: u.role, avatar_color: u.avatar_color,
+    });
+    console.log(`Demo user created: ${u.email} / ${u.password}`);
   }
 }
 
-export async function createNotification(userId: number, message: string, type = 'info'): Promise<void> {
-  await db('notifications').insert({ user_id: userId, message, type });
+export async function createNotification(userId: number, message: string, type = 'info', projectId?: number | null): Promise<void> {
+  await db('notifications').insert({ user_id: userId, message, type, ...(projectId ? { project_id: projectId } : {}) });
+}
+
+// Returns false if the recipient has disabled this pref key for any client in the project
+export async function isNotifEnabled(
+  recipientId: number,
+  projectId: number,
+  prefKey: 'approvals' | 'responses' | 'comments'
+): Promise<boolean> {
+  const project = await db('projects').where({ id: projectId }).select('client_company_id').first();
+  const clients = project?.client_company_id
+    ? await db('users').where({ role: 'client', client_company_id: project.client_company_id }).select('id as client_user_id')
+    : await db('project_members as pm').join('users as u', 'pm.user_id', 'u.id')
+        .where('pm.project_id', projectId).where('u.role', 'client').select('u.id as client_user_id');
+
+  for (const c of clients) {
+    const pref = await db('notification_preferences')
+      .where({ user_id: recipientId, client_user_id: c.client_user_id, pref_key: prefKey })
+      .first();
+    if (pref && !pref.enabled) return false;
+  }
+  return true;
 }

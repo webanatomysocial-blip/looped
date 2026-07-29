@@ -1,35 +1,110 @@
 import { Router, Response } from 'express';
-import { getDB, createNotification } from '../db';
-import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
+import { getDB, createNotification, isNotifEnabled } from '../db';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 router.use(authenticate);
 
-// Approval status flow:
-// pending_manager → pending_admin → pending_client → work_in_progress → pending_review → approved
-//                                                                                       → revision_requested (→ pending_review again)
-// At any early stage: → rejected
+// ─── State Machine ────────────────────────────────────────────────────────────
 
-async function notifyManagers(db: any, message: string) {
-  const managers = await db('users').where({ role: 'manager' });
-  for (const m of managers) await createNotification(m.id, message, 'approval');
+type WorkflowType = 'employee' | 'manager' | 'admin_with_client' | 'admin_no_client';
+
+interface WFStage {
+  status: string;
+  role: 'manager' | 'admin' | 'client';
+  label: string;
 }
 
-async function notifyAdmins(db: any, message: string) {
-  const admins = await db('users').where({ role: 'admin' });
-  for (const a of admins) await createNotification(a.id, message, 'approval');
+/*
+ * Employee:  Manager → Admin → Client → Admin Final → Manager Final → approved
+ * Manager:   Admin → Client → Admin Final → Manager Final → approved
+ * Admin+C:   Client → Admin Final → approved
+ * Admin noC: immediate completion (no workflow)
+ */
+const WORKFLOWS: Record<WorkflowType, WFStage[]> = {
+  employee: [
+    { status: 'pending_manager',       role: 'manager', label: 'Manager Review' },
+    { status: 'pending_admin',         role: 'admin',   label: 'Admin Review' },
+    { status: 'pending_client',        role: 'client',  label: 'Client Review' },
+    { status: 'pending_admin_final',   role: 'admin',   label: 'Admin Final Review' },
+    { status: 'pending_manager_final', role: 'manager', label: 'Manager Confirmation' },
+  ],
+  manager: [
+    { status: 'pending_admin',         role: 'admin',   label: 'Admin Review' },
+    { status: 'pending_client',        role: 'client',  label: 'Client Review' },
+    { status: 'pending_admin_final',   role: 'admin',   label: 'Admin Final Review' },
+    { status: 'pending_manager_final', role: 'manager', label: 'Manager Confirmation' },
+  ],
+  admin_with_client: [
+    { status: 'pending_client',      role: 'client', label: 'Client Review' },
+    { status: 'pending_admin_final', role: 'admin',  label: 'Admin Final Review' },
+  ],
+  admin_no_client: [],
+};
+
+function stageIndex(wf: WFStage[], status: string): number {
+  return wf.findIndex((s) => s.status === status);
+}
+
+function nextStage(wf: WFStage[], status: string): WFStage | undefined {
+  const i = stageIndex(wf, status);
+  return i >= 0 ? wf[i + 1] : undefined;
+}
+
+function prevStage(wf: WFStage[], status: string): WFStage | undefined {
+  const i = stageIndex(wf, status);
+  return i > 0 ? wf[i - 1] : undefined;
+}
+
+// ─── Notification helpers ─────────────────────────────────────────────────────
+
+async function notifyManagers(db: any, message: string, projectId?: number, prefKey?: 'approvals' | 'responses' | 'comments') {
+  let query = db('users as u').where('u.role', 'manager');
+  if (projectId) {
+    query = query
+      .join('project_members as pm', function (this: any) {
+        this.on('pm.user_id', 'u.id').andOn('pm.project_id', db.raw('?', [projectId]));
+      });
+  }
+  const managers = await query.select('u.id');
+  for (const m of managers) {
+    if (projectId && prefKey && !(await isNotifEnabled(m.id, projectId, prefKey))) continue;
+    await createNotification(m.id, message, 'approval', projectId);
+  }
+}
+
+async function notifyAdmins(db: any, message: string, projectId?: number, prefKey?: 'approvals' | 'responses' | 'comments') {
+  let query = db('users as u').where('u.role', 'admin');
+  if (projectId) {
+    query = query
+      .join('project_members as pm', function (this: any) {
+        this.on('pm.user_id', 'u.id').andOn('pm.project_id', db.raw('?', [projectId]));
+      });
+  }
+  const admins = await query.select('u.id');
+  for (const a of admins) {
+    if (projectId && prefKey && !(await isNotifEnabled(a.id, projectId, prefKey))) continue;
+    await createNotification(a.id, message, 'approval', projectId);
+  }
 }
 
 async function notifyProjectClients(db: any, projectId: number, message: string) {
-  const clients = await db('project_members as pm')
-    .join('users as u', 'pm.user_id', 'u.id')
-    .where('pm.project_id', projectId)
-    .where('u.role', 'client')
-    .select('u.id');
-  for (const c of clients) await createNotification(c.id, message, 'approval');
+  const project = await db('projects').where({ id: projectId }).select('client_company_id').first();
+  const clients = project?.client_company_id
+    ? await db('users').where({ role: 'client', client_company_id: project.client_company_id }).select('id')
+    : await db('project_members as pm').join('users as u', 'pm.user_id', 'u.id')
+        .where('pm.project_id', projectId).where('u.role', 'client').select('u.id');
+  for (const c of clients) await createNotification(c.id, message, 'approval', projectId);
 }
 
-// GET approvals — filtered by role
+async function notifyByRole(db: any, role: string, projectId: number, message: string, prefKey?: 'approvals' | 'responses' | 'comments') {
+  if (role === 'manager') await notifyManagers(db, message, projectId, prefKey);
+  else if (role === 'admin') await notifyAdmins(db, message, projectId, prefKey);
+  else if (role === 'client') await notifyProjectClients(db, projectId, message);
+}
+
+// ─── GET approvals ────────────────────────────────────────────────────────────
+
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
@@ -40,186 +115,349 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .join('projects as p', 'ap.project_id', 'p.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
       .leftJoin('users as sub', 'ap.submitted_by', 'sub.id')
+      .leftJoin(
+        db('task_assignees').where('assignee_role', 'employee').as('emp_ta'),
+        'emp_ta.task_id', 'ap.task_id'
+      )
+      .leftJoin('users as worker', 'worker.id', 'emp_ta.user_id')
       .select(
         'ap.*',
         't.title as task_title',
         'p.name as project_name',
         'c.name as client_name',
         'sub.name as submitted_by_name',
-        'sub.avatar_color as submitted_by_color'
+        'sub.avatar_color as submitted_by_color',
+        'worker.name as worker_name',
+        'worker.avatar_color as worker_avatar_color'
       );
 
-    if (role === 'manager') {
-      // Managers see: items pending their review OR pending final review OR completed items for their projects
-      query = query.whereIn('ap.status', ['pending_manager', 'pending_review', 'approved', 'revision_requested']);
-    } else if (role === 'admin') {
-      query = query.whereIn('ap.status', ['pending_admin', 'pending_review', 'approved', 'revision_requested']);
+    if (role === 'admin') {
+      if (req.query.pod) {
+        query = query.where(function () {
+          this.where('sub.pod', req.query.pod as string)
+            .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
+              SELECT 1 FROM task_approval_flow taf
+              WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+            ))`, [userId]);
+        });
+      }
+    } else if (role === 'manager') {
+      const mgr = await db('users').where({ id: userId }).select('pod').first();
+      if (mgr?.pod) {
+        // Show same-pod submissions OR any custom flow where this manager is an approver (cross-pod)
+        query = query.where(function () {
+          this.where('sub.pod', mgr.pod)
+            .orWhereNull('sub.pod')
+            .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
+              SELECT 1 FROM task_approval_flow taf
+              WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+            ))`, [userId]);
+        });
+      }
     } else if (role === 'client') {
-      query = query
-        .join('project_members as pm', 'p.id', 'pm.project_id')
-        .where('pm.user_id', userId)
-        .whereIn('ap.status', ['pending_client', 'pending_review', 'approved', 'revision_requested']);
+      const clientUser = await db('users').where({ id: userId }).select('client_company_id').first();
+      if (clientUser?.client_company_id) {
+        query = query.where('p.client_company_id', clientUser.client_company_id);
+      } else {
+        query = query
+          .join('project_members as pm', 'p.id', 'pm.project_id')
+          .where('pm.user_id', userId);
+      }
     } else if (role === 'employee') {
-      query = query.where('ap.submitted_by', userId);
+      // Employee sees: own submissions + any custom-flow approval they appear in (any step, any stage)
+      query = query.where(function () {
+        this.where('ap.submitted_by', userId)
+          .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
+            SELECT 1 FROM task_approval_flow taf
+            WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+          ))`, [userId]);
+      });
     }
 
     const approvals = await query.orderBy('ap.created_at', 'desc');
-    res.json(approvals);
+
+    // Attach the approval flow chain for custom-workflow approvals
+    const customIds = approvals.filter((a: any) => a.workflow_type === 'custom').map((a: any) => a.task_id);
+    let flowMap: Record<number, any[]> = {};
+    if (customIds.length) {
+      const flowRows = await db('task_approval_flow as f')
+        .join('users as u', 'f.user_id', 'u.id')
+        .whereIn('f.task_id', customIds)
+        .orderBy('f.task_id').orderBy('f.position')
+        .select('f.task_id', 'f.position', 'u.id as user_id', 'u.name', 'u.role', 'u.avatar_color');
+      for (const r of flowRows) {
+        if (!flowMap[r.task_id]) flowMap[r.task_id] = [];
+        flowMap[r.task_id].push(r);
+      }
+    }
+    const result = approvals.map((a: any) => ({
+      ...a,
+      flow_chain: flowMap[a.task_id] ?? null,
+    }));
+
+    res.json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST submit task for approval (employee / manager / admin)
-router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
+// ─── GET step history for one approval ───────────────────────────────────────
+
+router.get('/:id/steps', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const steps = await db('approval_steps')
+      .where({ approval_id: req.params.id })
+      .orderBy('acted_at', 'asc');
+    res.json(steps);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ─── POST submit for approval ─────────────────────────────────────────────────
+
+router.post('/', async (req: AuthRequest, res: Response) => {
   const { task_id, title } = req.body;
+  const { role, id: userId } = req.user!;
   if (!task_id || !title) { res.status(400).json({ error: 'task_id and title required' }); return; }
+
   try {
     const db = getDB();
     const task = await db('tasks').where({ id: task_id }).first();
     if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
 
-    // Allow resubmission after revision_requested, otherwise block duplicates
+    // Block duplicate active approvals
     const existing = await db('approvals').where({ task_id })
-      .whereNotIn('status', ['approved', 'rejected', 'revision_requested']).first();
+      .whereNotIn('status', ['approved', 'rejected']).first();
     if (existing) { res.status(409).json({ error: 'Approval already pending for this task' }); return; }
 
-    // If re-submitting after revision, update existing record
-    const revisionRecord = await db('approvals').where({ task_id, status: 'revision_requested' }).first();
-    if (revisionRecord) {
-      await db('approvals').where({ id: revisionRecord.id }).update({
-        status: 'pending_review',
-        work_submitted_at: new Date(),
-        revision_notes: null,
+    // Determine workflow type from submitter role + whether project has clients
+    const projectClients = await db('project_members as pm')
+      .join('users as u', 'pm.user_id', 'u.id')
+      .where('pm.project_id', task.project_id)
+      .where('u.role', 'client')
+      .select('u.id');
+    const hasClient = projectClients.length > 0;
+
+    let workflowType: WorkflowType;
+    if (role === 'employee') workflowType = 'employee';
+    else if (role === 'manager') workflowType = 'manager';
+    else workflowType = hasClient ? 'admin_with_client' : 'admin_no_client';
+
+    // Admin submitting a task with no clients → immediate completion
+    if (workflowType === 'admin_no_client') {
+      await db('tasks').where({ id: task_id }).update({ status: 'completed' });
+      res.status(201).json({ id: null, workflow_type: workflowType, immediate: true });
+      return;
+    }
+
+    const workflow = WORKFLOWS[workflowType];
+    const firstStage = workflow[0];
+
+    // Resubmission after rejection: reopen the rejected record
+    const rejectedRecord = await db('approvals')
+      .where({ task_id, status: 'rejected' }).orderBy('created_at', 'desc').first();
+    if (rejectedRecord) {
+      await db('approvals').where({ id: rejectedRecord.id }).update({
+        status: firstStage.status,
+        workflow_type: workflowType,
+        rejected_by: null,
+        rejected_at: null,
+        rejection_notes: null,
       });
       await db('tasks').where({ id: task_id }).update({ status: 'in_review' });
-      await notifyManagers(db, `"${title}" has been revised and resubmitted for review`);
-      await notifyAdmins(db, `"${title}" has been revised and resubmitted for review`);
-      res.json({ id: revisionRecord.id, resubmitted: true });
+      await notifyByRole(db, firstStage.role, task.project_id, `"${title}" has been resubmitted for review`);
+      res.json({ id: rejectedRecord.id, resubmitted: true });
       return;
     }
 
     const [id] = await db('approvals').insert({
-      task_id, title, project_id: task.project_id,
-      submitted_by: req.user!.id, status: 'pending_manager',
+      task_id,
+      title,
+      project_id: task.project_id,
+      submitted_by: userId,
+      status: firstStage.status,
+      workflow_type: workflowType,
     });
-    await db('tasks').where({ id: task_id }).update({ status: 'in_review' });
-    await notifyManagers(db, `New approval request: "${title}" is awaiting your review`);
 
-    res.status(201).json({ id });
+    await db('tasks').where({ id: task_id }).update({ status: 'in_review' });
+    await notifyByRole(db, firstStage.role, task.project_id,
+      `New approval request: "${title}" is awaiting your review`);
+
+    res.status(201).json({ id, workflow_type: workflowType });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// PUT review an approval
+// ─── PUT review ───────────────────────────────────────────────────────────────
+
 router.put('/:id', async (req: AuthRequest, res: Response) => {
-  const { action, notes } = req.body; // action: 'approve' | 'reject' | 'request_revision'
-  const { role, id: userId } = req.user!;
+  const { action, notes } = req.body; // 'approve' | 'reject'
+  const { role, id: userId, name: actorName } = req.user!;
+
   try {
     const db = getDB();
     const approval = await db('approvals').where({ id: req.params.id }).first();
     if (!approval) { res.status(404).json({ error: 'Not found' }); return; }
 
+    // Route legacy approvals through the old handler
+    const isLegacy = !approval.workflow_type ||
+      ['work_in_progress', 'pending_review', 'revision_requested'].includes(approval.status);
+    if (isLegacy) {
+      await handleLegacyReview(db, res, approval, action, notes, userId, role as string);
+      return;
+    }
+
+    // Validate
+    if (!['approve', 'reject'].includes(action)) {
+      res.status(400).json({ error: 'action must be "approve" or "reject"' }); return;
+    }
+    if (action === 'reject' && !notes?.trim()) {
+      res.status(400).json({ error: 'Rejection reason is required' }); return;
+    }
+
+    // ── Custom sequential flow ──────────────────────────────────────────────────
+    if (approval.workflow_type === 'custom') {
+      const flow = await db('task_approval_flow')
+        .where({ task_id: approval.task_id })
+        .orderBy('position')
+        .select('user_id', 'position');
+
+      const step = Number(approval.current_step ?? 0);
+      const currentApprover = flow[step];
+      if (!currentApprover || currentApprover.user_id !== userId) {
+        res.status(403).json({ error: 'It is not your turn to approve this' }); return;
+      }
+
+      await db('approval_steps').insert({
+        approval_id: approval.id,
+        stage_key: `step_${step}`,
+        required_role: role,
+        action,
+        actor_id: userId,
+        actor_name: actorName,
+        actor_role: role,
+        comments: notes || null,
+        acted_at: new Date(),
+      });
+
+      if (action === 'approve') {
+        const nextStep = step + 1;
+        if (nextStep < flow.length) {
+          await db('approvals').where({ id: approval.id }).update({ current_step: nextStep });
+          const next = flow[nextStep];
+          await createNotification(next.user_id, `"${approval.title}" is waiting for your approval`, 'approval', approval.project_id);
+          await createNotification(approval.submitted_by, `"${approval.title}" passed step ${step + 1} of ${flow.length}`, 'approval', approval.project_id);
+        } else {
+          // All steps approved
+          await db('approvals').where({ id: approval.id }).update({ status: 'approved', final_approved_at: new Date() });
+          await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
+          await createNotification(approval.submitted_by, `Your work "${approval.title}" has been fully approved! ✓`, 'approval', approval.project_id);
+        }
+      } else {
+        await db('approvals').where({ id: approval.id }).update({ status: 'rejected', rejected_by: userId, rejected_at: new Date(), rejection_notes: notes });
+        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+        await createNotification(approval.submitted_by, `"${approval.title}" was rejected by ${actorName}: ${notes}`, 'approval', approval.project_id);
+      }
+
+      res.json({ message: 'Updated' });
+      return;
+    }
+
+    // ── Legacy role-based flow ──────────────────────────────────────────────────
+    const workflow = WORKFLOWS[approval.workflow_type as WorkflowType];
+    if (!workflow) { res.status(400).json({ error: 'Unknown workflow type' }); return; }
+
+    const idx = stageIndex(workflow, approval.status);
+    if (idx < 0) {
+      res.status(400).json({ error: 'Approval is not in a reviewable state' }); return;
+    }
+    const currentStage = workflow[idx];
+
+    // Role check
+    if (role !== currentStage.role) {
+      res.status(403).json({ error: `Stage "${currentStage.label}" requires a ${currentStage.role}` }); return;
+    }
+    // Client authorization check — match via company link or explicit project membership
+    if (currentStage.role === 'client') {
+      const [clientUser, project] = await Promise.all([
+        db('users').where({ id: userId }).select('client_company_id').first(),
+        db('projects').where({ id: approval.project_id }).select('client_company_id').first(),
+      ]);
+      const byCompany = clientUser?.client_company_id && project?.client_company_id &&
+        clientUser.client_company_id === project.client_company_id;
+      const byMember = !byCompany && await db('project_members').where({ project_id: approval.project_id, user_id: userId }).first();
+      if (!byCompany && !byMember) { res.status(403).json({ error: 'Not authorized for this project' }); return; }
+    }
+
     const updates: any = {};
 
-    // MANAGER: reviews initial request
-    if (role === 'manager' && approval.status === 'pending_manager') {
-      if (action === 'approve') {
-        updates.status = 'pending_admin';
-        updates.manager_approved_by = userId;
-        updates.manager_approved_at = new Date();
-        updates.manager_notes = notes || null;
-        await notifyAdmins(db, `"${approval.title}" passed manager review — awaiting your approval`);
-      } else if (action === 'reject') {
-        updates.status = 'rejected';
-        updates.rejected_by = userId;
-        updates.rejected_at = new Date();
-        updates.rejection_notes = notes || null;
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
-        await createNotification(approval.submitted_by, `Your request "${approval.title}" was rejected by manager${notes ? ': ' + notes : ''}`, 'approval');
-      }
+    const isClientAction = currentStage.role === 'client';
 
-    // ADMIN: reviews after manager approval → sends to client
-    } else if (role === 'admin' && approval.status === 'pending_admin') {
-      if (action === 'approve') {
-        updates.status = 'pending_client';
-        updates.admin_approved_by = userId;
-        updates.admin_approved_at = new Date();
-        updates.admin_notes = notes || null;
-        await notifyProjectClients(db, approval.project_id, `"${approval.title}" has been approved by admin and is awaiting your review`);
-      } else if (action === 'reject') {
-        updates.status = 'rejected';
-        updates.rejected_by = userId;
-        updates.rejected_at = new Date();
-        updates.rejection_notes = notes || null;
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
-        await createNotification(approval.submitted_by, `Your request "${approval.title}" was rejected by admin${notes ? ': ' + notes : ''}`, 'approval');
-      }
+    // Helper: send to submitter only if they haven't suppressed client notifications
+    const notifySubmitter = async (message: string) => {
+      if (isClientAction && !(await isNotifEnabled(approval.submitted_by, approval.project_id, 'approvals'))) return;
+      await createNotification(approval.submitted_by, message, 'approval', approval.project_id);
+    };
 
-    // CLIENT: reviews after admin approval → green-lights the employee to start work
-    } else if (role === 'client' && approval.status === 'pending_client') {
-      const isMember = await db('project_members')
-        .where({ project_id: approval.project_id, user_id: userId }).first();
-      if (!isMember) { res.status(403).json({ error: 'Not authorized' }); return; }
+    const clientPrefKey: 'approvals' | undefined = isClientAction ? 'approvals' : undefined;
 
-      if (action === 'approve') {
-        updates.status = 'work_in_progress';
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'in_progress' });
-        await createNotification(
-          approval.submitted_by,
-          `Your request "${approval.title}" was approved by the client. You can now start working on it.`,
-          'approval'
-        );
-        await notifyManagers(db, `Client approved "${approval.title}" — work has started`);
-        await notifyAdmins(db, `Client approved "${approval.title}" — work has started`);
-      } else if (action === 'reject') {
-        updates.status = 'rejected';
-        updates.rejected_by = userId;
-        updates.rejected_at = new Date();
-        updates.rejection_notes = notes || null;
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
-        await createNotification(approval.submitted_by, `Your request "${approval.title}" was rejected by client${notes ? ': ' + notes : ''}`, 'approval');
-      }
-
-    // MANAGER / ADMIN / CLIENT: reviews completed work
-    } else if (approval.status === 'pending_review') {
-      const canReview =
-        role === 'manager' ||
-        role === 'admin' ||
-        (role === 'client' && await db('project_members').where({ project_id: approval.project_id, user_id: userId }).first());
-
-      if (!canReview) { res.status(403).json({ error: 'Not authorized' }); return; }
-
-      if (action === 'approve') {
+    if (action === 'approve') {
+      const next = nextStage(workflow, approval.status);
+      if (next) {
+        updates.status = next.status;
+        await notifyByRole(db, next.role, approval.project_id,
+          `"${approval.title}" passed ${currentStage.label} — now at ${next.label}`, clientPrefKey);
+        await notifySubmitter(`Your submission "${approval.title}" passed ${currentStage.label}`);
+      } else {
+        // Final stage approved → fully done
         updates.status = 'approved';
         updates.final_approved_by = userId;
         updates.final_approved_at = new Date();
-        updates.final_notes = notes || null;
         await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
-        await createNotification(approval.submitted_by, `Your work on "${approval.title}" has been approved!`, 'approval');
-      } else if (action === 'request_revision') {
-        updates.status = 'revision_requested';
-        updates.revision_notes = notes || null;
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'in_progress' });
-        await createNotification(
-          approval.submitted_by,
-          `Revision requested on "${approval.title}"${notes ? ': ' + notes : ''}`,
-          'approval'
-        );
+        await notifySubmitter(`Your work "${approval.title}" has been fully approved! ✓`);
       }
 
     } else {
-      res.status(403).json({ error: 'Not authorized for this action at current stage' }); return;
-    }
-
-    if (!Object.keys(updates).length) {
-      res.status(400).json({ error: 'Invalid action for current status' }); return;
+      // action === 'reject'
+      const prev = prevStage(workflow, approval.status);
+      if (prev) {
+        // Return to previous stage
+        updates.status = prev.status;
+        await notifyByRole(db, prev.role, approval.project_id,
+          `"${approval.title}" was rejected at ${currentStage.label} and returned to ${prev.label}`, clientPrefKey);
+        await notifySubmitter(`"${approval.title}" was rejected at ${currentStage.label}: ${notes}`);
+      } else {
+        // First stage rejected → full rejection back to submitter
+        updates.status = 'rejected';
+        updates.rejected_by = userId;
+        updates.rejected_at = new Date();
+        updates.rejection_notes = notes;
+        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+        await notifySubmitter(`"${approval.title}" was rejected: ${notes}`);
+      }
     }
 
     await db('approvals').where({ id: req.params.id }).update(updates);
+
+    // Append step to audit trail
+    await db('approval_steps').insert({
+      approval_id: approval.id,
+      stage_key: currentStage.status,
+      required_role: currentStage.role,
+      action,
+      actor_id: userId,
+      actor_name: actorName,
+      actor_role: role,
+      comments: notes || null,
+      acted_at: new Date(),
+    });
+
     res.json({ message: 'Updated', status: updates.status });
   } catch (err) {
     console.error(err);
@@ -227,27 +465,124 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST mark task complete → move approval to pending_review
-// Called when employee sets task status to 'completed'
-router.post('/:id/complete', requireRoles('employee', 'manager', 'admin'), async (req: AuthRequest, res: Response) => {
+// ─── Legacy review (old workflow statuses) ────────────────────────────────────
+
+async function handleLegacyReview(
+  db: any, res: Response, approval: any,
+  action: string, notes: string, userId: number, role: string
+) {
+  const updates: any = {};
+
+  if (role === 'manager' && approval.status === 'pending_manager') {
+    if (action === 'approve') {
+      updates.status = 'pending_admin';
+      updates.manager_approved_by = userId;
+      updates.manager_approved_at = new Date();
+      updates.manager_notes = notes || null;
+      await notifyAdmins(db, `"${approval.title}" passed manager review`, approval.project_id);
+    } else {
+      if (!notes?.trim()) { res.status(400).json({ error: 'Rejection reason required' }); return; }
+      updates.status = 'rejected';
+      updates.rejected_by = userId;
+      updates.rejected_at = new Date();
+      updates.rejection_notes = notes;
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await createNotification(approval.submitted_by, `"${approval.title}" was rejected by manager: ${notes}`, 'approval', approval.project_id);
+    }
+
+  } else if (role === 'admin' && approval.status === 'pending_admin') {
+    if (action === 'approve') {
+      updates.status = 'pending_client';
+      updates.admin_approved_by = userId;
+      updates.admin_approved_at = new Date();
+      updates.admin_notes = notes || null;
+      await notifyProjectClients(db, approval.project_id, `"${approval.title}" awaits your review`);
+    } else {
+      if (!notes?.trim()) { res.status(400).json({ error: 'Rejection reason required' }); return; }
+      updates.status = 'rejected';
+      updates.rejected_by = userId;
+      updates.rejected_at = new Date();
+      updates.rejection_notes = notes;
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await createNotification(approval.submitted_by, `"${approval.title}" was rejected by admin: ${notes}`, 'approval', approval.project_id);
+    }
+
+  } else if (role === 'client' && approval.status === 'pending_client') {
+    const [clientUser, project] = await Promise.all([
+      db('users').where({ id: userId }).select('client_company_id').first(),
+      db('projects').where({ id: approval.project_id }).select('client_company_id').first(),
+    ]);
+    const byCompany = clientUser?.client_company_id && project?.client_company_id &&
+      clientUser.client_company_id === project.client_company_id;
+    const byMember = !byCompany && await db('project_members').where({ project_id: approval.project_id, user_id: userId }).first();
+    if (!byCompany && !byMember) { res.status(403).json({ error: 'Not authorized' }); return; }
+
+    if (action === 'approve') {
+      updates.status = 'work_in_progress';
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'in_progress' });
+      await createNotification(approval.submitted_by, `Client approved "${approval.title}"`, 'approval', approval.project_id);
+    } else {
+      if (!notes?.trim()) { res.status(400).json({ error: 'Rejection reason required' }); return; }
+      updates.status = 'rejected';
+      updates.rejected_by = userId;
+      updates.rejected_at = new Date();
+      updates.rejection_notes = notes;
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await createNotification(approval.submitted_by, `"${approval.title}" was rejected by client: ${notes}`, 'approval', approval.project_id);
+    }
+
+  } else if (approval.status === 'pending_review') {
+    if (action === 'approve') {
+      updates.status = 'approved';
+      updates.final_approved_by = userId;
+      updates.final_approved_at = new Date();
+      updates.final_notes = notes || null;
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
+      await createNotification(approval.submitted_by, `Work on "${approval.title}" approved!`, 'approval', approval.project_id);
+    } else if (action === 'request_revision') {
+      updates.status = 'revision_requested';
+      updates.revision_notes = notes || null;
+      await db('tasks').where({ id: approval.task_id }).update({ status: 'in_progress' });
+      await createNotification(approval.submitted_by, `Revision requested on "${approval.title}"`, 'approval', approval.project_id);
+    }
+
+  } else if (approval.status === 'revision_requested') {
+    // Resubmission: go back to pending_review
+    updates.status = 'pending_review';
+    updates.work_submitted_at = new Date();
+    await db('tasks').where({ id: approval.task_id }).update({ status: 'in_review' });
+    await notifyManagers(db, `"${approval.title}" resubmitted for review`, approval.project_id);
+    await notifyAdmins(db, `"${approval.title}" resubmitted for review`, approval.project_id);
+
+  } else {
+    res.status(403).json({ error: 'Not authorized for this action at current stage' }); return;
+  }
+
+  if (!Object.keys(updates).length) {
+    res.status(400).json({ error: 'Invalid action for current status' }); return;
+  }
+
+  await db('approvals').where({ id: approval.id }).update(updates);
+  res.json({ message: 'Updated', status: updates.status });
+}
+
+// ─── POST mark complete (legacy work_in_progress) ────────────────────────────
+
+router.post('/:id/complete', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const approval = await db('approvals').where({ id: req.params.id }).first();
     if (!approval) { res.status(404).json({ error: 'Not found' }); return; }
     if (approval.status !== 'work_in_progress') {
-      res.status(400).json({ error: 'Task is not in work_in_progress stage' }); return;
+      res.status(400).json({ error: 'Not in work_in_progress stage' }); return;
     }
-
     await db('approvals').where({ id: req.params.id }).update({
       status: 'pending_review',
       work_submitted_at: new Date(),
     });
     await db('tasks').where({ id: approval.task_id }).update({ status: 'in_review' });
-
-    await notifyManagers(db, `"${approval.title}" has been completed and is awaiting your review`);
-    await notifyAdmins(db, `"${approval.title}" has been completed and is awaiting your review`);
-    await notifyProjectClients(db, approval.project_id, `Work on "${approval.title}" is ready for your review`);
-
+    await notifyManagers(db, `"${approval.title}" is ready for review`, approval.project_id);
+    await notifyAdmins(db, `"${approval.title}" is ready for review`, approval.project_id);
     res.json({ message: 'Moved to pending_review' });
   } catch (err) {
     console.error(err);

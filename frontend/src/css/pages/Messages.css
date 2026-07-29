@@ -2,10 +2,7 @@
 .msg-tabs {
   display: flex;
   gap: 4px;
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 4px;
-  box-shadow: var(--shadow);
   width: fit-content;
   margin-bottom: 16px;
 }
@@ -36,9 +33,6 @@
 
 /* Left sidebar */
 .msg-projects-panel {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -197,9 +191,6 @@
 
 /* Chat area */
 .msg-chat-panel {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;

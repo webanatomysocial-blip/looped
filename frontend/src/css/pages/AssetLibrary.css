@@ -1,12 +1,9 @@
 .assets-upload-bar {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 18px 20px;
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
-  box-shadow: var(--shadow);
+  flex-wrap: wrap;;
   margin-bottom: 20px;
 }
 .assets-upload-bar .form-input { flex: 1; min-width: 160px; }
@@ -21,9 +18,6 @@
 .assets-count { font-size: 13px; color: var(--ink-muted); }
 
 .assets-table-wrap {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   overflow: hidden;
 }
 

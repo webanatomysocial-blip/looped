@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
+  Home, LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
   BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
-  Sparkles, LayoutGrid, X, SearchCheck,
+  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -16,15 +16,19 @@ type NavGroup = { top: NavItem[]; more: NavItem[] };
 const NAV: Record<Role, NavGroup> = {
   admin: {
     top: [
-      { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects',    icon: FolderOpen,      label: 'Projects' },
-      { to: '/tasks',       icon: CheckSquare,     label: 'Tasks' },
-      { to: '/approvals',   icon: ThumbsUp,        label: 'Approvals' },
-      { to: '/assets',      icon: Package,         label: 'Assets' },
+      { to: '/home',           icon: Home,            label: 'Home' },
+      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
+      { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
+      { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
+      { to: '/approvals',      icon: ThumbsUp,        label: 'Approvals' },
+      { to: '/approved',       icon: FileCheck,       label: 'Approved' },
+      { to: '/assets',         icon: Package,         label: 'Assets' },
     ],
     more: [
-      { to: '/reports',      icon: BarChart2,      label: 'Reports' },
-      { to: '/seo',          icon: SearchCheck,    label: 'SEO' },
+      { to: '/reports',         icon: BarChart2,      label: 'Reports' },
+      { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
+      { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
       { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
       { to: '/mail',         icon: Mail,           label: 'Mail' },
       { to: '/content',      icon: Sparkles,       label: 'Content AI' },
@@ -34,29 +38,36 @@ const NAV: Record<Role, NavGroup> = {
   },
   manager: {
     top: [
-      { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects',    icon: FolderOpen,      label: 'Projects' },
-      { to: '/tasks',       icon: CheckSquare,     label: 'Tasks' },
-      { to: '/approvals',   icon: ThumbsUp,        label: 'Approvals' },
-      { to: '/assets',      icon: Package,         label: 'Assets' },
+      { to: '/home',           icon: Home,            label: 'Home' },
+      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
+      { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
+      { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
+      { to: '/approvals',      icon: ThumbsUp,        label: 'Approvals' },
+      { to: '/approved',       icon: FileCheck,       label: 'Approved' },
+      { to: '/assets',         icon: Package,         label: 'Assets' },
     ],
     more: [
-      { to: '/reports',      icon: BarChart2,      label: 'Reports' },
-      { to: '/seo',          icon: SearchCheck,    label: 'SEO' },
-      { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
-      { to: '/mail',         icon: Mail,           label: 'Mail' },
-      { to: '/content',      icon: Sparkles,       label: 'Content AI' },
-      { to: '/notifications',icon: Bell,           label: 'Notifications' },
+      { to: '/reports',         icon: BarChart2,      label: 'Reports' },
+      { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
+      { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
+      { to: '/messages',        icon: MessageCircle,  label: 'Messages' },
+      { to: '/mail',            icon: Mail,           label: 'Mail' },
+      { to: '/content',         icon: Sparkles,       label: 'Content AI' },
+      { to: '/notifications',   icon: Bell,           label: 'Notifications' },
     ],
   },
   employee: {
     top: [
+      { to: '/home',        icon: Home,            label: 'Home' },
       { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/tasks',       icon: CheckSquare,     label: 'Tasks' },
-      { to: '/seo',         icon: SearchCheck,     label: 'SEO' },
+      { to: '/approvals',   icon: ThumbsUp,        label: 'Approvals' },
+      { to: '/approved',    icon: FileCheck,       label: 'Approved' },
       { to: '/assets',      icon: Package,         label: 'Assets' },
     ],
     more: [
+      { to: '/seo',          icon: SearchCheck,    label: 'SEO' },
       { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
       { to: '/mail',         icon: Mail,           label: 'Mail' },
       { to: '/content',      icon: Sparkles,       label: 'Content AI' },
@@ -65,10 +76,10 @@ const NAV: Record<Role, NavGroup> = {
   },
   client: {
     top: [
+      { to: '/home',      icon: Home,          label: 'Home' },
       { to: '/projects',  icon: FolderOpen,    label: 'Projects' },
       { to: '/approvals', icon: ThumbsUp,      label: 'Reviews' },
       { to: '/approved',  icon: CheckSquare,   label: 'Approved' },
-      { to: '/seo',       icon: SearchCheck,   label: 'SEO' },
       { to: '/messages',  icon: MessageCircle, label: 'Messages' },
     ],
     more: [],

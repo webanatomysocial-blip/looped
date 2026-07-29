@@ -140,9 +140,7 @@
 /* Inline config panel */
 .seo-inline-config {
   margin-top: 10px;
-  background: var(--bg-white);
   border: 1.5px solid #6366f1;
-  border-radius: var(--r-xl);
   padding: 16px 20px;
   animation: seo-slide-in 0.15s ease;
 }
@@ -232,9 +230,6 @@
 }
 
 .seo-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   padding: 16px;
   display: flex;
   align-items: center;
@@ -258,9 +253,6 @@
 
 /* Sections */
 .seo-section {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   padding: 20px 24px;
   margin-bottom: 20px;
 }

@@ -21,6 +21,8 @@ import internalChatRoutes from './routes/internal-chat';
 import emailRoutes from './routes/emails';
 import contentRoutes from './routes/content';
 import seoRoutes from './routes/seo';
+import capacityRoutes from './routes/capacity';
+import timeLogsRoutes from './routes/time-logs';
 import { startEmailScheduler } from './services/scheduler';
 
 const app = express();
@@ -35,7 +37,10 @@ app.use(
 app.use(cors({
   origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'https://agency.webanatomy.in'],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+app.options(/.*/, cors());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -58,6 +63,8 @@ app.use('/api/internal-chat', internalChatRoutes);
 app.use('/api/emails', emailRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/seo', seoRoutes);
+app.use('/api/capacity', capacityRoutes);
+app.use('/api/time-logs', timeLogsRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', env: process.env.NODE_ENV }));
 

@@ -1,0 +1,461 @@
+/* ── Daily Capacity Tracker header card ── */
+.cap-header {
+  border-radius: var(--r-xl);
+  padding: 24px 28px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.cap-header__left { flex: 1; min-width: 160px; }
+
+.cap-header__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cap-header__label-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: cap-pulse 2s ease-in-out infinite;
+}
+
+@keyframes cap-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.cap-header__hrs {
+  font-size: 42px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cap-header__hrs-total {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.cap-header__meta {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.cap-header__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+
+.cap-header__meta-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.cap-header__right {
+  flex: 2;
+  min-width: 260px;
+}
+
+.cap-header__status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.cap-header__status-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cap-header__status-label--ok       { color: var(--green); }
+.cap-header__status-label--warn      { color: var(--orange); }
+.cap-header__status-label--over      { color: var(--red); }
+
+.cap-header__pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.cap-bar-track {
+  height: 8px;
+  background: var(--bg-sand);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+
+.cap-bar-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width 0.6s ease;
+}
+
+.cap-bar-fill--ok   { background: var(--green); }
+.cap-bar-fill--warn { background: var(--orange); }
+.cap-bar-fill--over { background: var(--red); }
+
+.cap-header__bar-note {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 6px;
+}
+
+/* ── Two-column grid ── */
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 900px) { .home-grid { grid-template-columns: 1fr; } }
+
+/* ── Section card ── */
+.home-section {
+  border-radius: var(--r-xl);
+  overflow: hidden;
+}
+
+.home-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--bg-sand);
+}
+
+.home-section__title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.home-section__sub {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 1px;
+}
+
+.home-section__filter {
+  display: flex;
+  gap: 4px;
+}
+
+.home-section__filter-btn {
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.home-section__filter-btn:hover { color: var(--ink); border-color: var(--sand-border); }
+.home-section__filter-btn.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+/* ── Task row (Today's Priorities) ── */
+.cap-task-list { display: flex; flex-direction: column; }
+
+.cap-task-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--bg-sand-lt);
+  transition: background 0.13s;
+  cursor: default;
+}
+
+.cap-task-row:last-child { border-bottom: none; }
+.cap-task-row:hover { background: rgba(255,255,255,0.3); }
+
+.cap-task-row__check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--sand-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cap-task-row__check:hover { border-color: var(--green); }
+.cap-task-row__check--done { background: var(--green); border-color: var(--green); }
+
+.cap-task-row__info { flex: 1; min-width: 0; }
+
+.cap-task-row__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cap-task-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+
+.cap-task-row__priority {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cap-task-row__priority--high   { background: rgba(232,66,74,0.12);   color: var(--red); }
+.cap-task-row__priority--medium { background: rgba(244,115,38,0.12);  color: var(--orange); }
+.cap-task-row__priority--low    { background: rgba(76,175,125,0.12);  color: var(--green); }
+
+/* accept/decline for pending tasks */
+.cap-task-row__accept-btns {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cap-accept-btn {
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  border: 1.5px solid;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cap-accept-btn--yes {
+  background: rgba(76,175,125,0.12);
+  border-color: rgba(76,175,125,0.3);
+  color: var(--green);
+}
+.cap-accept-btn--yes:hover { background: var(--green); color: #fff; border-color: var(--green); }
+
+.cap-accept-btn--no {
+  background: rgba(232,66,74,0.08);
+  border-color: rgba(232,66,74,0.2);
+  color: var(--red);
+}
+.cap-accept-btn--no:hover { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* timer controls */
+.cap-task-row__timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.cap-timer-time {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: right;
+}
+
+.cap-timer-time--running { color: var(--orange); }
+
+.cap-timer-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.cap-timer-btn--start  { background: var(--green);  color: #fff; }
+.cap-timer-btn--pause  { background: var(--orange); color: #fff; }
+.cap-timer-btn--done   { background: var(--ink);    color: #fff; }
+.cap-timer-btn:hover   { opacity: 0.82; transform: scale(1.08); }
+
+.cap-task-row__review-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(155,89,182,0.12);
+  color: var(--purple);
+  border: 1px solid rgba(155,89,182,0.22);
+}
+
+/* ── Capacity warning banner ── */
+.cap-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(244,115,38,0.10);
+  border: 1.5px solid rgba(244,115,38,0.25);
+  border-radius: var(--r);
+  font-size: 12px;
+  color: var(--orange);
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+/* ── Active task live ticker (top of priorities panel) ── */
+.cap-active-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: rgba(99,102,241,0.07);
+  border-bottom: 1px solid rgba(99,102,241,0.12);
+  font-size: 12px;
+  font-weight: 600;
+  color: #5558a8;
+}
+
+.cap-active-banner__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: cap-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.cap-active-banner__time {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* ── Team capacity view ── */
+.team-member-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--bg-sand-lt);
+  flex-wrap: wrap;
+  cursor: pointer;
+  transition: background 0.13s;
+}
+
+.team-member-row:last-child { border-bottom: none; }
+.team-member-row:hover { background: rgba(255,255,255,0.35); }
+
+.team-member-info {
+  flex: 1;
+  min-width: 140px;
+}
+
+.team-member-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.team-role-chip {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+}
+
+.team-member-active {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+  margin-top: 3px;
+}
+
+.team-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: cap-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.team-member-idle {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin-top: 3px;
+}
+
+.team-member-bar-wrap {
+  flex: 2;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+}
+
+.team-member-hrs {
+  font-size: 11px;
+  text-align: right;
+}
+
+.team-member-tasks {
+  width: 100%;
+  background: rgba(255,255,255,0.35);
+  border-top: 1px solid var(--bg-sand);
+  margin-top: 10px;
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.team-task-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--bg-sand-lt);
+}
+
+.team-task-row:last-child { border-bottom: none; }

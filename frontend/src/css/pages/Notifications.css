@@ -5,16 +5,68 @@
   margin-bottom: 20px;
 }
 
+/* ─── Project tabs ─────────────────────────────────────────── */
+.notifs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+  max-width: 700px;
+}
+
+.notifs-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid var(--sand-border);
+  background: var(--bg-white);
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.notifs-tab:hover { color: var(--ink); border-color: var(--ink); }
+.notifs-tab--active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.notifs-tab__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--yellow);
+  color: var(--ink);
+  line-height: 1;
+}
+.notifs-tab--active .notifs-tab__badge {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
+.notif-project-tag {
+  color: var(--blue);
+  font-weight: 600;
+}
+
 .notifs-list { display: flex; flex-direction: column; gap: 8px; max-width: 700px; }
 
 .notif-item {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 16px 18px;
-  box-shadow: var(--shadow);
   transition: box-shadow 0.15s;
   position: relative;
 }

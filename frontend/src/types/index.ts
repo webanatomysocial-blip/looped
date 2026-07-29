@@ -4,11 +4,37 @@ export type ApprovalStatus =
   | 'pending_manager'
   | 'pending_admin'
   | 'pending_client'
+  | 'pending_admin_final'
+  | 'pending_manager_final'
+  | 'pending_custom'
+  | 'approved'
+  | 'rejected'
   | 'work_in_progress'
   | 'pending_review'
-  | 'revision_requested'
-  | 'approved'
-  | 'rejected';
+  | 'revision_requested';
+
+export type WorkflowType = 'employee' | 'manager' | 'admin_with_client' | 'admin_no_client' | 'custom' | null;
+
+export interface FlowStep {
+  position: number;
+  user_id: number;
+  name: string;
+  role: string;
+  avatar_color: string;
+}
+
+export interface ApprovalStep {
+  id: number;
+  approval_id: number;
+  stage_key: string;
+  required_role: string;
+  action: 'approve' | 'reject';
+  actor_id: number | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  comments: string | null;
+  acted_at: string;
+}
 
 export interface EmployeeCategory {
   id: number;
@@ -22,7 +48,9 @@ export interface User {
   email: string;
   role: Role;
   avatar_color: string;
+  pod?: 'pod1' | 'pod2' | null;
   categories?: EmployeeCategory[];
+  monthly_salary?: number | null;
 }
 
 export interface ClientCompany {
@@ -41,6 +69,38 @@ export interface Project {
   created_by_name: string;
   created_at: string;
   members: ProjectMember[];
+  // Billing fields
+  service_type: 'per_project' | 'xlr8';
+  budget_amount: number | null;
+  budget_cutoff_pct: number | null;
+  budgeted_hours: number | null;
+  monthly_hours_bucket: number | null;
+  billing_cycle_start_day: number | null;
+  // Computed aggregates
+  hours_logged: number;
+  hours_this_cycle: number | null;
+  budget_pct: number;
+  // Per-project cost analytics
+  working_budget: number | null;
+  total_spend: number | null;
+  amount_remaining: number | null;
+  budget_used_pct: number | null;
+  health_flag: 'green' | 'amber' | 'red' | null;
+}
+
+export interface TimeLog {
+  id: number;
+  task_id: number;
+  task_title: string;
+  project_id: number;
+  project_name: string;
+  user_id: number;
+  user_name: string;
+  user_color: string;
+  log_date: string;
+  hours: number;
+  notes: string | null;
+  created_at: string;
 }
 
 export interface ProjectMember {
@@ -54,6 +114,9 @@ export interface TaskAssignee {
   user_id: number;
   name: string;
   avatar_color: string;
+  role?: Role;
+  assignee_role?: 'employee' | 'manager';
+  acceptance_status?: 'pending' | 'accepted' | 'declined';
 }
 
 export interface Task {
@@ -70,11 +133,51 @@ export interface Task {
   created_by: number;
   created_by_name: string;
   due_date: string | null;
+  due_time: string | null;
   status: 'todo' | 'in_progress' | 'in_review' | 'overdue' | 'completed';
   checklist_total: number;
   checklist_done: number;
+  estimated_hours: number | null;
+  my_acceptance_status: 'pending' | 'accepted' | 'declined' | null;
+  timer_running: boolean;
+  active_runner_ids: number[];
   created_at: string;
   checklist?: ChecklistItem[];
+}
+
+export interface CapacityTask {
+  id: number;
+  title: string;
+  status: string;
+  due_date: string | null;
+  due_time: string | null;
+  estimated_hours: number | null;
+  project_name: string;
+  acceptance_status: 'pending' | 'accepted' | 'declined';
+  assignee_role: 'employee' | 'manager' | null;
+  tracked_seconds_today: number;
+  timer_running: boolean;
+}
+
+export interface CapacityData {
+  tracked_seconds: number;
+  capacity_seconds: number;
+  active_task_id: number | null;
+  active_session_start: string | null;
+  tasks: CapacityTask[];
+}
+
+export interface TeamMemberCapacity {
+  user_id: number;
+  name: string;
+  avatar_color: string;
+  role: Role;
+  pod?: 'pod1' | 'pod2' | null;
+  tracked_seconds: number;
+  capacity_seconds: number;
+  active_task_id: number | null;
+  active_task_title: string | null;
+  tasks: CapacityTask[];
 }
 
 export interface ChecklistItem {
@@ -95,7 +198,12 @@ export interface Approval {
   submitted_by: number;
   submitted_by_name: string;
   submitted_by_color: string;
+  worker_name: string | null;
+  worker_avatar_color: string | null;
   status: ApprovalStatus;
+  workflow_type: WorkflowType;
+  current_step: number | null;
+  flow_chain: FlowStep[] | null;
   // Manager review
   manager_approved_by: number | null;
   manager_approved_at: string | null;
@@ -138,6 +246,8 @@ export interface Notification {
   type: string;
   read: boolean;
   created_at: string;
+  project_id: number | null;
+  project_name: string | null;
 }
 
 export interface Message {

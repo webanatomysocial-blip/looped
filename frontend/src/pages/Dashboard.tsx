@@ -3,11 +3,10 @@ import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Plus, MoreHorizontal, ArrowUpRight } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
 import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
-import { projectsApi, tasksApi, approvalsApi, notificationsApi } from '../services/api';
-import { Project, Task, Approval, Notification } from '../types';
+import { projectsApi, tasksApi, approvalsApi } from '../services/api';
+import { Project, Task, Approval } from '../types';
 import '../css/pages/Dashboard.css';
 
 export default function Dashboard() {
@@ -15,16 +14,14 @@ export default function Dashboard() {
   const [projects, setProjects]           = useState<Project[]>([]);
   const [tasks, setTasks]                 = useState<Task[]>([]);
   const [approvals, setApprovals]         = useState<Approval[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading]             = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([projectsApi.list(), tasksApi.list(), approvalsApi.list(), notificationsApi.list()])
-      .then(([p, t, a, n]) => {
+    Promise.all([projectsApi.list(), tasksApi.list(), approvalsApi.list()])
+      .then(([p, t, a]) => {
         setProjects(p.data);
         setTasks(t.data);
         setApprovals(a.data);
-        setNotifications(n.data);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -51,7 +48,7 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header greeting />
+        
 
         {/* Row 1 */}
         <div className="dash-grid-top">
@@ -199,27 +196,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Row 3: Activity */}
-        {notifications.filter((n) => !n.read).length > 0 && (
-          <div className="activity-card card">
-            <p className="habits-card__title" style={{ marginBottom: 12 }}>Recent Activity</p>
-            <div>
-              {notifications.slice(0, 4).map((n) => (
-                <div key={n.id} className="activity-row">
-                  <div
-                    className="activity-row__dot"
-                    style={{
-                      background: n.type === 'approval' ? 'var(--yellow)' : n.type === 'task' ? 'var(--orange)' : 'var(--green)',
-                      opacity: n.read ? 0.3 : 1,
-                    }}
-                  />
-                  <p className="activity-row__msg">{n.message}</p>
-                  <span className="activity-row__date">{format(new Date(n.created_at), 'MMM d')}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </Layout>
   );

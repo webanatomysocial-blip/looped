@@ -33,6 +33,14 @@ export const usersApi = {
   create: (data: any) => api.post('/users', data),
   update: (id: number, data: any) => api.put(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
+  changePassword: (current_password: string, new_password: string) =>
+    api.put('/users/me/password', { current_password, new_password }),
+  clientsByPod: () => api.get('/users/clients-by-pod'),
+  myClients: () => api.get('/users/my-clients'),
+  getNotifPrefs: (clientUserId: number | null) =>
+    api.get('/users/notification-preferences', { params: clientUserId !== null ? { client_user_id: clientUserId } : {} }),
+  saveNotifPrefs: (clientUserId: number | null, prefs: Record<string, boolean>) =>
+    api.put('/users/notification-preferences', { client_user_id: clientUserId, prefs }),
 };
 
 export const categoriesApi = {
@@ -51,21 +59,31 @@ export const projectsApi = {
 };
 
 export const tasksApi = {
-  list: (projectId?: number) => api.get('/tasks', { params: projectId ? { project_id: projectId } : {} }),
+  list: (projectId?: number, pod?: string) => api.get('/tasks', { params: { ...(projectId ? { project_id: projectId } : {}), ...(pod ? { pod } : {}) } }),
+  getApprovalFlow: (taskId: number) => api.get(`/tasks/${taskId}/approval-flow`),
   get: (id: number) => api.get(`/tasks/${id}`),
   create: (data: any) => api.post('/tasks', data),
   update: (id: number, data: any) => api.put(`/tasks/${id}`, data),
   updateChecklist: (taskId: number, itemId: number, completed: boolean) =>
     api.put(`/tasks/${taskId}/checklist/${itemId}`, { completed }),
   delete: (id: number) => api.delete(`/tasks/${id}`),
+  accept: (id: number, action: 'accept' | 'decline') => api.post(`/tasks/${id}/accept`, { action }),
+  timer: (id: number, action: 'start' | 'pause' | 'done') => api.post(`/tasks/${id}/timer`, { action }),
+};
+
+export const capacityApi = {
+  daily: () => api.get('/capacity/daily'),
+  check: (userId: number) => api.get(`/capacity/check/${userId}`),
+  team: (pod?: 'pod1' | 'pod2', date?: string) => api.get('/capacity/team', { params: { ...(pod ? { pod } : {}), ...(date ? { date } : {}) } }),
 };
 
 export const approvalsApi = {
-  list: () => api.get('/approvals'),
+  list: (pod?: string) => api.get('/approvals', { params: pod ? { pod } : {} }),
   submit: (data: any) => api.post('/approvals', data),
   review: (id: number, action: 'approve' | 'reject' | 'request_revision', notes?: string) =>
     api.put(`/approvals/${id}`, { action, notes }),
   markComplete: (id: number) => api.post(`/approvals/${id}/complete`),
+  steps: (id: number) => api.get(`/approvals/${id}/steps`),
 };
 
 export const assetsApi = {
@@ -124,6 +142,17 @@ export const seoApi = {
 export const contentApi = {
   generate: (data: { keywords: string[]; content_type: string; tone: string; extra_context?: string }) =>
     api.post('/content/generate', data),
+};
+
+export const timeLogsApi = {
+  byProject: (projectId: number, params?: { from?: string; to?: string }) =>
+    api.get(`/time-logs/project/${projectId}`, { params }),
+  byUser: (userId: number, params?: { from?: string; to?: string }) =>
+    api.get(`/time-logs/user/${userId}`, { params }),
+  xlr8: (projectId: number) => api.get(`/time-logs/xlr8/${projectId}`),
+  create: (data: { task_id: number; user_id: number; log_date: string; hours: number; notes?: string }) =>
+    api.post('/time-logs', data),
+  delete: (id: number) => api.delete(`/time-logs/${id}`),
 };
 
 export default api;

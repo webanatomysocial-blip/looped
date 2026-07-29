@@ -1,7 +1,6 @@
 import { useState, useRef, KeyboardEvent } from 'react';
 import { Sparkles, X, Copy, Check, RefreshCw } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
-import Header from '../components/Layout/Header';
 import { contentApi } from '../services/api';
 import '../css/pages/ContentAutomation.css';
 
@@ -82,7 +81,7 @@ export default function ContentAutomation() {
   return (
     <Layout>
       <div className="page-wrap">
-        <Header />
+        
         <div className="ca-page">
           <div className="ca-page__left">
             <h2 className="page-title">Content Automation</h2>

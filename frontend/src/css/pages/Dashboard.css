@@ -163,10 +163,14 @@
 
 /* ── Pending work card ── */
 .pending-card {
-  background: var(--bg-white);
+
+
+
+
+
   border-radius: var(--r-xl);
   padding: 22px 24px;
-  box-shadow: var(--shadow);
+
   display: flex;
   flex-direction: column;
   min-height: 220px;
@@ -237,13 +241,10 @@
 
 /* Arc card */
 .arc-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 22px;
   display: flex;
   align-items: center;
   gap: 20px;
-  box-shadow: var(--shadow);
 }
 .arc-card__title { font-size: 16px; font-weight: 800; color: var(--ink); }
 .arc-card__sub   { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
@@ -281,10 +282,7 @@
 
 /* Progress card */
 .progress-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 22px;
-  box-shadow: var(--shadow);
 }
 .progress-card__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .progress-card__title  { font-size: 16px; font-weight: 800; color: var(--ink); }
@@ -319,10 +317,7 @@
 
 /* Habits card */
 .habits-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
   padding: 22px;
-  box-shadow: var(--shadow);
 }
 .habits-card__header {
   display: flex;

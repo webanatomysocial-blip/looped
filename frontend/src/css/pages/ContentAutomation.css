@@ -141,9 +141,6 @@
 .ca-page__right { position: sticky; top: 24px; }
 
 .ca-output-card {
-  background: var(--bg-white);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow);
   overflow: hidden;
   min-height: 480px;
   display: flex;

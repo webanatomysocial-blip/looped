@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 import Login from './pages/Login';
+import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Tasks from './pages/Tasks';
@@ -17,12 +18,14 @@ import UserManagement from './pages/admin/UserManagement';
 import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
+import TeamCapacityPage from './pages/TeamCapacity';
+import ProjectReports from './pages/ProjectReports';
 
 function PrivateRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/home" replace />;
   return <>{children}</>;
 }
 
@@ -31,6 +34,13 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+
+      {/* Home */}
+      <Route path="/home" element={
+        <PrivateRoute>
+          <Home />
+        </PrivateRoute>
+      } />
 
       {/* Dashboard (not for client) */}
       <Route path="/dashboard" element={
@@ -60,9 +70,9 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* Client: approved files */}
+      {/* All roles: approved files */}
       <Route path="/approved" element={
-        <PrivateRoute roles={['client', 'admin']}>
+        <PrivateRoute>
           <ApprovedFiles />
         </PrivateRoute>
       } />
@@ -81,9 +91,16 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
+      {/* Project Reports — admin + manager */}
+      <Route path="/project-reports" element={
+        <PrivateRoute roles={['admin', 'manager']}>
+          <ProjectReports />
+        </PrivateRoute>
+      } />
+
       {/* Notifications */}
       <Route path="/notifications" element={
-        <PrivateRoute roles={['admin', 'manager', 'employee']}>
+        <PrivateRoute>
           <Notifications />
         </PrivateRoute>
       } />
@@ -109,9 +126,9 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* SEO Analytics — all except no restriction (client sees own data) */}
+      {/* SEO Analytics — internal roles only */}
       <Route path="/seo" element={
-        <PrivateRoute roles={['admin', 'manager', 'employee', 'client']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <SEO />
         </PrivateRoute>
       } />
@@ -120,6 +137,13 @@ function AppRoutes() {
       <Route path="/content" element={
         <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContentAutomation />
+        </PrivateRoute>
+      } />
+
+      {/* Team Capacity — admin + manager */}
+      <Route path="/team-capacity" element={
+        <PrivateRoute roles={['admin', 'manager']}>
+          <TeamCapacityPage />
         </PrivateRoute>
       } />
 
