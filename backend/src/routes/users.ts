@@ -224,7 +224,11 @@ router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response
     const updates: any = {};
     if (name)     updates.name = name;
     if (email)    updates.email = email;
-    if (role)     updates.role = role;
+    const VALID_ROLES = ['admin', 'manager', 'employee', 'client'];
+    if (role !== undefined) {
+      if (!VALID_ROLES.includes(role)) { res.status(400).json({ error: 'Invalid role' }); return; }
+      updates.role = role;
+    }
     if (password) updates.password_hash = await bcrypt.hash(password, 10);
     if (pod !== undefined) updates.pod = pod || null;
     if (monthly_salary !== undefined) updates.monthly_salary = monthly_salary != null ? Number(monthly_salary) : null;

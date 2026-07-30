@@ -14,12 +14,26 @@ router.use(requireRoles('admin', 'manager', 'employee'));
 const uploadsDir = path.join(__dirname, '../../uploads/chat');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+const CHAT_ALLOWED_MIME = new Set([
+  'image/jpeg','image/png','image/gif','image/webp',
+  'application/pdf','video/mp4','video/webm',
+  'text/plain','application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext ? '.' + ext : ''}`);
+    },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (CHAT_ALLOWED_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new Error('File type not allowed'));
+  },
 });
 
 // GET list of chats the current user is part of

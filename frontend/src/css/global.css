@@ -236,7 +236,7 @@ select.form-input { cursor: pointer; }
 textarea.form-input { resize: none; }
 
 .page-wrap {
-  padding: 32px 36px;
+  padding: 0px 36px 32px 36px;
 }
 
 .page-title { font-size: 22px; font-weight: 700; color: var(--ink); }

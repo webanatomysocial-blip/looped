@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 import Login from './pages/Login';
 import Home from './pages/Home';
-import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Tasks from './pages/Tasks';
 import Approvals from './pages/Approvals';
@@ -21,11 +20,12 @@ import SEO from './pages/SEO';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
 
-function PrivateRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
+function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/home" replace />;
+  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
+  if (guard && !guard(user)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
@@ -35,19 +35,15 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      {/* Home */}
-      <Route path="/home" element={
+      {/* Dashboard */}
+      <Route path="/dashboard" element={
         <PrivateRoute>
           <Home />
         </PrivateRoute>
       } />
 
-      {/* Dashboard (not for client) */}
-      <Route path="/dashboard" element={
-        <PrivateRoute roles={['admin', 'manager', 'employee']}>
-          <Dashboard />
-        </PrivateRoute>
-      } />
+      {/* /home redirects to /dashboard */}
+      <Route path="/home" element={<Navigate to="/dashboard" replace />} />
 
       {/* Projects — all roles */}
       <Route path="/projects" element={
@@ -126,9 +122,12 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* SEO Analytics — internal roles only */}
+      {/* SEO Analytics — admin, manager, and SEO-category employees only */}
       <Route path="/seo" element={
-        <PrivateRoute roles={['admin', 'manager', 'employee']}>
+        <PrivateRoute
+          roles={['admin', 'manager', 'employee']}
+          guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /seo/i.test(c.name)) ?? false)}
+        >
           <SEO />
         </PrivateRoute>
       } />

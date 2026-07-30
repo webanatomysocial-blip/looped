@@ -1,12 +1,21 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later' },
+});
+
 const router = Router();
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;
   if (!email || !password) {
     res.status(400).json({ error: 'Email and password required' });
@@ -24,10 +33,12 @@ router.post('/login', async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
+    const secret = process.env.JWT_SECRET;
+    if (!secret) { res.status(500).json({ error: 'Server misconfiguration' }); return; }
     const token = jwt.sign(
       { id: user.id, role: user.role, email: user.email, name: user.name, pod: user.pod ?? null },
-      process.env.JWT_SECRET || 'secret',
-      { expiresIn: '7d' }
+      secret,
+      { algorithm: 'HS256', expiresIn: '7d' }
     );
     res.json({
       token,

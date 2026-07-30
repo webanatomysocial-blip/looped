@@ -73,6 +73,21 @@ export default function Tasks() {
 
   useEffect(() => { load(podTab); }, [podTab]);
 
+  // Auto-fill estimated time from due date + time (7 working hours per 24 calendar hours)
+  useEffect(() => {
+    if (!form.due_date) return;
+    const dueStr = `${form.due_date}T${form.due_time ? form.due_time + ':00' : '23:59:00'}`;
+    const due = new Date(dueStr);
+    const now = new Date();
+    const diffMs = due.getTime() - now.getTime();
+    if (diffMs <= 0) return;
+    const calendarHours = diffMs / 3600000;
+    const workingHours = calendarHours * (7 / 24);
+    const hrs = Math.floor(workingHours);
+    const mins = Math.round((workingHours - hrs) * 60);
+    setForm(f => ({ ...f, est_hours: String(hrs), est_minutes: String(mins) }));
+  }, [form.due_date, form.due_time]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (approvalFlow.length === 0) {
@@ -136,14 +151,14 @@ export default function Tasks() {
     load();
   };
 
-  const handleTimer = (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: Task) => {
+  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: Task) => {
     if (action === 'done' && taskObj) {
-      // Show modal immediately, load checklist in background
       setDoneConfirmTask(taskObj);
       setDoneModalChecklist([]);
-      tasksApi.get(taskId).then(res => {
-        setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
-      }).catch(() => setDoneModalChecklist([]));
+      try {
+        const full = await tasksApi.get(taskId);
+        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+      } catch { /* show modal without checklist */ }
       return;
     }
     tasksApi.timer(taskId, action).then(() => load());
@@ -253,11 +268,9 @@ export default function Tasks() {
   const statuses = ['all', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
   const filtered = tasks.filter((t) => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
-    if (dateFilter && t.due_date) {
-      const taskDate = t.due_date.slice(0, 10);
-      if (taskDate !== dateFilter) return false;
-    } else if (dateFilter && !t.due_date) {
-      return false;
+    if (dateFilter) {
+      const createdDate = t.created_at ? String(t.created_at).slice(0, 10) : '';
+      if (createdDate !== dateFilter) return false;
     }
     return true;
   });
@@ -300,17 +313,20 @@ export default function Tasks() {
               ))}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                type="date"
-                className="form-input"
-                style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
-                value={dateFilter}
-                onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
+                  value={dateFilter}
+                  onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+                />
+              </div>
               {dateFilter && (
                 <button
                   className="filter-tab"
-                  style={{ padding: '7px 10px', fontSize: 11 }}
+                  style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
                   onClick={() => { setDateFilter(''); setPage(1); }}
                 >
                   ✕
@@ -441,27 +457,25 @@ export default function Tasks() {
                           )}
                         </>
                       )}
-                      {/* Submit / Send Again for approval */}
-                      {canCreate && task.status !== 'completed' && (
-                        task.has_rejected_approval
-                          ? (
-                            <button
-                              className="icon-action"
-                              title="Send again (rejected)"
-                              style={{ background: 'rgba(231,76,60,0.12)', color: 'var(--red)', fontWeight: 700, fontSize: 10, gap: 3, padding: '4px 8px', borderRadius: 8, display: 'inline-flex', alignItems: 'center' }}
-                              onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
-                            >
-                              <Send size={11} /> Send Again
-                            </button>
-                          ) : (
-                            <button
-                              className="icon-action"
-                              title="Submit for approval"
-                              onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
-                            >
-                              <Send size={12} />
-                            </button>
-                          )
+                      {/* Re-assign when employee declined */}
+                      {canCreate && user?.role !== 'employee' && task.assignees?.some(a => a.acceptance_status === 'declined') && task.status !== 'completed' && (
+                        <button
+                          title="Assignee declined — reassign task"
+                          onClick={() => openEdit(task)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(231,76,60,0.3)', background: 'rgba(231,76,60,0.08)', color: 'var(--red)' }}
+                        >
+                          <Send size={10} /> Reassign
+                        </button>
+                      )}
+                      {/* Send Again for rejected approvals */}
+                      {canCreate && task.status !== 'completed' && task.has_rejected_approval && (
+                        <button
+                          title="Approval rejected — resubmit"
+                          onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(244,115,38,0.3)', background: 'rgba(244,115,38,0.08)', color: 'var(--orange)' }}
+                        >
+                          <Send size={10} /> Send Again
+                        </button>
                       )}
                       {(user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && task.status !== 'completed' && (
                         <button className="icon-action" title="Edit task" onClick={() => openEdit(task)}>

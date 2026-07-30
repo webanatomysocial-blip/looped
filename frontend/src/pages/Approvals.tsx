@@ -8,8 +8,8 @@ import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { approvalsApi } from '../services/api';
-import { Approval, ApprovalStatus, ApprovalStep, WorkflowType } from '../types';
+import { approvalsApi, tasksApi } from '../services/api';
+import { Approval, ApprovalStatus, ApprovalStep, WorkflowType, ChecklistItem } from '../types';
 import '../css/pages/Approvals.css';
 
 // ─── State machine definition (mirrors backend) ───────────────────────────────
@@ -121,6 +121,7 @@ export default function Approvals() {
   const [loading, setLoading]     = useState(true);
   const [expanded, setExpanded]   = useState<number | null>(null);
   const [steps, setSteps]         = useState<Record<number, ApprovalStep[]>>({});
+  const [checklists, setChecklists] = useState<Record<number, ChecklistItem[]>>({});
 
   // Review modal state
   const [reviewModal, setReviewModal]   = useState<Approval | null>(null);
@@ -144,11 +145,21 @@ export default function Approvals() {
   const expand = async (id: number) => {
     const isOpen = expanded === id;
     setExpanded(isOpen ? null : id);
-    if (!isOpen && !steps[id]) {
-      try {
-        const res = await approvalsApi.steps(id);
-        setSteps((prev) => ({ ...prev, [id]: res.data }));
-      } catch { /* silent */ }
+    if (!isOpen) {
+      const approval = approvals.find(a => a.id === id);
+      if (!steps[id]) {
+        try {
+          const res = await approvalsApi.steps(id);
+          setSteps((prev) => ({ ...prev, [id]: res.data }));
+        } catch { /* silent */ }
+      }
+      if (approval && !checklists[id]) {
+        try {
+          const res = await tasksApi.get(approval.task_id);
+          const items: ChecklistItem[] = (res.data.checklist || []).filter((i: ChecklistItem) => i.completed);
+          setChecklists((prev) => ({ ...prev, [id]: items }));
+        } catch { /* silent */ }
+      }
     }
   };
 
@@ -285,10 +296,10 @@ export default function Approvals() {
                       {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(new Date(a.created_at), 'MMM d')}
                     </p>
                     {a.worker_name && (
-                      <p className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <div className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
                         <Avatar name={a.worker_name} color={a.worker_avatar_color ?? undefined} size="sm" />
                         <span>Worked by <strong style={{ color: 'var(--ink)' }}>{a.worker_name}</strong></span>
-                      </p>
+                      </div>
                     )}
                   </div>
 
@@ -510,6 +521,29 @@ export default function Approvals() {
                     {isNewWorkflow(a) && a.rejection_notes && (
                       <div className="approval-note approval-note--danger">
                         <strong>Rejection reason</strong>{a.rejection_notes}
+                      </div>
+                    )}
+
+                    {/* Task checklist */}
+                    {(checklists[a.id]?.length ?? 0) > 0 && (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>
+                          Task Checklist
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {checklists[a.id].map((item) => (
+                            <div key={item.id} style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              padding: '7px 12px', borderRadius: 8,
+                              background: 'rgba(76,175,125,0.07)',
+                              border: '1.5px solid rgba(76,175,125,0.25)',
+                              fontSize: 13, color: 'var(--ink)',
+                            }}>
+                              <span style={{ color: 'var(--green)', fontWeight: 800, fontSize: 14, lineHeight: 1 }}>✓</span>
+                              {item.text}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

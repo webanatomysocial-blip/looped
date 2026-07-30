@@ -183,9 +183,6 @@ export default function ApprovedFiles() {
                   </p>
                 </div>
                 <span className="approved-item__badge">Approved</span>
-                <button className="approved-item__download" onClick={() => downloadCertificate(a)}>
-                  <Download size={13} /> Download
-                </button>
               </div>
             );
           })}

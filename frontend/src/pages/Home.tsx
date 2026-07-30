@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Play, Pause, Check, AlertTriangle, Clock } from 'lucide-react';
+import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
+import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
-import { capacityApi, tasksApi } from '../services/api';
-import { CapacityData, CapacityTask } from '../types';
+import { capacityApi, tasksApi, projectsApi } from '../services/api';
+import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 
 function fmtSeconds(sec: number): string {
@@ -52,6 +54,11 @@ export default function Home() {
   // already-baked tracked_seconds values so nothing is counted twice.
   const [elapsed, setElapsed] = useState(0);
   const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'accepted'>('all');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [priorityPage, setPriorityPage] = useState(1);
+  const PAGE_SIZE = 5;
+  const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
+  const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isCapacityRole = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
@@ -71,6 +78,10 @@ export default function Home() {
     return () => clearInterval(poll);
   }, [load]);
 
+  useEffect(() => {
+    projectsApi.list().then((r) => setProjects(r.data)).catch(() => {});
+  }, []);
+
   // Tick elapsed +1 every second only when a session is active
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
@@ -85,8 +96,33 @@ export default function Home() {
     load();
   };
 
-  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done') => {
+  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: CapacityTask) => {
+    if (action === 'done' && taskObj) {
+      setDoneConfirmTask(taskObj);
+      setDoneModalChecklist([]);
+      try {
+        const full = await tasksApi.get(taskId);
+        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+      } catch { /* show modal without checklist */ }
+      return;
+    }
     await tasksApi.timer(taskId, action);
+    load();
+  };
+
+  const toggleDoneItem = async (idx: number) => {
+    const item = doneModalChecklist[idx];
+    const newCompleted = !item.completed;
+    setDoneModalChecklist(prev => prev.map((it, i) => i === idx ? { ...it, completed: newCompleted } : it));
+    try { await tasksApi.updateChecklist(doneConfirmTask!.id, item.id, newCompleted); }
+    catch { setDoneModalChecklist(prev => prev.map((it, i) => i === idx ? { ...it, completed: !newCompleted } : it)); }
+  };
+
+  const confirmDone = async () => {
+    if (!doneConfirmTask) return;
+    await tasksApi.timer(doneConfirmTask.id, 'done');
+    setDoneConfirmTask(null);
+    setDoneModalChecklist([]);
     load();
   };
 
@@ -103,7 +139,7 @@ export default function Home() {
     ? 'Status: Approaching capacity limit'
     : 'Status: On track';
 
-  const allTasks = data?.tasks ?? [];
+  const allTasks = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
   const pendingTasks  = allTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
   const acceptedTasks = allTasks.filter(t => t.acceptance_status === 'accepted');
 
@@ -111,6 +147,9 @@ export default function Home() {
     taskFilter === 'pending'  ? pendingTasks  :
     taskFilter === 'accepted' ? acceptedTasks :
     allTasks;
+
+  const priorityTotalPages = Math.max(1, Math.ceil(visibleTasks.length / PAGE_SIZE));
+  const paginatedPriority  = visibleTasks.slice((priorityPage - 1) * PAGE_SIZE, priorityPage * PAGE_SIZE);
 
   const activeTask = data?.tasks.find((t) => t.timer_running);
 
@@ -134,12 +173,12 @@ export default function Home() {
   return (
     <Layout>
       <div className="page-wrap">
-        <div style={{ marginBottom: 20 }}>
+        {/* <div style={{ marginBottom: 20 }}>
           <h2 className="page-title">Home</h2>
           <p className="page-subtitle" style={{ marginTop: 2 }}>
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
-        </div>
+        </div> */}
 
         {/* Capacity header card */}
         <div className="cap-header card">
@@ -198,7 +237,7 @@ export default function Home() {
                   <button
                     key={key}
                     className={`home-section__filter-btn${taskFilter === key ? ' active' : ''}`}
-                    onClick={() => setTaskFilter(key)}
+                    onClick={() => { setTaskFilter(key); setPriorityPage(1); }}
                   >
                     {label}
                     {count > 0 && (
@@ -225,7 +264,7 @@ export default function Home() {
                   No tasks found
                 </div>
               )}
-              {visibleTasks.map((task) => {
+              {paginatedPriority.map((task) => {
                 const isRunning = task.timer_running;
                 const liveSec = Math.round(task.timer_running ? taskLiveSeconds(task) : task.tracked_seconds_today);
 
@@ -233,7 +272,7 @@ export default function Home() {
                   <div key={task.id} className="cap-task-row">
                     <div
                       className={`cap-task-row__check${task.status === 'in_review' ? ' cap-task-row__check--done' : ''}`}
-                      onClick={() => task.status === 'in_progress' && handleTimer(task.id, 'done')}
+                      onClick={() => task.status === 'in_progress' && handleTimer(task.id, 'done', task)}
                       title={task.status === 'in_progress' ? 'Mark done' : ''}
                     />
 
@@ -301,7 +340,7 @@ export default function Home() {
                           <button
                             className="cap-timer-btn cap-timer-btn--done"
                             title="Done"
-                            onClick={() => handleTimer(task.id, 'done')}
+                            onClick={() => handleTimer(task.id, 'done', task)}
                           >
                             <Check size={12} />
                           </button>
@@ -312,79 +351,185 @@ export default function Home() {
                 );
               })}
             </div>
-          </div>
-
-          {/* Capacity Summary */}
-          <div className="home-section card">
-            <div className="home-section__header">
-              <div>
-                <div className="home-section__title">Capacity Breakdown</div>
-                <div className="home-section__sub">Estimated vs tracked time per task</div>
-              </div>
-            </div>
-
-            {isOverCapacity && (
-              <div style={{ padding: '12px 20px 0' }}>
-                <div className="cap-warning">
-                  <AlertTriangle size={14} />
-                  You've exceeded your 7-hour daily capacity. Any additional work is overtime.
-                </div>
+            {priorityTotalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', borderTop: '1px solid var(--bg-sand-lt)' }}>
+                <button
+                  onClick={() => setPriorityPage(p => Math.max(1, p - 1))}
+                  disabled={priorityPage === 1}
+                  style={{ background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: priorityPage === 1 ? 'default' : 'pointer', opacity: priorityPage === 1 ? 0.4 : 1 }}
+                >‹</button>
+                <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{priorityPage} / {priorityTotalPages}</span>
+                <button
+                  onClick={() => setPriorityPage(p => Math.min(priorityTotalPages, p + 1))}
+                  disabled={priorityPage === priorityTotalPages}
+                  style={{ background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: priorityPage === priorityTotalPages ? 'default' : 'pointer', opacity: priorityPage === priorityTotalPages ? 0.4 : 1 }}
+                >›</button>
               </div>
             )}
+          </div>
 
-            <div className="cap-task-list">
-              {(data?.tasks ?? []).length === 0 && (
-                <div className="empty-state" style={{ padding: '32px 20px' }}>No tasks assigned today</div>
-              )}
-              {(data?.tasks ?? []).map((task) => {
-                const estSec = (task.estimated_hours ?? 0) * 3600;
-                const trackedSec = task.timer_running ? taskLiveSeconds(task) : task.tracked_seconds_today;
-                const pct = estSec > 0 ? Math.min(100, (trackedSec / estSec) * 100) : 0;
-                const remainSec = Math.max(0, estSec - trackedSec);
-                const dl = getDeadlineInfo(task.due_date, task.due_time);
+          {/* Right column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
+            {/* Tasks for Today arc */}
+            <div className="card" style={{ padding: '22px 24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div>
+                  <div className="home-section__title">Tasks for Today</div>
+                  <div className="home-section__sub">Keep your projects on track</div>
+                </div>
+                <Link to="/tasks" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none' }}>
+                  View all <ArrowUpRight size={11} />
+                </Link>
+              </div>
+              {(() => {
+                const total = allTasks.length;
+                const completed = allTasks.filter(t => t.status === 'completed').length;
+                const pct = total ? Math.round((completed / total) * 100) : 0;
+                const r = 36; const circ = 2 * Math.PI * r;
+                const dash = (pct / 100) * circ * 0.75;
+                const gap = circ - dash;
+                const offset = circ * 0.125;
                 return (
-                  <div key={task.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--bg-sand-lt)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{task.title}</div>
-                        <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{task.project_name}</div>
-                        {dl && (
-                          <div style={{ fontSize: 11, marginTop: 3, fontWeight: dl.urgent ? 700 : 600, color: dl.overdue ? 'var(--red, #e53e3e)' : dl.urgent ? 'var(--orange)' : 'var(--ink-muted)' }}>
-                            {dl.label}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{fmtSeconds(Math.round(trackedSec))}</div>
-                        {task.estimated_hours != null && (
-                          <>
-                            <div style={{ marginTop: 1 }}>of {fmtEstimated(task.estimated_hours)} est.</div>
-                            {remainSec > 0 && (
-                              <div style={{ color: pct >= 80 ? 'var(--orange)' : undefined }}>
-                                {fmtEstimated(remainSec / 3600)} left
-                              </div>
-                            )}
-                            {pct >= 100 && <div style={{ color: 'var(--red, #e53e3e)', fontWeight: 700 }}>Over estimate</div>}
-                          </>
-                        )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+                    <div style={{ position: 'relative', width: 90, height: 90, flexShrink: 0 }}>
+                      <svg width="90" height="90" style={{ transform: 'rotate(-135deg)' }}>
+                        <circle cx="45" cy="45" r={r} fill="none" stroke="#E8E0D0" strokeWidth="7" strokeLinecap="round"
+                          strokeDasharray={`${circ * 0.75} ${circ * 0.25}`} strokeDashoffset={-offset} />
+                        <circle cx="45" cy="45" r={r} fill="none" stroke="var(--orange)" strokeWidth="7" strokeLinecap="round"
+                          strokeDasharray={`${dash} ${gap + circ * 0.25}`} strokeDashoffset={-offset} />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{pct}%</span>
+                        <span style={{ fontSize: 9, color: 'var(--ink-muted)', marginTop: 2 }}>done</span>
                       </div>
                     </div>
-                    {estSec > 0 && (
-                      <div className="cap-bar-track" style={{ height: 5 }}>
-                        <div
-                          className={`cap-bar-fill cap-bar-fill--${pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok'}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{completed}/{total}</div>
+                      <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>tasks completed</div>
+                      {isOverCapacity && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--red)', fontWeight: 700, marginTop: 8 }}>
+                          <AlertTriangle size={11} /> Over daily capacity
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
-              })}
+              })()}
+            </div>
+
+            {/* Your Active Projects */}
+            <div className="card" style={{ padding: '22px 24px', flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div className="home-section__title">Your Active Projects</div>
+                <Link to="/projects" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none' }}>
+                  View all <ArrowUpRight size={11} />
+                </Link>
+              </div>
+              {projects.filter(p => p.status === 'active' || p.status === 'in_review').length === 0 && (
+                <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>No active projects</p>
+              )}
+              {projects.filter(p => p.status === 'active' || p.status === 'in_review').slice(0, 5).map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--bg-sand)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: p.status === 'in_review' ? 'var(--blue)' : 'var(--yellow)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{p.name}</div>
+                      {p.client_name && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{p.client_name}</div>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex' }}>
+                    {(p.members || []).slice(0, 3).map((m) => (
+                      <div key={m.user_id} style={{ marginLeft: -6 }}>
+                        <Avatar name={m.name} color={m.avatar_color} size="sm" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       </div>
+
+      {/* ── Done confirmation modal ── */}
+      {doneConfirmTask && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 900,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          paddingTop: '8vh',
+        }}>
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(26,26,26,0.4)', backdropFilter: 'blur(3px)',
+          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
+          <div style={{
+            position: 'relative', background: '#fff', borderRadius: 20,
+            width: '90%', maxWidth: 460, zIndex: 901,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+            display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+          }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e8e3da' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', marginBottom: 4 }}>
+                {doneModalChecklist.length > 0 ? 'Task Checklist' : 'Mark as Done'}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a1a', marginBottom: 2 }}>{doneConfirmTask.title}</div>
+              {doneModalChecklist.length > 0 && (() => {
+                const checkedCount = doneModalChecklist.filter(i => i.completed).length;
+                const total = doneModalChecklist.length;
+                const allDone = checkedCount === total;
+                return (
+                  <div style={{ fontSize: 12, color: allDone ? '#4caf7d' : '#f47326', fontWeight: 600 }}>
+                    {checkedCount}/{total} items completed {allDone ? '✓ All done!' : '— please check everything before marking done'}
+                  </div>
+                );
+              })()}
+              {doneModalChecklist.length === 0 && (
+                <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
+                  Have you completed everything for this task?
+                </div>
+              )}
+            </div>
+            {doneModalChecklist.length > 0 && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+                {doneModalChecklist.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleDoneItem(idx)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 12px', marginBottom: 4, borderRadius: 10, cursor: 'pointer',
+                      background: item.completed ? 'rgba(76,175,125,0.07)' : '#f8f6f2',
+                      border: `1.5px solid ${item.completed ? 'rgba(76,175,125,0.3)' : '#e8e3da'}`,
+                    }}
+                  >
+                    <CheckSquare size={16} style={{ color: item.completed ? '#4caf7d' : '#ccc', flexShrink: 0 }} />
+                    <span style={{
+                      fontSize: 13, flex: 1,
+                      textDecoration: item.completed ? 'line-through' : 'none',
+                      color: item.completed ? '#888' : '#1a1a1a',
+                    }}>{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #e8e3da', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {doneModalChecklist.length === 0 || doneModalChecklist.every(i => i.completed) ? (
+                <button className="drawer-submit" onClick={confirmDone} style={{ background: '#4caf7d' }}>
+                  <Check size={15} /> Yes, mark as complete
+                </button>
+              ) : (
+                <button className="drawer-submit" onClick={confirmDone}>
+                  Mark as done anyway
+                </button>
+              )}
+              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

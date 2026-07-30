@@ -51,8 +51,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const tasks = await query.orderBy('t.created_at', 'desc');
 
-    // Attach all assignees per task
-    const taskIds = tasks.map((t: any) => t.id);
+    // Normalise all task IDs to numbers once
+    const taskIds = tasks.map((t: any) => Number(t.id));
+
     const assigneeRows = taskIds.length
       ? await db('task_assignees as ta')
           .join('users as u', 'ta.user_id', 'u.id')
@@ -78,19 +79,26 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .select('task_id', 'user_id')
       : [];
 
-    // Rejected approvals per task
-    const rejectedApprovalTaskIds: number[] = taskIds.length
-      ? (await db('approvals').whereIn('task_id', taskIds).where('status', 'rejected').pluck('task_id')).map(Number)
-      : [];
+    // Rejected approvals per task — use a Set for reliable number comparison
+    const rejectedSet = new Set<number>(
+      taskIds.length
+        ? (await db('approvals').whereIn('task_id', taskIds).where('status', 'rejected').select('task_id'))
+            .map((r: any) => Number(r.task_id))
+        : []
+    );
+    const activeTimerSet = new Set<number>((activeSessionIds as any[]).map(Number));
 
-    const result = tasks.map((t: any) => ({
-      ...t,
-      assignees: assigneeRows.filter((a: any) => a.task_id === t.id),
-      my_acceptance_status: assigneeRows.find((a: any) => a.task_id === t.id && a.user_id === userId)?.acceptance_status ?? null,
-      timer_running: activeSessionIds.includes(t.id),
-      active_runner_ids: activeRunnerRows.filter((r: any) => r.task_id === t.id).map((r: any) => r.user_id),
-      has_rejected_approval: rejectedApprovalTaskIds.includes(t.id),
-    }));
+    const result = tasks.map((t: any) => {
+      const tid = Number(t.id);
+      return {
+        ...t,
+        assignees: assigneeRows.filter((a: any) => Number(a.task_id) === tid),
+        my_acceptance_status: assigneeRows.find((a: any) => Number(a.task_id) === tid && Number(a.user_id) === userId)?.acceptance_status ?? null,
+        timer_running: activeTimerSet.has(tid),
+        active_runner_ids: activeRunnerRows.filter((r: any) => Number(r.task_id) === tid).map((r: any) => Number(r.user_id)),
+        has_rejected_approval: rejectedSet.has(tid),
+      };
+    });
 
     res.json(result);
   } catch (err) {
@@ -227,7 +235,11 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (due_time !== undefined) updates.due_time = due_time;
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
-    if (status) updates.status = status;
+    const VALID_STATUSES = ['todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+    if (status !== undefined) {
+      if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
+      updates.status = status;
+    }
 
     // Role-based assignee update (from edit drawer)
     if (working_person_id !== undefined || task_manager_id !== undefined) {

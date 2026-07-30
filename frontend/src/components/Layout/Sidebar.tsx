@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Home, LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
+  LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
   BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
   Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck,
 } from 'lucide-react';
@@ -16,8 +16,7 @@ type NavGroup = { top: NavItem[]; more: NavItem[] };
 const NAV: Record<Role, NavGroup> = {
   admin: {
     top: [
-      { to: '/home',           icon: Home,            label: 'Home' },
-      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
       { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
       { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
@@ -38,8 +37,7 @@ const NAV: Record<Role, NavGroup> = {
   },
   manager: {
     top: [
-      { to: '/home',           icon: Home,            label: 'Home' },
-      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
       { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
       { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
@@ -59,8 +57,7 @@ const NAV: Record<Role, NavGroup> = {
   },
   employee: {
     top: [
-      { to: '/home',        icon: Home,            label: 'Home' },
-      { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/tasks',       icon: CheckSquare,     label: 'Tasks' },
       { to: '/approvals',   icon: ThumbsUp,        label: 'Approvals' },
       { to: '/approved',    icon: FileCheck,       label: 'Approved' },
@@ -76,7 +73,7 @@ const NAV: Record<Role, NavGroup> = {
   },
   client: {
     top: [
-      { to: '/home',      icon: Home,          label: 'Home' },
+      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
       { to: '/projects',  icon: FolderOpen,    label: 'Projects' },
       { to: '/approvals', icon: ThumbsUp,      label: 'Reviews' },
       { to: '/approved',  icon: CheckSquare,   label: 'Approved' },
@@ -115,7 +112,14 @@ export default function Sidebar() {
 
   if (!user) return null;
 
-  const { top, more } = NAV[user.role];
+  const isSeoEmployee = user.role === 'employee'
+    ? (user.categories?.some((c) => /seo/i.test(c.name)) ?? false)
+    : true;
+
+  const { top } = NAV[user.role];
+  const more = NAV[user.role].more.filter(
+    (item) => item.to !== '/seo' || isSeoEmployee
+  );
   const initials = user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
   const renderItem = ({ to, icon: Icon, label }: NavItem) => {

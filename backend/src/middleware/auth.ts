@@ -11,8 +11,13 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     res.status(401).json({ error: 'No token provided' });
     return;
   }
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    res.status(500).json({ error: 'Server misconfiguration' });
+    return;
+  }
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
+    const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as any;
     req.user = decoded;
     next();
   } catch {

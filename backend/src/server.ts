@@ -40,13 +40,17 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.options(/.*/, cors());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.options(/.*/, cors({
+  origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'https://agency.webanatomy.in'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(morgan(':method :url :status :response-time ms - :res[content-length]'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Uploads served only via authenticated /api/assets/:id/download
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -66,7 +70,7 @@ app.use('/api/seo', seoRoutes);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
 
-app.get('/health', (_req, res) => res.json({ status: 'ok', env: process.env.NODE_ENV }));
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Serve built frontend in production (frontend/dist → backend/public via build script)
 if (process.env.NODE_ENV === 'production') {
