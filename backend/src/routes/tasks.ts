@@ -78,12 +78,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .select('task_id', 'user_id')
       : [];
 
+    // Rejected approvals per task
+    const rejectedApprovalTaskIds: number[] = taskIds.length
+      ? (await db('approvals').whereIn('task_id', taskIds).where('status', 'rejected').pluck('task_id')).map(Number)
+      : [];
+
     const result = tasks.map((t: any) => ({
       ...t,
       assignees: assigneeRows.filter((a: any) => a.task_id === t.id),
       my_acceptance_status: assigneeRows.find((a: any) => a.task_id === t.id && a.user_id === userId)?.acceptance_status ?? null,
       timer_running: activeSessionIds.includes(t.id),
       active_runner_ids: activeRunnerRows.filter((r: any) => r.task_id === t.id).map((r: any) => r.user_id),
+      has_rejected_approval: rejectedApprovalTaskIds.includes(t.id),
     }));
 
     res.json(result);

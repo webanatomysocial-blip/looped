@@ -27,10 +27,14 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const today            = new Date().toISOString().slice(0, 10);
+  const todayTasks       = tasks.filter((t) => t.due_date && String(t.due_date).slice(0, 10) === today);
+  const todayDone        = todayTasks.filter((t) => t.status === 'completed').length;
   const totalTasks       = tasks.length;
   const completedTasks   = tasks.filter((t) => t.status === 'completed').length;
   const pendingApprovals = approvals.filter((a) => a.status !== 'approved').length;
   const completePct      = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  const todayPct         = todayTasks.length ? Math.round((todayDone / todayTasks.length) * 100) : 0;
 
   const pendingTasks = tasks
     .filter((t) => t.status !== 'completed')
@@ -149,10 +153,10 @@ export default function Dashboard() {
                 <Link to="/tasks" className="arc-card__link">View all tasks</Link>
               </div>
               <div className="arc-wrap">
-                <ArcProgress pct={completePct} />
+                <ArcProgress pct={todayPct} />
                 <div className="arc-label">
-                  <span className="arc-label__sub">Goal</span>
-                  <span className="arc-label__val">{totalTasks}</span>
+                  <span className="arc-label__sub">Today</span>
+                  <span className="arc-label__val">{todayDone}/{todayTasks.length}</span>
                 </div>
               </div>
             </div>
@@ -248,7 +252,7 @@ function HabitRow({ task }: { task: Task }) {
             <div key={i} className={`session-dot${i < done ? ' session-dot--done' : ''}`} />
           ))}
         </div>
-        <button className="icon-action"><MoreHorizontal size={14} /></button>
+        <Link to="/tasks" className="icon-action" style={{ display: 'inline-flex', alignItems: 'center' }}><MoreHorizontal size={14} /></Link>
       </div>
     </div>
   );

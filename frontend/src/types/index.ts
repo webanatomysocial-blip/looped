@@ -137,6 +137,7 @@ export interface Task {
   status: 'todo' | 'in_progress' | 'in_review' | 'overdue' | 'completed';
   checklist_total: number;
   checklist_done: number;
+  has_rejected_approval?: boolean;
   estimated_hours: number | null;
   my_acceptance_status: 'pending' | 'accepted' | 'declined' | null;
   timer_running: boolean;

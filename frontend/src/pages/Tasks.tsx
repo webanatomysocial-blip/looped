@@ -67,6 +67,10 @@ export default function Tasks() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (approvalFlow.length === 0) {
+      alert('Please add at least one approver in the Approvers (Sequential) section.');
+      return;
+    }
     try {
       const estHrs = form.est_hours ? Number(form.est_hours) + Number(form.est_minutes) / 60 : null;
       const res = await tasksApi.create({
@@ -127,8 +131,8 @@ export default function Tasks() {
   const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done') => {
     if (action === 'done') {
       const task = tasks.find(t => t.id === taskId);
-      if (task && task.checklist_total > 0) {
-        // Always show checklist modal so employee can review/check items before marking done
+      if (task && task.checklist_total > 0 && task.checklist_done < task.checklist_total) {
+        // Only show modal when there are unchecked items
         try {
           const res = await tasksApi.get(taskId);
           setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
@@ -433,7 +437,19 @@ export default function Tasks() {
                           )}
                         </>
                       )}
-                      {canCreate && task.status !== 'completed' && (
+                      {/* Send Again — shown when approval was rejected */}
+                      {canCreate && task.has_rejected_approval && (
+                        <button
+                          className="icon-action"
+                          title="Send again (rejected)"
+                          style={{ background: 'rgba(231,76,60,0.12)', color: 'var(--red)', fontWeight: 700, fontSize: 10, gap: 3, padding: '4px 8px', borderRadius: 8, display: 'inline-flex', alignItems: 'center' }}
+                          onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
+                        >
+                          <Send size={11} /> Send Again
+                        </button>
+                      )}
+                      {/* Submit for approval — shown when no rejected approval and not completed */}
+                      {canCreate && !task.has_rejected_approval && task.status !== 'completed' && (
                         <button
                           className="icon-action"
                           title="Submit for approval"
@@ -700,7 +716,7 @@ export default function Tasks() {
                   return (
                     <div className="drawer-section">
                       <div className="drawer-section-title" style={{ textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.06em', color: 'var(--ink-muted)' }}>
-                        Approvers (Sequential)
+                        Approvers (Sequential) <span style={{ color: 'var(--red)', fontWeight: 800 }}>*</span>
                       </div>
 
                       {/* Selected approver chips in order */}
