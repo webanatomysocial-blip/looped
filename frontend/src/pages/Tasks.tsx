@@ -128,18 +128,14 @@ export default function Tasks() {
     load();
   };
 
-  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done') => {
-    if (action === 'done') {
-      const task = tasks.find(t => t.id === taskId);
-      if (task) {
-        // Always confirm done; load checklist if task has items
-        try {
-          const res = await tasksApi.get(taskId);
-          setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
-        } catch { setDoneModalChecklist([]); }
-        setDoneConfirmTask(task);
-        return;
-      }
+  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: Task) => {
+    if (action === 'done' && taskObj) {
+      try {
+        const res = await tasksApi.get(taskId);
+        setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+      } catch { setDoneModalChecklist([]); }
+      setDoneConfirmTask(taskObj);
+      return;
     }
     await tasksApi.timer(taskId, action);
     load();
@@ -431,7 +427,7 @@ export default function Tasks() {
                             </button>
                           )}
                           {task.status === 'in_progress' && (
-                            <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }} onClick={() => handleTimer(task.id, 'done')}>
+                            <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }} onClick={() => handleTimer(task.id, 'done', task)}>
                               <Check size={12} />
                             </button>
                           )}
