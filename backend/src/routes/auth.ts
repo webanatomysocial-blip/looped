@@ -5,6 +5,15 @@ import rateLimit from 'express-rate-limit';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
+async function getUserCategories(userId: number): Promise<{ id: number; name: string }[]> {
+  const db = getDB();
+  const rows = await db('user_categories as uc')
+    .join('employee_categories as ec', 'uc.category_id', 'ec.id')
+    .where('uc.user_id', userId)
+    .select('ec.id', 'ec.name');
+  return rows.map((r: any) => ({ id: r.id, name: r.name }));
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -54,7 +63,8 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const user = await db('users').where({ id: req.user!.id }).first();
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, pod: user.pod ?? null });
+    const categories = await getUserCategories(user.id);
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, pod: user.pod ?? null, categories });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
