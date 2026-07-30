@@ -131,8 +131,8 @@ export default function Tasks() {
   const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done') => {
     if (action === 'done') {
       const task = tasks.find(t => t.id === taskId);
-      if (task && task.checklist_total > 0 && task.checklist_done < task.checklist_total) {
-        // Only show modal when there are unchecked items
+      if (task) {
+        // Always confirm done; load checklist if task has items
         try {
           const res = await tasksApi.get(taskId);
           setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
@@ -1117,9 +1117,11 @@ export default function Tasks() {
           }}>
             {/* Header */}
             <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--sand-border)' }}>
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 4 }}>Task Checklist</div>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 4 }}>
+                {doneModalChecklist.length > 0 ? 'Task Checklist' : 'Mark as Done'}
+              </div>
               <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>{doneConfirmTask.title}</div>
-              {(() => {
+              {doneModalChecklist.length > 0 && (() => {
                 const checkedCount = doneModalChecklist.filter(i => i.completed).length;
                 const total = doneModalChecklist.length;
                 const allDone = checkedCount === total;
@@ -1129,48 +1131,53 @@ export default function Tasks() {
                   </div>
                 );
               })()}
+              {doneModalChecklist.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginTop: 4 }}>
+                  Have you completed everything for this task?
+                </div>
+              )}
             </div>
 
-            {/* Checklist items */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
-              {doneModalChecklist.map((item, idx) => (
-                <div
-                  key={item.id}
-                  onClick={() => toggleDoneItem(idx)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '9px 12px', marginBottom: 4, borderRadius: 10, cursor: 'pointer',
-                    background: item.completed ? 'rgba(76,175,125,0.07)' : 'var(--bg-sand)',
-                    border: `1.5px solid ${item.completed ? 'rgba(76,175,125,0.3)' : 'var(--sand-border)'}`,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <CheckSquare size={16} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)', flexShrink: 0 }} />
-                  <span style={{
-                    fontSize: 13, flex: 1,
-                    textDecoration: item.completed ? 'line-through' : 'none',
-                    color: item.completed ? 'var(--ink-muted)' : 'var(--ink)',
-                  }}>{item.text}</span>
-                </div>
-              ))}
-            </div>
+            {/* Checklist items (only if task has checklist) */}
+            {doneModalChecklist.length > 0 && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+                {doneModalChecklist.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleDoneItem(idx)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 12px', marginBottom: 4, borderRadius: 10, cursor: 'pointer',
+                      background: item.completed ? 'rgba(76,175,125,0.07)' : 'var(--bg-sand)',
+                      border: `1.5px solid ${item.completed ? 'rgba(76,175,125,0.3)' : 'var(--sand-border)'}`,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <CheckSquare size={16} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)', flexShrink: 0 }} />
+                    <span style={{
+                      fontSize: 13, flex: 1,
+                      textDecoration: item.completed ? 'line-through' : 'none',
+                      color: item.completed ? 'var(--ink-muted)' : 'var(--ink)',
+                    }}>{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Footer */}
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--sand-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {doneModalChecklist.every(i => i.completed) ? (
+              {doneModalChecklist.length === 0 || doneModalChecklist.every(i => i.completed) ? (
                 <button className="drawer-submit" onClick={confirmDone} style={{ background: 'var(--green)' }}>
-                  <Check size={15} /> All done — Mark as complete
+                  <Check size={15} /> Yes, mark as complete
                 </button>
               ) : (
-                <>
-                  <button className="drawer-submit" onClick={confirmDone}>
-                    Mark as done anyway
-                  </button>
-                  <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
-                    Go back and finish checklist
-                  </button>
-                </>
+                <button className="drawer-submit" onClick={confirmDone}>
+                  Mark as done anyway
+                </button>
               )}
+              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
+                Go back
+              </button>
             </div>
           </div>
         </div>
