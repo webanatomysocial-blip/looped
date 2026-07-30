@@ -136,17 +136,17 @@ export default function Tasks() {
     load();
   };
 
-  const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: Task) => {
+  const handleTimer = (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: Task) => {
     if (action === 'done' && taskObj) {
-      try {
-        const res = await tasksApi.get(taskId);
-        setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
-      } catch { setDoneModalChecklist([]); }
+      // Show modal immediately, load checklist in background
       setDoneConfirmTask(taskObj);
+      setDoneModalChecklist([]);
+      tasksApi.get(taskId).then(res => {
+        setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+      }).catch(() => setDoneModalChecklist([]));
       return;
     }
-    await tasksApi.timer(taskId, action);
-    load();
+    tasksApi.timer(taskId, action).then(() => load());
   };
 
   const toggleDoneItem = async (idx: number) => {
