@@ -20,6 +20,7 @@ export async function initDB(): Promise<void> {
         user: process.env.DB_USER,
         password: process.env.DB_PASS,
         database: process.env.DB_NAME,
+        dateStrings: true,
       },
       pool: { min: 2, max: 10 },
     });
