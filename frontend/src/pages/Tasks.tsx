@@ -6,6 +6,14 @@ import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
 
 const PAGE_SIZE = 7;
+
+function fmtHours(h: number): string {
+  const hrs = Math.floor(h);
+  const mins = Math.round((h - hrs) * 60);
+  if (hrs === 0) return `${mins}m`;
+  if (mins === 0) return `${hrs}h`;
+  return `${hrs}h ${mins}m`;
+}
 import Badge from '../components/UI/Badge';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
@@ -375,7 +383,7 @@ export default function Tasks() {
                   <td>
                     {task.estimated_hours
                       ? <span style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <Clock size={11} />{task.estimated_hours}h
+                          <Clock size={11} />{fmtHours(Number(task.estimated_hours))}
                         </span>
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
                   </td>
@@ -948,7 +956,7 @@ export default function Tasks() {
                     {editTask.estimated_hours && (
                       <div>
                         <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Current Est.</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{editTask.estimated_hours}h</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtHours(Number(editTask.estimated_hours))}</div>
                       </div>
                     )}
                     <div>
