@@ -133,25 +133,31 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (role === 'admin') {
       if (req.query.pod) {
-        query = query.where(function () {
-          this.where('sub.pod', req.query.pod as string)
-            .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
-              SELECT 1 FROM task_approval_flow taf
-              WHERE taf.task_id = ap.task_id AND taf.user_id = ?
-            ))`, [userId]);
+        // Filter by the pod of the employee assigned to the task (same as tasks route)
+        query = query.whereIn('ap.task_id', function (this: any) {
+          this.select('ta.task_id')
+            .from('task_assignees as ta')
+            .join('users as u', 'ta.user_id', 'u.id')
+            .where('u.pod', req.query.pod as string)
+            .whereIn('ta.assignee_role', ['employee']);
         });
       }
     } else if (role === 'manager') {
       const mgr = await db('users').where({ id: userId }).select('pod').first();
       if (mgr?.pod) {
-        // Show same-pod submissions OR any custom flow where this manager is an approver (cross-pod)
+        // Show same-pod task approvals OR any custom flow where this manager is an approver (cross-pod)
         query = query.where(function () {
-          this.where('sub.pod', mgr.pod)
-            .orWhereNull('sub.pod')
-            .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
-              SELECT 1 FROM task_approval_flow taf
-              WHERE taf.task_id = ap.task_id AND taf.user_id = ?
-            ))`, [userId]);
+          this.whereIn('ap.task_id', function (this: any) {
+            this.select('ta.task_id')
+              .from('task_assignees as ta')
+              .join('users as u', 'ta.user_id', 'u.id')
+              .where('u.pod', mgr.pod)
+              .whereIn('ta.assignee_role', ['employee']);
+          })
+          .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
+            SELECT 1 FROM task_approval_flow taf
+            WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+          ))`, [userId]);
         });
       }
     } else if (role === 'client') {

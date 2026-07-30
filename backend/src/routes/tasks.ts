@@ -134,7 +134,12 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
   if (!title || !project_id) { res.status(400).json({ error: 'Title and project required' }); return; }
   try {
     const db = getDB();
-    const checklistItems: string[] = checklist || [];
+    // Accept either string[] (legacy) or {text,checked}[] (new)
+    type RawItem = string | { text: string; checked?: boolean };
+    const rawItems: RawItem[] = checklist || [];
+    const checklistItems = rawItems.map((r) =>
+      typeof r === 'string' ? { text: r, checked: false } : { text: r.text, checked: !!r.checked }
+    );
 
     const workerId  = working_person_id  ? Number(working_person_id)  : null;
     const managerId = task_manager_id    ? Number(task_manager_id)    : null;
@@ -143,10 +148,10 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       title, description: description || null,
       project_id, assigned_to: workerId,
       created_by: req.user!.id,
-      due_date: due_date || null,
+      due_date: due_date ? String(due_date).slice(0, 10) : null,
       due_time: due_time || null,
       status: 'todo',
-      checklist_total: checklistItems.length,
+      checklist_total: checklistItems.filter(i => i.text).length,
       checklist_done: 0,
       estimated_hours: estimated_hours ? Number(estimated_hours) : null,
     });
@@ -157,8 +162,11 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     if (managerId) assigneeInserts.push({ task_id: id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
     if (assigneeInserts.length) await db('task_assignees').insert(assigneeInserts);
 
-    if (checklistItems.length) {
-      await db('task_checklist').insert(checklistItems.map((text) => ({ task_id: id, text, completed: false })));
+    const validItems = checklistItems.filter(i => i.text);
+    if (validItems.length) {
+      await db('task_checklist').insert(validItems.map((i) => ({ task_id: id, text: i.text, completed: i.checked ? 1 : 0 })));
+      const doneCount = validItems.filter(i => i.checked).length;
+      await db('tasks').where({ id }).update({ checklist_total: validItems.length, checklist_done: doneCount });
     }
 
     // Save custom approval flow if provided
@@ -210,7 +218,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     const updates: any = {};
     if (title) updates.title = title;
     if (description !== undefined) updates.description = description;
-    if (due_date !== undefined) updates.due_date = due_date;
+    if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (due_time !== undefined) updates.due_time = due_time;
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
     if (status) updates.status = status;

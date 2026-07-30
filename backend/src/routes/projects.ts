@@ -181,7 +181,7 @@ router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res:
     const svcType = service_type || 'per_project';
     const [id] = await db('projects').insert({
       name, client_company_id: client_company_id || null,
-      due_date: due_date || null, status: 'active', created_by: req.user!.id,
+      due_date: due_date ? String(due_date).slice(0, 10) : null, status: 'active', created_by: req.user!.id,
       service_type: svcType,
       budget_amount: budget_amount != null ? Number(budget_amount) : null,
       budget_cutoff_pct: svcType === 'per_project' && budget_cutoff_pct != null ? Number(budget_cutoff_pct) : null,
@@ -217,7 +217,7 @@ router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, re
     const updates: any = {};
     if (name) updates.name = name;
     if (status) updates.status = status;
-    if (due_date !== undefined) updates.due_date = due_date;
+    if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (client_company_id !== undefined) updates.client_company_id = client_company_id;
     if (service_type) {
       const svcType = service_type;

@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
+import { getChecklistForCategory } from '../data/categoryChecklists';
 
 const PAGE_SIZE = 7;
 import Badge from '../components/UI/Badge';
@@ -22,6 +23,7 @@ export default function Tasks() {
   const [showModal, setShowModal]               = useState(false);
   const [assignTab, setAssignTab]               = useState<'working_person_id'|'task_manager_id'>('working_person_id');
   const [roleTab, setRoleTab]                   = useState<'admin'|'manager'|'employee'>('employee');
+  const [assignCategoryTab, setAssignCategoryTab] = useState<number | 'all'>('all');
   const [approvalFlow, setApprovalFlow]         = useState<User[]>([]);
   const [flowRoleTab, setFlowRoleTab]           = useState<'admin'|'manager'|'employee'|'client'>('employee');
   const [flowCategoryTab, setFlowCategoryTab]   = useState<number | 'all'>('all');
@@ -31,15 +33,19 @@ export default function Tasks() {
   const [filterStatus, setFilterStatus]         = useState('all');
   const [editTask, setEditTask]                 = useState<Task | null>(null);
   const [editForm, setEditForm]                 = useState({ title: '', description: '', due_date: '', due_time: '', est_hours: '', est_minutes: '0', working_person_id: '', task_manager_id: '' });
+  const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const [editAssignTab, setEditAssignTab]       = useState<'working_person_id'|'task_manager_id'>('working_person_id');
   const [editRoleTab, setEditRoleTab]           = useState<'admin'|'manager'|'employee'>('employee');
 
   const [form, setForm] = useState({
     title: '', description: '', project_id: '',
     working_person_id: '', task_manager_id: '',
-    due_date: '', due_time: '', checklist: [''] as string[],
+    due_date: '', due_time: '',
+    checklist: [{ text: '', checked: false }] as { text: string; checked: boolean }[],
     est_hours: '', est_minutes: '0',
   });
+  const [doneConfirmTask, setDoneConfirmTask] = useState<Task | null>(null);
+  const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const [capacityWarnings, setCapacityWarnings] = useState<string[]>([]);
 
   const canCreate = user?.role !== 'client';
@@ -71,7 +77,7 @@ export default function Tasks() {
         task_manager_id: form.task_manager_id ? Number(form.task_manager_id) : null,
         due_date: form.due_date || null,
         due_time: form.due_time || null,
-        checklist: form.checklist.filter(Boolean),
+        checklist: form.checklist.filter(i => i.text),
         estimated_hours: estHrs,
         approval_flow: approvalFlow.map(u => u.id),
       });
@@ -119,7 +125,36 @@ export default function Tasks() {
   };
 
   const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done') => {
+    if (action === 'done') {
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.checklist_total > 0) {
+        // Always show checklist modal so employee can review/check items before marking done
+        try {
+          const res = await tasksApi.get(taskId);
+          setDoneModalChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+        } catch { setDoneModalChecklist([]); }
+        setDoneConfirmTask(task);
+        return;
+      }
+    }
     await tasksApi.timer(taskId, action);
+    load();
+  };
+
+  const toggleDoneItem = async (idx: number) => {
+    const item = doneModalChecklist[idx];
+    const newCompleted = !item.completed;
+    // Optimistic update
+    setDoneModalChecklist(prev => prev.map((it, i) => i === idx ? { ...it, completed: newCompleted } : it));
+    try { await tasksApi.updateChecklist(doneConfirmTask!.id, item.id, newCompleted); }
+    catch { setDoneModalChecklist(prev => prev.map((it, i) => i === idx ? { ...it, completed: !newCompleted } : it)); }
+  };
+
+  const confirmDone = async () => {
+    if (!doneConfirmTask) return;
+    await tasksApi.timer(doneConfirmTask.id, 'done');
+    setDoneConfirmTask(null);
+    setDoneModalChecklist([]);
     load();
   };
 
@@ -129,7 +164,7 @@ export default function Tasks() {
     catch (err: any) { alert(err.response?.data?.error || 'Delete failed'); }
   };
 
-  const openEdit = (task: Task) => {
+  const openEdit = async (task: Task) => {
     const estH = task.estimated_hours ?? 0;
     const employeeAssignee = task.assignees?.find(a => a.assignee_role === 'employee' || a.assignee_role === 'worker' as any);
     const managerAssignee  = task.assignees?.find(a => a.assignee_role === 'manager');
@@ -146,6 +181,11 @@ export default function Tasks() {
       working_person_id: employeeAssignee ? String(employeeAssignee.user_id) : '',
       task_manager_id:   managerAssignee  ? String(managerAssignee.user_id)  : '',
     });
+    // Load existing checklist items
+    try {
+      const res = await tasksApi.get(task.id);
+      setEditChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+    } catch { setEditChecklist([]); }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -164,6 +204,10 @@ export default function Tasks() {
         working_person_id: editForm.working_person_id || null,
         task_manager_id:   editForm.task_manager_id   || null,
       });
+      // Save any checklist item completions toggled during edit
+      await Promise.all(
+        editChecklist.map(item => tasksApi.updateChecklist(editTask.id, item.id, item.completed))
+      );
       setEditTask(null);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
@@ -178,9 +222,22 @@ export default function Tasks() {
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
 
-  const addItem = () => setForm((f) => ({ ...f, checklist: [...f.checklist, ''] }));
-  const updItem = (i: number, v: string) => { const c = [...form.checklist]; c[i] = v; setForm((f) => ({ ...f, checklist: c })); };
+  const addItem = () => setForm((f) => ({ ...f, checklist: [...f.checklist, { text: '', checked: false }] }));
+  const updItem = (i: number, v: string) => { const c = [...form.checklist]; c[i] = { ...c[i], text: v }; setForm((f) => ({ ...f, checklist: c })); };
+  const togItem = (i: number) => { const c = [...form.checklist]; c[i] = { ...c[i], checked: !c[i].checked }; setForm((f) => ({ ...f, checklist: c })); };
   const delItem = (i: number) => setForm((f) => ({ ...f, checklist: f.checklist.filter((_, idx) => idx !== i) }));
+
+  const applyEmployeeChecklist = (userId: string) => {
+    if (!userId) return;
+    const emp = users.find(u => String(u.id) === userId);
+    if (!emp?.categories?.length) return;
+    const items: { text: string; checked: boolean }[] = [];
+    for (const cat of emp.categories) {
+      const tpl = getChecklistForCategory(cat.name);
+      if (tpl) items.push(...tpl.items.map(i => ({ text: i.text, checked: i.checked })));
+    }
+    if (items.length) setForm((f) => ({ ...f, checklist: items }));
+  };
 
   const [page, setPage] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
@@ -253,7 +310,7 @@ export default function Tasks() {
               )}
             </div>
             {canCreate && (
-              <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [''], est_hours: '', est_minutes: '0' }); setCapacityWarnings([]); setApprovalFlow([]); setShowModal(true); }}>
+              <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0' }); setCapacityWarnings([]); setApprovalFlow([]); setShowModal(true); }}>
                 <Plus size={14} /> New task
               </button>
             )}
@@ -451,9 +508,9 @@ export default function Tasks() {
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
                   <div className="drawer-info-field">
-                    <div className="drawer-info-label">Est. time</div>
+                    <div className="drawer-info-label">Est. time *</div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
+                      <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} required onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
                       <input type="number" min="0" max="59" placeholder="0m" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_minutes} onChange={(e) => setForm({ ...form, est_minutes: e.target.value })} onBlur={checkCapacity} />
                     </div>
                   </div>
@@ -518,7 +575,10 @@ export default function Tasks() {
                               <div className="ap-selected__name">{selectedUser.name}</div>
                               <div className="ap-selected__role">{selectedUser.role}</div>
                             </div>
-                            <button type="button" className="ap-slot__clear" onClick={() => { setForm({ ...form, [active.key]: '' }); setTimeout(checkCapacity, 0); }}>× Clear</button>
+                            <button type="button" className="ap-slot__clear" onClick={() => {
+                              setForm((f) => ({ ...f, [active.key]: '', ...(active.key === 'working_person_id' ? { checklist: [{ text: '', checked: false }] } : {}) }));
+                              setTimeout(checkCapacity, 0);
+                            }}>× Clear</button>
                           </div>
                         )}
 
@@ -526,29 +586,72 @@ export default function Tasks() {
                         {(() => {
                           const availableRoles = (['admin','manager','employee'] as const).filter(r => (active.eligibleRoles as readonly string[]).includes(r));
                           const activeRole = availableRoles.includes(roleTab) ? roleTab : availableRoles[0];
-                          const visibleUsers = pool.filter(u => u.role === activeRole);
+                          const rolePool = pool.filter(u => u.role === activeRole);
+
+                          // Category sub-tabs for employees
+                          const empCategories: { id: number; name: string }[] = [];
+                          if (activeRole === 'employee') {
+                            const seen = new Set<number>();
+                            for (const u of rolePool) {
+                              for (const cat of (u.categories ?? [])) {
+                                if (!seen.has(cat.id)) { seen.add(cat.id); empCategories.push({ id: cat.id, name: cat.name }); }
+                              }
+                            }
+                          }
+
+                          const visibleUsers = activeRole === 'employee' && assignCategoryTab !== 'all'
+                            ? rolePool.filter(u => u.categories?.some((c: any) => c.id === assignCategoryTab))
+                            : rolePool;
+
                           return (
                             <>
                               <div className="ap-role-tabs">
                                 {availableRoles.map(r => (
                                   <button key={r} type="button"
                                     className={`ap-role-tab${activeRole === r ? ' ap-role-tab--active' : ''}`}
-                                    onClick={() => setRoleTab(r)}
+                                    onClick={() => { setRoleTab(r); setAssignCategoryTab('all'); }}
                                   >
                                     {r.charAt(0).toUpperCase() + r.slice(1)}
                                     <span className="ap-role-tab__count">{pool.filter(u => u.role === r).length}</span>
                                   </button>
                                 ))}
                               </div>
+
+                              {/* Category sub-tabs — only for employees */}
+                              {activeRole === 'employee' && empCategories.length > 0 && (
+                                <div className="ap-role-tabs" style={{ marginTop: 6, paddingLeft: 4, borderLeft: '2px solid var(--sand-border)' }}>
+                                  <button type="button"
+                                    className={`ap-role-tab${assignCategoryTab === 'all' ? ' ap-role-tab--active' : ''}`}
+                                    onClick={() => setAssignCategoryTab('all')}
+                                  >
+                                    All <span className="ap-role-tab__count">{rolePool.length}</span>
+                                  </button>
+                                  {empCategories.map(cat => (
+                                    <button key={cat.id} type="button"
+                                      className={`ap-role-tab${assignCategoryTab === cat.id ? ' ap-role-tab--active' : ''}`}
+                                      onClick={() => setAssignCategoryTab(cat.id)}
+                                    >
+                                      {cat.name}
+                                      <span className="ap-role-tab__count">{rolePool.filter(u => u.categories?.some((c: any) => c.id === cat.id)).length}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
                               <div className="ap-group__chips" style={{ marginTop: 8 }}>
-                                {visibleUsers.length === 0 && <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No {activeRole}s</span>}
+                                {visibleUsers.length === 0 && <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No {activeRole}s{assignCategoryTab !== 'all' ? ' in this category' : ''}</span>}
                                 {visibleUsers.map(u => {
                                   const isSelected = String(u.id) === selectedId;
                                   return (
                                     <button key={u.id} type="button"
                                       className={`ap-chip${isSelected ? ' ap-chip--selected' : ''}`}
                                       style={isSelected ? { '--ap-accent': active.accent } as any : undefined}
-                                      onClick={() => { setForm({ ...form, [active.key]: isSelected ? '' : String(u.id) }); setTimeout(checkCapacity, 0); }}
+                                      onClick={() => {
+                                        const newId = isSelected ? '' : String(u.id);
+                                        setForm((f) => ({ ...f, [active.key]: newId }));
+                                        if (active.key === 'working_person_id' && !isSelected) applyEmployeeChecklist(String(u.id));
+                                        setTimeout(checkCapacity, 0);
+                                      }}
                                       title={u.name}
                                     >
                                       <div className="ap-avatar" style={{ background: u.avatar_color }}>
@@ -689,14 +792,27 @@ export default function Tasks() {
                 {/* Checklist */}
                 <div className="drawer-section">
                   <div className="drawer-section-title" style={{ justifyContent: 'space-between' }}>
-                    <span>Checklist Goals</span>
+                    <span>Checklist Goals <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-muted)' }}>({form.checklist.filter(i => i.checked && i.text).length}/{form.checklist.filter(i => i.text).length} pre-checked)</span></span>
                     <button type="button" onClick={addItem} className="checklist-add-btn"><Plus size={11} /> Add item</button>
                   </div>
                   <div className="drawer-checklist">
                     {form.checklist.map((item, i) => (
                       <div key={i} className="drawer-checklist-row">
-                        <CheckSquare size={14} style={{ color: 'var(--sand-border)', flexShrink: 0 }} />
-                        <input className="form-input" style={{ padding: '8px 12px', fontSize: 13 }} placeholder={`Goal ${i + 1}`} value={item} onChange={(e) => updItem(i, e.target.value)} />
+                        <button
+                          type="button"
+                          onClick={() => togItem(i)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center' }}
+                          title={item.checked ? 'Uncheck (not required)' : 'Pre-check (required by default)'}
+                        >
+                          <CheckSquare size={14} style={{ color: item.checked ? 'var(--green)' : 'var(--sand-border)' }} />
+                        </button>
+                        <input
+                          className="form-input"
+                          style={{ padding: '8px 12px', fontSize: 13, textDecoration: item.checked ? 'none' : undefined }}
+                          placeholder={`Goal ${i + 1}`}
+                          value={item.text}
+                          onChange={(e) => updItem(i, e.target.value)}
+                        />
                         <button type="button" onClick={() => delItem(i)} className="icon-action danger" style={{ flexShrink: 0 }}>×</button>
                       </div>
                     ))}
@@ -842,6 +958,41 @@ export default function Tasks() {
                   />
                 </div>
 
+                {/* Checklist */}
+                {editChecklist.length > 0 && (
+                  <div className="drawer-section">
+                    <div className="drawer-section-title" style={{ justifyContent: 'space-between' }}>
+                      <span>
+                        Checklist Goals{' '}
+                        <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-muted)' }}>
+                          ({editChecklist.filter(i => i.completed).length}/{editChecklist.length} pre-checked)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="drawer-checklist">
+                      {editChecklist.map((item, i) => (
+                        <div key={item.id} className="drawer-checklist-row">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const c = [...editChecklist];
+                              c[i] = { ...c[i], completed: !c[i].completed };
+                              setEditChecklist(c);
+                            }}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center' }}
+                            title={item.completed ? 'Uncheck' : 'Check'}
+                          >
+                            <CheckSquare size={14} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)' }} />
+                          </button>
+                          <span style={{ fontSize: 13, flex: 1, textDecoration: item.completed ? 'line-through' : 'none', color: item.completed ? 'var(--ink-muted)' : 'var(--ink)' }}>
+                            {item.text}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Assignment */}
                 {(() => {
                   const SLOTS = [
@@ -933,6 +1084,77 @@ export default function Tasks() {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Done confirmation modal ── */}
+      {doneConfirmTask && (
+        <div className="drawer-overlay" style={{ zIndex: 900 }}>
+          <div className="drawer-backdrop" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
+          <div style={{
+            position: 'relative', background: '#fff', borderRadius: 20, padding: 0,
+            width: '90%', maxWidth: 460, margin: 'auto', marginTop: '8vh',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.15)', zIndex: 901,
+            display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+          }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--sand-border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 4 }}>Task Checklist</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>{doneConfirmTask.title}</div>
+              {(() => {
+                const checkedCount = doneModalChecklist.filter(i => i.completed).length;
+                const total = doneModalChecklist.length;
+                const allDone = checkedCount === total;
+                return (
+                  <div style={{ fontSize: 12, color: allDone ? 'var(--green)' : 'var(--orange)', fontWeight: 600 }}>
+                    {checkedCount}/{total} items completed {allDone ? '✓ All done!' : '— please check everything before marking done'}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Checklist items */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 24px' }}>
+              {doneModalChecklist.map((item, idx) => (
+                <div
+                  key={item.id}
+                  onClick={() => toggleDoneItem(idx)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 12px', marginBottom: 4, borderRadius: 10, cursor: 'pointer',
+                    background: item.completed ? 'rgba(76,175,125,0.07)' : 'var(--bg-sand)',
+                    border: `1.5px solid ${item.completed ? 'rgba(76,175,125,0.3)' : 'var(--sand-border)'}`,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <CheckSquare size={16} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)', flexShrink: 0 }} />
+                  <span style={{
+                    fontSize: 13, flex: 1,
+                    textDecoration: item.completed ? 'line-through' : 'none',
+                    color: item.completed ? 'var(--ink-muted)' : 'var(--ink)',
+                  }}>{item.text}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--sand-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {doneModalChecklist.every(i => i.completed) ? (
+                <button className="drawer-submit" onClick={confirmDone} style={{ background: 'var(--green)' }}>
+                  <Check size={15} /> All done — Mark as complete
+                </button>
+              ) : (
+                <>
+                  <button className="drawer-submit" onClick={confirmDone}>
+                    Mark as done anyway
+                  </button>
+                  <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
+                    Go back and finish checklist
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
