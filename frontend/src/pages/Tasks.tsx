@@ -437,26 +437,27 @@ export default function Tasks() {
                           )}
                         </>
                       )}
-                      {/* Send Again — shown when approval was rejected */}
-                      {canCreate && task.has_rejected_approval && (
-                        <button
-                          className="icon-action"
-                          title="Send again (rejected)"
-                          style={{ background: 'rgba(231,76,60,0.12)', color: 'var(--red)', fontWeight: 700, fontSize: 10, gap: 3, padding: '4px 8px', borderRadius: 8, display: 'inline-flex', alignItems: 'center' }}
-                          onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
-                        >
-                          <Send size={11} /> Send Again
-                        </button>
-                      )}
-                      {/* Submit for approval — shown when no rejected approval and not completed */}
-                      {canCreate && !task.has_rejected_approval && task.status !== 'completed' && (
-                        <button
-                          className="icon-action"
-                          title="Submit for approval"
-                          onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
-                        >
-                          <Send size={12} />
-                        </button>
+                      {/* Submit / Send Again for approval */}
+                      {canCreate && task.status !== 'completed' && (
+                        task.has_rejected_approval
+                          ? (
+                            <button
+                              className="icon-action"
+                              title="Send again (rejected)"
+                              style={{ background: 'rgba(231,76,60,0.12)', color: 'var(--red)', fontWeight: 700, fontSize: 10, gap: 3, padding: '4px 8px', borderRadius: 8, display: 'inline-flex', alignItems: 'center' }}
+                              onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
+                            >
+                              <Send size={11} /> Send Again
+                            </button>
+                          ) : (
+                            <button
+                              className="icon-action"
+                              title="Submit for approval"
+                              onClick={() => { setSelectedTask(task); setApprovalTitle(task.title); setShowApprovalModal(true); }}
+                            >
+                              <Send size={12} />
+                            </button>
+                          )
                       )}
                       {(user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && task.status !== 'completed' && (
                         <button className="icon-action" title="Edit task" onClick={() => openEdit(task)}>
