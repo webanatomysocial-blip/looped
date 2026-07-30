@@ -1107,12 +1107,19 @@ export default function Tasks() {
 
       {/* ── Done confirmation modal ── */}
       {doneConfirmTask && (
-        <div className="drawer-overlay" style={{ zIndex: 900 }}>
-          <div className="drawer-backdrop" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 900,
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          paddingTop: '8vh',
+        }}>
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(26,26,26,0.4)', backdropFilter: 'blur(3px)',
+          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
           <div style={{
             position: 'relative', background: '#fff', borderRadius: 20, padding: 0,
-            width: '90%', maxWidth: 460, margin: 'auto', marginTop: '8vh',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.15)', zIndex: 901,
+            width: '90%', maxWidth: 460, zIndex: 901,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
             display: 'flex', flexDirection: 'column', maxHeight: '80vh',
           }}>
             {/* Header */}
