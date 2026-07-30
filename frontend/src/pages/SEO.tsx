@@ -155,11 +155,11 @@ function downloadPDF(
     </tr>`).join('');
 
   const gmbCards = [
-    manual.gmb_rating != null ? ['Rating', manual.gmb_rating.toFixed(1)] : null,
-    manual.gmb_reviews != null ? ['Reviews', manual.gmb_reviews.toLocaleString()] : null,
-    manual.gmb_calls != null ? ['Calls', manual.gmb_calls.toLocaleString()] : null,
-    manual.gmb_bookings != null ? ['Bookings', manual.gmb_bookings.toLocaleString()] : null,
-    manual.gmb_website_clicks != null ? ['Website Clicks', manual.gmb_website_clicks.toLocaleString()] : null,
+    manual.gmb_rating != null ? ['Rating', Number(manual.gmb_rating).toFixed(1)] : null,
+    manual.gmb_reviews != null ? ['Reviews', Number(manual.gmb_reviews).toLocaleString()] : null,
+    manual.gmb_calls != null ? ['Calls', Number(manual.gmb_calls).toLocaleString()] : null,
+    manual.gmb_bookings != null ? ['Bookings', Number(manual.gmb_bookings).toLocaleString()] : null,
+    manual.gmb_website_clicks != null ? ['Website Clicks', Number(manual.gmb_website_clicks).toLocaleString()] : null,
   ].filter(Boolean) as [string, string][];
 
   const li = manual.linkedin_data;
@@ -1218,7 +1218,7 @@ export default function SEO() {
                     </div>
                   )}
                   <div className="seo-gmb-grid">
-                    {manual.gmb_rating != null && (<div className="seo-gmb-card"><Star size={14} className="seo-gmb-icon seo-gmb-icon--star" /><div><p className="seo-card__val">{manual.gmb_rating.toFixed(1)}</p><p className="seo-card__label">Rating</p></div></div>)}
+                    {manual.gmb_rating != null && (<div className="seo-gmb-card"><Star size={14} className="seo-gmb-icon seo-gmb-icon--star" /><div><p className="seo-card__val">{Number(manual.gmb_rating).toFixed(1)}</p><p className="seo-card__label">Rating</p></div></div>)}
                     {manual.gmb_reviews != null && (<div className="seo-gmb-card"><FileText size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_reviews.toLocaleString()}</p><p className="seo-card__label">Reviews</p></div></div>)}
                     {manual.gmb_calls != null && (<div className="seo-gmb-card"><MousePointer size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_calls.toLocaleString()}</p><p className="seo-card__label">Calls</p></div></div>)}
                     {manual.gmb_bookings != null && (<div className="seo-gmb-card"><Check size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_bookings.toLocaleString()}</p><p className="seo-card__label">Bookings</p></div></div>)}
