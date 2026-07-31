@@ -146,9 +146,16 @@ export default function AssetLibrary() {
                   <td style={{ fontSize: 12, color: 'var(--sand-border)' }}>{format(new Date(asset.created_at), 'MMM d, yyyy')}</td>
                   <td>
                     <div className="asset-actions">
-                      <a href={assetsApi.downloadUrl(asset.id)} download className="icon-action" title="Download">
+                      <button className="icon-action" title="Download" onClick={async () => {
+                        const token = localStorage.getItem('token');
+                        const res = await fetch(assetsApi.downloadUrl(asset.id), { headers: { Authorization: `Bearer ${token}` } });
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = asset.name; a.click();
+                        URL.revokeObjectURL(url);
+                      }}>
                         <Download size={12} />
-                      </a>
+                      </button>
                       <button onClick={() => handleDelete(asset.id)} className="icon-action danger" title="Delete">
                         <Trash2 size={12} />
                       </button>
