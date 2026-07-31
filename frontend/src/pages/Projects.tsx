@@ -565,10 +565,15 @@ export default function Projects() {
                   <div>
                     <label className="form-label">Billing cycle start day</label>
                     <input type="date" className="form-input"
-                      value={form.billing_cycle_start_day ? `2000-01-${String(form.billing_cycle_start_day).padStart(2, '0')}` : ''}
+                      value={(() => {
+                        const now = new Date();
+                        const day = String(form.billing_cycle_start_day || now.getDate()).padStart(2, '0');
+                        const m = String(now.getMonth() + 1).padStart(2, '0');
+                        return `${now.getFullYear()}-${m}-${day}`;
+                      })()}
                       onChange={(e) => {
-                        const day = e.target.value ? String(new Date(e.target.value).getDate()) : '1';
-                        setForm({ ...form, billing_cycle_start_day: day });
+                        const day = e.target.value ? e.target.value.split('-')[2] : String(new Date().getDate());
+                        setForm({ ...form, billing_cycle_start_day: String(Number(day)) });
                       }} />
                   </div>
                   {form.budget_amount && form.monthly_hours_bucket && Number(form.monthly_hours_bucket) > 0 && (
