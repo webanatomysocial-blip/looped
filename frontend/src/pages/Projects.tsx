@@ -163,7 +163,7 @@ export default function Projects() {
         member_ids: form.member_ids,
         service_type: form.service_type,
         budget_amount: form.budget_amount ? Number(form.budget_amount) : null,
-        budget_cutoff_pct: form.service_type === 'per_project' && form.budget_cutoff_pct ? Number(form.budget_cutoff_pct) : null,
+        budget_cutoff_pct: form.budget_cutoff_pct ? Number(form.budget_cutoff_pct) : null,
         budgeted_hours: form.service_type === 'per_project' && form.budgeted_hours ? Number(form.budgeted_hours) : null,
         monthly_hours_bucket: form.service_type === 'xlr8' && form.monthly_hours_bucket ? Number(form.monthly_hours_bucket) : null,
         billing_cycle_start_day: form.service_type === 'xlr8' ? Number(form.billing_cycle_start_day) || 1 : null,
@@ -561,6 +561,19 @@ export default function Projects() {
                       placeholder="e.g. 31"
                       value={form.monthly_hours_bucket}
                       onChange={(e) => setForm({ ...form, monthly_hours_bucket: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="form-label">Cut-off %</label>
+                    <input type="number" min="0" max="100" step="0.1" className="form-input"
+                      placeholder="e.g. 20"
+                      value={form.budget_cutoff_pct}
+                      onChange={(e) => setForm({ ...form, budget_cutoff_pct: e.target.value })} />
+                    {form.budget_cutoff_pct && form.budget_amount && Number(form.budget_cutoff_pct) > 0 && (
+                      <p className="proj-rate-hint" style={{ marginTop: 4 }}>
+                        Working budget: ₹{(Number(form.budget_amount) * (1 - Number(form.budget_cutoff_pct) / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        {' · '}₹{(Number(form.budget_amount) * Number(form.budget_cutoff_pct) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })} reserved
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="form-label">Billing cycle start day</label>
