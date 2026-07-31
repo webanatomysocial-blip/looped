@@ -32,10 +32,18 @@ interface LinkedInData {
   posts: LinkedInPost[];
 }
 interface SocialPlatformData {
-  reach: number | null;
+  // Instagram
   views: number | null;
-  audience_followers_pct: number | null;
-  followers: number | null;
+  from_organic: number | null;
+  from_ads: number | null;
+  reach: number | null;
+  total_followers: number | null;
+  new_followers: number | null;
+  interactions: number | null;
+  // Facebook
+  watch_time: string | null;
+  // TikTok
+  likes: number | null;
 }
 interface SocialMediaData {
   instagram: SocialPlatformData;
@@ -206,19 +214,53 @@ function downloadPDF(
   const socialSections = socialPlatforms.map(({ key, label }) => {
     const d = manual.social_media_data?.[key];
     if (!d) return '';
-    const cards = [
-      d.reach != null ? ['Reach', d.reach.toLocaleString()] : null,
+    const allCards: ([string, string] | null)[] = key === 'instagram' ? [
       d.views != null ? ['Views', d.views.toLocaleString()] : null,
-      d.audience_followers_pct != null ? ['Audience (Followers)', `${d.audience_followers_pct}%`] : null,
-      d.audience_followers_pct != null ? ['Audience (Non-Followers)', `${100 - d.audience_followers_pct}%`] : null,
-      d.followers != null ? ['Followers', d.followers.toLocaleString()] : null,
-    ].filter(Boolean) as [string, string][];
-    if (!cards.length) return '';
+      d.from_organic != null ? ['From Organic', d.from_organic.toLocaleString()] : null,
+      d.from_ads != null ? ['From Ads', d.from_ads.toLocaleString()] : null,
+      d.reach != null ? ['Reach', d.reach.toLocaleString()] : null,
+      d.total_followers != null ? ['Total Followers', d.total_followers.toLocaleString()] : null,
+      d.new_followers != null ? ['New Followers', d.new_followers.toLocaleString()] : null,
+      d.interactions != null ? ['Interactions', d.interactions.toLocaleString()] : null,
+    ] : key === 'facebook' ? [
+      d.views != null ? ['Views', d.views.toLocaleString()] : null,
+      d.from_organic != null ? ['From Organic', d.from_organic.toLocaleString()] : null,
+      d.from_ads != null ? ['From Ads', d.from_ads.toLocaleString()] : null,
+      d.interactions != null ? ['Interactions', d.interactions.toLocaleString()] : null,
+      d.watch_time != null ? ['Watch Time', d.watch_time] : null,
+    ] : [
+      d.views != null ? ['Views', d.views.toLocaleString()] : null,
+      d.total_followers != null ? ['Followers', d.total_followers.toLocaleString()] : null,
+      d.likes != null ? ['Likes', d.likes.toLocaleString()] : null,
+    ];
+    const cards = allCards.filter(Boolean) as [string, string][];
+    if (!cards.length && d.from_organic == null && d.from_ads == null) return '';
+    const tot = (d.from_organic ?? 0) + (d.from_ads ?? 0) || 1;
+    const oPct = Math.round(((d.from_organic ?? 0) / tot) * 100);
+    const aPct = 100 - oPct;
+    const hasSplit = (key === 'instagram' || key === 'facebook') && (d.from_organic != null || d.from_ads != null);
+    const splitBar = hasSplit ? `
+      <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:14px 0 6px">Views Breakdown</p>
+      <div style="display:flex;gap:12px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="height:8px;background:#e8e8e0;border-radius:4px;overflow:hidden;margin-bottom:4px">
+            <div style="height:100%;width:${Math.max(oPct, 2)}%;background:#22c55e;border-radius:4px"></div>
+          </div>
+          <p style="font-size:11px;color:#888;margin:0">Organic ${oPct}% &nbsp;<b style="color:#1a1a1a">${(d.from_organic ?? 0).toLocaleString()}</b></p>
+        </div>
+        <div style="flex:1">
+          <div style="height:8px;background:#e8e8e0;border-radius:4px;overflow:hidden;margin-bottom:4px">
+            <div style="height:100%;width:${Math.max(aPct, 2)}%;background:#6366f1;border-radius:4px"></div>
+          </div>
+          <p style="font-size:11px;color:#888;margin:0">Ads ${aPct}% &nbsp;<b style="color:#1a1a1a">${(d.from_ads ?? 0).toLocaleString()}</b></p>
+        </div>
+      </div>` : '';
     return `
 <h2>${label}</h2>
 <div class="section">
   <div class="section-inner">
-    <div class="mini-cards">${cards.map(([lbl, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${lbl}</div></div>`).join('')}</div>
+    ${cards.length ? `<div class="mini-cards">${cards.map(([lbl, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${lbl}</div></div>`).join('')}</div>` : ''}
+    ${splitBar}
   </div>
 </div>`;
   }).join('');
@@ -296,7 +338,7 @@ function downloadPDF(
 
 ${acqRows || demoRows ? `<div class="two-col">
   ${acqRows ? `<div>
-    <h2>User Acquisition</h2>
+    <h2>Traffic Acquisition</h2>
     <div class="section">
       <table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead>
       <tbody>${acqRows}</tbody></table>
@@ -362,7 +404,7 @@ ${gmbCards.length > 0 ? `
 
 ${socialSections}
 
-${liCards.length > 0 || liPostRows ? `
+${(manual.linkedin_data != null || manual.linkedin_followers != null) ? `
 <h2>LinkedIn Analytics</h2>
 <div class="section">
   <div class="section-inner">
@@ -498,7 +540,7 @@ export default function SEO() {
     const base = { ...manual };
     if (panel === 'linkedin' && !base.linkedin_data) base.linkedin_data = emptyLinkedIn();
     if (panel === 'social') {
-      const empty = (): SocialPlatformData => ({ reach: null, views: null, audience_followers_pct: null, followers: null });
+      const empty = (): SocialPlatformData => ({ views: null, from_organic: null, from_ads: null, reach: null, total_followers: null, new_followers: null, interactions: null, watch_time: null, likes: null });
       if (!base.social_media_data) base.social_media_data = { instagram: empty(), facebook: empty(), tiktok: empty() };
       if (!base.linkedin_data) base.linkedin_data = emptyLinkedIn();
     }
@@ -759,7 +801,7 @@ export default function SEO() {
             {/* ── Acquisition + Demographics ── */}
             <div className="seo-two-col">
               <div className="seo-section">
-                <h3 className="seo-section__title">User Acquisition</h3>
+                <h3 className="seo-section__title">Traffic Acquisition</h3>
                 {report.acquisition.length > 0
                   ? (() => {
                       const allAcqSelected = report.acquisition.length > 0 && report.acquisition.every((r) => selectedAcquisitions.has(r.channel));
@@ -1477,51 +1519,160 @@ export default function SEO() {
                 {/* Instagram / Facebook / TikTok tabs */}
                 {socialTab !== 'linkedin' && (() => {
                   const platform = socialTab as 'instagram' | 'facebook' | 'tiktok';
+                  const emptyPlat = (): SocialPlatformData => ({ views: null, from_organic: null, from_ads: null, reach: null, total_followers: null, new_followers: null, interactions: null, watch_time: null, likes: null });
                   const smd = manual.social_media_data;
                   const data = smd?.[platform];
-                  const editSmd = manualEdit.social_media_data;
-                  const editData = editSmd?.[platform];
-                  const setField = (field: keyof SocialPlatformData, val: number | null) =>
+                  const editData = manualEdit.social_media_data?.[platform] ?? emptyPlat();
+                  const setField = (field: keyof SocialPlatformData, val: string | number | null) =>
                     setManualEdit(prev => ({
                       ...prev,
                       social_media_data: {
-                        instagram: { reach: null, views: null, audience_followers_pct: null, followers: null },
-                        facebook:  { reach: null, views: null, audience_followers_pct: null, followers: null },
-                        tiktok:    { reach: null, views: null, audience_followers_pct: null, followers: null },
+                        instagram: emptyPlat(), facebook: emptyPlat(), tiktok: emptyPlat(),
                         ...prev.social_media_data,
-                        [platform]: { ...(prev.social_media_data?.[platform] ?? {}), [field]: val },
+                        [platform]: { ...(prev.social_media_data?.[platform] ?? emptyPlat()), [field]: val },
                       },
                     }));
+                  const numField = (field: keyof SocialPlatformData, label: string, placeholder: string) => (
+                    <div className="seo-inline-field">
+                      <label className="seo-inline-label">{label}</label>
+                      <input className="form-input seo-inline-input" type="number" placeholder={placeholder}
+                        value={(editData[field] as number | null) ?? ''}
+                        onChange={(e) => setField(field, e.target.value ? Number(e.target.value) : null)} />
+                    </div>
+                  );
+                  const fields: Record<string, JSX.Element[]> = {
+                    instagram: [
+                      numField('views', 'Views', 'e.g. 42000'),
+                      numField('from_organic', 'From Organic', 'e.g. 30000'),
+                      numField('from_ads', 'From Ads', 'e.g. 12000'),
+                      numField('reach', 'Reach', 'e.g. 15000'),
+                      numField('total_followers', 'Total Followers', 'e.g. 3200'),
+                      numField('new_followers', 'New Followers', 'e.g. 120'),
+                      numField('interactions', 'Interactions', 'e.g. 850'),
+                    ],
+                    facebook: [
+                      numField('views', 'Views', 'e.g. 20000'),
+                      numField('from_organic', 'From Organic', 'e.g. 12000'),
+                      numField('from_ads', 'From Ads', 'e.g. 8000'),
+                      numField('interactions', 'Interactions', 'e.g. 400'),
+                      <div key="watch_time" className="seo-inline-field">
+                        <label className="seo-inline-label">Watch Time</label>
+                        <input className="form-input seo-inline-input" placeholder="e.g. 1h 20m"
+                          value={(editData.watch_time as string | null) ?? ''}
+                          onChange={(e) => setField('watch_time', e.target.value || null)} />
+                      </div>,
+                    ],
+                    tiktok: [
+                      numField('views', 'Views', 'e.g. 50000'),
+                      numField('total_followers', 'Followers', 'e.g. 1800'),
+                      numField('likes', 'Likes', 'e.g. 3400'),
+                    ],
+                  };
+                  const cards: Record<string, ([string, string] | null)[]> = {
+                    instagram: [
+                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
+                      data?.from_organic != null ? ['From Organic', data.from_organic.toLocaleString()] : null,
+                      data?.from_ads != null ? ['From Ads', data.from_ads.toLocaleString()] : null,
+                      data?.reach != null ? ['Reach', data.reach.toLocaleString()] : null,
+                      data?.total_followers != null ? ['Total Followers', data.total_followers.toLocaleString()] : null,
+                      data?.new_followers != null ? ['New Followers', data.new_followers.toLocaleString()] : null,
+                      data?.interactions != null ? ['Interactions', data.interactions.toLocaleString()] : null,
+                    ],
+                    facebook: [
+                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
+                      data?.from_organic != null ? ['From Organic', data.from_organic.toLocaleString()] : null,
+                      data?.from_ads != null ? ['From Ads', data.from_ads.toLocaleString()] : null,
+                      data?.interactions != null ? ['Interactions', data.interactions.toLocaleString()] : null,
+                      data?.watch_time != null ? ['Watch Time', data.watch_time] : null,
+                    ],
+                    tiktok: [
+                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
+                      data?.total_followers != null ? ['Followers', data.total_followers.toLocaleString()] : null,
+                      data?.likes != null ? ['Likes', data.likes.toLocaleString()] : null,
+                    ],
+                  };
+                  const activeCards = (cards[platform] ?? []).filter(Boolean) as [string, string][];
+                  const hasData = activeCards.length > 0;
+
+                  const StatCard = ({ label, val, sub, accent }: { label: string; val: string; sub?: string; accent?: string }) => (
+                    <div className="seo-li-stat">
+                      <p className="seo-card__val" style={accent ? { color: accent } : {}}>{val}</p>
+                      <p className="seo-card__label">{label}</p>
+                      {sub && <p className="seo-li-sub">{sub}</p>}
+                    </div>
+                  );
+
+                  const SplitBar = ({ label, organic, ads }: { label: string; organic: number | null; ads: number | null }) => {
+                    if (organic == null && ads == null) return null;
+                    const tot = (organic ?? 0) + (ads ?? 0) || 1;
+                    const oPct = Math.round(((organic ?? 0) / tot) * 100);
+                    const aPct = 100 - oPct;
+                    return (
+                      <div style={{ marginBottom: 20 }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label} breakdown</p>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ height: 8, background: 'var(--bg-sand)', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
+                              <div style={{ height: '100%', width: `${Math.max(oPct, 2)}%`, background: '#22c55e', borderRadius: 4 }} />
+                            </div>
+                            <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>Organic {oPct}% <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{(organic ?? 0).toLocaleString()}</span></p>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ height: 8, background: 'var(--bg-sand)', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
+                              <div style={{ height: '100%', width: `${Math.max(aPct, 2)}%`, background: '#6366f1', borderRadius: 4 }} />
+                            </div>
+                            <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>Ads {aPct}% <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{(ads ?? 0).toLocaleString()}</span></p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+
                   return (
                     <>
                       {manualPanel === 'social' && canEdit && (
                         <div className="seo-manual-panel">
                           <div className="seo-manual-grid">
-                            <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 15000" value={editData?.reach ?? ''} onChange={(e) => setField('reach', e.target.value ? Number(e.target.value) : null)} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 42000" value={editData?.views ?? ''} onChange={(e) => setField('views', e.target.value ? Number(e.target.value) : null)} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Audience — Followers %</label><input className="form-input seo-inline-input" type="number" min="0" max="100" step="0.1" placeholder="e.g. 62" value={editData?.audience_followers_pct ?? ''} onChange={(e) => setField('audience_followers_pct', e.target.value ? Number(e.target.value) : null)} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Followers</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 3200" value={editData?.followers ?? ''} onChange={(e) => setField('followers', e.target.value ? Number(e.target.value) : null)} /></div>
+                            {fields[platform]?.map((f, i) => <div key={i}>{f}</div>)}
                           </div>
                           <div className="seo-manual-actions" style={{ marginTop: 12 }}>
                             <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                           </div>
                         </div>
                       )}
-                      {data && (data.reach != null || data.views != null || data.followers != null || data.audience_followers_pct != null) ? (
-                        <div className="seo-li-stats">
-                          {data.reach != null && <div className="seo-li-stat"><p className="seo-card__val">{data.reach.toLocaleString()}</p><p className="seo-card__label">Reach</p></div>}
-                          {data.views != null && <div className="seo-li-stat"><p className="seo-card__val">{data.views.toLocaleString()}</p><p className="seo-card__label">Views</p></div>}
-                          {data.audience_followers_pct != null && (
-                            <div className="seo-li-stat">
-                              <p className="seo-card__val">{data.audience_followers_pct}%</p>
-                              <p className="seo-card__label">Audience (Followers)</p>
-                              <p className="seo-li-sub">{100 - data.audience_followers_pct}% non-followers</p>
+                      {hasData ? (
+                        <>
+                          {platform === 'instagram' && data && (
+                            <>
+                              <div className="seo-li-stats">
+                                {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
+                                {data.reach != null && <StatCard label="Reach" val={data.reach.toLocaleString()} />}
+                                {data.total_followers != null && <StatCard label="Total Followers" val={data.total_followers.toLocaleString()} sub={data.new_followers != null ? `↑ ${data.new_followers.toLocaleString()} new` : undefined} />}
+                                {data.interactions != null && <StatCard label="Interactions" val={data.interactions.toLocaleString()} accent="#f59e0b" />}
+                              </div>
+                              <SplitBar label="Views" organic={data.from_organic} ads={data.from_ads} />
+                            </>
+                          )}
+                          {platform === 'facebook' && data && (
+                            <>
+                              <div className="seo-li-stats">
+                                {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
+                                {data.interactions != null && <StatCard label="Interactions" val={data.interactions.toLocaleString()} accent="#f59e0b" />}
+                                {data.watch_time != null && <StatCard label="Watch Time" val={data.watch_time} />}
+                              </div>
+                              <SplitBar label="Views" organic={data.from_organic} ads={data.from_ads} />
+                            </>
+                          )}
+                          {platform === 'tiktok' && data && (
+                            <div className="seo-li-stats">
+                              {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
+                              {data.total_followers != null && <StatCard label="Followers" val={data.total_followers.toLocaleString()} />}
+                              {data.likes != null && <StatCard label="Likes" val={data.likes.toLocaleString()} accent="#f43f5e" />}
                             </div>
                           )}
-                          {data.followers != null && <div className="seo-li-stat"><p className="seo-card__val">{data.followers.toLocaleString()}</p><p className="seo-card__label">Followers</p></div>}
-                        </div>
+                        </>
                       ) : (
-                        !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click + to add data.' : `No ${platform} data yet.`}</p>
+                        !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add data.' : `No ${platform} data yet.`}</p>
                       )}
                     </>
                   );

@@ -344,7 +344,7 @@ async function queryGSC(rawSiteUrl: string, headers: Record<string, string>, sta
           body: JSON.stringify({
             startDate, endDate,
             dimensions: [dimension],
-            rowLimit: dimension === 'query' ? 15 : 20,
+            rowLimit: dimension === 'query' ? 40 : 20,
             orderBy: [{ fieldName: 'clicks', sortOrder: 'DESCENDING' }],
           }),
         }
