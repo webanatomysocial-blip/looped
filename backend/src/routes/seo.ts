@@ -373,6 +373,7 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       linkedin_url:        row.linkedin_url,
       linkedin_followers:  row.linkedin_followers,
       linkedin_data:       row.linkedin_data       ? JSON.parse(row.linkedin_data)       : null,
+      social_media_data:   row.social_media_data   ? JSON.parse(row.social_media_data)   : null,
       gmb_overview:        row.gmb_overview        || '',
       gmb_calls:           row.gmb_calls           ?? null,
       gmb_bookings:        row.gmb_bookings        ?? null,
@@ -397,12 +398,13 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }
-    const { keyword_rankings, targets, key_insights, linkedin_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers } = req.body;
+    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers } = req.body;
     const payload = {
       keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
       targets:             targets            !== undefined ? JSON.stringify(targets)            : undefined,
       key_achievements:    key_insights       !== undefined ? key_insights                       : undefined,
       linkedin_data:       linkedin_data      !== undefined ? JSON.stringify(linkedin_data)      : undefined,
+      social_media_data:   social_media_data  !== undefined ? JSON.stringify(social_media_data)  : undefined,
       organic_form_data:   organic_form_data  !== undefined ? JSON.stringify(organic_form_data)  : undefined,
       gmb_rating:          gmb_rating         ?? null,
       gmb_reviews:         gmb_reviews        ?? null,

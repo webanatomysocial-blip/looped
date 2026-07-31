@@ -148,6 +148,8 @@ async function createSchema(): Promise<void> {
       }
       const hasLiData = await db.schema.hasColumn('seo_manual_data', 'linkedin_data');
       if (!hasLiData) await db.schema.table('seo_manual_data', (t) => { t.text('linkedin_data').nullable(); });
+      const hasSocialMedia = await db.schema.hasColumn('seo_manual_data', 'social_media_data');
+      if (!hasSocialMedia) await db.schema.table('seo_manual_data', (t) => { t.text('social_media_data').nullable(); });
       const hasGmbOverview = await db.schema.hasColumn('seo_manual_data', 'gmb_overview');
       if (!hasGmbOverview) await db.schema.table('seo_manual_data', (t) => {
         t.text('gmb_overview').nullable();
@@ -188,7 +190,16 @@ async function createSchema(): Promise<void> {
   const hasCutoff = await db.schema.hasColumn('projects', 'budget_cutoff_pct');
   if (!hasCutoff) {
     await db.schema.table('projects', (t) => {
-      t.decimal('budget_cutoff_pct', 5, 2).nullable(); // agency cut % e.g. 20.00 means 20%
+      t.decimal('budget_cutoff_pct', 5, 2).nullable();
+    });
+  }
+  const hasPod = await db.schema.hasColumn('projects', 'pod');
+  if (!hasPod) {
+    await db.schema.table('projects', (t) => {
+      t.string('pod', 10).nullable();                  // 'pod1' | 'pod2'
+      t.text('briefing_doc').nullable();
+      t.text('project_drive_doc').nullable();
+      t.string('manager_status', 20).nullable();       // 'pending_manager' | 'accepted' | 'declined'
     });
   }
   // project members

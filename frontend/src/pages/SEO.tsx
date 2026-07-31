@@ -31,11 +31,23 @@ interface LinkedInData {
   growth_label: string;
   posts: LinkedInPost[];
 }
+interface SocialPlatformData {
+  reach: number | null;
+  views: number | null;
+  audience_followers_pct: number | null;
+  followers: number | null;
+}
+interface SocialMediaData {
+  instagram: SocialPlatformData;
+  facebook: SocialPlatformData;
+  tiktok: SocialPlatformData;
+}
 interface ManualData {
   keyword_rankings: KeywordRank[];
   targets: Target[];
   key_insights: string;
   linkedin_data: LinkedInData | null;
+  social_media_data: SocialMediaData | null;
   organic_form_data: OrganicForm[];
   gmb_rating: number | null;
   gmb_reviews: number | null;
@@ -186,6 +198,31 @@ function downloadPDF(
     </tr>`;
   }).join('') : '';
 
+  const socialPlatforms: { key: 'instagram' | 'facebook' | 'tiktok'; label: string }[] = [
+    { key: 'instagram', label: 'Instagram' },
+    { key: 'facebook', label: 'Facebook' },
+    { key: 'tiktok', label: 'TikTok' },
+  ];
+  const socialSections = socialPlatforms.map(({ key, label }) => {
+    const d = manual.social_media_data?.[key];
+    if (!d) return '';
+    const cards = [
+      d.reach != null ? ['Reach', d.reach.toLocaleString()] : null,
+      d.views != null ? ['Views', d.views.toLocaleString()] : null,
+      d.audience_followers_pct != null ? ['Audience (Followers)', `${d.audience_followers_pct}%`] : null,
+      d.audience_followers_pct != null ? ['Audience (Non-Followers)', `${100 - d.audience_followers_pct}%`] : null,
+      d.followers != null ? ['Followers', d.followers.toLocaleString()] : null,
+    ].filter(Boolean) as [string, string][];
+    if (!cards.length) return '';
+    return `
+<h2>${label}</h2>
+<div class="section">
+  <div class="section-inner">
+    <div class="mini-cards">${cards.map(([lbl, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${lbl}</div></div>`).join('')}</div>
+  </div>
+</div>`;
+  }).join('');
+
   const organicRows = manual.organic_form_data.map((row, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-size:11px">${row.url}</td>
@@ -323,6 +360,8 @@ ${gmbCards.length > 0 ? `
   </div>
 </div>` : ''}
 
+${socialSections}
+
 ${liCards.length > 0 || liPostRows ? `
 <h2>LinkedIn Analytics</h2>
 <div class="section">
@@ -357,7 +396,7 @@ const emptyLinkedIn = (): LinkedInData => ({
 });
 
 const emptyManual = (): ManualData => ({
-  keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null,
+  keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null, social_media_data: null,
   organic_form_data: [],
   gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
   gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
@@ -388,7 +427,9 @@ export default function SEO() {
   // Manual data
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
-  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | null>(null);
+  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | null>(null);
+  const [socialTab, setSocialTab] = useState<'linkedin' | 'instagram' | 'facebook' | 'tiktok'>('linkedin');
+  const [showTiktok, setShowTiktok] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
 
   // User Acquisition & Demographics selection
@@ -445,13 +486,22 @@ export default function SEO() {
   useEffect(() => {
     if (!selectedClient) return;
     seoApi.getManual(selectedClient.id)
-      .then((r) => setManual({ ...emptyManual(), ...r.data }))
-      .catch(() => setManual(emptyManual()));
+      .then((r) => {
+        const data = { ...emptyManual(), ...r.data };
+        setManual(data);
+        setShowTiktok(!!(data.social_media_data?.tiktok && Object.values(data.social_media_data.tiktok).some((v) => v != null)));
+      })
+      .catch(() => { setManual(emptyManual()); setShowTiktok(false); });
   }, [selectedClient]);
 
   const openManualPanel = (panel: typeof manualPanel) => {
     const base = { ...manual };
     if (panel === 'linkedin' && !base.linkedin_data) base.linkedin_data = emptyLinkedIn();
+    if (panel === 'social') {
+      const empty = (): SocialPlatformData => ({ reach: null, views: null, audience_followers_pct: null, followers: null });
+      if (!base.social_media_data) base.social_media_data = { instagram: empty(), facebook: empty(), tiktok: empty() };
+      if (!base.linkedin_data) base.linkedin_data = emptyLinkedIn();
+    }
     setManualEdit(base);
     setManualPanel(panel);
   };
@@ -1276,120 +1326,209 @@ export default function SEO() {
               </div>
             )}
 
-            {/* ── LinkedIn Analytics ── */}
-            {(canEdit || !!manual.linkedin_data) && (
+            {/* ── Social Media Report ── */}
+            {(canEdit || !!manual.linkedin_data || !!manual.social_media_data) && (
               <div className="seo-section">
-                <h3 className="seo-section__title">
-                  <Linkedin size={13} style={{ marginRight: 6, color: '#0a66c2' }} />LinkedIn Analytics
-                  {canEdit && (
-                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'linkedin' ? null : 'linkedin')}>
-                      <Edit2 size={11} /> {manualPanel === 'linkedin' ? 'Cancel' : 'Edit'}
+                <h2 className="seo-section__title" style={{ fontSize: 17, fontWeight: 700, borderBottom: 'none', marginBottom: 4 }}>
+                  Social Media Report
+                </h2>
+
+                {/* Platform tabs */}
+                <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+                  {(['linkedin', 'instagram', 'facebook'] as const).map((tab) => (
+                    <button key={tab} type="button" onClick={() => setSocialTab(tab)}
+                      style={{
+                        padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
+                        borderBottom: socialTab === tab ? '2px solid var(--brand,#2563eb)' : '2px solid transparent',
+                        color: socialTab === tab ? 'var(--brand,#2563eb)' : 'var(--ink-muted)',
+                        marginBottom: -1,
+                      }}>
+                      {tab === 'linkedin' ? 'LinkedIn' : tab === 'instagram' ? 'Instagram' : 'Facebook'}
+                    </button>
+                  ))}
+                  {showTiktok ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <button type="button" onClick={() => setSocialTab('tiktok')}
+                        style={{
+                          padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
+                          borderBottom: socialTab === 'tiktok' ? '2px solid var(--brand,#2563eb)' : '2px solid transparent',
+                          color: socialTab === 'tiktok' ? 'var(--brand,#2563eb)' : 'var(--ink-muted)',
+                          marginBottom: -1,
+                        }}>
+                        TikTok
+                      </button>
+                      {canEdit && (
+                        <button type="button" title="Remove TikTok"
+                          onClick={() => { setShowTiktok(false); if (socialTab === 'tiktok') setSocialTab('facebook'); }}
+                          style={{ fontSize: 14, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', padding: '0 4px', marginBottom: -1 }}>
+                          −
+                        </button>
+                      )}
+                    </div>
+                  ) : canEdit && (
+                    <button type="button" onClick={() => { setShowTiktok(true); setSocialTab('tiktok'); }}
+                      style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: 'none', border: '1px dashed var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)', marginLeft: 4, marginBottom: 4 }}>
+                      + TikTok
                     </button>
                   )}
-                </h3>
-                {manualPanel === 'linkedin' && canEdit && (() => {
-                  const li = manualEdit.linkedin_data!;
+                  {canEdit && (
+                    <button type="button" className="seo-manual-edit-btn" style={{ marginLeft: 'auto', marginRight: 4 }}
+                      onClick={() => openManualPanel(manualPanel === 'social' ? null : 'social')}>
+                      {manualPanel === 'social'
+                        ? <><X size={11} /> Cancel</>
+                        : <><Edit2 size={11} /> Edit</>}
+                    </button>
+                  )}
+                </div>
+
+                {/* LinkedIn tab — existing section inline */}
+                {socialTab === 'linkedin' && (() => {
+                  const liEdit = manualEdit.linkedin_data!;
                   const setLi = (patch: Partial<LinkedInData>) => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, ...patch } }));
                   const setLiPost = (i: number, field: keyof LinkedInPost, val: string | number) =>
                     setManualEdit(prev => { const posts = [...prev.linkedin_data!.posts]; posts[i] = { ...posts[i], [field]: val }; return { ...prev, linkedin_data: { ...prev.linkedin_data!, posts } }; });
                   return (
-                    <div className="seo-manual-panel">
-                      <div className="seo-manual-grid" style={{ marginBottom: 12 }}>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Total Impressions</label><input className="form-input seo-inline-input" type="number" placeholder="42123" value={li.impressions ?? ''} onChange={(e) => setLi({ impressions: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Organic</label><input className="form-input seo-inline-input" type="number" placeholder="1685" value={li.impressions_organic ?? ''} onChange={(e) => setLi({ impressions_organic: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Sponsored</label><input className="form-input seo-inline-input" type="number" placeholder="40438" value={li.impressions_sponsored ?? ''} onChange={(e) => setLi({ impressions_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Total Clicks</label><input className="form-input seo-inline-input" type="number" placeholder="298" value={li.clicks ?? ''} onChange={(e) => setLi({ clicks: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Organic</label><input className="form-input seo-inline-input" type="number" placeholder="90" value={li.clicks_organic ?? ''} onChange={(e) => setLi({ clicks_organic: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Sponsored</label><input className="form-input seo-inline-input" type="number" placeholder="208" value={li.clicks_sponsored ?? ''} onChange={(e) => setLi({ clicks_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" type="number" placeholder="2619" value={manualEdit.linkedin_followers ?? ''} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_followers: e.target.value ? Number(e.target.value) : null }))} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">New Followers (this period)</label><input className="form-input seo-inline-input" type="number" placeholder="152" value={li.new_followers ?? ''} onChange={(e) => setLi({ new_followers: e.target.value ? Number(e.target.value) : null })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">New Followers Period</label><input className="form-input seo-inline-input" placeholder="e.g. May" value={li.new_followers_period} onChange={(e) => setLi({ new_followers_period: e.target.value })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Follower Growth Rate</label><input className="form-input seo-inline-input" placeholder="+4,967%" value={li.growth_rate} onChange={(e) => setLi({ growth_rate: e.target.value })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">Follower Growth Description</label><input className="form-input seo-inline-input" placeholder="Strong momentum" value={li.growth_label} onChange={(e) => setLi({ growth_label: e.target.value })} /></div>
-                        <div className="seo-inline-field"><label className="seo-inline-label">LinkedIn URL</label><input className="form-input seo-inline-input" placeholder="https://linkedin.com/company/…" value={manualEdit.linkedin_url} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_url: e.target.value }))} /></div>
-                      </div>
-                      <p className="seo-inline-label" style={{ marginBottom: 6 }}>Top Posts</p>
-                      <div className="seo-manual-col-headers">
-                        <span style={{ flex: 1 }}>Post title</span>
-                        <span style={{ width: 90 }}>Impressions</span>
-                        <span style={{ width: 70 }}>Clicks</span>
-                        <span style={{ width: 28 }} />
-                      </div>
-                      {li.posts.map((p, i) => (
-                        <div key={i} className="seo-manual-row">
-                          <input className="form-input seo-manual-input" placeholder="Post title" value={p.title} onChange={(e) => setLiPost(i, 'title', e.target.value)} />
-                          <input className="form-input seo-manual-input" style={{ flex: '0 0 90px' }} type="number" placeholder="Impressions" value={p.impressions || ''} onChange={(e) => setLiPost(i, 'impressions', Number(e.target.value))} />
-                          <input className="form-input seo-manual-input" style={{ flex: '0 0 70px' }} type="number" placeholder="Clicks" value={p.clicks || ''} onChange={(e) => setLiPost(i, 'clicks', Number(e.target.value))} />
-                          <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: prev.linkedin_data!.posts.filter((_, j) => j !== i) } }))}><Trash2 size={13} /></button>
-                        </div>
-                      ))}
-                      <div className="seo-manual-actions" style={{ marginTop: 8 }}>
-                        <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: [...prev.linkedin_data!.posts, { title: '', impressions: 0, clicks: 0 }] } }))}><Plus size={12} /> Add post</button>
-                        <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
-                      </div>
-                    </div>
-                  );
-                })()}
-                {(() => {
-                  const li = manual.linkedin_data;
-                  if (!li) return !manualPanel ? <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add LinkedIn analytics.' : 'No LinkedIn data yet.'}</p> : null;
-                  const impOrg = li.impressions_organic ?? 0, impSpon = li.impressions_sponsored ?? 0, impTot = impOrg + impSpon || 1;
-                  const clkOrg = li.clicks_organic ?? 0, clkSpon = li.clicks_sponsored ?? 0, clkTot = clkOrg + clkSpon || 1;
-                  const impSponPct = Math.round((impSpon / impTot) * 100), impOrgPct = 100 - impSponPct;
-                  const clkSponPct = Math.round((clkSpon / clkTot) * 100), clkOrgPct = 100 - clkSponPct;
-                  return (
                     <>
-                      <div className="seo-li-stats">
-                        {li.impressions != null && <div className="seo-li-stat"><p className="seo-card__val">{li.impressions.toLocaleString()}</p><p className="seo-card__label">Total Impressions</p>{(li.impressions_organic != null || li.impressions_sponsored != null) && <p className="seo-li-sub">Organic + Sponsored</p>}</div>}
-                        {li.clicks != null && <div className="seo-li-stat"><p className="seo-card__val">{li.clicks.toLocaleString()}</p><p className="seo-card__label">Total Clicks</p>{(li.clicks_organic != null || li.clicks_sponsored != null) && <p className="seo-li-sub">{li.clicks_organic?.toLocaleString()} organic · {li.clicks_sponsored?.toLocaleString()} paid</p>}</div>}
-                        {manual.linkedin_followers != null && <div className="seo-li-stat"><p className="seo-card__val">{manual.linkedin_followers.toLocaleString()}</p><p className="seo-card__label">Total Followers</p>{li.new_followers != null && <p className="seo-li-sub">↑ {li.new_followers.toLocaleString()} new{li.new_followers_period ? ` in ${li.new_followers_period}` : ''}</p>}</div>}
-                        {li.growth_rate && <div className="seo-li-stat"><p className="seo-card__val seo-li-growth">{li.growth_rate}</p><p className="seo-card__label">Follower Growth Rate</p>{li.growth_label && <p className="seo-li-sub">↑ {li.growth_label}</p>}</div>}
-                      </div>
-                      {(impOrg > 0 || impSpon > 0) && (
-                        <div className="seo-li-breakdown-row">
-                          <div className="seo-li-breakdown"><p className="seo-li-breakdown__title">Impressions breakdown</p><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${impSponPct}%` }}>{impSponPct > 10 && <span>Sponsored {impSponPct}%</span>}</div></div><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${impOrgPct}%` }}>{impOrgPct > 5 && <span>Organic {impOrgPct}%</span>}</div></div></div>
-                          <div className="seo-li-breakdown"><p className="seo-li-breakdown__title">Clicks breakdown</p><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${clkSponPct}%` }}>{clkSponPct > 10 && <span>Sponsored {clkSponPct}%</span>}</div></div><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${clkOrgPct}%` }}>{clkOrgPct > 5 && <span>Organic {clkOrgPct}%</span>}</div></div></div>
+                      {manualPanel === 'social' && canEdit && (
+                        <div className="seo-manual-panel">
+                          <div className="seo-manual-grid" style={{ marginBottom: 12 }}>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Total Impressions</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions ?? ''} onChange={(e) => setLi({ impressions: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Organic</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions_organic ?? ''} onChange={(e) => setLi({ impressions_organic: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Sponsored</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions_sponsored ?? ''} onChange={(e) => setLi({ impressions_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Total Clicks</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks ?? ''} onChange={(e) => setLi({ clicks: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Organic</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks_organic ?? ''} onChange={(e) => setLi({ clicks_organic: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Sponsored</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks_sponsored ?? ''} onChange={(e) => setLi({ clicks_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" type="number" value={manualEdit.linkedin_followers ?? ''} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_followers: e.target.value ? Number(e.target.value) : null }))} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">New Followers</label><input className="form-input seo-inline-input" type="number" value={liEdit.new_followers ?? ''} onChange={(e) => setLi({ new_followers: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">New Followers Period</label><input className="form-input seo-inline-input" value={liEdit.new_followers_period} onChange={(e) => setLi({ new_followers_period: e.target.value })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Growth Rate</label><input className="form-input seo-inline-input" value={liEdit.growth_rate} onChange={(e) => setLi({ growth_rate: e.target.value })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Growth Label</label><input className="form-input seo-inline-input" value={liEdit.growth_label} onChange={(e) => setLi({ growth_label: e.target.value })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">LinkedIn URL</label><input className="form-input seo-inline-input" value={manualEdit.linkedin_url} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_url: e.target.value }))} /></div>
+                          </div>
+                          <p className="seo-inline-label" style={{ marginBottom: 6 }}>Top Posts</p>
+                          <div className="seo-manual-col-headers"><span style={{ flex: 1 }}>Post title</span><span style={{ width: 90 }}>Impressions</span><span style={{ width: 70 }}>Clicks</span><span style={{ width: 28 }} /></div>
+                          {liEdit.posts.map((p, i) => (
+                            <div key={i} className="seo-manual-row">
+                              <input className="form-input seo-manual-input" placeholder="Post title" value={p.title} onChange={(e) => setLiPost(i, 'title', e.target.value)} />
+                              <input className="form-input seo-manual-input" style={{ flex: '0 0 90px' }} type="number" value={p.impressions || ''} onChange={(e) => setLiPost(i, 'impressions', Number(e.target.value))} />
+                              <input className="form-input seo-manual-input" style={{ flex: '0 0 70px' }} type="number" value={p.clicks || ''} onChange={(e) => setLiPost(i, 'clicks', Number(e.target.value))} />
+                              <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: prev.linkedin_data!.posts.filter((_, j) => j !== i) } }))}><Trash2 size={13} /></button>
+                            </div>
+                          ))}
+                          <div className="seo-manual-actions" style={{ marginTop: 8 }}>
+                            <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: [...prev.linkedin_data!.posts, { title: '', impressions: 0, clicks: 0 }] } }))}><Plus size={12} /> Add post</button>
+                            <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                          </div>
                         </div>
                       )}
-                      {li.posts.length > 0 && (() => {
-                        const hasImpressions = li.posts.some(p => p.impressions > 0);
-                        const hasClicks = li.posts.some(p => p.clicks > 0);
-                        const hasCtr = hasImpressions;
+                      {(() => {
+                        const li = manual.linkedin_data;
+                        if (!li) return !manualPanel ? <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click + to add LinkedIn analytics.' : 'No LinkedIn data yet.'}</p> : null;
+                        const impOrg = li.impressions_organic ?? 0, impSpon = li.impressions_sponsored ?? 0, impTot = impOrg + impSpon || 1;
+                        const clkOrg = li.clicks_organic ?? 0, clkSpon = li.clicks_sponsored ?? 0, clkTot = clkOrg + clkSpon || 1;
+                        const impSponPct = Math.round((impSpon / impTot) * 100), impOrgPct = 100 - impSponPct;
+                        const clkSponPct = Math.round((clkSpon / clkTot) * 100), clkOrgPct = 100 - clkSponPct;
                         return (
                           <>
-                            <p className="seo-li-posts-title">Top performing LinkedIn posts</p>
-                            <table className="seo-table">
-                              <thead>
-                                <tr>
-                                  <th>Post</th>
-                                  {hasImpressions && <th>Impressions</th>}
-                                  {hasClicks && <th>Clicks</th>}
-                                  {hasCtr && <th>CTR</th>}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {li.posts.map((p, i) => {
-                                  const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : null;
-                                  return (
-                                    <tr key={i}>
-                                      <td className="seo-source">{p.title}</td>
-                                      {hasImpressions && <td>{p.impressions.toLocaleString()}</td>}
-                                      {hasClicks && <td>{p.clicks.toLocaleString()}</td>}
-                                      {hasCtr && <td>{ctr}%</td>}
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                            <div className="seo-li-stats">
+                              {li.impressions != null && <div className="seo-li-stat"><p className="seo-card__val">{li.impressions.toLocaleString()}</p><p className="seo-card__label">Total Impressions</p></div>}
+                              {li.clicks != null && <div className="seo-li-stat"><p className="seo-card__val">{li.clicks.toLocaleString()}</p><p className="seo-card__label">Total Clicks</p>{(li.clicks_organic != null || li.clicks_sponsored != null) && <p className="seo-li-sub">{li.clicks_organic?.toLocaleString()} organic · {li.clicks_sponsored?.toLocaleString()} paid</p>}</div>}
+                              {manual.linkedin_followers != null && <div className="seo-li-stat"><p className="seo-card__val">{manual.linkedin_followers.toLocaleString()}</p><p className="seo-card__label">Total Followers</p>{li.new_followers != null && <p className="seo-li-sub">↑ {li.new_followers.toLocaleString()} new{li.new_followers_period ? ` in ${li.new_followers_period}` : ''}</p>}</div>}
+                              {li.growth_rate && <div className="seo-li-stat"><p className="seo-card__val seo-li-growth">{li.growth_rate}</p><p className="seo-card__label">Follower Growth Rate</p>{li.growth_label && <p className="seo-li-sub">↑ {li.growth_label}</p>}</div>}
+                            </div>
+                            {(impOrg > 0 || impSpon > 0) && (
+                              <div className="seo-li-breakdown-row">
+                                <div className="seo-li-breakdown">
+                                  <p className="seo-li-breakdown__title">Impressions breakdown</p>
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${Math.max(impSponPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Sponsored {impSponPct}%</p></div>
+                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${Math.max(impOrgPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Organic {impOrgPct}%</p></div>
+                                  </div>
+                                </div>
+                                <div className="seo-li-breakdown">
+                                  <p className="seo-li-breakdown__title">Clicks breakdown</p>
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${Math.max(clkSponPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Sponsored {clkSponPct}%</p></div>
+                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${Math.max(clkOrgPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Organic {clkOrgPct}%</p></div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                            {li.posts.length > 0 && (() => {
+                              const hasImpressions = li.posts.some(p => p.impressions > 0);
+                              const hasClicks = li.posts.some(p => p.clicks > 0);
+                              return (
+                                <>
+                                  <p className="seo-li-posts-title">Top performing LinkedIn posts</p>
+                                  <table className="seo-table"><thead><tr><th>Post</th>{hasImpressions && <th>Impressions</th>}{hasClicks && <th>Clicks</th>}{hasImpressions && <th>CTR</th>}</tr></thead>
+                                    <tbody>{li.posts.map((p, i) => <tr key={i}><td className="seo-source">{p.title}</td>{hasImpressions && <td>{p.impressions.toLocaleString()}</td>}{hasClicks && <td>{p.clicks.toLocaleString()}</td>}{hasImpressions && <td>{p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : '0'}%</td>}</tr>)}</tbody>
+                                  </table>
+                                </>
+                              );
+                            })()}
+                            {manual.linkedin_url && <div style={{ marginTop: 12 }}><a href={manual.linkedin_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Linkedin size={11} /> LinkedIn Page</a></div>}
                           </>
                         );
                       })()}
-                      {manual.linkedin_url && <div style={{ marginTop: 12 }}><a href={manual.linkedin_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Linkedin size={11} /> LinkedIn Page</a></div>}
+                    </>
+                  );
+                })()}
+
+                {/* Instagram / Facebook / TikTok tabs */}
+                {socialTab !== 'linkedin' && (() => {
+                  const platform = socialTab as 'instagram' | 'facebook' | 'tiktok';
+                  const smd = manual.social_media_data;
+                  const data = smd?.[platform];
+                  const editSmd = manualEdit.social_media_data;
+                  const editData = editSmd?.[platform];
+                  const setField = (field: keyof SocialPlatformData, val: number | null) =>
+                    setManualEdit(prev => ({
+                      ...prev,
+                      social_media_data: {
+                        instagram: { reach: null, views: null, audience_followers_pct: null, followers: null },
+                        facebook:  { reach: null, views: null, audience_followers_pct: null, followers: null },
+                        tiktok:    { reach: null, views: null, audience_followers_pct: null, followers: null },
+                        ...prev.social_media_data,
+                        [platform]: { ...(prev.social_media_data?.[platform] ?? {}), [field]: val },
+                      },
+                    }));
+                  return (
+                    <>
+                      {manualPanel === 'social' && canEdit && (
+                        <div className="seo-manual-panel">
+                          <div className="seo-manual-grid">
+                            <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 15000" value={editData?.reach ?? ''} onChange={(e) => setField('reach', e.target.value ? Number(e.target.value) : null)} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 42000" value={editData?.views ?? ''} onChange={(e) => setField('views', e.target.value ? Number(e.target.value) : null)} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Audience — Followers %</label><input className="form-input seo-inline-input" type="number" min="0" max="100" step="0.1" placeholder="e.g. 62" value={editData?.audience_followers_pct ?? ''} onChange={(e) => setField('audience_followers_pct', e.target.value ? Number(e.target.value) : null)} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Followers</label><input className="form-input seo-inline-input" type="number" placeholder="e.g. 3200" value={editData?.followers ?? ''} onChange={(e) => setField('followers', e.target.value ? Number(e.target.value) : null)} /></div>
+                          </div>
+                          <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                            <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                          </div>
+                        </div>
+                      )}
+                      {data && (data.reach != null || data.views != null || data.followers != null || data.audience_followers_pct != null) ? (
+                        <div className="seo-li-stats">
+                          {data.reach != null && <div className="seo-li-stat"><p className="seo-card__val">{data.reach.toLocaleString()}</p><p className="seo-card__label">Reach</p></div>}
+                          {data.views != null && <div className="seo-li-stat"><p className="seo-card__val">{data.views.toLocaleString()}</p><p className="seo-card__label">Views</p></div>}
+                          {data.audience_followers_pct != null && (
+                            <div className="seo-li-stat">
+                              <p className="seo-card__val">{data.audience_followers_pct}%</p>
+                              <p className="seo-card__label">Audience (Followers)</p>
+                              <p className="seo-li-sub">{100 - data.audience_followers_pct}% non-followers</p>
+                            </div>
+                          )}
+                          {data.followers != null && <div className="seo-li-stat"><p className="seo-card__val">{data.followers.toLocaleString()}</p><p className="seo-card__label">Followers</p></div>}
+                        </div>
+                      ) : (
+                        !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click + to add data.' : `No ${platform} data yet.`}</p>
+                      )}
                     </>
                   );
                 })()}
               </div>
             )}
+
           </>
         )}
       </div>
