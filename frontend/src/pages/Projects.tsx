@@ -10,7 +10,7 @@ import { projectsApi, usersApi, categoriesApi } from '../services/api';
 import { Project, User, ClientCompany, EmployeeCategory } from '../types';
 import '../css/pages/Projects.css';
 
-const STATUS_OPTIONS = ['active', 'in_review', 'on_hold', 'completed'];
+const STATUS_OPTIONS = ['active', 'on_hold', 'completed'];
 type MemberTab = 'admins' | 'managers' | 'employees' | 'clients';
 type HealthLevel = 'all' | 'healthy' | 'tight' | 'over';
 type SortKey = 'none' | 'budget_asc' | 'budget_desc' | 'due_asc' | 'due_desc';
