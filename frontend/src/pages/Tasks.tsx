@@ -534,6 +534,7 @@ export default function Tasks() {
                       {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
+                  {projects.find(p => String(p.id) === String(form.project_id))?.service_type !== 'xlr8' && (<>
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={form.due_date} onChange={(e) => { setForm({ ...form, due_date: e.target.value }); setTimeout(checkCapacity, 0); }} />
@@ -542,6 +543,7 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
+                  </>)}
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Est. time *</div>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -922,6 +924,7 @@ export default function Tasks() {
 
                 {/* Info card */}
                 <div className="drawer-info-card">
+                  {projects.find(p => p.id === editTask?.project_id)?.service_type !== 'xlr8' && (<>
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={editForm.due_date} onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })} />
@@ -930,6 +933,7 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={editForm.due_time} onChange={(e) => setEditForm({ ...editForm, due_time: e.target.value })} />
                   </div>
+                  </>)}
                   <div className="drawer-info-field" style={{ gridColumn: '1 / -1' }}>
                     <div className="drawer-info-label">Estimated time (Capacity hours)</div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
