@@ -505,7 +505,7 @@ export default function Projects() {
                   <button type="button"
                     className={`proj-svc-btn${form.service_type === 'per_project' ? ' proj-svc-btn--active' : ''}`}
                     onClick={() => setForm({ ...form, service_type: 'per_project' })}>
-                    Per Project
+                     Project
                   </button>
                   <button type="button"
                     className={`proj-svc-btn${form.service_type === 'xlr8' ? ' proj-svc-btn--active' : ''}`}
@@ -564,10 +564,12 @@ export default function Projects() {
                   </div>
                   <div>
                     <label className="form-label">Billing cycle start day</label>
-                    <input type="number" min="1" max="28" className="form-input"
-                      placeholder="1–28"
-                      value={form.billing_cycle_start_day}
-                      onChange={(e) => setForm({ ...form, billing_cycle_start_day: e.target.value })} />
+                    <select className="form-input" value={form.billing_cycle_start_day}
+                      onChange={(e) => setForm({ ...form, billing_cycle_start_day: e.target.value })}>
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of every month</option>
+                      ))}
+                    </select>
                   </div>
                   {form.budget_amount && form.monthly_hours_bucket && Number(form.monthly_hours_bucket) > 0 && (
                     <div style={{ display: 'flex', alignItems: 'flex-end' }}>
