@@ -592,10 +592,12 @@ export default function Projects() {
               )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {form.service_type !== 'xlr8' && (
                 <div>
                   <label className="form-label">Due date</label>
                   <input type="date" className="form-input" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
                 </div>
+                )}
                 <div>
                   <label className="form-label">Status</label>
                   <select className="form-input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
