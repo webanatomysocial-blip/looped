@@ -564,12 +564,12 @@ export default function Projects() {
                   </div>
                   <div>
                     <label className="form-label">Billing cycle start day</label>
-                    <select className="form-input" value={form.billing_cycle_start_day}
-                      onChange={(e) => setForm({ ...form, billing_cycle_start_day: e.target.value })}>
-                      {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
-                        <option key={d} value={d}>{d}{d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'} of every month</option>
-                      ))}
-                    </select>
+                    <input type="date" className="form-input"
+                      value={form.billing_cycle_start_day ? `2000-01-${String(form.billing_cycle_start_day).padStart(2, '0')}` : ''}
+                      onChange={(e) => {
+                        const day = e.target.value ? String(new Date(e.target.value).getDate()) : '1';
+                        setForm({ ...form, billing_cycle_start_day: day });
+                      }} />
                   </div>
                   {form.budget_amount && form.monthly_hours_bucket && Number(form.monthly_hours_bucket) > 0 && (
                     <div style={{ display: 'flex', alignItems: 'flex-end' }}>
