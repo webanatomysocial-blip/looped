@@ -332,7 +332,7 @@ function downloadPDF(
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { text-align: left; font-size: 10px; font-weight: 700; color: #888; padding: 8px 12px; background: #f5f5f0; text-transform: uppercase; letter-spacing: 0.05em; }
   th:not(:first-child) { text-align: right; }
-  .section { border: 1px solid #e8e8e0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+  .section { border: 1px solid #e8e8e0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; page-break-inside: avoid; }
   .section-inner { padding: 14px 16px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .badge { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
@@ -373,39 +373,39 @@ function downloadPDF(
   </div>
 </div>
 
-${acqRows || demoRows ? `<div class="two-col">
-  ${acqRows ? `<div>
+${acqRows && demoRows ? `<div class="two-col">
+  <div>
     <h2>Traffic Acquisition</h2>
-    <div class="section">
-      <table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead>
-      <tbody>${acqRows}</tbody></table>
-    </div>
-  </div>` : ''}
-  ${demoRows ? `<div>
+    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+  </div>
+  <div>
     <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-    <div class="section">
-      <table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead>
-      <tbody>${demoRows}</tbody></table>
-    </div>
-  </div>` : ''}
-</div>` : ''}
+    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+  </div>
+</div>` : acqRows ? `
+<h2>Traffic Acquisition</h2>
+<div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+` : demoRows ? `
+<h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
+<div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+` : ''}
 
-${pageRows || queryRows ? `<div class="two-col">
-  ${pageRows ? `<div>
+${pageRows && queryRows ? `<div class="two-col">
+  <div>
     <h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
-    <div class="section">
-      <table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
-      <tbody>${pageRows}</tbody></table>
-    </div>
-  </div>` : ''}
-  ${queryRows ? `<div>
+    <div class="section"><table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${pageRows}</tbody></table></div>
+  </div>
+  <div>
     <h2>Top Queries <span class="badge">Search Console</span></h2>
-    <div class="section">
-      <table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead>
-      <tbody>${queryRows}</tbody></table>
-    </div>
-  </div>` : ''}
-</div>` : ''}
+    <div class="section"><table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${queryRows}</tbody></table></div>
+  </div>
+</div>` : pageRows ? `
+<h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
+<div class="section"><table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${pageRows}</tbody></table></div>
+` : queryRows ? `
+<h2>Top Queries <span class="badge">Search Console</span></h2>
+<div class="section"><table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${queryRows}</tbody></table></div>
+` : ''}
 
 ${kwRows ? `
 <h2>Keyword Rankings</h2>
@@ -442,7 +442,7 @@ ${gmbCards.length > 0 ? `
 
 ${socialSections}
 
-${(manual.linkedin_data != null || manual.linkedin_followers != null) ? `
+${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
 <h2>LinkedIn Analytics</h2>
 <div class="section">
   <div class="section-inner">
@@ -467,7 +467,7 @@ ${organicRows ? `
   if (!win) return;
   win.document.write(html);
   win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 400);
+  setTimeout(() => { win.focus(); win.print(); }, 800);
 }
 
 const emptyLinkedIn = (): LinkedInData => ({
