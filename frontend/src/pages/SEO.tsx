@@ -186,8 +186,8 @@ function downloadPDF(
   const kwRows = manual.keyword_rankings.map((k, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${k.keyword}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">${k.rank ?? '—'}</td>
-      <td style="padding:8px 12px;text-align:right;color:${(k.change ?? 0) > 0 ? '#16a34a' : (k.change ?? 0) < 0 ? '#dc2626' : '#888'}">${(k.change ?? 0) > 0 ? '+' : ''}${k.change ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700">#${k.rank ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700">#${k.change ?? '—'}</td>
     </tr>`).join('');
 
   const targetRows = manual.targets.map((t, i) => `
@@ -410,7 +410,7 @@ ${pageRows && queryRows ? `<div class="two-col">
 ${kwRows ? `
 <h2>Keyword Rankings</h2>
 <div class="section">
-  <table><thead><tr><th>Keyword</th><th>Rank</th><th>Change</th></tr></thead>
+  <table><thead><tr><th>Keyword</th><th>Previous Ranking</th><th>Current Ranking</th></tr></thead>
   <tbody>${kwRows}</tbody></table>
 </div>` : ''}
 
@@ -1226,9 +1226,9 @@ export default function SEO() {
                     <div key={i} className="seo-manual-row">
                       <input className="form-input seo-manual-input" placeholder="Keyword" value={kw.keyword}
                         onChange={(e) => { const a = [...manualEdit.keyword_rankings]; a[i] = { ...a[i], keyword: e.target.value }; setManualEdit({ ...manualEdit, keyword_rankings: a }); }} />
-                      <input className="form-input seo-manual-input seo-manual-input--sm" placeholder="Rank" type="number" min={1} value={kw.rank}
+                      <input className="form-input seo-manual-input seo-manual-input--sm" placeholder="e.g. 5" type="number" min={1} value={kw.rank}
                         onChange={(e) => { const a = [...manualEdit.keyword_rankings]; a[i] = { ...a[i], rank: Number(e.target.value) }; setManualEdit({ ...manualEdit, keyword_rankings: a }); }} />
-                      <input className="form-input seo-manual-input seo-manual-input--sm" placeholder="±Change" type="number" value={kw.change}
+                      <input className="form-input seo-manual-input seo-manual-input--sm" placeholder="e.g. 3" type="number" value={kw.change}
                         onChange={(e) => { const a = [...manualEdit.keyword_rankings]; a[i] = { ...a[i], change: Number(e.target.value) }; setManualEdit({ ...manualEdit, keyword_rankings: a }); }} />
                       <button className="seo-manual-del" onClick={() => { const a = manualEdit.keyword_rankings.filter((_, j) => j !== i); setManualEdit({ ...manualEdit, keyword_rankings: a }); }}><Trash2 size={13} /></button>
                     </div>
@@ -1244,18 +1244,14 @@ export default function SEO() {
 
               {manual.keyword_rankings.length > 0
                 ? <table className="seo-table">
-                    <thead><tr><th>#</th><th>Keyword</th><th>Rank</th><th>Change</th></tr></thead>
+                    <thead><tr><th>#</th><th>Keyword</th><th>Previous Ranking</th><th>Current Ranking</th></tr></thead>
                     <tbody>
                       {manual.keyword_rankings.map((kw, i) => (
                         <tr key={i}>
                           <td className="seo-medium">{i + 1}</td>
                           <td className="seo-source">{kw.keyword}</td>
                           <td><span className="seo-rank-badge">#{kw.rank}</span></td>
-                          <td>
-                            {kw.change > 0 && <span className="seo-change seo-change--up">▲ {kw.change}</span>}
-                            {kw.change < 0 && <span className="seo-change seo-change--down">▼ {Math.abs(kw.change)}</span>}
-                            {kw.change === 0 && <span className="seo-change">—</span>}
-                          </td>
+                          <td><span className="seo-rank-badge">#{kw.change}</span></td>
                         </tr>
                       ))}
                     </tbody>
