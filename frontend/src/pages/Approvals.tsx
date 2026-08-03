@@ -385,8 +385,20 @@ export default function Approvals() {
                     )}
 
                     {canReview(a) && (() => {
+                      const needsTimer = user?.role !== 'admin' && user?.role !== 'client';
                       const t = timers[a.task_id] ?? { seconds: 0, running: false };
                       const hasTime = t.seconds > 0;
+                      if (!needsTimer) {
+                        return (
+                          <button
+                            className="btn-primary"
+                            style={{ padding: '7px 14px', fontSize: 12 }}
+                            onClick={(e) => openReview(a, e)}
+                          >
+                            Review
+                          </button>
+                        );
+                      }
                       return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
                           {hasTime && (
