@@ -246,11 +246,23 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       const workerId  = working_person_id ? Number(working_person_id) : null;
       const managerId = task_manager_id   ? Number(task_manager_id)   : null;
       updates.assigned_to = workerId;
+      const prevAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('user_id', 'assignee_role');
+      const prevWorker  = prevAssignees.find((a: any) => a.assignee_role === 'employee')?.user_id ?? null;
+      const prevManager = prevAssignees.find((a: any) => a.assignee_role === 'manager')?.user_id ?? null;
       await db('task_assignees').where({ task_id: req.params.id }).delete();
       const inserts: any[] = [];
       if (workerId)  inserts.push({ task_id: req.params.id, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
       if (managerId) inserts.push({ task_id: req.params.id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
       if (inserts.length) await db('task_assignees').insert(inserts);
+      const taskRow = await db('tasks').where({ id: req.params.id }).select('title', 'project_id').first();
+      const proj = taskRow ? await db('projects').where({ id: taskRow.project_id }).select('name').first() : null;
+      const projName = proj?.name || 'a project';
+      if (workerId && workerId !== req.user!.id && workerId !== Number(prevWorker)) {
+        await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+      }
+      if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager)) {
+        await createNotification(managerId, `You are managing task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+      }
     } else if (assignee_ids !== undefined) {
       const ids: number[] = Array.isArray(assignee_ids) ? assignee_ids : (assignee_ids ? [Number(assignee_ids)] : []);
       updates.assigned_to = ids[0] || null;
@@ -428,7 +440,11 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
         session_date: today,
       });
 
-      await db('tasks').where({ id: taskId }).update({ status: 'in_progress' });
+      // Don't touch status if task is already in_review (reviewer timing their review)
+      const currentTask = await db('tasks').where({ id: taskId }).select('status').first();
+      if (currentTask?.status !== 'in_review') {
+        await db('tasks').where({ id: taskId }).update({ status: 'in_progress' });
+      }
 
     } else if (action === 'pause') {
       const pauseSession = await db('task_sessions')

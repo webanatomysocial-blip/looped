@@ -86,6 +86,12 @@ export interface Project {
   amount_remaining: number | null;
   budget_used_pct: number | null;
   health_flag: 'green' | 'amber' | 'red' | null;
+  // Project flow fields
+  pod: 'pod1' | 'pod2' | null;
+  start_date: string | null;
+  briefing_doc: string | null;
+  project_drive_doc: string | null;
+  manager_status: 'pending_manager' | 'accepted' | 'declined' | null;
 }
 
 export interface TimeLog {
@@ -158,6 +164,7 @@ export interface CapacityTask {
   assignee_role: 'employee' | 'manager' | null;
   tracked_seconds_today: number;
   timer_running: boolean;
+  has_rejected_approval?: boolean;
 }
 
 export interface CapacityData {
@@ -218,6 +225,8 @@ export interface Approval {
   revision_notes: string | null;
   final_approved_by: number | null;
   final_approved_at: string | null;
+  timer_running: boolean;
+  tracked_seconds_today: number;
   final_notes: string | null;
   // Rejection
   rejected_by: number | null;

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCircle, XCircle, ChevronDown, ChevronUp, CheckCheck, RotateCcw } from 'lucide-react';
+import { CheckCircle, XCircle, ChevronDown, ChevronUp, CheckCheck, RotateCcw, Play, Pause, Clock } from 'lucide-react';
 import Pagination from '../components/UI/Pagination';
 
 const PAGE_SIZE = 7;
@@ -134,10 +134,58 @@ export default function Approvals() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [dateFilter, setDateFilter] = useState('');
 
+  // Timer state: taskId → { seconds, running }
+  const [timers, setTimers] = useState<Record<number, { seconds: number; running: boolean }>>({});
+  const intervals = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+
   const load = (pod?: string) => {
     setLoading(true);
     const podParam = user?.role === 'admin' ? pod : undefined;
-    approvalsApi.list(podParam).then((r) => setApprovals(r.data)).catch(console.error).finally(() => setLoading(false));
+    approvalsApi.list(podParam).then((r) => {
+      setApprovals(r.data);
+      // Seed timer state from server
+      const init: Record<number, { seconds: number; running: boolean }> = {};
+      for (const a of r.data) {
+        init[a.task_id] = { seconds: a.tracked_seconds_today ?? 0, running: a.timer_running ?? false };
+        if (a.timer_running) {
+          // Resume ticking for already-running timers
+          if (intervals.current[a.task_id]) clearInterval(intervals.current[a.task_id]);
+          intervals.current[a.task_id] = setInterval(() => {
+            setTimers((prev) => ({ ...prev, [a.task_id]: { ...prev[a.task_id], seconds: (prev[a.task_id]?.seconds ?? 0) + 1 } }));
+          }, 1000);
+        }
+      }
+      setTimers(init);
+    }).catch(console.error).finally(() => setLoading(false));
+  };
+
+  const fmtSeconds = (s: number) => {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+      : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  };
+
+  const startReviewTimer = async (taskId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await tasksApi.timer(taskId, 'start');
+      setTimers((prev) => ({ ...prev, [taskId]: { seconds: prev[taskId]?.seconds ?? 0, running: true } }));
+      if (intervals.current[taskId]) clearInterval(intervals.current[taskId]);
+      intervals.current[taskId] = setInterval(() => {
+        setTimers((prev) => ({ ...prev, [taskId]: { ...prev[taskId], seconds: (prev[taskId]?.seconds ?? 0) + 1 } }));
+      }, 1000);
+    } catch { alert('Failed to start timer'); }
+  };
+
+  const pauseReviewTimer = async (taskId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await tasksApi.timer(taskId, 'pause');
+      clearInterval(intervals.current[taskId]);
+      delete intervals.current[taskId];
+      setTimers((prev) => ({ ...prev, [taskId]: { ...prev[taskId], running: false } }));
+    } catch { alert('Failed to pause timer'); }
   };
 
   useEffect(() => { load(podTab); }, [podTab]);
@@ -336,15 +384,35 @@ export default function Approvals() {
                       </button>
                     )}
 
-                    {canReview(a) && (
-                      <button
-                        className="btn-primary"
-                        style={{ padding: '7px 14px', fontSize: 12 }}
-                        onClick={(e) => openReview(a, e)}
-                      >
-                        Review
-                      </button>
-                    )}
+                    {canReview(a) && (() => {
+                      const t = timers[a.task_id] ?? { seconds: 0, running: false };
+                      const hasTime = t.seconds > 0;
+                      return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+                          {hasTime && (
+                            <span style={{ fontSize: 12, fontWeight: 700, color: t.running ? 'var(--green)' : 'var(--ink-muted)', minWidth: 44, fontVariantNumeric: 'tabular-nums' }}>
+                              <Clock size={11} style={{ marginRight: 3, verticalAlign: 'middle' }} />
+                              {fmtSeconds(t.seconds)}
+                            </span>
+                          )}
+                          <button
+                            className="btn-secondary"
+                            style={{ padding: '7px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: t.running ? 'var(--orange)' : undefined }}
+                            onClick={(e) => t.running ? pauseReviewTimer(a.task_id, e) : startReviewTimer(a.task_id, e)}
+                          >
+                            {t.running ? <><Pause size={12} /> Pause</> : <><Play size={12} /> {hasTime ? 'Resume' : 'Start Review'}</>}
+                          </button>
+                          <button
+                            className="btn-primary"
+                            style={{ padding: '7px 14px', fontSize: 12, opacity: hasTime ? 1 : 0.4, cursor: hasTime ? 'pointer' : 'not-allowed' }}
+                            onClick={(e) => { if (hasTime) openReview(a, e); }}
+                            title={hasTime ? undefined : 'Start the timer before reviewing'}
+                          >
+                            Review
+                          </button>
+                        </div>
+                      );
+                    })()}
 
                     {expanded === a.id
                       ? <ChevronUp size={15} style={{ color: 'var(--ink-muted)' }} />

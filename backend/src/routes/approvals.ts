@@ -196,9 +196,33 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         flowMap[r.task_id].push(r);
       }
     }
-    const result = approvals.map((a: any) => ({
+    const baseResult = approvals.map((a: any) => ({
       ...a,
       flow_chain: flowMap[a.task_id] ?? null,
+    }));
+
+    // Augment with timer info for current user (today's sessions on each task)
+    const today = new Date().toISOString().slice(0, 10);
+    const taskIds = baseResult.map((a: any) => a.task_id);
+    const timerMap: Record<number, { seconds: number; running: boolean }> = {};
+    if (taskIds.length) {
+      const sessions = await db('task_sessions')
+        .whereIn('task_id', taskIds)
+        .where('user_id', userId)
+        .where('session_date', today)
+        .select('task_id', 'started_at', 'ended_at');
+      for (const s of sessions) {
+        const tid = Number(s.task_id);
+        if (!timerMap[tid]) timerMap[tid] = { seconds: 0, running: false };
+        const end = s.ended_at ? new Date(s.ended_at) : new Date();
+        timerMap[tid].seconds += (end.getTime() - new Date(s.started_at).getTime()) / 1000;
+        if (!s.ended_at) timerMap[tid].running = true;
+      }
+    }
+    const result = baseResult.map((a: any) => ({
+      ...a,
+      timer_running: timerMap[a.task_id]?.running ?? false,
+      tracked_seconds_today: Math.round(timerMap[a.task_id]?.seconds ?? 0),
     }));
 
     res.json(result);
