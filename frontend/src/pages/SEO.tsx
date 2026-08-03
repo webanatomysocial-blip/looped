@@ -284,6 +284,7 @@ function downloadPDF(
         </div>
       </div>` : '';
     return `
+<div class="section-block">
 <h2>${label}</h2>
 <div class="section">
   <div class="section-inner">
@@ -291,6 +292,7 @@ function downloadPDF(
     ${splitBar}
     ${d.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:12px;color:#333">${d.key_insights}</div>` : ''}
   </div>
+</div>
 </div>`;
   }).join('');
 
@@ -347,6 +349,10 @@ function downloadPDF(
   @media print {
     body { padding: 20px 24px; }
     @page { margin: 0.5cm; size: A4 portrait; }
+    h2 { page-break-after: avoid; }
+    .section { page-break-inside: avoid; }
+    .two-col { page-break-inside: avoid; }
+    .section-block { page-break-inside: avoid; }
   }
 </style>
 </head><body>
@@ -408,33 +414,42 @@ ${pageRows && queryRows ? `<div class="two-col">
 ` : ''}
 
 ${kwRows ? `
+<div class="section-block">
 <h2>Keyword Rankings</h2>
 <div class="section">
   <table><thead><tr><th>Keyword</th><th>Previous Ranking</th><th>Current Ranking</th></tr></thead>
   <tbody>${kwRows}</tbody></table>
+</div>
 </div>` : ''}
 
 ${organicRows ? `
+<div class="section-block">
 <h2>Organic Form Submissions</h2>
 <div class="section">
   <table><thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
   <tbody>${organicRows}</tbody></table>
+</div>
 </div>` : ''}
 
 ${targetRows ? `
+<div class="section-block">
 <h2>Targets</h2>
 <div class="section">
   <table><thead><tr><th>Metric</th><th>Achieved</th><th>Target</th></tr></thead>
   <tbody>${targetRows}</tbody></table>
+</div>
 </div>` : ''}
 
 ${manual.key_insights ? `
+<div class="section-block">
 <h2>Key Insights</h2>
 <div class="section">
   <div class="insights-body">${manual.key_insights}</div>
+</div>
 </div>` : ''}
 
 ${gmbCards.length > 0 ? `
+<div class="section-block">
 <h2>Google My Business</h2>
 <div class="section">
   <div class="section-inner">
@@ -445,11 +460,13 @@ ${gmbCards.length > 0 ? `
     ${manual.gmb_key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:12px;color:#333">${manual.gmb_key_insights}</div>` : ''}
     ${manual.gmb_profile_url ? `<a href="${manual.gmb_profile_url}" class="gmb-link">View GMB Profile →</a>` : ''}
   </div>
+</div>
 </div>` : ''}
 
 ${socialSections}
 
 ${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
+<div class="section-block">
 <h2>LinkedIn Analytics</h2>
 <div class="section">
   <div class="section-inner">
@@ -459,6 +476,7 @@ ${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
     ${manual.linkedin_url ? `<a href="${manual.linkedin_url}" class="gmb-link">LinkedIn Page →</a>` : ''}
     ${manual.linkedin_data?.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:12px;color:#333">${manual.linkedin_data.key_insights}</div>` : ''}
   </div>
+</div>
 </div>` : ''}
 
 
