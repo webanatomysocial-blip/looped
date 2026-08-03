@@ -414,6 +414,13 @@ ${kwRows ? `
   <tbody>${kwRows}</tbody></table>
 </div>` : ''}
 
+${organicRows ? `
+<h2>Organic Form Submissions</h2>
+<div class="section">
+  <table><thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+  <tbody>${organicRows}</tbody></table>
+</div>` : ''}
+
 ${targetRows ? `
 <h2>Targets</h2>
 <div class="section">
@@ -454,12 +461,6 @@ ${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
   </div>
 </div>` : ''}
 
-${organicRows ? `
-<h2>Organic Form Submissions</h2>
-<div class="section">
-  <table><thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
-  <tbody>${organicRows}</tbody></table>
-</div>` : ''}
 
 </body></html>`;
 
@@ -1259,6 +1260,52 @@ export default function SEO() {
                 : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add keyword rankings.' : 'No keyword data yet.'}</p>}
             </div>
 
+            {/* ── Organic Form Submissions ── */}
+            {(canEdit || manual.organic_form_data.length > 0) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  <FileText size={13} style={{ marginRight: 6 }} />Organic Form Submissions
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'organic' ? null : 'organic')}>
+                      <Edit2 size={11} /> {manualPanel === 'organic' ? 'Cancel' : 'Edit'}
+                    </button>
+                  )}
+                </h3>
+                {manualPanel === 'organic' && canEdit && (
+                  <div className="seo-manual-panel">
+                    <div className="seo-manual-col-headers">
+                      <span style={{ flex: 1 }}>Page URL</span>
+                      <span style={{ width: 110 }}>Submissions</span>
+                      <span style={{ width: 28 }} />
+                    </div>
+                    {manualEdit.organic_form_data.map((row, i) => (
+                      <div key={i} className="seo-manual-row">
+                        <input className="form-input seo-manual-input" placeholder="https://example.com/contact" value={row.url}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], url: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" style={{ flex: '0 0 110px' }} type="number" placeholder="0" value={row.count || ''}
+                          onChange={(e) => { const v = Number(e.target.value); setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], count: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: prev.organic_form_data.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+                      </div>
+                    ))}
+                    <div className="seo-manual-actions">
+                      <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: [...prev.organic_form_data, { url: '', count: 0 }] }))}><Plus size={12} /> Add page</button>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {manual.organic_form_data.length > 0
+                  ? <table className="seo-table">
+                      <thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+                      <tbody>
+                        {manual.organic_form_data.map((row, i) => (
+                          <tr key={i}><td className="seo-page-url" title={row.url}>{row.url}</td><td style={{ fontWeight: 700 }}>{row.count.toLocaleString()}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add form submission data.</p>}
+              </div>
+            )}
+
             {/* ── Targets ── */}
             <div className="seo-section" style={!canEdit && manual.targets.length === 0 ? { display: 'none' } : undefined}>
               <h3 className="seo-section__title">
@@ -1466,52 +1513,6 @@ export default function SEO() {
                 </div>
               );
             })()}
-
-            {/* ── Organic Form Submissions ── */}
-            {(canEdit || manual.organic_form_data.length > 0) && (
-              <div className="seo-section">
-                <h3 className="seo-section__title">
-                  <FileText size={13} style={{ marginRight: 6 }} />Organic Form Submissions
-                  {canEdit && (
-                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'organic' ? null : 'organic')}>
-                      <Edit2 size={11} /> {manualPanel === 'organic' ? 'Cancel' : 'Edit'}
-                    </button>
-                  )}
-                </h3>
-                {manualPanel === 'organic' && canEdit && (
-                  <div className="seo-manual-panel">
-                    <div className="seo-manual-col-headers">
-                      <span style={{ flex: 1 }}>Page URL</span>
-                      <span style={{ width: 110 }}>Submissions</span>
-                      <span style={{ width: 28 }} />
-                    </div>
-                    {manualEdit.organic_form_data.map((row, i) => (
-                      <div key={i} className="seo-manual-row">
-                        <input className="form-input seo-manual-input" placeholder="https://example.com/contact" value={row.url}
-                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], url: v }; return { ...prev, organic_form_data: a }; }); }} />
-                        <input className="form-input seo-manual-input" style={{ flex: '0 0 110px' }} type="number" placeholder="0" value={row.count || ''}
-                          onChange={(e) => { const v = Number(e.target.value); setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], count: v }; return { ...prev, organic_form_data: a }; }); }} />
-                        <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: prev.organic_form_data.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
-                      </div>
-                    ))}
-                    <div className="seo-manual-actions">
-                      <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: [...prev.organic_form_data, { url: '', count: 0 }] }))}><Plus size={12} /> Add page</button>
-                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
-                    </div>
-                  </div>
-                )}
-                {manual.organic_form_data.length > 0
-                  ? <table className="seo-table">
-                      <thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
-                      <tbody>
-                        {manual.organic_form_data.map((row, i) => (
-                          <tr key={i}><td className="seo-page-url" title={row.url}>{row.url}</td><td style={{ fontWeight: 700 }}>{row.count.toLocaleString()}</td></tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add form submission data.</p>}
-              </div>
-            )}
 
             {/* ── Social Media Report ── */}
             {(canEdit || !!manual.linkedin_data || !!manual.social_media_data) && (
