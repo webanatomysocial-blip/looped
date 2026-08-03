@@ -56,6 +56,8 @@ export const projectsApi = {
   create: (data: any) => api.post('/projects', data),
   update: (id: number, data: any) => api.put(`/projects/${id}`, data),
   delete: (id: number) => api.delete(`/projects/${id}`),
+  managerResponse: (id: number, action: 'accept' | 'decline', member_ids?: number[]) =>
+    api.post(`/projects/${id}/manager-response`, { action, member_ids }),
 };
 
 export const tasksApi = {
@@ -131,8 +133,8 @@ export const reportsApi = {
 
 export const seoApi = {
   clients: () => api.get('/seo/clients'),
-  report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string) =>
-    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country } }),
+  report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string, compareStart?: string, compareEnd?: string) =>
+    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country, compareStart, compareEnd } }),
   configClient: (clientId: number, data: { ga_property_id: string; gsc_site_url: string }) =>
     api.put(`/seo/clients/${clientId}`, data),
   getManual: (clientId: number) => api.get(`/seo/manual/${clientId}`),

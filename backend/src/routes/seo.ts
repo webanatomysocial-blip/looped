@@ -144,8 +144,10 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     if (!token) { res.status(500).json({ error: authError ?? 'Google auth failed' }); return; }
 
     const range        = String(req.query.range || '28d');
-    const customStart  = req.query.startDate ? String(req.query.startDate) : null;
-    const customEnd    = req.query.endDate   ? String(req.query.endDate)   : null;
+    const customStart  = req.query.startDate    ? String(req.query.startDate)    : null;
+    const customEnd    = req.query.endDate      ? String(req.query.endDate)      : null;
+    const compareStart = req.query.compareStart ? String(req.query.compareStart) : null;
+    const compareEnd   = req.query.compareEnd   ? String(req.query.compareEnd)   : null;
     const isCustom     = range === 'custom' && customStart && customEnd;
     const ga4Start     = isCustom ? customStart : ga4StartDate(range);
     const ga4End       = isCustom ? customEnd   : 'today';
@@ -157,8 +159,30 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     const ga4Base = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
+    // Compute previous period (manual override wins over auto)
+    const daysBack = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    let prevStartStr: string, prevEndStr: string;
+    if (compareStart && compareEnd) {
+      prevStartStr = compareStart;
+      prevEndStr   = compareEnd;
+    } else {
+      const resolvedStartStr = isCustom ? ga4Start! : daysBack(range === '7d' ? 7 : range === '28d' ? 28 : 90);
+      const resolvedEndStr   = isCustom ? ga4End!   : daysBack(0);
+      const diffDays = Math.round((new Date(resolvedEndStr).getTime() - new Date(resolvedStartStr).getTime()) / 86400000) + 1;
+      const prevEndDate   = new Date(resolvedStartStr); prevEndDate.setDate(prevEndDate.getDate() - 1);
+      const prevStartDate = new Date(prevEndDate);      prevStartDate.setDate(prevStartDate.getDate() - diffDays + 1);
+      prevStartStr = prevStartDate.toISOString().slice(0, 10);
+      prevEndStr   = prevEndDate.toISOString().slice(0, 10);
+    }
+
     // Run all GA4 requests in parallel
-    const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes] = await Promise.allSettled([
+    const engagementMetrics = [
+      { name: 'averageSessionDuration' }, { name: 'bounceRate' },
+      { name: 'screenPageViewsPerSession' }, { name: 'engagementRate' },
+      { name: 'sessions' }, { name: 'activeUsers' }, { name: 'newUsers' },
+    ];
+
+    const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes, prevEngagementRes, prevAcquisitionRes] = await Promise.allSettled([
 
       // 1. Traffic overview: daily active users + sessions + pageviews
       fetch(ga4Base, {
@@ -189,18 +213,7 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
       // 3. Engagement metrics (totals)
       fetch(ga4Base, {
         method: 'POST', headers,
-        body: JSON.stringify({
-          dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
-          metrics: [
-            { name: 'averageSessionDuration' },
-            { name: 'bounceRate' },
-            { name: 'screenPageViewsPerSession' },
-            { name: 'engagementRate' },
-            { name: 'sessions' },
-            { name: 'activeUsers' },
-            { name: 'newUsers' },
-          ],
-        }),
+        body: JSON.stringify({ dateRanges: [{ startDate: ga4Start, endDate: ga4End }], metrics: engagementMetrics }),
       }).then((r) => r.json()),
 
       // 4. Demographics — cities filtered by selected country (or all countries)
@@ -233,6 +246,24 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
       siteUrl
         ? queryGSC(siteUrl, headers, gscStart, gscEnd, 'query')
         : Promise.resolve(null),
+
+      // 7. Previous period engagement (for comparison)
+      fetch(ga4Base, {
+        method: 'POST', headers,
+        body: JSON.stringify({ dateRanges: [{ startDate: prevStartStr, endDate: prevEndStr }], metrics: engagementMetrics }),
+      }).then((r) => r.json()),
+
+      // 8. Previous period acquisition (for comparison)
+      fetch(ga4Base, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          dateRanges: [{ startDate: prevStartStr, endDate: prevEndStr }],
+          dimensions: [{ name: 'sessionDefaultChannelGrouping' }],
+          metrics: [{ name: 'sessions' }, { name: 'activeUsers' }],
+          orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+          limit: 10,
+        }),
+      }).then((r) => r.json()),
     ]);
 
     // Parse GA4 traffic rows
@@ -302,7 +333,29 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
         }))
       : [];
 
-    res.json({ traffic, acquisition, engagement, demographics, pages, queries, client: { id: client.id, name: client.name } });
+    const parseEngagement = (res: PromiseSettledResult<any>) => {
+      if (res.status !== 'fulfilled' || !res.value.rows?.[0]) return null;
+      const mv = res.value.rows[0].metricValues;
+      return {
+        avgDuration: Math.round(Number(mv[0].value)),
+        bounceRate: Number((Number(mv[1].value) * 100).toFixed(1)),
+        pagesPerSession: Number(Number(mv[2].value).toFixed(2)),
+        engagementRate: Number((Number(mv[3].value) * 100).toFixed(1)),
+        sessions: Number(mv[4].value),
+        users: Number(mv[5].value),
+        newUsers: Number(mv[6].value),
+      };
+    };
+    const prevEngagement = parseEngagement(prevEngagementRes);
+    const prevAcquisition = prevAcquisitionRes.status === 'fulfilled'
+      ? (prevAcquisitionRes.value.rows || []).map((r: any) => ({
+          channel: r.dimensionValues[0].value,
+          sessions: Number(r.metricValues[0].value),
+          users: Number(r.metricValues[1].value),
+        }))
+      : [];
+
+    res.json({ traffic, acquisition, engagement, prevEngagement, prevAcquisition, demographics, pages, queries, client: { id: client.id, name: client.name } });
   } catch (err) {
     console.error('SEO report error:', err);
     res.status(500).json({ error: 'Failed to fetch analytics data' });

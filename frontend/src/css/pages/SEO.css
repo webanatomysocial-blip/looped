@@ -195,6 +195,7 @@
   color: var(--ink-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  margin-top: 10px;
 }
 
 .seo-inline-input { font-size: 12px !important; padding: 8px 12px !important; }
