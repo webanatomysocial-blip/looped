@@ -5,6 +5,33 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 const router = Router();
 router.use(authenticate);
 
+// Close open timer sessions for a task and write time_logs for any unlogged time
+async function closeTaskTimers(taskId: number) {
+  const db = getDB();
+  const now = new Date();
+  const open = await db('task_sessions').where({ task_id: taskId }).whereNull('ended_at').select('*');
+  for (const s of open) {
+    const startMs = isNaN(Number(s.started_at)) ? new Date(s.started_at).getTime() : Number(s.started_at);
+    const hours = (now.getTime() - startMs) / 3600000;
+    await db('task_sessions').where({ id: s.id }).update({ ended_at: now });
+    if (hours > 0.001) {
+      const task = await db('tasks').where({ id: taskId }).select('project_id').first();
+      const user = await db('users').where({ id: s.user_id }).select('monthly_salary').first();
+      const rate = user?.monthly_salary ? user.monthly_salary / 160 : null;
+      await db('time_logs').insert({
+        task_id: taskId,
+        project_id: task?.project_id,
+        user_id: s.user_id,
+        log_date: s.session_date,
+        hours: Math.round(hours * 1000) / 1000,
+        notes: 'Auto-logged on task completion',
+        task_session_id: s.id,
+        hourly_rate: rate,
+      });
+    }
+  }
+}
+
 // ─── State Machine ────────────────────────────────────────────────────────────
 
 type WorkflowType = 'employee' | 'manager' | 'admin_with_client' | 'admin_no_client';
@@ -201,8 +228,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       flow_chain: flowMap[a.task_id] ?? null,
     }));
 
-    // Augment with timer info for current user (today's sessions on each task)
+    // Close any stale open sessions from previous days for this user
     const today = new Date().toISOString().slice(0, 10);
+    await db('task_sessions')
+      .where('user_id', userId)
+      .whereNull('ended_at')
+      .where('session_date', '<', today)
+      .update({ ended_at: db.raw('started_at') }); // zero-duration, avoids inflating logs
     const taskIds = baseResult.map((a: any) => a.task_id);
     const timerMap: Record<number, { seconds: number; running: boolean }> = {};
     if (taskIds.length) {
@@ -280,6 +312,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // Admin submitting a task with no clients → immediate completion
     if (workflowType === 'admin_no_client') {
       await db('tasks').where({ id: task_id }).update({ status: 'completed' });
+      await closeTaskTimers(task_id);
       res.status(201).json({ id: null, workflow_type: workflowType, immediate: true });
       return;
     }
@@ -387,11 +420,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
           // All steps approved
           await db('approvals').where({ id: approval.id }).update({ status: 'approved', final_approved_at: new Date() });
           await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
+          await closeTaskTimers(approval.task_id);
           await createNotification(approval.submitted_by, `Your work "${approval.title}" has been fully approved! ✓`, 'approval', approval.project_id);
         }
       } else {
         await db('approvals').where({ id: approval.id }).update({ status: 'rejected', rejected_by: userId, rejected_at: new Date(), rejection_notes: notes });
         await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+        await closeTaskTimers(approval.task_id);
         await createNotification(approval.submitted_by, `"${approval.title}" was rejected by ${actorName}: ${notes}`, 'approval', approval.project_id);
       }
 
@@ -450,6 +485,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         updates.final_approved_by = userId;
         updates.final_approved_at = new Date();
         await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
+        await closeTaskTimers(approval.task_id);
         await notifySubmitter(`Your work "${approval.title}" has been fully approved! ✓`);
       }
 
@@ -469,6 +505,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         updates.rejected_at = new Date();
         updates.rejection_notes = notes;
         await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+        await closeTaskTimers(approval.task_id);
         await notifySubmitter(`"${approval.title}" was rejected: ${notes}`);
       }
     }
@@ -517,6 +554,7 @@ async function handleLegacyReview(
       updates.rejected_at = new Date();
       updates.rejection_notes = notes;
       await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await closeTaskTimers(approval.task_id);
       await createNotification(approval.submitted_by, `"${approval.title}" was rejected by manager: ${notes}`, 'approval', approval.project_id);
     }
 
@@ -534,6 +572,7 @@ async function handleLegacyReview(
       updates.rejected_at = new Date();
       updates.rejection_notes = notes;
       await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await closeTaskTimers(approval.task_id);
       await createNotification(approval.submitted_by, `"${approval.title}" was rejected by admin: ${notes}`, 'approval', approval.project_id);
     }
 
@@ -558,6 +597,7 @@ async function handleLegacyReview(
       updates.rejected_at = new Date();
       updates.rejection_notes = notes;
       await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+      await closeTaskTimers(approval.task_id);
       await createNotification(approval.submitted_by, `"${approval.title}" was rejected by client: ${notes}`, 'approval', approval.project_id);
     }
 

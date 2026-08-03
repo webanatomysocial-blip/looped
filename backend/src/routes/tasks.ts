@@ -424,12 +424,35 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
     const today = now.toISOString().slice(0, 10);
 
     if (action === 'start') {
-      // Pause any other running sessions for this user first
-      await db('task_sessions')
+      // Pause any other running sessions for this user first, and write time_logs for them
+      const otherOpen = await db('task_sessions')
         .where({ user_id: userId })
         .whereNull('ended_at')
         .whereNot('task_id', taskId)
-        .update({ ended_at: now });
+        .select('*');
+      for (const s of otherOpen) {
+        await db('task_sessions').where({ id: s.id }).update({ ended_at: now });
+        const startMs = isNaN(Number(s.started_at)) ? new Date(s.started_at).getTime() : Number(s.started_at);
+        const hrs = (now.getTime() - startMs) / 3600000;
+        if (hrs >= 0.001) {
+          const otherTask = await db('tasks').where({ id: s.task_id }).select('project_id').first();
+          const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
+          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+          const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
+          if (otherTask) {
+            await db('time_logs').insert({
+              task_id: s.task_id,
+              project_id: otherTask.project_id,
+              user_id: userId,
+              log_date: s.session_date,
+              hours: Math.round(hrs * 1000) / 1000,
+              notes: 'Auto-paused when another task was started',
+              task_session_id: s.id,
+              hourly_rate: hourlyRate,
+            });
+          }
+        }
+      }
 
       // Insert new session
       await db('task_sessions').insert({

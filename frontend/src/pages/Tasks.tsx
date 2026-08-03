@@ -29,7 +29,7 @@ export default function Tasks() {
   const [users, setUsers]       = useState<User[]>([]);
   const [loading, setLoading]   = useState(true);
   const [showModal, setShowModal]               = useState(false);
-  const [assignTab, setAssignTab]               = useState<'working_person_id'|'task_manager_id'>('working_person_id');
+
   const [roleTab, setRoleTab]                   = useState<'admin'|'manager'|'employee'>('employee');
   const [assignCategoryTab, setAssignCategoryTab] = useState<number | 'all'>('all');
   const [approvalFlow, setApprovalFlow]         = useState<User[]>([]);
@@ -42,7 +42,7 @@ export default function Tasks() {
   const [editTask, setEditTask]                 = useState<Task | null>(null);
   const [editForm, setEditForm]                 = useState({ title: '', description: '', due_date: '', due_time: '', est_hours: '', est_minutes: '0', working_person_id: '', task_manager_id: '' });
   const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean }[]>([]);
-  const [editAssignTab, setEditAssignTab]       = useState<'working_person_id'|'task_manager_id'>('working_person_id');
+
   const [editRoleTab, setEditRoleTab]           = useState<'admin'|'manager'|'employee'>('employee');
 
   const [form, setForm] = useState({
@@ -73,19 +73,24 @@ export default function Tasks() {
 
   useEffect(() => { load(podTab); }, [podTab]);
 
-  // Auto-fill estimated time from due date + time (7 working hours per 24 calendar hours)
+  useEffect(() => {
+    const refresh = () => load(podTab);
+    window.addEventListener('wd:new-notification', refresh);
+    return () => window.removeEventListener('wd:new-notification', refresh);
+  }, [podTab]);
+
+  // Auto-fill: actual hours remaining for same-day tasks; 7h per working day for multi-day
   useEffect(() => {
     if (!form.due_date) return;
-    const dueStr = `${form.due_date}T${form.due_time ? form.due_time + ':00' : '23:59:00'}`;
-    const due = new Date(dueStr);
-    const now = new Date();
-    const diffMs = due.getTime() - now.getTime();
+    const due = new Date(`${form.due_date}T${form.due_time || '23:59'}`);
+    const diffMs = due.getTime() - Date.now();
     if (diffMs <= 0) return;
-    const calendarHours = diffMs / 3600000;
-    const workingHours = calendarHours * (7 / 24);
-    const hrs = Math.floor(workingHours);
-    const mins = Math.round((workingHours - hrs) * 60);
-    setForm(f => ({ ...f, est_hours: String(hrs), est_minutes: String(mins) }));
+    const diffDays = diffMs / 86400000;
+    // Under 1 day → use real time remaining; over 1 day → 7 working hours per day
+    const workingMins = diffDays < 1
+      ? Math.round(diffMs / 60000)
+      : Math.round(diffDays * 7 * 60);
+    setForm(f => ({ ...f, est_hours: String(Math.floor(workingMins / 60)), est_minutes: String(workingMins % 60) }));
   }, [form.due_date, form.due_time]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -192,7 +197,7 @@ export default function Tasks() {
     const employeeAssignee = task.assignees?.find(a => a.assignee_role === 'employee' || a.assignee_role === 'worker' as any);
     const managerAssignee  = task.assignees?.find(a => a.assignee_role === 'manager');
     setEditTask(task);
-    setEditAssignTab('working_person_id');
+
     setEditRoleTab('employee');
     setEditForm({
       title:             task.title,
@@ -260,6 +265,15 @@ export default function Tasks() {
       if (tpl) items.push(...tpl.items.map(i => ({ text: i.text, checked: i.checked })));
     }
     if (items.length) setForm((f) => ({ ...f, checklist: items }));
+  };
+
+  // Auto-assign pod manager when employee is selected
+  const podManagerFor = (employeeId: string) => {
+    if (!employeeId) return '';
+    const emp = users.find(u => String(u.id) === employeeId);
+    if (!emp?.pod) return '';
+    const mgr = users.find(u => u.role === 'manager' && u.pod === emp.pod);
+    return mgr ? String(mgr.id) : '';
   };
 
   const [page, setPage] = useState(1);
@@ -534,7 +548,6 @@ export default function Tasks() {
                       {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
-                  {projects.find(p => String(p.id) === String(form.project_id))?.service_type !== 'xlr8' && (<>
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={form.due_date} onChange={(e) => { setForm({ ...form, due_date: e.target.value }); setTimeout(checkCapacity, 0); }} />
@@ -543,7 +556,6 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
-                  </>)}
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Est. time *</div>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -568,43 +580,29 @@ export default function Tasks() {
 
                 {/* Assignment */}
                 {(() => {
-                  const SLOTS = [
-                    { key: 'working_person_id' as const, label: 'Employee', accent: 'var(--green)',  eligibleRoles: ['admin','manager','employee'] as const },
-                    { key: 'task_manager_id'   as const, label: 'Manager',  accent: 'var(--orange)', eligibleRoles: ['admin','manager'] as const },
-                  ];
-                  const active = SLOTS.find(s => s.key === assignTab)!;
-                  const pool = users.filter(u => (active.eligibleRoles as readonly string[]).includes(u.role));
-                  const selectedId = form[active.key];
+                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role));
+                  const selectedId = form.working_person_id;
                   const selectedUser = pool.find(u => String(u.id) === selectedId);
+                  const autoManagerId = podManagerFor(selectedId);
+                  const autoManager = autoManagerId ? users.find(u => String(u.id) === autoManagerId) : null;
                   return (
                     <div className="drawer-section">
                       <div className="drawer-section-title">Assignment</div>
 
-                      {/* Tabs */}
-                      <div className="ap-tabs">
-                        {SLOTS.map(s => {
-                          const sel = form[s.key];
-                          const selUser = users.find(u => String(u.id) === sel);
-                          return (
-                            <button
-                              key={s.key}
-                              type="button"
-                              className={`ap-tab${assignTab === s.key ? ' ap-tab--active' : ''}`}
-                              style={assignTab === s.key ? { '--ap-accent': s.accent } as any : undefined}
-                              onClick={() => setAssignTab(s.key)}
-                            >
-                              {selUser
-                                ? <><div className="ap-avatar ap-tab__avatar" style={{ background: selUser.avatar_color }}>{selUser.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}</div>{s.label}</>
-                                : <>{s.label}<span className="ap-tab__dot" /></>}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {/* Auto-manager info */}
+                      {autoManager && (
+                        <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div className="ap-avatar" style={{ background: autoManager.avatar_color, width: 18, height: 18, fontSize: 8 }}>
+                            {autoManager.name.split(' ').map((n:string)=>n[0]).join('').toUpperCase().slice(0,2)}
+                          </div>
+                          <span>Manager: <strong style={{ color: 'var(--ink)' }}>{autoManager.name}</strong> (auto-assigned)</span>
+                        </div>
+                      )}
 
                       {/* Active slot chips */}
                       <div className="ap-slot">
                         {selectedUser && (
-                          <div className="ap-selected" style={{ borderColor: active.accent }}>
+                          <div className="ap-selected" style={{ borderColor: 'var(--green)' }}>
                             <div className="ap-avatar ap-avatar--lg" style={{ background: selectedUser.avatar_color }}>
                               {selectedUser.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
                             </div>
@@ -613,7 +611,7 @@ export default function Tasks() {
                               <div className="ap-selected__role">{selectedUser.role}</div>
                             </div>
                             <button type="button" className="ap-slot__clear" onClick={() => {
-                              setForm((f) => ({ ...f, [active.key]: '', ...(active.key === 'working_person_id' ? { checklist: [{ text: '', checked: false }] } : {}) }));
+                              setForm((f) => ({ ...f, working_person_id: '', task_manager_id: '', checklist: [{ text: '', checked: false }] }));
                               setTimeout(checkCapacity, 0);
                             }}>× Clear</button>
                           </div>
@@ -621,7 +619,7 @@ export default function Tasks() {
 
                         {/* Role tabs */}
                         {(() => {
-                          const availableRoles = (['admin','manager','employee'] as const).filter(r => (active.eligibleRoles as readonly string[]).includes(r));
+                          const availableRoles = (['admin','manager','employee'] as const);
                           const activeRole = availableRoles.includes(roleTab) ? roleTab : availableRoles[0];
                           const rolePool = pool.filter(u => u.role === activeRole);
 
@@ -682,11 +680,12 @@ export default function Tasks() {
                                   return (
                                     <button key={u.id} type="button"
                                       className={`ap-chip${isSelected ? ' ap-chip--selected' : ''}`}
-                                      style={isSelected ? { '--ap-accent': active.accent } as any : undefined}
+                                      style={isSelected ? { '--ap-accent': 'var(--green)' } as any : undefined}
                                       onClick={() => {
                                         const newId = isSelected ? '' : String(u.id);
-                                        setForm((f) => ({ ...f, [active.key]: newId }));
-                                        if (active.key === 'working_person_id' && !isSelected) applyEmployeeChecklist(String(u.id));
+                                        const mgr = newId ? podManagerFor(newId) : '';
+                                        setForm((f) => ({ ...f, working_person_id: newId, task_manager_id: mgr }));
+                                        if (!isSelected) applyEmployeeChecklist(String(u.id));
                                         setTimeout(checkCapacity, 0);
                                       }}
                                       title={u.name}
@@ -924,7 +923,6 @@ export default function Tasks() {
 
                 {/* Info card */}
                 <div className="drawer-info-card">
-                  {projects.find(p => p.id === editTask?.project_id)?.service_type !== 'xlr8' && (<>
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={editForm.due_date} onChange={(e) => setEditForm({ ...editForm, due_date: e.target.value })} />
@@ -933,7 +931,6 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={editForm.due_time} onChange={(e) => setEditForm({ ...editForm, due_time: e.target.value })} />
                   </div>
-                  </>)}
                   <div className="drawer-info-field" style={{ gridColumn: '1 / -1' }}>
                     <div className="drawer-info-label">Estimated time (Capacity hours)</div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1034,40 +1031,31 @@ export default function Tasks() {
 
                 {/* Assignment */}
                 {(() => {
-                  const SLOTS = [
-                    { key: 'working_person_id' as const, label: 'Employee', accent: 'var(--green)',  eligibleRoles: ['admin','manager','employee'] as const },
-                    { key: 'task_manager_id'   as const, label: 'Manager',  accent: 'var(--orange)', eligibleRoles: ['admin','manager'] as const },
-                  ];
-                  const active = SLOTS.find(s => s.key === editAssignTab)!;
-                  const pool = users.filter(u => (active.eligibleRoles as readonly string[]).includes(u.role));
-                  const selectedId = editForm[active.key];
+                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role));
+                  const selectedId = editForm.working_person_id;
                   const selectedUser = pool.find(u => String(u.id) === selectedId);
-                  const availableRoles = (['admin','manager','employee'] as const).filter(r => (active.eligibleRoles as readonly string[]).includes(r));
+                  const autoManagerId = podManagerFor(selectedId);
+                  const autoManager = autoManagerId ? users.find(u => String(u.id) === autoManagerId) : null;
+                  const availableRoles = (['admin','manager','employee'] as const);
                   const activeRole = availableRoles.includes(editRoleTab) ? editRoleTab : availableRoles[0];
 
                   return (
                     <div className="drawer-section">
                       <div className="drawer-section-title">Assignment</div>
-                      <div className="ap-tabs">
-                        {SLOTS.map(s => {
-                          const sel = editForm[s.key];
-                          const selUser = users.find(u => String(u.id) === sel);
-                          return (
-                            <button key={s.key} type="button"
-                              className={`ap-tab${editAssignTab === s.key ? ' ap-tab--active' : ''}`}
-                              style={editAssignTab === s.key ? { '--ap-accent': s.accent } as any : undefined}
-                              onClick={() => setEditAssignTab(s.key)}
-                            >
-                              {selUser
-                                ? <><div className="ap-avatar ap-tab__avatar" style={{ background: selUser.avatar_color }}>{selUser.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}</div>{s.label}</>
-                                : <>{s.label}<span className="ap-tab__dot" /></>}
-                            </button>
-                          );
-                        })}
-                      </div>
+
+                      {/* Auto-manager info */}
+                      {autoManager && (
+                        <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div className="ap-avatar" style={{ background: autoManager.avatar_color, width: 18, height: 18, fontSize: 8 }}>
+                            {autoManager.name.split(' ').map((n:string)=>n[0]).join('').toUpperCase().slice(0,2)}
+                          </div>
+                          <span>Manager: <strong style={{ color: 'var(--ink)' }}>{autoManager.name}</strong> (auto-assigned)</span>
+                        </div>
+                      )}
+
                       <div className="ap-slot">
                         {selectedUser && (
-                          <div className="ap-selected" style={{ borderColor: active.accent }}>
+                          <div className="ap-selected" style={{ borderColor: 'var(--green)' }}>
                             <div className="ap-avatar ap-avatar--lg" style={{ background: selectedUser.avatar_color }}>
                               {selectedUser.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
                             </div>
@@ -1076,7 +1064,7 @@ export default function Tasks() {
                               <div className="ap-selected__role">{selectedUser.role}</div>
                             </div>
                             <button type="button" className="ap-slot__clear"
-                              onClick={() => setEditForm({ ...editForm, [active.key]: '' })}>× Clear</button>
+                              onClick={() => setEditForm({ ...editForm, working_person_id: '', task_manager_id: '' })}>× Clear</button>
                           </div>
                         )}
                         <div className="ap-role-tabs">
@@ -1096,8 +1084,12 @@ export default function Tasks() {
                             return (
                               <button key={u.id} type="button"
                                 className={`ap-chip${isSelected ? ' ap-chip--selected' : ''}`}
-                                style={isSelected ? { '--ap-accent': active.accent } as any : undefined}
-                                onClick={() => setEditForm({ ...editForm, [active.key]: isSelected ? '' : String(u.id) })}
+                                style={isSelected ? { '--ap-accent': 'var(--green)' } as any : undefined}
+                                onClick={() => {
+                                  const newId = isSelected ? '' : String(u.id);
+                                  const mgr = newId ? podManagerFor(newId) : '';
+                                  setEditForm({ ...editForm, working_person_id: newId, task_manager_id: mgr });
+                                }}
                                 title={u.name}
                               >
                                 <div className="ap-avatar" style={{ background: u.avatar_color }}>

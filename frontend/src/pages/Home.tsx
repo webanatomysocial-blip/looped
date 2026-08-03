@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight } from 'lucide-react';
+import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
-import { capacityApi, tasksApi, projectsApi } from '../services/api';
+import { capacityApi, tasksApi, projectsApi, approvalsApi } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 
@@ -57,6 +57,7 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [priorityPage, setPriorityPage] = useState(1);
   const PAGE_SIZE = 5;
+  const [approvedTasks, setApprovedTasks] = useState<{ id: number; task_title: string; project_name: string; final_approved_at: string }[]>([]);
   const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -75,11 +76,19 @@ export default function Home() {
   useEffect(() => {
     load();
     const poll = setInterval(load, 30000);
-    return () => clearInterval(poll);
+    window.addEventListener('wd:new-notification', load);
+    return () => { clearInterval(poll); window.removeEventListener('wd:new-notification', load); };
   }, [load]);
 
   useEffect(() => {
     projectsApi.list().then((r) => setProjects(r.data)).catch(() => {});
+    approvalsApi.list().then((r) => {
+      const approved = (r.data as any[])
+        .filter(a => a.status === 'approved')
+        .sort((a, b) => new Date(b.final_approved_at).getTime() - new Date(a.final_approved_at).getTime())
+        .slice(0, 5);
+      setApprovedTasks(approved);
+    }).catch(() => {});
   }, []);
 
   // Tick elapsed +1 every second only when a session is active
@@ -312,8 +321,11 @@ export default function Home() {
                       </div>
                     )}
 
-                    {task.acceptance_status === 'accepted' && task.status !== 'in_review' && (
+                    {(task.acceptance_status === 'accepted' || task.assignee_role === 'review') && task.status !== 'in_review' && (
                       <div className="cap-task-row__timer">
+                        {task.assignee_role === 'review' && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--blue)', background: 'rgba(59,130,246,0.08)', padding: '2px 7px', borderRadius: 10, marginRight: 4 }}>Reviewing</span>
+                        )}
                         {liveSec > 0 && (
                           <span className={`cap-timer-time${isRunning ? ' cap-timer-time--running' : ''}`}>
                             {fmtSeconds(liveSec)}
@@ -417,6 +429,52 @@ export default function Home() {
                 );
               })()}
             </div>
+
+            {/* Rejected tasks */}
+            {allTasks.some(t => t.has_rejected_approval) && (
+              <div className="card" style={{ padding: '18px 24px', border: '1.5px solid #fca5a5', background: 'linear-gradient(135deg,#fff5f5 0%,#fff 100%)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <XCircle size={16} color="#ef4444" />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#dc2626' }}>Rejected Approvals</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, background: '#fee2e2', color: '#b91c1c', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                    {allTasks.filter(t => t.has_rejected_approval).length}
+                  </span>
+                </div>
+                {allTasks.filter(t => t.has_rejected_approval).map(t => (
+                  <Link key={t.id} to="/tasks" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #fee2e2' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                      <div style={{ fontSize: 11, color: '#ef4444', marginTop: 1 }}>{t.project_name}</div>
+                    </div>
+                    <ArrowUpRight size={13} color="#ef4444" style={{ flexShrink: 0 }} />
+                  </Link>
+                ))}
+              </div>
+            )}
+
+            {/* Approved tasks */}
+            {approvedTasks.length > 0 && (
+              <div className="card" style={{ padding: '18px 24px', border: '1.5px solid #86efac', background: 'linear-gradient(135deg,#f0fdf4 0%,#fff 100%)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <CheckCircle size={16} color="#16a34a" />
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>Approved Tasks</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                    {approvedTasks.length}
+                  </span>
+                </div>
+                {approvedTasks.map(a => (
+                  <Link key={a.id} to="/approvals" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #dcfce7' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.task_title}</div>
+                      <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>{a.project_name}</div>
+                    </div>
+                    <ArrowUpRight size={13} color="#16a34a" style={{ flexShrink: 0 }} />
+                  </Link>
+                ))}
+              </div>
+            )}
 
             {/* Your Active Projects */}
             <div className="card" style={{ padding: '22px 24px', flex: 1 }}>

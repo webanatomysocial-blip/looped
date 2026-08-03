@@ -161,7 +161,7 @@ export interface CapacityTask {
   estimated_hours: number | null;
   project_name: string;
   acceptance_status: 'pending' | 'accepted' | 'declined';
-  assignee_role: 'employee' | 'manager' | null;
+  assignee_role: 'employee' | 'manager' | 'review' | null;
   tracked_seconds_today: number;
   timer_running: boolean;
   has_rejected_approval?: boolean;

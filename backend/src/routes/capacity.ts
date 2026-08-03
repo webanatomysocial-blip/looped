@@ -13,6 +13,13 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
   const now = Date.now();
 
   try {
+    // Close stale open sessions from previous days
+    await db('task_sessions')
+      .where('user_id', userId)
+      .whereNull('ended_at')
+      .where('session_date', '<', today)
+      .update({ ended_at: db.raw('started_at') });
+
     // All sessions today for this user
     const sessions = await db('task_sessions')
       .where({ user_id: userId, session_date: today })
@@ -50,8 +57,25 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         'ta.acceptance_status', 'ta.assignee_role'
       );
 
-    // Attach per-task session data
-    const taskIds = assignedTasks.map((t: any) => t.id);
+    // Also include tasks this user reviewed today (session exists but not assigned)
+    const assignedTaskIds = assignedTasks.map((t: any) => t.id);
+    const reviewSessions = await db('task_sessions as ts')
+      .join('tasks as t', 'ts.task_id', 't.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ts.user_id', userId)
+      .where('ts.session_date', today)
+      .whereNotIn('ts.task_id', assignedTaskIds.length ? assignedTaskIds : [0])
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name',
+        db.raw('NULL as acceptance_status'),
+        db.raw("'review' as assignee_role")
+      )
+      .groupBy('t.id');
+
+    const allTasks = [...assignedTasks, ...reviewSessions];
+    const taskIds = allTasks.map((t: any) => t.id);
+
     const taskSessions = taskIds.length
       ? await db('task_sessions')
           .whereIn('task_id', taskIds)
@@ -59,7 +83,14 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
           .select('*')
       : [];
 
-    const tasks = assignedTasks.map((task: any) => {
+    const rejectedSet = new Set<number>(
+      assignedTaskIds.length
+        ? (await db('approvals').whereIn('task_id', assignedTaskIds).where('status', 'rejected').select('task_id'))
+            .map((r: any) => Number(r.task_id))
+        : []
+    );
+
+    const tasks = allTasks.map((task: any) => {
       const ts = taskSessions.filter((s: any) => s.task_id === task.id);
       let taskSeconds = 0;
       let timerRunning = false;
@@ -71,7 +102,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         if (!s.ended_at) timerRunning = true;
       }
 
-      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning };
+      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)) };
     });
 
     res.json({
