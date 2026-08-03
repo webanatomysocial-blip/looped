@@ -171,37 +171,91 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// POST create project (admin + manager)
-router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  const { name, client_company_id, due_date, member_ids,
+// POST create project (admin only) — sends to pod manager for acceptance
+router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  const { name, client_company_id, start_date, due_date, pod, briefing_doc, project_drive_doc,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   if (!name) { res.status(400).json({ error: 'Name required' }); return; }
+  if (!pod) { res.status(400).json({ error: 'Pod required' }); return; }
+  if (!briefing_doc) { res.status(400).json({ error: 'Briefing doc is required' }); return; }
   try {
     const db = getDB();
     const svcType = service_type || 'per_project';
     const [id] = await db('projects').insert({
       name, client_company_id: client_company_id || null,
-      due_date: due_date ? String(due_date).slice(0, 10) : null, status: 'active', created_by: req.user!.id,
+      start_date: start_date ? String(start_date).slice(0, 10) : null,
+      due_date: due_date ? String(due_date).slice(0, 10) : null,
+      status: 'on_hold', manager_status: 'pending_manager',
+      pod, briefing_doc, project_drive_doc: project_drive_doc || null,
+      created_by: req.user!.id,
       service_type: svcType,
       budget_amount: budget_amount != null ? Number(budget_amount) : null,
-      budget_cutoff_pct: svcType === 'per_project' && budget_cutoff_pct != null ? Number(budget_cutoff_pct) : null,
+      budget_cutoff_pct: budget_cutoff_pct != null ? Number(budget_cutoff_pct) : null,
       budgeted_hours: svcType === 'per_project' && budgeted_hours != null ? Number(budgeted_hours) : null,
       monthly_hours_bucket: svcType === 'xlr8' && monthly_hours_bucket != null ? Number(monthly_hours_bucket) : null,
       billing_cycle_start_day: svcType === 'xlr8' ? (Number(billing_cycle_start_day) || 1) : null,
     });
 
-    const memberSet = new Set<number>([req.user!.id]);
-    if (member_ids) (member_ids as number[]).forEach((mid) => memberSet.add(mid));
-    const memberRows = [...memberSet].map((uid) => ({ project_id: id, user_id: uid }));
-    await db('project_members').insert(memberRows);
+    // Always add admin as member
+    await db('project_members').insert({ project_id: id, user_id: req.user!.id });
 
-    for (const uid of memberSet) {
-      if (uid !== req.user!.id) {
-        await createNotification(uid, `You were added to project "${name}"`, 'project');
-      }
+    // Notify pod manager
+    const podManager = await db('users').where({ role: 'manager', pod }).first();
+    if (podManager) {
+      await createNotification(podManager.id, `New project "${name}" is waiting for your acceptance`, 'project');
     }
 
-    res.status(201).json({ id, name, status: 'active' });
+    res.status(201).json({ id, name, status: 'on_hold', manager_status: 'pending_manager' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST manager accepts or declines a project
+router.post('/:id/manager-response', requireRoles('manager'), async (req: AuthRequest, res: Response) => {
+  const { action, member_ids } = req.body; // action: 'accept' | 'decline'
+  if (!['accept', 'decline'].includes(action)) { res.status(400).json({ error: 'action must be accept or decline' }); return; }
+  try {
+    const db = getDB();
+    const project = await db('projects').where({ id: req.params.id }).first();
+    if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+    if (project.manager_status !== 'pending_manager') { res.status(400).json({ error: 'Project not pending manager acceptance' }); return; }
+
+    if (action === 'decline') {
+      await db('projects').where({ id: req.params.id }).update({ manager_status: 'declined', status: 'on_hold' });
+      // Notify admin who created it
+      await createNotification(project.created_by, `Manager declined project "${project.name}" — please review and resubmit`, 'project');
+      res.json({ message: 'Declined' });
+      return;
+    }
+
+    // Accept: set active, add manager + selected employees as members
+    await db('projects').where({ id: req.params.id }).update({ manager_status: 'accepted', status: 'active' });
+
+    const memberSet = new Set<number>();
+    // Keep existing members (admin was added on create)
+    const existing = await db('project_members').where({ project_id: req.params.id }).select('user_id');
+    existing.forEach((m: any) => memberSet.add(Number(m.user_id)));
+    // Add manager
+    memberSet.add(req.user!.id);
+    // Add selected employees
+    if (member_ids) (member_ids as number[]).forEach((mid: number) => memberSet.add(mid));
+
+    // Sync members
+    await db('project_members').where({ project_id: req.params.id }).delete();
+    await db('project_members').insert([...memberSet].map((uid) => ({ project_id: Number(req.params.id), user_id: uid })));
+
+    // Notify each new employee
+    for (const uid of memberSet) {
+      if (uid !== req.user!.id && uid !== project.created_by) {
+        await createNotification(uid, `You were added to project "${project.name}"`, 'project');
+      }
+    }
+    // Notify admin
+    await createNotification(project.created_by, `Manager accepted project "${project.name}" — it is now active`, 'project');
+
+    res.json({ message: 'Accepted' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -210,20 +264,21 @@ router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res:
 
 // PUT update project (admin + manager)
 router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  const { name, status, due_date, client_company_id, member_ids,
+  const { name, status, start_date, due_date, client_company_id, member_ids,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   try {
     const db = getDB();
     const updates: any = {};
     if (name) updates.name = name;
     if (status) updates.status = status;
+    if (start_date !== undefined) updates.start_date = start_date ? String(start_date).slice(0, 10) : null;
     if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (client_company_id !== undefined) updates.client_company_id = client_company_id;
     if (service_type) {
       const svcType = service_type;
       updates.service_type = svcType;
       updates.budget_amount = budget_amount != null ? Number(budget_amount) : null;
-      updates.budget_cutoff_pct = svcType === 'per_project' && budget_cutoff_pct != null ? Number(budget_cutoff_pct) : null;
+      updates.budget_cutoff_pct = budget_cutoff_pct != null ? Number(budget_cutoff_pct) : null;
       updates.budgeted_hours = svcType === 'per_project' && budgeted_hours != null ? Number(budgeted_hours) : null;
       updates.monthly_hours_bucket = svcType === 'xlr8' && monthly_hours_bucket != null ? Number(monthly_hours_bucket) : null;
       updates.billing_cycle_start_day = svcType === 'xlr8' ? (Number(billing_cycle_start_day) || 1) : null;

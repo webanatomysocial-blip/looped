@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Bell, Settings, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,12 +21,55 @@ export default function Header({ action }: HeaderProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
+  const prevUnread = useRef(-1);
+  const audioCtx = useRef<AudioContext | null>(null);
+
+  // Create AudioContext lazily on first user gesture
+  useEffect(() => {
+    const init = () => {
+      if (!audioCtx.current) audioCtx.current = new AudioContext();
+    };
+    window.addEventListener('click', init, { once: true });
+    window.addEventListener('keydown', init, { once: true });
+    return () => {
+      window.removeEventListener('click', init);
+      window.removeEventListener('keydown', init);
+    };
+  }, []);
+
+  const playNotifSound = async () => {
+    try {
+      if (!audioCtx.current) audioCtx.current = new AudioContext();
+      const ctx = audioCtx.current;
+      if (ctx.state === 'suspended') await ctx.resume();
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.35, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+      g.connect(ctx.destination);
+      [[880, 0], [1100, 0.15]].forEach(([freq, delay]) => {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+        osc.connect(g);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.4);
+      });
+    } catch {}
+  };
 
   useEffect(() => {
     if (!user || user.role === 'client') return;
-    const fetch = () => notificationsApi.unreadCount().then((r) => setUnread(r.data.count)).catch(() => {});
-    fetch();
-    const id = setInterval(fetch, 30000);
+    const fetchCount = () => notificationsApi.unreadCount().then((r) => {
+      const count = r.data.count;
+      if (prevUnread.current !== -1 && count > prevUnread.current) {
+        playNotifSound();
+        window.dispatchEvent(new CustomEvent('wd:new-notification'));
+      }
+      prevUnread.current = count;
+      setUnread(count);
+    }).catch(() => {});
+    fetchCount();
+    const id = setInterval(fetchCount, 10000);
     return () => clearInterval(id);
   }, [user]);
 

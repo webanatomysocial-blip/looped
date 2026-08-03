@@ -202,6 +202,10 @@ async function createSchema(): Promise<void> {
       t.string('manager_status', 20).nullable();       // 'pending_manager' | 'accepted' | 'declined'
     });
   }
+  const hasStartDate = await db.schema.hasColumn('projects', 'start_date');
+  if (!hasStartDate) {
+    await db.schema.table('projects', (t) => { t.date('start_date').nullable(); });
+  }
   // project members
   await db.schema.hasTable('project_members').then(async (exists) => {
     if (!exists) {

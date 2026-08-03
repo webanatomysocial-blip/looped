@@ -431,7 +431,7 @@ textarea.form-input { resize: none; }
 }
 
 .drawer-submit {
-  width: 100%;
+  width: fit-content;
   padding: 14px;
   background: var(--ink);
   color: #fff;

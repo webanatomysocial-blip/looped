@@ -32,7 +32,7 @@ export default function Reports() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers]       = useState<User[]>([]);
 
-  // Per Project
+  //  Project
   const [selProjectId, setSelProjectId] = useState<number | ''>('');
   const [projFrom, setProjFrom]         = useState('');
   const [projTo, setProjTo]             = useState('');
@@ -220,10 +220,10 @@ export default function Reports() {
           </>
         )}
 
-        {/* PER PROJECT */}
+        {/*  PROJECT */}
         {tab === 'per_project' && (
           <div className="report-card report-card--full">
-            <p className="report-card__title">Per Project Report</p>
+            <p className="report-card__title"> Project Report</p>
             <div className="report-filter-row">
               <select className="form-input" style={{ maxWidth: 260 }} value={selProjectId}
                 onChange={(e) => { setSelProjectId(e.target.value ? Number(e.target.value) : ''); setProjReport(null); setProjTasks([]); }}>

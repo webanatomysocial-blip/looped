@@ -6,12 +6,12 @@ import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { projectsApi, usersApi, categoriesApi } from '../services/api';
+import { projectsApi, usersApi, categoriesApi, assetsApi } from '../services/api';
 import { Project, User, ClientCompany, EmployeeCategory } from '../types';
 import '../css/pages/Projects.css';
 
 const STATUS_OPTIONS = ['active', 'on_hold', 'completed'];
-type MemberTab = 'admins' | 'managers' | 'employees' | 'clients';
+type MemberTab = 'admins' | 'managers' | 'employees';
 type HealthLevel = 'all' | 'healthy' | 'tight' | 'over';
 type SortKey = 'none' | 'budget_asc' | 'budget_desc' | 'due_asc' | 'due_desc';
 
@@ -85,21 +85,32 @@ export default function Projects() {
   const [empSubTab, setEmpSubTab] = useState<string>('all');
 
   const [form, setForm] = useState({
-    name: '', client_company_id: '', due_date: '', status: 'active', member_ids: [] as number[],
+    name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [] as number[],
     service_type: 'per_project' as 'per_project' | 'xlr8',
     budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
     monthly_hours_bucket: '', billing_cycle_start_day: '1',
+    pod: 'pod1' as 'pod1' | 'pod2',
+    briefing_doc: '', project_drive_doc: '',
   });
 
-  const canCreate = user?.role === 'admin' || user?.role === 'manager';
+  const [briefingFileName, setBriefingFileName] = useState('');
+  const [driveFileName, setDriveFileName] = useState('');
+
+  // Manager accept flow
+  const [acceptProject, setAcceptProject] = useState<Project | null>(null);
+  const [acceptMemberIds, setAcceptMemberIds] = useState<number[]>([]);
+  const [acceptEmpSubTab, setAcceptEmpSubTab] = useState<string>('all');
+
+  const canCreate = user?.role === 'admin';
+  const canEdit   = user?.role === 'admin' || user?.role === 'manager';
 
   const load = () => {
     setLoading(true);
     Promise.all([
       projectsApi.list(),
-      canCreate ? usersApi.list()      : Promise.resolve({ data: [] }),
-      canCreate ? usersApi.companies() : Promise.resolve({ data: [] }),
-      canCreate ? categoriesApi.list() : Promise.resolve({ data: [] }),
+      canEdit ? usersApi.list()      : Promise.resolve({ data: [] }),
+      canEdit ? usersApi.companies() : Promise.resolve({ data: [] }),
+      canEdit ? categoriesApi.list() : Promise.resolve({ data: [] }),
     ])
       .then(([p, u, c, cats]) => {
         setProjects(p.data);
@@ -124,9 +135,12 @@ export default function Projects() {
 
   const openCreate = () => {
     setEditProject(null);
-    setForm({ name: '', client_company_id: '', due_date: '', status: 'active', member_ids: [],
+    setForm({ name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [],
       service_type: 'per_project', budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
-      monthly_hours_bucket: '', billing_cycle_start_day: '1' });
+      monthly_hours_bucket: '', billing_cycle_start_day: '1',
+      pod: 'pod1', briefing_doc: '', project_drive_doc: '' });
+    setBriefingFileName('');
+    setDriveFileName('');
     setMemberTab('admins');
     setEmpSubTab('all');
     setShowModal(true);
@@ -137,15 +151,22 @@ export default function Projects() {
     setForm({
       name: p.name,
       client_company_id: String(p.client_company_id || ''),
+      start_date: p.start_date || '',
       due_date: p.due_date || '',
       status: p.status,
-      member_ids: p.members.map((m) => m.user_id),
+      member_ids: [...new Set([
+        ...p.members.map((m) => m.user_id),
+        ...users.filter((u) => u.role === 'admin').map((u) => u.id),
+      ])],
       service_type: (p.service_type as 'per_project' | 'xlr8') || 'per_project',
       budget_amount: p.budget_amount != null ? String(p.budget_amount) : '',
       budget_cutoff_pct: p.budget_cutoff_pct != null ? String(p.budget_cutoff_pct) : '',
       budgeted_hours: p.budgeted_hours != null ? String(p.budgeted_hours) : '',
       monthly_hours_bucket: p.monthly_hours_bucket != null ? String(p.monthly_hours_bucket) : '',
       billing_cycle_start_day: p.billing_cycle_start_day != null ? String(p.billing_cycle_start_day) : '1',
+      pod: (p.pod as 'pod1' | 'pod2') || 'pod1',
+      briefing_doc: p.briefing_doc || '',
+      project_drive_doc: p.project_drive_doc || '',
     });
     setMemberTab('admins');
     setEmpSubTab('all');
@@ -155,22 +176,73 @@ export default function Projects() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = {
-        name: form.name,
-        client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
-        due_date: form.due_date || null,
-        status: form.status,
-        member_ids: form.member_ids,
-        service_type: form.service_type,
-        budget_amount: form.budget_amount ? Number(form.budget_amount) : null,
-        budget_cutoff_pct: form.budget_cutoff_pct ? Number(form.budget_cutoff_pct) : null,
-        budgeted_hours: form.service_type === 'per_project' && form.budgeted_hours ? Number(form.budgeted_hours) : null,
-        monthly_hours_bucket: form.service_type === 'xlr8' && form.monthly_hours_bucket ? Number(form.monthly_hours_bucket) : null,
-        billing_cycle_start_day: form.service_type === 'xlr8' ? Number(form.billing_cycle_start_day) || 1 : null,
-      };
-      if (editProject) await projectsApi.update(editProject.id, payload);
-      else await projectsApi.create(payload);
+      if (!editProject && user?.role === 'admin') {
+        // Admin create: new flow — no member_ids, send pod + docs
+        if (!form.briefing_doc.trim()) { alert('Briefing doc is required'); return; }
+        await projectsApi.create({
+          name: form.name,
+          client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
+          service_type: form.service_type,
+          pod: form.pod,
+          briefing_doc: form.briefing_doc,
+          project_drive_doc: form.project_drive_doc || null,
+          start_date: form.start_date || null,
+          due_date: form.due_date || null,
+          budget_amount: form.budget_amount ? Number(form.budget_amount) : null,
+          budget_cutoff_pct: form.budget_cutoff_pct ? Number(form.budget_cutoff_pct) : null,
+          budgeted_hours: form.service_type === 'per_project' && form.budgeted_hours ? Number(form.budgeted_hours) : null,
+          monthly_hours_bucket: form.service_type === 'xlr8' && form.monthly_hours_bucket ? Number(form.monthly_hours_bucket) : null,
+          billing_cycle_start_day: form.service_type === 'xlr8' ? Number(form.billing_cycle_start_day) || 1 : null,
+        });
+      } else {
+        const payload = {
+          name: form.name,
+          client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
+          start_date: form.start_date || null,
+          due_date: form.due_date || null,
+          status: form.status,
+          member_ids: form.member_ids,
+          service_type: form.service_type,
+          budget_amount: form.budget_amount ? Number(form.budget_amount) : null,
+          budget_cutoff_pct: form.budget_cutoff_pct ? Number(form.budget_cutoff_pct) : null,
+          budgeted_hours: form.service_type === 'per_project' && form.budgeted_hours ? Number(form.budgeted_hours) : null,
+          monthly_hours_bucket: form.service_type === 'xlr8' && form.monthly_hours_bucket ? Number(form.monthly_hours_bucket) : null,
+          billing_cycle_start_day: form.service_type === 'xlr8' ? Number(form.billing_cycle_start_day) || 1 : null,
+        };
+        if (editProject) await projectsApi.update(editProject.id, payload);
+        else await projectsApi.create(payload);
+      }
       setShowModal(false);
+      load();
+    } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+  };
+
+  const handleManagerResponse = async (project: Project, action: 'accept' | 'decline') => {
+    if (action === 'accept') {
+      setAcceptProject(project);
+      setAcceptMemberIds([]);
+      setAcceptEmpSubTab('all');
+    } else {
+      if (!confirm(`Decline project "${project.name}"? Admin will be notified to review.`)) return;
+      try { await projectsApi.managerResponse(project.id, 'decline'); load(); }
+      catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+    }
+  };
+
+  const openDoc = async (url: string) => {
+    if (!url.startsWith('/api/')) { window.open(url, '_blank'); return; }
+    const token = localStorage.getItem('token');
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { alert('Could not open file'); return; }
+    const blob = await res.blob();
+    window.open(URL.createObjectURL(blob), '_blank');
+  };
+
+  const handleManagerAccept = async () => {
+    if (!acceptProject) return;
+    try {
+      await projectsApi.managerResponse(acceptProject.id, 'accept', acceptMemberIds);
+      setAcceptProject(null);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
@@ -192,7 +264,6 @@ export default function Projects() {
   const visibleUsers = (): User[] => {
     if (memberTab === 'admins')   return users.filter((u) => u.role === 'admin');
     if (memberTab === 'managers') return users.filter((u) => u.role === 'manager');
-    if (memberTab === 'clients')  return users.filter((u) => u.role === 'client');
     const emps = users.filter((u) => u.role === 'employee');
     if (empSubTab === 'all') return emps;
     return emps.filter((u) => u.categories?.some((c) => String(c.id) === empSubTab));
@@ -207,7 +278,6 @@ export default function Projects() {
       if (!form.member_ids.includes(u.id)) return false;
       if (tab === 'admins')   return u.role === 'admin';
       if (tab === 'managers') return u.role === 'manager';
-      if (tab === 'clients')  return u.role === 'client';
       return u.role === 'employee';
     }).length;
 
@@ -362,6 +432,31 @@ export default function Projects() {
           ))}
         </div>
 
+        {/* ── Manager: pending projects ── */}
+        {user?.role === 'manager' && (() => {
+          const pending = projects.filter((p) => p.manager_status === 'pending_manager');
+          if (!pending.length) return null;
+          return (
+            <div style={{ marginBottom: 24, padding: '16px 20px', background: 'var(--amber-50,#fffbeb)', border: '1px solid var(--amber-200,#fde68a)', borderRadius: 10 }}>
+              <p style={{ fontWeight: 600, marginBottom: 12, color: 'var(--amber-700,#92400e)' }}>Pending your approval ({pending.length})</p>
+              {pending.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid var(--amber-100,#fef3c7)' }}>
+                  <div>
+                    <span style={{ fontWeight: 500 }}>{p.name}</span>
+                    {p.client_name && <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--ink-muted)' }}>{p.client_name}</span>}
+                    {p.briefing_doc && <button type="button" style={{ marginLeft: 10, fontSize: 12, background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => openDoc(p.briefing_doc!)}>Briefing doc ↗</button>}
+                    {p.project_drive_doc && <button type="button" style={{ marginLeft: 8, fontSize: 12, background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', padding: 0, textDecoration: 'underline' }} onClick={() => openDoc(p.project_drive_doc!)}>Drive ↗</button>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn-secondary" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => handleManagerResponse(p, 'decline')}>Decline</button>
+                    <button className="proj-new-btn" style={{ fontSize: 12, padding: '4px 12px' }} onClick={() => handleManagerResponse(p, 'accept')}>Accept</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         {loading && <p className="page-subtitle" style={{ textAlign: 'center', padding: '40px 0' }}>Loading…</p>}
 
         {/* ── Projects table ── */}
@@ -373,8 +468,8 @@ export default function Projects() {
                   <th className="proj-th">Project</th>
                   <th className="proj-th">Client</th>
                   <th className="proj-th">Stage</th>
-                  <th className="proj-th">Health</th>
-                  <th className="proj-th proj-th--budget">Budget used</th>
+                  {user?.role === 'admin' && <th className="proj-th">Health</th>}
+                  {user?.role === 'admin' && <th className="proj-th proj-th--budget">Budget used</th>}
                   <th className="proj-th">Team</th>
                   <th className="proj-th proj-th--right">Due</th>
                 </tr>
@@ -387,10 +482,16 @@ export default function Projects() {
                     <tr
                       key={project.id}
                       className="proj-row"
-                      onClick={() => canCreate && openEdit(project)}
+                      onClick={() => canEdit && openEdit(project)}
                     >
                       <td className="proj-td">
                         <span className="proj-name">{project.name}</span>
+                        {project.manager_status === 'pending_manager' && (
+                          <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--amber-100,#fef3c7)', color: 'var(--amber-700,#92400e)', fontWeight: 600 }}>Pending</span>
+                        )}
+                        {project.manager_status === 'declined' && (
+                          <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--red-100,#fee2e2)', color: 'var(--red-700,#b91c1c)', fontWeight: 600 }}>Declined</span>
+                        )}
                       </td>
                       <td className="proj-td proj-client">
                         {project.client_name || '—'}
@@ -400,11 +501,14 @@ export default function Projects() {
                           {STAGE_LABELS[project.status]}
                         </span>
                       </td>
-                      <td className="proj-td">
-                        <span className={`proj-health proj-health--${health.level}`}>
-                          {health.label}
-                        </span>
-                      </td>
+                      {user?.role === 'admin' && (
+                        <td className="proj-td">
+                          <span className={`proj-health proj-health--${health.level}`}>
+                            {health.label}
+                          </span>
+                        </td>
+                      )}
+                      {user?.role === 'admin' && (
                       <td className="proj-td proj-td--budget">
                         {project.service_type === 'per_project' && project.working_budget != null ? (
                           <div>
@@ -440,6 +544,7 @@ export default function Projects() {
                           <span className="proj-budget-pct" style={{ color: 'var(--ink-muted)' }}>—</span>
                         )}
                       </td>
+                      )}
                       <td className="proj-td">
                         <div className="proj-team">
                           {project.members.slice(0, 4).map((m) => (
@@ -498,25 +603,31 @@ export default function Projects() {
                 </select>
               </div>
 
-              {/* Service type toggle */}
+              {/* Service type — toggle for admin, read-only badge for manager */}
               <div>
                 <label className="form-label">Service type</label>
-                <div className="proj-svc-toggle">
-                  <button type="button"
-                    className={`proj-svc-btn${form.service_type === 'per_project' ? ' proj-svc-btn--active' : ''}`}
-                    onClick={() => setForm({ ...form, service_type: 'per_project' })}>
-                     Project
-                  </button>
-                  <button type="button"
-                    className={`proj-svc-btn${form.service_type === 'xlr8' ? ' proj-svc-btn--active' : ''}`}
-                    onClick={() => setForm({ ...form, service_type: 'xlr8' })}>
-                    XLR8
-                  </button>
-                </div>
+                {user?.role === 'admin' ? (
+                  <div className="proj-svc-toggle">
+                    <button type="button"
+                      className={`proj-svc-btn${form.service_type === 'per_project' ? ' proj-svc-btn--active' : ''}`}
+                      onClick={() => setForm({ ...form, service_type: 'per_project' })}>
+                       Project
+                    </button>
+                    <button type="button"
+                      className={`proj-svc-btn${form.service_type === 'xlr8' ? ' proj-svc-btn--active' : ''}`}
+                      onClick={() => setForm({ ...form, service_type: 'xlr8' })}>
+                      XLR8
+                    </button>
+                  </div>
+                ) : (
+                  <span className={`proj-svc-btn proj-svc-btn--active`} style={{ display: 'inline-block', cursor: 'default', marginTop: 4 }}>
+                    {form.service_type === 'xlr8' ? 'XLR8' : 'Project'}
+                  </span>
+                )}
               </div>
 
-              {/* Per-project billing fields */}
-              {form.service_type === 'per_project' && (
+              {/* Per-project billing fields — admin only */}
+              {form.service_type === 'per_project' && user?.role === 'admin' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label className="form-label">Budget (₹)</label>
@@ -537,7 +648,7 @@ export default function Projects() {
                       <p className="proj-rate-hint">
                         Working budget: ₹{(Number(form.budget_amount) * (1 - (Number(form.budget_cutoff_pct) || 0) / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         {form.budget_cutoff_pct && Number(form.budget_cutoff_pct) > 0 && (
-                          <> · ₹{(Number(form.budget_amount) * (Number(form.budget_cutoff_pct) / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })} reserved as agency margin</>
+                          <> · ₹{(Number(form.budget_amount) * (Number(form.budget_cutoff_pct) / 100)).toLocaleString('en-IN', { maximumFractionDigits: 0 })} </>
                         )}
                       </p>
                     </div>
@@ -545,8 +656,8 @@ export default function Projects() {
                 </div>
               )}
 
-              {/* XLR8 billing fields */}
-              {form.service_type === 'xlr8' && (
+              {/* XLR8 billing fields — admin only */}
+              {form.service_type === 'xlr8' && user?.role === 'admin' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label className="form-label">Budget (₹)</label>
@@ -604,82 +715,247 @@ export default function Projects() {
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                {form.service_type !== 'xlr8' && (
-                <div>
-                  <label className="form-label">Due date</label>
-                  <input type="date" className="form-input" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+              {form.service_type !== 'xlr8' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label className="form-label">Start date</label>
+                    <input type="date" className="form-input" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="form-label">End date</label>
+                    <input type="date" className="form-input" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                  </div>
                 </div>
-                )}
-                <div>
-                  <label className="form-label">Status</label>
-                  <select className="form-input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{FILTER_LABELS[s] ?? s}</option>)}
-                  </select>
-                </div>
-              </div>
+              )}
 
-              <div>
-                <div className="member-picker-header">
-                  <label className="form-label" style={{ margin: 0 }}>Team members</label>
-                  {form.member_ids.length > 0 && (
-                    <span className="member-total-badge">{form.member_ids.length} selected</span>
-                  )}
-                </div>
-                <div className="member-role-tabs" style={{ marginTop: 8 }}>
-                  {(['admins', 'managers', 'employees', 'clients'] as MemberTab[]).map((tab) => {
-                    const sel = countSelected(tab);
+              {/* Admin create: pod + docs instead of status + members */}
+              {!editProject && user?.role === 'admin' ? (
+                <>
+                  <div>
+                    <label className="form-label">Send to pod *</label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                      {(['pod1', 'pod2'] as const).map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setForm({ ...form, pod: p })}
+                          style={{
+                            flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                            border: form.pod === p ? '2px solid var(--brand)' : '2px solid var(--border)',
+                            background: form.pod === p ? 'var(--brand-light,#eff6ff)' : 'transparent',
+                            color: form.pod === p ? 'var(--brand)' : 'var(--ink-muted)',
+                          }}
+                        >
+                          {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(['briefing', 'drive'] as const).map((kind) => {
+                    const isRequired = kind === 'briefing';
+                    const label = kind === 'briefing' ? 'Briefing doc' : 'Project drive doc';
+                    const fileName = kind === 'briefing' ? briefingFileName : driveFileName;
+                    const fieldKey = kind === 'briefing' ? 'briefing_doc' : 'project_drive_doc';
+                    const hasFile = !!form[fieldKey];
                     return (
-                      <button key={tab} type="button" className={`member-role-tab${memberTab === tab ? ' active' : ''}`}
-                        onClick={() => { setMemberTab(tab); setEmpSubTab('all'); }}>
-                        {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                        {sel > 0 && <span className="member-role-tab__badge">{sel}</span>}
-                      </button>
+                      <div key={kind}>
+                        <label className="form-label">
+                          {label}{isRequired ? ' *' : <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}> (optional)</span>}
+                        </label>
+                        <label style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                          gap: 8, padding: '20px 16px', marginTop: 4,
+                          border: `2px dashed ${hasFile ? 'var(--brand)' : 'var(--border)'}`,
+                          borderRadius: 10, cursor: 'pointer',
+                          background: hasFile ? 'var(--brand-light,#eff6ff)' : 'var(--surface-2,transparent)',
+                          transition: 'border-color 0.15s, background 0.15s',
+                        }}>
+                          <input type="file" style={{ display: 'none' }} onChange={async (e) => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            const fd = new FormData(); fd.append('file', file); fd.append('name', file.name);
+                            try {
+                              const res = await assetsApi.upload(fd);
+                              setForm((f) => ({ ...f, [fieldKey]: assetsApi.downloadUrl(res.data.id) }));
+                              kind === 'briefing' ? setBriefingFileName(file.name) : setDriveFileName(file.name);
+                            } catch { alert('Upload failed'); }
+                            e.target.value = '';
+                          }} />
+                          {hasFile ? (
+                            <>
+                              <span style={{ fontSize: 22 }}>📄</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', textAlign: 'center', wordBreak: 'break-all' }}>{fileName}</span>
+                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Click to replace</span>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: 22 }}>☁️</span>
+                              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-2,var(--ink-muted))' }}>Click to upload</span>
+                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>PDF, image, or any doc</span>
+                            </>
+                          )}
+                        </label>
+                      </div>
                     );
                   })}
-                </div>
-                {memberTab === 'employees' && empCategories.length > 0 && (
-                  <div className="member-cat-tabs" style={{ marginTop: 6 }}>
-                    <button type="button" className={`member-cat-tab${empSubTab === 'all' ? ' active' : ''}`} onClick={() => setEmpSubTab('all')}>All</button>
-                    {empCategories.map((cat) => (
-                      <button key={cat.id} type="button" className={`member-cat-tab${empSubTab === String(cat.id) ? ' active' : ''}`} onClick={() => setEmpSubTab(String(cat.id))}>
-                        {cat.name}
-                      </button>
-                    ))}
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="form-label">Status</label>
+                      <select className="form-input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                        {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{FILTER_LABELS[s] ?? s}</option>)}
+                      </select>
+                    </div>
                   </div>
-                )}
-                {visibleUsers().length > 0 && (
-                  <p className="member-list-count">
-                    {visibleUsers().length} {memberTab === 'clients' ? 'client' : memberTab === 'admins' ? 'admin' : memberTab === 'managers' ? 'manager' : 'employee'}{visibleUsers().length !== 1 ? 's' : ''}
-                    {countSelected(memberTab) > 0 && ` · ${countSelected(memberTab)} selected`}
-                  </p>
-                )}
-                <div className="member-list">
-                  {visibleUsers().length === 0 && <p className="member-list-empty">No users in this category</p>}
-                  {visibleUsers().map((u) => (
-                    <label key={u.id} className={`member-list-row${form.member_ids.includes(u.id) ? ' member-list-row--selected' : ''}`}>
-                      <input type="checkbox" checked={form.member_ids.includes(u.id)} onChange={() => toggleMember(u.id)} style={{ display: 'none' }} />
-                      <div className="member-list-row__check">
-                        {form.member_ids.includes(u.id) && <span className="member-list-row__tick">✓</span>}
+
+                  <div>
+                    <div className="member-picker-header">
+                      <label className="form-label" style={{ margin: 0 }}>Team members</label>
+                      {form.member_ids.length > 0 && (
+                        <span className="member-total-badge">{form.member_ids.length} selected</span>
+                      )}
+                    </div>
+                    <div className="member-role-tabs" style={{ marginTop: 8 }}>
+                      {(['admins', 'managers', 'employees'] as MemberTab[]).map((tab) => {
+                        const sel = countSelected(tab);
+                        return (
+                          <button key={tab} type="button" className={`member-role-tab${memberTab === tab ? ' active' : ''}`}
+                            onClick={() => { setMemberTab(tab); setEmpSubTab('all'); }}>
+                            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                            {sel > 0 && <span className="member-role-tab__badge">{sel}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {memberTab === 'employees' && empCategories.length > 0 && (
+                      <div className="member-cat-tabs" style={{ marginTop: 6 }}>
+                        <button type="button" className={`member-cat-tab${empSubTab === 'all' ? ' active' : ''}`} onClick={() => setEmpSubTab('all')}>All</button>
+                        {empCategories.map((cat) => (
+                          <button key={cat.id} type="button" className={`member-cat-tab${empSubTab === String(cat.id) ? ' active' : ''}`} onClick={() => setEmpSubTab(String(cat.id))}>
+                            {cat.name}
+                          </button>
+                        ))}
                       </div>
-                      <Avatar name={u.name} color={u.avatar_color} size="sm" />
-                      <div className="member-list-row__info">
-                        <span className="member-list-row__name">{u.name}</span>
-                        {u.categories && u.categories.length > 0 && (
-                          <span className="member-list-row__cats">{u.categories.map((c) => c.name).join(' · ')}</span>
-                        )}
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
+                    )}
+                    {visibleUsers().length > 0 && (
+                      <p className="member-list-count">
+                        {visibleUsers().length} {memberTab === 'admins' ? 'admin' : memberTab === 'managers' ? 'manager' : 'employee'}{visibleUsers().length !== 1 ? 's' : ''}
+                        {countSelected(memberTab) > 0 && ` · ${countSelected(memberTab)} selected`}
+                      </p>
+                    )}
+                    <div className="member-list">
+                      {visibleUsers().length === 0 && <p className="member-list-empty">No users in this category</p>}
+                      {visibleUsers().map((u) => (
+                        <label key={u.id} className={`member-list-row${form.member_ids.includes(u.id) ? ' member-list-row--selected' : ''}`}>
+                          <input type="checkbox" checked={form.member_ids.includes(u.id)} onChange={() => toggleMember(u.id)} style={{ display: 'none' }} />
+                          <div className="member-list-row__check">
+                            {form.member_ids.includes(u.id) && <span className="member-list-row__tick">✓</span>}
+                          </div>
+                          <Avatar name={u.name} color={u.avatar_color} size="sm" />
+                          <div className="member-list-row__info">
+                            <span className="member-list-row__name">{u.name}</span>
+                            {u.categories && u.categories.length > 0 && (
+                              <span className="member-list-row__cats">{u.categories.map((c) => c.name).join(' · ')}</span>
+                            )}
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             <div className="drawer-footer">
-              <button type="submit" className="drawer-submit">{editProject ? 'Save changes' : 'Create project'}</button>
+              <button type="submit" className="drawer-submit">
+                {editProject ? 'Save changes' : (!editProject && user?.role === 'admin') ? 'Send to pod' : 'Create project'}
+              </button>
               <button type="button" className="drawer-cancel" onClick={() => setShowModal(false)}>Cancel</button>
             </div>
           </form>
         </Drawer>
+      )}
+
+      {/* Manager accept modal — employee picker */}
+      {acceptProject && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(26,26,26,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setAcceptProject(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 660, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.18)', overflow: 'hidden' }}
+            onClick={(e) => e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{ padding: '22px 24px 16px', borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 700, color: 'rgba(0,0,0,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Accepting project</p>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#111' }}>{acceptProject.name}</h3>
+                </div>
+                <button onClick={() => setAcceptProject(null)} style={{ flexShrink: 0, marginTop: 2, width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(0,0,0,0.1)', background: 'rgba(0,0,0,0.04)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555' }}>×</button>
+              </div>
+              <p style={{ margin: '10px 0 0', fontSize: 13, color: 'rgba(0,0,0,0.5)', lineHeight: 1.5 }}>
+                Pick employees to assign — you'll be added automatically.
+              </p>
+            </div>
+
+            {/* Category tabs */}
+            {empCategories.length > 0 && (
+              <div style={{ padding: '12px 24px', display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                <button type="button" className={`member-cat-tab${acceptEmpSubTab === 'all' ? ' active' : ''}`} onClick={() => setAcceptEmpSubTab('all')}>All</button>
+                {empCategories.map((cat) => (
+                  <button key={cat.id} type="button" className={`member-cat-tab${acceptEmpSubTab === String(cat.id) ? ' active' : ''}`} onClick={() => setAcceptEmpSubTab(String(cat.id))}>
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Employee list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px' }}>
+              {users
+                .filter((u) => u.role === 'employee' && (acceptEmpSubTab === 'all' || u.categories?.some((c) => String(c.id) === acceptEmpSubTab)))
+                .map((u) => {
+                  const selected = acceptMemberIds.includes(u.id);
+                  return (
+                    <label key={u.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderRadius: 10, cursor: 'pointer',
+                      background: selected ? 'rgba(59,130,246,0.08)' : 'transparent', marginBottom: 2,
+                      transition: 'background 0.12s',
+                    }}>
+                      <input type="checkbox" checked={selected}
+                        onChange={() => setAcceptMemberIds((ids) => ids.includes(u.id) ? ids.filter((x) => x !== u.id) : [...ids, u.id])}
+                        style={{ display: 'none' }} />
+                      <div style={{
+                        width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                        border: selected ? '2px solid #3b82f6' : '2px solid rgba(0,0,0,0.18)',
+                        background: selected ? '#3b82f6' : '#fff',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s',
+                      }}>
+                        {selected && <svg width="11" height="8" viewBox="0 0 11 8" fill="none"><path d="M1 3.5L4 6.5L10 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <Avatar name={u.name} color={u.avatar_color} size="sm" />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#111' }}>{u.name}</p>
+                        {u.categories && u.categories.length > 0 && (
+                          <p style={{ margin: 0, fontSize: 11, color: 'rgba(0,0,0,0.45)', marginTop: 1 }}>{u.categories.map((c) => c.name).join(' · ')}</p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid rgba(0,0,0,0.07)', display: 'flex', gap: 10, alignItems: 'center' }}>
+              <span style={{ flex: 1, fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+                {acceptMemberIds.length > 0 ? `${acceptMemberIds.length} employee${acceptMemberIds.length !== 1 ? 's' : ''} selected` : 'No employees selected'}
+              </span>
+              <button style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)', background: 'transparent', fontSize: 13, cursor: 'pointer', color: '#555', fontWeight: 500 }}
+                onClick={() => setAcceptProject(null)}>Cancel</button>
+              <button className="drawer-submit" style={{ padding: '9px 20px', fontSize: 13, margin: 0 }} onClick={handleManagerAccept}>
+                Accept project
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </Layout>
   );
