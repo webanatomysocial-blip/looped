@@ -16,7 +16,7 @@ interface PageRow { page: string; clicks: number; impressions: number; ctr: numb
 interface QueryRow { query: string; clicks: number; impressions: number; ctr: number; position: number; }
 interface KeywordRank { keyword: string; rank: number; change: number; }
 interface Target { name: string; target: number; achieved: number; unit: string; }
-interface OrganicForm  { url: string; count: number; }
+interface OrganicForm  { date: string; source: string; contact: string; }
 interface LinkedInPost { title: string; impressions: number; clicks: number; }
 interface LinkedInData {
   impressions: number | null;
@@ -97,6 +97,11 @@ interface OrganicMetrics {
   content_interactions: string | null;
   link_clicks: string | null;
   key_insights: string | null;
+  top_post_description: string | null;
+  top_post_impressions: string | null;
+  channel_plan_action: string | null;
+  channel_plan_impressions_target: string | null;
+  flags_risks: string | null;
 }
 
 interface PaidMetrics {
@@ -178,13 +183,18 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
-  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null };
+  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null, flags_risks: null };
   return {
     viewsVal:        metrics.views?.trim()                || '—',
     reachVal:        metrics.reach?.trim()                || '—',
     interactionsVal: metrics.content_interactions?.trim() || '—',
     linkClicksVal:   metrics.link_clicks?.trim()          || '—',
     key_insights:    metrics.key_insights,
+    top_post_description:        metrics.top_post_description,
+    top_post_impressions:        metrics.top_post_impressions,
+    channel_plan_action:         metrics.channel_plan_action,
+    channel_plan_impressions_target: metrics.channel_plan_impressions_target,
+    flags_risks:                 metrics.flags_risks,
   };
 };
 
@@ -589,8 +599,9 @@ ${manual.gmb_locations.map((loc) => {
 
   const organicRows = manual.organic_form_data.map((row, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-size:11px">${row.url}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">${row.count.toLocaleString()}</td>
+      <td style="padding:8px 12px;font-size:11px">${row.date}</td>
+      <td style="padding:8px 12px;font-size:11px">${row.source}</td>
+      <td style="padding:8px 12px;font-size:11px">${row.contact}</td>
     </tr>`).join('');
 
   const fmtD = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -736,7 +747,7 @@ ${organicRows ? `
 <div class="section-block">
 <h2>Organic Form Submissions</h2>
 <div class="section">
-  <table><thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+  <table><thead><tr><th>Date</th><th>Source</th><th>Contact</th></tr></thead>
   <tbody>${organicRows}</tbody></table>
 </div>
 </div>` : ''}
@@ -787,6 +798,9 @@ const emptyGmbLocation = (): GmbLocation => ({
 
 const emptyOrganicMetrics = (): OrganicMetrics => ({
   views: null, reach: null, content_interactions: null, link_clicks: null, key_insights: null,
+  top_post_description: null, top_post_impressions: null,
+  channel_plan_action: null, channel_plan_impressions_target: null,
+  flags_risks: null,
 });
 
 const emptyPaidMetrics = (): PaidMetrics => ({
@@ -1575,70 +1589,6 @@ export default function SEO() {
               })()}
             </div>
 
-            {/* ── Traffic chart (SVG) ── */}
-            <div className="seo-section">
-              <h3 className="seo-section__title">Website Traffic</h3>
-              {(() => {
-                const W = 900, H = 220;
-                const ML = 52, MR = 16, MT = 12, MB = 38;
-                const PW = W - ML - MR, PH = H - MT - MB;
-                const n = report.traffic.length;
-                const groupW = PW / n;
-                const barW = Math.max(4, Math.min(28, groupW * 0.65));
-                const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
-                const yTicks = [0, 0.25, 0.5, 0.75, 1];
-                const xEvery = n <= 7 ? 1 : n <= 14 ? 2 : n <= 31 ? 4 : 9;
-                return (
-                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
-                    {/* gridlines + Y labels */}
-                    {yTicks.map((f) => {
-                      const y = MT + PH - f * PH;
-                      return (
-                        <g key={f}>
-                          <line x1={ML} y1={y} x2={ML + PW} y2={y} stroke={f === 0 ? '#d0d0c8' : '#ececec'} strokeWidth={1} />
-                          {f > 0 && (
-                            <text x={ML - 8} y={y + 4} textAnchor="end" fontSize={9} fill="#aaa" fontFamily="inherit">
-                              {Math.round(maxV * f).toLocaleString()}
-                            </text>
-                          )}
-                        </g>
-                      );
-                    })}
-
-                    {/* bars */}
-                    {report.traffic.map((row, i) => {
-                      const cx = ML + (i + 0.5) * groupW;
-                      const bx = cx - barW / 2;
-                      const sH = Math.max(2, (row.sessions / maxV) * PH);
-                      const uH = Math.max(2, (row.users    / maxV) * PH);
-                      return (
-                        <g key={row.date} className="seo-svg-bar-group">
-                          <title>{`${fmtDateLabel(row.date)}  •  Users: ${row.users.toLocaleString()}  •  Sessions: ${row.sessions.toLocaleString()}`}</title>
-                          <rect x={bx} y={MT + PH - sH} width={barW} height={sH} rx={2} fill="rgba(99,102,241,0.18)" />
-                          <rect x={bx} y={MT + PH - uH} width={barW} height={uH} rx={2} fill="#6366f1" />
-                        </g>
-                      );
-                    })}
-
-                    {/* X date labels */}
-                    {report.traffic.map((row, i) => {
-                      if (i % xEvery !== 0) return null;
-                      const cx = ML + (i + 0.5) * groupW;
-                      return (
-                        <text key={row.date} x={cx} y={H - 4} textAnchor="middle" fontSize={9} fill="#bbb" fontFamily="inherit">
-                          {fmtDateLabel(row.date)}
-                        </text>
-                      );
-                    })}
-                  </svg>
-                );
-              })()}
-              <div className="seo-legend">
-                <span className="seo-legend__dot seo-legend__dot--users" /> Users
-                <span className="seo-legend__dot seo-legend__dot--sessions" style={{ marginLeft: 16 }} /> Sessions
-              </div>
-            </div>
-
             {/* ── Acquisition + Demographics ── */}
             <div className="seo-two-col">
               <div className="seo-section">
@@ -1800,179 +1750,6 @@ export default function SEO() {
               );
             })()}
 
-            {/* ── Pages & Screens + Top Queries ── */}
-            <div className="seo-two-col">
-              <div className="seo-section">
-                <h3 className="seo-section__title">Pages &amp; Screens <span className="seo-badge">Search Console</span></h3>
-                {report.pages.length > 0
-                  ? (() => {
-                      const filteredPages = report.pages.filter((p) => p.page.toLowerCase().includes(pageSearch.toLowerCase()));
-                      const totalPagePages = Math.max(1, Math.ceil(filteredPages.length / PAGES_PER_PAGE));
-                      const currentPage = Math.min(pagePage, totalPagePages);
-                      const pageItems = filteredPages.slice((currentPage - 1) * PAGES_PER_PAGE, currentPage * PAGES_PER_PAGE);
-                      const allOnPageSelected = pageItems.length > 0 && pageItems.every((p) => selectedPages.has(p.page));
-                      const togglePage = (p: string) => setSelectedPages((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(p)) next.delete(p); else next.add(p);
-                        return next;
-                      });
-                      const toggleAllOnPage = () => setSelectedPages((prev) => {
-                        const next = new Set(prev);
-                        pageItems.forEach((p) => { if (allOnPageSelected) next.delete(p.page); else next.add(p.page); });
-                        return next;
-                      });
-                      const runSearch = () => { setPageSearch(pageSearchInput); setPagePage(1); };
-                      return (
-                        <>
-                          <div className="seo-query-search">
-                            <input
-                              type="text"
-                              className="form-input"
-                              placeholder="Search pages…"
-                              value={pageSearchInput}
-                              onChange={(e) => setPageSearchInput(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-                            />
-                            <button type="button" className="filter-tab" onClick={runSearch}>Search</button>
-                          </div>
-                          {filteredPages.length > 0
-                            ? <table className="seo-table">
-                                <thead>
-                                  <tr>
-                                    <th style={{ width: 24 }}>
-                                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} title="Select all on this page" />
-                                    </th>
-                                    <th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {pageItems.map((row) => (
-                                    <tr key={row.page}>
-                                      <td>
-                                        <input
-                                          type="checkbox"
-                                          checked={selectedPages.has(row.page)}
-                                          onChange={() => togglePage(row.page)}
-                                        />
-                                      </td>
-                                      <td className="seo-page-url" title={row.page}>{shortenUrl(row.page)}</td>
-                                      <td>{row.clicks.toLocaleString()}</td>
-                                      <td>{row.impressions.toLocaleString()}</td>
-                                      <td>{row.ctr}%</td>
-                                      <td>{row.position}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            : <p className="page-subtitle" style={{ padding: '12px 0' }}>No pages match "{pageSearch}".</p>}
-                          {totalPagePages > 1 && (
-                            <div className="seo-pagination">
-                              <button type="button" disabled={currentPage === 1} onClick={() => setPagePage(currentPage - 1)}>‹</button>
-                              {Array.from({ length: totalPagePages }, (_, i) => i + 1).map((p) => (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  className={p === currentPage ? 'active' : ''}
-                                  onClick={() => setPagePage(p)}
-                                >
-                                  {p}
-                                </button>
-                              ))}
-                              <button type="button" disabled={currentPage === totalPagePages} onClick={() => setPagePage(currentPage + 1)}>›</button>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()
-                  : <p className="page-subtitle" style={{ padding: '12px 0' }}>No GSC site URL configured.</p>}
-              </div>
-
-              <div className="seo-section">
-                <h3 className="seo-section__title"><Search size={13} style={{ marginRight: 6 }} />Top Queries <span className="seo-badge">Search Console</span></h3>
-                {report.queries.length > 0
-                  ? (() => {
-                      const filteredQueries = report.queries.filter((q) => q.query.toLowerCase().includes(querySearch.toLowerCase()));
-                      const totalQueryPages = Math.max(1, Math.ceil(filteredQueries.length / QUERIES_PER_PAGE));
-                      const page = Math.min(queryPage, totalQueryPages);
-                      const pageQueries = filteredQueries.slice((page - 1) * QUERIES_PER_PAGE, page * QUERIES_PER_PAGE);
-                      const allOnPageSelected = pageQueries.length > 0 && pageQueries.every((q) => selectedQueries.has(q.query));
-                      const toggleQuery = (q: string) => setSelectedQueries((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(q)) next.delete(q); else next.add(q);
-                        return next;
-                      });
-                      const toggleAllOnPage = () => setSelectedQueries((prev) => {
-                        const next = new Set(prev);
-                        pageQueries.forEach((q) => { if (allOnPageSelected) next.delete(q.query); else next.add(q.query); });
-                        return next;
-                      });
-                      const runSearch = () => { setQuerySearch(querySearchInput); setQueryPage(1); };
-                      return (
-                        <>
-                          <div className="seo-query-search">
-                            <input
-                              type="text"
-                              className="form-input"
-                              placeholder="Search queries…"
-                              value={querySearchInput}
-                              onChange={(e) => setQuerySearchInput(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-                            />
-                            <button type="button" className="filter-tab" onClick={runSearch}>Search</button>
-                          </div>
-                          {filteredQueries.length > 0
-                            ? <table className="seo-table">
-                                <thead>
-                                  <tr>
-                                    <th style={{ width: 24 }}>
-                                      <input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} title="Select all on this page" />
-                                    </th>
-                                    <th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {pageQueries.map((row) => (
-                                    <tr key={row.query}>
-                                      <td>
-                                        <input
-                                          type="checkbox"
-                                          checked={selectedQueries.has(row.query)}
-                                          onChange={() => toggleQuery(row.query)}
-                                        />
-                                      </td>
-                                      <td className="seo-page-url" title={row.query}>{row.query}</td>
-                                      <td>{row.clicks.toLocaleString()}</td>
-                                      <td>{row.impressions.toLocaleString()}</td>
-                                      <td>{row.ctr}%</td>
-                                      <td>{row.position}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            : <p className="page-subtitle" style={{ padding: '12px 0' }}>No queries match "{querySearch}".</p>}
-                          {totalQueryPages > 1 && (
-                            <div className="seo-pagination">
-                              <button type="button" disabled={page === 1} onClick={() => setQueryPage(page - 1)}>‹</button>
-                              {Array.from({ length: totalQueryPages }, (_, i) => i + 1).map((p) => (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  className={p === page ? 'active' : ''}
-                                  onClick={() => setQueryPage(p)}
-                                >
-                                  {p}
-                                </button>
-                              ))}
-                              <button type="button" disabled={page === totalQueryPages} onClick={() => setQueryPage(page + 1)}>›</button>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()
-                  : <p className="page-subtitle" style={{ padding: '12px 0' }}>No query data available.</p>}
-              </div>
-            </div>
-
             {/* ── Keyword Rankings (manual) ── */}
             <div className="seo-section" style={!canEdit && manual.keyword_rankings.length === 0 ? { display: 'none' } : undefined}>
               <h3 className="seo-section__title">
@@ -2043,31 +1820,34 @@ export default function SEO() {
                 {manualPanel === 'organic' && canEdit && (
                   <div className="seo-manual-panel">
                     <div className="seo-manual-col-headers">
-                      <span style={{ flex: 1 }}>Page URL</span>
-                      <span style={{ width: 110 }}>Submissions</span>
+                      <span style={{ width: 100 }}>Date</span>
+                      <span style={{ width: 130 }}>Source</span>
+                      <span style={{ flex: 1 }}>Contact</span>
                       <span style={{ width: 28 }} />
                     </div>
                     {manualEdit.organic_form_data.map((row, i) => (
                       <div key={i} className="seo-manual-row">
-                        <input className="form-input seo-manual-input" placeholder="https://example.com/contact" value={row.url}
-                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], url: v }; return { ...prev, organic_form_data: a }; }); }} />
-                        <input className="form-input seo-manual-input" style={{ flex: '0 0 110px' }} type="number" placeholder="0" value={row.count || ''}
-                          onChange={(e) => { const v = Number(e.target.value); setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], count: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" style={{ flex: '0 0 100px' }} placeholder="04/08/2026" value={row.date}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], date: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" style={{ flex: '0 0 130px' }} placeholder="Organic Search" value={row.source}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], source: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" placeholder="R. Naidu · 90xxxxx210" value={row.contact}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], contact: v }; return { ...prev, organic_form_data: a }; }); }} />
                         <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: prev.organic_form_data.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
                       </div>
                     ))}
                     <div className="seo-manual-actions">
-                      <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: [...prev.organic_form_data, { url: '', count: 0 }] }))}><Plus size={12} /> Add page</button>
+                      <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: [...prev.organic_form_data, { date: '', source: '', contact: '' }] }))}><Plus size={12} /> Add page</button>
                       <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                     </div>
                   </div>
                 )}
                 {manual.organic_form_data.length > 0
                   ? <table className="seo-table">
-                      <thead><tr><th>Page URL</th><th>Submissions</th></tr></thead>
+                      <thead><tr><th>Date</th><th>Source</th><th>Contact</th></tr></thead>
                       <tbody>
                         {manual.organic_form_data.map((row, i) => (
-                          <tr key={i}><td className="seo-page-url" title={row.url}>{row.url}</td><td style={{ fontWeight: 700 }}>{row.count.toLocaleString()}</td></tr>
+                          <tr key={i}><td>{row.date}</td><td>{row.source}</td><td>{row.contact}</td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -2371,6 +2151,26 @@ export default function SEO() {
                           <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
                         </div>
                       )}
+                      {parsed.top_post_description && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Top Performing Post</p>
+                          <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{parsed.top_post_description}</p>
+                          {parsed.top_post_impressions && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions: <strong>{parsed.top_post_impressions}</strong></p>}
+                        </div>
+                      )}
+                      {parsed.channel_plan_action && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Plan — Next Period</p>
+                          <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{parsed.channel_plan_action}</p>
+                          {parsed.channel_plan_impressions_target && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions target: <strong>{parsed.channel_plan_impressions_target}</strong></p>}
+                        </div>
+                      )}
+                      {parsed.flags_risks && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', background: '#fef2f2', borderRadius: 6, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 4 }}>Flags / Risks</p>
+                          <p style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6 }}>{parsed.flags_risks}</p>
+                        </div>
+                      )}
                     </div>
                   );
                 };
@@ -2390,6 +2190,21 @@ export default function SEO() {
                           <label className="seo-inline-label">Instagram Key Insights</label>
                           <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={moEdit.instagram?.key_insights ?? ''} onChange={(e) => setInstaOrg('key_insights', e.target.value || null)} />
                         </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.instagram?.top_post_description ?? ''} onChange={(e) => setInstaOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.instagram?.top_post_impressions ?? ''} onChange={(e) => setInstaOrg('top_post_impressions', e.target.value || null)} /></div>
+                        </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={moEdit.instagram?.channel_plan_action ?? ''} onChange={(e) => setInstaOrg('channel_plan_action', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={moEdit.instagram?.channel_plan_impressions_target ?? ''} onChange={(e) => setInstaOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
+                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
+                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={moEdit.instagram?.flags_risks ?? ''} onChange={(e) => setInstaOrg('flags_risks', e.target.value || null)} />
+                        </div>
 
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, marginTop: 10 }}>Facebook Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
@@ -2401,6 +2216,21 @@ export default function SEO() {
                         <div className="seo-inline-field" style={{ marginBottom: 16 }}>
                           <label className="seo-inline-label">Facebook Key Insights</label>
                           <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={moEdit.facebook?.key_insights ?? ''} onChange={(e) => setFbOrg('key_insights', e.target.value || null)} />
+                        </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.facebook?.top_post_description ?? ''} onChange={(e) => setFbOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.facebook?.top_post_impressions ?? ''} onChange={(e) => setFbOrg('top_post_impressions', e.target.value || null)} /></div>
+                        </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={moEdit.facebook?.channel_plan_action ?? ''} onChange={(e) => setFbOrg('channel_plan_action', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={moEdit.facebook?.channel_plan_impressions_target ?? ''} onChange={(e) => setFbOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
+                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
+                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={moEdit.facebook?.flags_risks ?? ''} onChange={(e) => setFbOrg('flags_risks', e.target.value || null)} />
                         </div>
 
                         <div className="seo-manual-actions">
@@ -2441,6 +2271,21 @@ export default function SEO() {
                           <label className="seo-inline-label">Key Insights</label>
                           <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={loEdit.key_insights ?? ''} onChange={(e) => setLiOrg('key_insights', e.target.value || null)} />
                         </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={loEdit.top_post_description ?? ''} onChange={(e) => setLiOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={loEdit.top_post_impressions ?? ''} onChange={(e) => setLiOrg('top_post_impressions', e.target.value || null)} /></div>
+                        </div>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={loEdit.channel_plan_action ?? ''} onChange={(e) => setLiOrg('channel_plan_action', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={loEdit.channel_plan_impressions_target ?? ''} onChange={(e) => setLiOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
+                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
+                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={loEdit.flags_risks ?? ''} onChange={(e) => setLiOrg('flags_risks', e.target.value || null)} />
+                        </div>
                         <div className="seo-manual-actions">
                           <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                         </div>
@@ -2470,6 +2315,26 @@ export default function SEO() {
                         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
                           <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
                           <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                        </div>
+                      )}
+                      {parsed.top_post_description && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Top Performing Post</p>
+                          <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{parsed.top_post_description}</p>
+                          {parsed.top_post_impressions && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions: <strong>{parsed.top_post_impressions}</strong></p>}
+                        </div>
+                      )}
+                      {parsed.channel_plan_action && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Plan — Next Period</p>
+                          <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{parsed.channel_plan_action}</p>
+                          {parsed.channel_plan_impressions_target && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions target: <strong>{parsed.channel_plan_impressions_target}</strong></p>}
+                        </div>
+                      )}
+                      {parsed.flags_risks && (
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', background: '#fef2f2', borderRadius: 6, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 4 }}>Flags / Risks</p>
+                          <p style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6 }}>{parsed.flags_risks}</p>
                         </div>
                       )}
                     </div>
