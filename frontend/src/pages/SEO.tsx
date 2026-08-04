@@ -114,9 +114,10 @@ interface MetaOrganic {
 }
 
 interface PerformanceMarketing {
-  instagram_paid: PaidMetrics;
-  facebook_paid: PaidMetrics;
+  meta_paid: PaidMetrics;
   linkedin_paid: PaidMetrics;
+  instagram_paid?: PaidMetrics;
+  facebook_paid?: PaidMetrics;
 }
 
 interface ManualData {
@@ -513,15 +514,13 @@ ${manual.gmb_locations.map((loc) => {
     `;
   };
 
-  const instaPaidHtml = renderPaidBlock('Instagram Paid (Ads)', manual.performance_marketing?.instagram_paid);
-  const fbPaidHtml = renderPaidBlock('Facebook Paid (Ads)', manual.performance_marketing?.facebook_paid);
+  const metaPaidHtml = renderPaidBlock('Meta Paid (Ads)', manual.performance_marketing?.meta_paid || manual.performance_marketing?.instagram_paid);
   const liPaidHtml = renderPaidBlock('LinkedIn Paid (Ads)', manual.performance_marketing?.linkedin_paid);
 
-  const performanceMarketingHtml = (instaPaidHtml || fbPaidHtml || liPaidHtml) ? `
+  const performanceMarketingHtml = (metaPaidHtml || liPaidHtml) ? `
 <div class="section-block">
   <h2>Performance Marketing</h2>
-  ${instaPaidHtml}
-  ${fbPaidHtml}
+  ${metaPaidHtml}
   ${liPaidHtml}
 </div>` : '';
 
@@ -844,8 +843,7 @@ const emptyManual = (): ManualData => ({
   },
   linkedin_organic: emptyOrganicMetrics(),
   performance_marketing: {
-    instagram_paid: emptyPaidMetrics(),
-    facebook_paid: emptyPaidMetrics(),
+    meta_paid: emptyPaidMetrics(),
     linkedin_paid: emptyPaidMetrics(),
   },
   health_score: 76,
@@ -2557,17 +2555,17 @@ export default function SEO() {
 
               {/* Edit Mode for Performance Marketing */}
               {manualPanel === 'performance_marketing' && canEdit && (() => {
-                const pmEdit = manualEdit.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
-                const setPaidField = (platformKey: 'instagram_paid' | 'facebook_paid' | 'linkedin_paid', field: keyof PaidMetrics, val: string | null) =>
+                const pmEdit = manualEdit.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
+                const setPaidField = (platformKey: 'meta_paid' | 'linkedin_paid', field: keyof PaidMetrics, val: string | null) =>
                   setManualEdit(prev => ({
                     ...prev,
                     performance_marketing: {
-                      ...(prev.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() }),
+                      ...(prev.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() }),
                       [platformKey]: { ...(prev.performance_marketing?.[platformKey] ?? emptyPaidMetrics()), [field]: val },
                     },
                   }));
 
-                const renderPaidInputs = (title: string, pKey: 'instagram_paid' | 'facebook_paid' | 'linkedin_paid', defaultSpend: string, defaultReach: string, defaultReachChg: string, defaultCost: string) => (
+                const renderPaidInputs = (title: string, pKey: 'meta_paid' | 'linkedin_paid', defaultSpend: string, defaultReach: string, defaultReachChg: string, defaultCost: string) => (
                   <div style={{ marginBottom: 20 }}>
                     <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{title} Inputs</h4>
                     <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
@@ -2585,8 +2583,7 @@ export default function SEO() {
 
                 return (
                   <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
-                    {renderPaidInputs('Instagram Paid', 'instagram_paid', '18,500', '52,693', '↑ 10%', '0.35')}
-                    {renderPaidInputs('Facebook Paid', 'facebook_paid', '31,000', '74,549', '↑ 14%', '0.42')}
+                    {renderPaidInputs('Meta Paid', 'meta_paid', '49,500', '1,27,242', '↑ 12%', '0.39')}
                     {renderPaidInputs('LinkedIn Paid', 'linkedin_paid', '31,000', '74,549', '↑ 14%', '0.42')}
                     <div className="seo-manual-actions">
                       <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
@@ -2597,47 +2594,38 @@ export default function SEO() {
 
               {/* Display Mode for Performance Marketing */}
               {(() => {
-                const pm = manual.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
+                const pm = manual.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
+                const curPaid = paidTab === 'meta_paid' ? (pm.meta_paid || pm.instagram_paid) : pm.linkedin_paid;
+                const parsed = parsePaidDisplay(curPaid);
+                const title = paidTab === 'meta_paid' ? 'Meta Paid' : 'LinkedIn Paid';
 
-                const renderPaidCard = (title: string, metrics: PaidMetrics | undefined, isLast = false) => {
-                  const parsed = parsePaidDisplay(metrics);
-                  return (
-                    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)', marginBottom: isLast ? 0 : 16 }}>
-                      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{title}</h3>
-                      <div className="seo-li-stats">
-                        <div className="seo-li-stat">
-                          <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
-                          <p className="seo-card__label">Paid Spend</p>
-                        </div>
-                        <div className="seo-li-stat">
-                          <p className="seo-card__val">
-                            {parsed.reachVal}
-                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
-                          </p>
-                          <p className="seo-card__label">Paid Reach</p>
-                        </div>
-                        <div className="seo-li-stat">
-                          <p className="seo-card__val">{parsed.costVal}</p>
-                          <p className="seo-card__label">Cost / Reach Point</p>
-                        </div>
+                return (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)' }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{title}</h3>
+                    <div className="seo-li-stats">
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
+                        <p className="seo-card__label">Paid Spend</p>
                       </div>
-                      {parsed.key_insights && (
-                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
-                          <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
-                        </div>
-                      )}
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val">
+                          {parsed.reachVal}
+                          {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
+                        </p>
+                        <p className="seo-card__label">Paid Reach</p>
+                      </div>
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val">{parsed.costVal}</p>
+                        <p className="seo-card__label">Cost / Reach Point</p>
+                      </div>
                     </div>
-                  );
-                };
-
-                return paidTab === 'meta_paid' ? (
-                  <>
-                    {renderPaidCard('Instagram Paid', pm.instagram_paid, false)}
-                    {renderPaidCard('Facebook Paid', pm.facebook_paid, true)}
-                  </>
-                ) : (
-                  renderPaidCard('LinkedIn Paid', pm.linkedin_paid, true)
+                    {parsed.key_insights && (
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
+                        <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                      </div>
+                    )}
+                  </div>
                 );
               })()}
             </div>
