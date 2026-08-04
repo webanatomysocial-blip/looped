@@ -53,6 +53,72 @@ interface SocialMediaData {
   facebook: SocialPlatformData;
   tiktok: SocialPlatformData;
 }
+interface GmbLocation {
+  name: string;
+  rating: number | null;
+  reviews: number | null;
+  profile_url: string;
+  overview: string;
+  calls: number | null;
+  bookings: number | null;
+  website_clicks: number | null;
+  key_insights: string;
+  prev_rating: number | null;
+  prev_reviews: number | null;
+  prev_calls: number | null;
+  prev_bookings: number | null;
+  prev_website_clicks: number | null;
+}
+
+interface LastPeriodPlanItem {
+  area: string;
+  action: string;
+  expected: string;
+  status: 'done' | 'partial' | 'not_done';
+}
+
+interface NextPeriodPlanItem {
+  focus: string;
+  action: string;
+  expected: string;
+}
+
+interface PeriodTargets {
+  sessions: string;
+  leads: string;
+  engagement_rate: string;
+  instagram_reach: string;
+  facebook_reach: string;
+}
+
+interface OrganicMetrics {
+  reach: string | null;
+  reach_change: string | null;
+  engagement_rate: string | null;
+  net_followers: string | null;
+  net_followers_change: string | null;
+  key_insights: string | null;
+}
+
+interface PaidMetrics {
+  spend: string | null;
+  reach: string | null;
+  reach_change: string | null;
+  cost_per_reach: string | null;
+  key_insights: string | null;
+}
+
+interface MetaOrganic {
+  instagram: OrganicMetrics;
+  facebook: OrganicMetrics;
+}
+
+interface PerformanceMarketing {
+  instagram_paid: PaidMetrics;
+  facebook_paid: PaidMetrics;
+  linkedin_paid: PaidMetrics;
+}
+
 interface ManualData {
   keyword_rankings: KeywordRank[];
   targets: Target[];
@@ -60,6 +126,21 @@ interface ManualData {
   linkedin_data: LinkedInData | null;
   social_media_data: SocialMediaData | null;
   organic_form_data: OrganicForm[];
+  gmb_locations: GmbLocation[];
+  // Structured sections
+  executive_summary: string;
+  sig_change_whys: Record<string, string>;
+  last_period_plan: LastPeriodPlanItem[];
+  best_performing_asset: string;
+  next_period_plan: NextPeriodPlanItem[];
+  period_targets: PeriodTargets;
+  // Social & Performance Marketing
+  meta_organic: MetaOrganic;
+  linkedin_organic: OrganicMetrics;
+  performance_marketing: PerformanceMarketing;
+  health_score: number;
+  health_label: string;
+  // legacy flat fields
   gmb_rating: number | null;
   gmb_reviews: number | null;
   gmb_profile_url: string;
@@ -96,6 +177,79 @@ function fmtDateLabel(d: string) {
 }
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
+export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
+  if (!metrics) return { reachVal: '—', reachBadge: null, rateVal: '—', netVal: '—', netBadge: null, key_insights: null };
+
+  const parseBadge = (changeStr: string | null | undefined) => {
+    if (!changeStr || !changeStr.trim()) return null;
+    const s = changeStr.trim();
+    const isDown = s.includes('↓') || s.includes('-') || s.toLowerCase().includes('down');
+    let numStr = s.replace(/[↑↓]/g, '').trim();
+    if (!numStr.endsWith('%') && !isNaN(Number(numStr.replace(/,/g, '')))) {
+      numStr = `${numStr}%`;
+    }
+    return { text: `${isDown ? '↓' : '↑'} ${numStr}`, isDown };
+  };
+
+  let reachVal = metrics.reach?.trim() || '—';
+  let reachBadge = parseBadge(metrics.reach_change);
+
+  if (!reachBadge && reachVal !== '—') {
+    const m = reachVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
+    if (m) {
+      reachVal = m[1].trim();
+      reachBadge = parseBadge(m[2]);
+    }
+  }
+
+  let rateVal = metrics.engagement_rate?.trim() || '—';
+  if (rateVal !== '—' && !rateVal.endsWith('%')) {
+    rateVal = `${rateVal}%`;
+  }
+
+  let netVal = metrics.net_followers?.trim() || '—';
+  let netBadge = parseBadge(metrics.net_followers_change);
+
+  if (!netBadge && netVal !== '—') {
+    const m = netVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
+    if (m) {
+      netBadge = parseBadge(m[2]);
+    }
+  }
+
+  return { reachVal, reachBadge, rateVal, netVal, netBadge, key_insights: metrics.key_insights };
+};
+
+export const parsePaidDisplay = (metrics: PaidMetrics | undefined) => {
+  if (!metrics) return { spendVal: '—', reachVal: '—', reachBadge: null, costVal: '—', key_insights: null };
+
+  const parseBadge = (changeStr: string | null | undefined) => {
+    if (!changeStr || !changeStr.trim()) return null;
+    const s = changeStr.trim();
+    const isDown = s.includes('↓') || s.includes('-') || s.toLowerCase().includes('down');
+    let numStr = s.replace(/[↑↓]/g, '').trim();
+    if (!numStr.endsWith('%') && !isNaN(Number(numStr.replace(/,/g, '')))) {
+      numStr = `${numStr}%`;
+    }
+    return { text: `${isDown ? '↓' : '↑'} ${numStr}`, isDown };
+  };
+
+  const spendVal = metrics.spend?.trim() || '—';
+  let reachVal = metrics.reach?.trim() || '—';
+  let reachBadge = parseBadge(metrics.reach_change);
+
+  if (!reachBadge && reachVal !== '—') {
+    const m = reachVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
+    if (m) {
+      reachVal = m[1].trim();
+      reachBadge = parseBadge(m[2]);
+    }
+  }
+
+  const costVal = metrics.cost_per_reach?.trim() || '—';
+
+  return { spendVal, reachVal, reachBadge, costVal, key_insights: metrics.key_insights };
+};
 
 function downloadPDF(
   report: Report,
@@ -140,6 +294,11 @@ function downloadPDF(
     const pct = Math.round(((cur - pre) / pre) * 100);
     return `<span style="font-size:10px;font-weight:700;margin-left:6px;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
   };
+  const gmbCmpBadge = (cur: number, pre: number | null) => {
+    if (pre == null || pre === 0) return '';
+    const pct = Math.round(((cur - pre) / pre) * 100);
+    return ` <span style="font-size:10px;font-weight:700;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
+  };
   const cards = [
     ['Total Users', eng.users.toLocaleString() + cmpBadge(eng.users, prev?.users)],
     ['New Users', eng.newUsers.toLocaleString() + cmpBadge(eng.newUsers, prev?.newUsers)],
@@ -182,6 +341,190 @@ function downloadPDF(
       <td style="padding:8px 12px;text-align:right">${r.position}</td>
     </tr>`).join('');
 
+  // ── Executive Summary ──
+  const execHtml = manual.executive_summary ? `
+<div class="section-block">
+<h2>Executive Summary</h2>
+<div class="section"><div class="section-inner" style="font-size:13px;line-height:1.7">${manual.executive_summary}</div></div>
+</div>` : '';
+
+  // ── Period Targets ──
+  const pt = manual.period_targets;
+  const ptCards = [
+    pt?.sessions ? ['Target Sessions', pt.sessions] : null,
+    pt?.leads ? ['Target Leads', pt.leads] : null,
+    pt?.engagement_rate ? ['Target Engagement Rate', pt.engagement_rate] : null,
+    pt?.instagram_reach ? ['Instagram Reach Target', pt.instagram_reach] : null,
+    pt?.facebook_reach ? ['Facebook Reach Target', pt.facebook_reach] : null,
+  ].filter(Boolean) as [string, string][];
+  const targetCardsHtml = ptCards.length > 0 ? `
+<div class="section-block">
+<h2>Period Targets</h2>
+<div class="section">
+  <div class="section-inner">
+    <div class="mini-cards">${ptCards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>
+  </div>
+</div>
+</div>` : '';
+
+  // ── Last Period Plan ──
+  const lastPlanHtml = manual.last_period_plan && manual.last_period_plan.length > 0 ? `
+<div class="section-block">
+<h2>Last Period Plan vs Accomplishments</h2>
+<div class="section">
+  <table>
+    <thead><tr><th>Focus Area</th><th>Action Taken</th><th>Expected Result</th><th>Status</th></tr></thead>
+    <tbody>
+      ${manual.last_period_plan.map((p, i) => `
+        <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+          <td style="padding:8px 12px;font-weight:600">${p.area}</td>
+          <td style="padding:8px 12px">${p.action}</td>
+          <td style="padding:8px 12px">${p.expected}</td>
+          <td style="padding:8px 12px;font-weight:700;color:${p.status === 'done' ? '#16a34a' : p.status === 'partial' ? '#d97706' : '#dc2626'}">
+            ${p.status === 'done' ? '✓ Completed' : p.status === 'partial' ? '⚠ Partial' : '✕ Not Done'}
+          </td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+</div>
+</div>` : '';
+
+  // ── Next Period Plan ──
+  const nextPlanHtml = manual.next_period_plan && manual.next_period_plan.length > 0 ? `
+<div class="section-block">
+<h2>Next Period Plan &amp; Focus</h2>
+<div class="section">
+  <table>
+    <thead><tr><th>Focus Area</th><th>Planned Action</th><th>Expected Impact</th></tr></thead>
+    <tbody>
+      ${manual.next_period_plan.map((p, i) => `
+        <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+          <td style="padding:8px 12px;font-weight:600">${p.focus}</td>
+          <td style="padding:8px 12px">${p.action}</td>
+          <td style="padding:8px 12px">${p.expected}</td>
+        </tr>`).join('')}
+    </tbody>
+  </table>
+</div>
+</div>` : '';
+
+  // ── Highlights & Whys ──
+  const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
+  const highlightsHtml = (sigWhys || manual.best_performing_asset) ? `
+<div class="section-block">
+<h2>Key Highlights &amp; Insights</h2>
+<div class="section">
+  <div class="section-inner">
+    ${manual.best_performing_asset ? `<p style="font-size:13px;line-height:1.6;margin-bottom:10px"><b>Best Performing Asset:</b> ${manual.best_performing_asset}</p>` : ''}
+    ${sigWhys ? `
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:8px 0 4px">Significant Changes &amp; Reasons</p>
+      <ul>${Object.entries(manual.sig_change_whys).map(([k, v]) => `<li style="font-size:12px;margin-bottom:4px"><b>${k}:</b> ${v}</li>`).join('')}</ul>
+    ` : ''}
+  </div>
+</div>
+</div>` : '';
+
+  // ── Multi GMB ──
+  const gmbMultiHtml = manual.gmb_locations && manual.gmb_locations.length > 0 ? `
+<div class="section-block">
+<h2>Google My Business Locations</h2>
+${manual.gmb_locations.map((loc) => {
+  const gmbLocCards = [
+    loc.rating != null ? ['Rating', Number(loc.rating).toFixed(1) + gmbCmpBadge(loc.rating, loc.prev_rating)] : null,
+    loc.reviews != null ? ['Reviews', Number(loc.reviews).toLocaleString() + gmbCmpBadge(loc.reviews, loc.prev_reviews)] : null,
+    loc.calls != null ? ['Calls', Number(loc.calls).toLocaleString() + gmbCmpBadge(loc.calls, loc.prev_calls)] : null,
+    loc.bookings != null ? ['Bookings', Number(loc.bookings).toLocaleString() + gmbCmpBadge(loc.bookings, loc.prev_bookings)] : null,
+    loc.website_clicks != null ? ['Website Clicks', Number(loc.website_clicks).toLocaleString() + gmbCmpBadge(loc.website_clicks, loc.prev_website_clicks)] : null,
+  ].filter(Boolean) as [string, string][];
+  return `
+  <div class="section" style="margin-bottom:12px">
+    <div class="section-inner">
+      ${loc.name ? `<h3 style="font-size:13px;font-weight:700;margin-bottom:8px">${loc.name}</h3>` : ''}
+      ${gmbLocCards.length > 0 ? `<div class="mini-cards">${gmbLocCards.map(([label, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${label}</div></div>`).join('')}</div>` : ''}
+      ${loc.overview ? `<div class="overview-text">${loc.overview}</div>` : ''}
+      ${loc.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:8px;color:#333">${loc.key_insights}</div>` : ''}
+    </div>
+  </div>`;
+}).join('')}
+</div>` : '';
+
+  // ── Social Media Organic ──
+  const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined) => {
+    if (!metrics || (!metrics.reach && !metrics.engagement_rate && !metrics.net_followers && !metrics.key_insights)) return '';
+    const parsed = parseOrganicDisplay(metrics);
+    const reachValStr = parsed.reachBadge
+      ? `${parsed.reachVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.reachBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.reachBadge.text}</span>`
+      : parsed.reachVal;
+    const netValStr = parsed.netBadge
+      ? `${parsed.netVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.netBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.netBadge.text}</span>`
+      : parsed.netVal;
+
+    const cards = [
+      parsed.reachVal !== '—' ? ['Organic Reach', reachValStr] : null,
+      parsed.rateVal !== '—' ? ['Engagement Rate', parsed.rateVal] : null,
+      parsed.netVal !== '—' ? ['Net New Followers', netValStr] : null,
+    ].filter(Boolean) as [string, string][];
+
+    return `
+      <div class="section" style="margin-bottom:14px">
+        <div class="section-inner">
+          <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;color:#6366f1">${title}</h3>
+          ${cards.length ? `<div class="mini-cards">${cards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>` : ''}
+          ${parsed.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:10px;color:#333">${parsed.key_insights}</div>` : ''}
+        </div>
+      </div>
+    `;
+  };
+
+  const instaOrgHtml = renderOrganicBlock('Instagram Organic', manual.meta_organic?.instagram);
+  const fbOrgHtml = renderOrganicBlock('Facebook Organic', manual.meta_organic?.facebook);
+  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic);
+
+  const socialOrganicHtml = (instaOrgHtml || fbOrgHtml || liOrgHtml) ? `
+<div class="section-block">
+  <h2>Social Media Report (Organic)</h2>
+  ${instaOrgHtml}
+  ${fbOrgHtml}
+  ${liOrgHtml}
+</div>` : '';
+
+  // ── Performance Marketing (Paid) ──
+  const renderPaidBlock = (title: string, metrics: PaidMetrics | undefined) => {
+    if (!metrics || (!metrics.spend && !metrics.reach && !metrics.cost_per_reach && !metrics.key_insights)) return '';
+    const parsed = parsePaidDisplay(metrics);
+    const reachValStr = parsed.reachBadge
+      ? `${parsed.reachVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.reachBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.reachBadge.text}</span>`
+      : parsed.reachVal;
+
+    const cards = [
+      parsed.spendVal !== '—' ? ['Paid Spend', parsed.spendVal] : null,
+      parsed.reachVal !== '—' ? ['Paid Reach', reachValStr] : null,
+      parsed.costVal !== '—' ? ['Cost / Reach Point', parsed.costVal] : null,
+    ].filter(Boolean) as [string, string][];
+
+    return `
+      <div class="section" style="margin-bottom:14px">
+        <div class="section-inner">
+          <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;color:#059669">${title}</h3>
+          ${cards.length ? `<div class="mini-cards">${cards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>` : ''}
+          ${parsed.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:10px;color:#333">${parsed.key_insights}</div>` : ''}
+        </div>
+      </div>
+    `;
+  };
+
+  const instaPaidHtml = renderPaidBlock('Instagram Paid (Ads)', manual.performance_marketing?.instagram_paid);
+  const fbPaidHtml = renderPaidBlock('Facebook Paid (Ads)', manual.performance_marketing?.facebook_paid);
+  const liPaidHtml = renderPaidBlock('LinkedIn Paid (Ads)', manual.performance_marketing?.linkedin_paid);
+
+  const performanceMarketingHtml = (instaPaidHtml || fbPaidHtml || liPaidHtml) ? `
+<div class="section-block">
+  <h2>Performance Marketing</h2>
+  ${instaPaidHtml}
+  ${fbPaidHtml}
+  ${liPaidHtml}
+</div>` : '';
+
   // ── Manual sections ──
   const kwRows = manual.keyword_rankings.map((k, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
@@ -196,19 +539,6 @@ function downloadPDF(
       <td style="padding:8px 12px;text-align:right">${t.achieved ?? '—'}</td>
       <td style="padding:8px 12px;text-align:right">${t.target ?? '—'}</td>
     </tr>`).join('');
-
-  const gmbCmpBadge = (cur: number, pre: number | null) => {
-    if (pre == null || pre === 0) return '';
-    const pct = Math.round(((cur - pre) / pre) * 100);
-    return ` <span style="font-size:10px;font-weight:700;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
-  };
-  const gmbCards = [
-    manual.gmb_rating != null ? ['Rating', Number(manual.gmb_rating).toFixed(1) + gmbCmpBadge(manual.gmb_rating, manual.gmb_prev_rating)] : null,
-    manual.gmb_reviews != null ? ['Reviews', Number(manual.gmb_reviews).toLocaleString() + gmbCmpBadge(manual.gmb_reviews, manual.gmb_prev_reviews)] : null,
-    manual.gmb_calls != null ? ['Calls', Number(manual.gmb_calls).toLocaleString() + gmbCmpBadge(manual.gmb_calls, manual.gmb_prev_calls)] : null,
-    manual.gmb_bookings != null ? ['Bookings', Number(manual.gmb_bookings).toLocaleString() + gmbCmpBadge(manual.gmb_bookings, manual.gmb_prev_bookings)] : null,
-    manual.gmb_website_clicks != null ? ['Website Clicks', Number(manual.gmb_website_clicks).toLocaleString() + gmbCmpBadge(manual.gmb_website_clicks, manual.gmb_prev_website_clicks)] : null,
-  ].filter(Boolean) as [string, string][];
 
   const li = manual.linkedin_data;
   const liCards = li ? [
@@ -314,32 +644,30 @@ function downloadPDF(
   const dateStr = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>SEO Report — ${clientName}</title>
+<title>SEO &amp; Social Analytics Report — ${clientName}</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a1a; background: #fff; padding: 40px 48px; }
-  h1 { font-size: 22px; font-weight: 800; color: #1a1a1a; }
-  h2 { font-size: 13px; font-weight: 700; color: #1a1a1a; margin-bottom: 12px; margin-top: 28px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .meta { font-size: 12px; color: #888; margin-top: 4px; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #6366f1; padding-bottom: 16px; margin-bottom: 24px; }
-  .logo { font-size: 11px; font-weight: 700; color: #6366f1; letter-spacing: 0.1em; text-transform: uppercase; }
-  .cards { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 4px; }
-  .card { background: #f5f5f0; border-radius: 10px; padding: 14px 16px; }
-  .card-val { font-size: 20px; font-weight: 800; color: #1a1a1a; }
-  .card-label { font-size: 10px; font-weight: 600; color: #888; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #fff; padding: 32px 36px; }
+  h1 { font-size: 22px; font-weight: 800; color: #ffffff; }
+  h2 { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 12px; margin-top: 24px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .meta { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+  .cards { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 20px; }
+  .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; }
+  .card-val { font-size: 20px; font-weight: 800; color: #0f172a; }
+  .card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
   .mini-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
-  .mini-card { background: #f5f5f0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
-  .mini-card-val { font-size: 16px; font-weight: 800; color: #1a1a1a; }
-  .mini-card-label { font-size: 10px; font-weight: 600; color: #888; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .mini-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
+  .mini-card-val { font-size: 16px; font-weight: 800; color: #0f172a; }
+  .mini-card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; font-size: 10px; font-weight: 700; color: #888; padding: 8px 12px; background: #f5f5f0; text-transform: uppercase; letter-spacing: 0.05em; }
+  th { text-align: left; font-size: 10px; font-weight: 700; color: #64748b; padding: 8px 12px; background: #f1f5f9; text-transform: uppercase; letter-spacing: 0.05em; }
   th:not(:first-child) { text-align: right; }
-  .section { border: 1px solid #e8e8e0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; page-break-inside: avoid; }
-  .section-inner { padding: 14px 16px; }
+  .section { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; page-break-inside: avoid; background: #fff; }
+  .section-inner { padding: 14px 20px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .badge { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
-  svg { display: block; }
-  .legend { display: flex; gap: 16px; padding: 10px 16px; font-size: 10px; color: #888; font-weight: 600; }
+  .badge { display: inline-block; background: #dcfce7; color: #166534; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
+  svg { display: block; max-width: 100%; height: auto; }
+  .legend { display: flex; gap: 16px; padding: 10px 16px; font-size: 10px; color: #64748b; font-weight: 600; }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
   .insights-body { font-size: 13px; line-height: 1.7; padding: 14px 16px; }
   .insights-body ul, .insights-body ol { padding-left: 20px; }
@@ -347,8 +675,8 @@ function downloadPDF(
   .gmb-link { font-size: 11px; color: #6366f1; margin-top: 8px; display: inline-block; }
   .overview-text { font-size: 12px; color: #555; margin-top: 10px; line-height: 1.55; white-space: pre-line; }
   @media print {
-    body { padding: 20px 24px; }
-    @page { margin: 0.5cm; size: A4 portrait; }
+    body { padding: 16px 20px; }
+    @page { margin: 0.6cm; size: A4 portrait; }
     h2 { page-break-after: avoid; }
     .section { page-break-inside: avoid; }
     .two-col { page-break-inside: avoid; }
@@ -356,13 +684,34 @@ function downloadPDF(
   }
 </style>
 </head><body>
-<div class="header">
+
+<div style="background:#1d2033;border-radius:14px;padding:22px 26px;margin-bottom:24px;color:#fff;display:flex;align-items:center;justify-content:space-between;page-break-inside:avoid;box-shadow:0 4px 16px rgba(0,0,0,0.12)">
   <div>
-    <h1>SEO Analytics Report</h1>
-    <p class="meta">${clientName} &nbsp;·&nbsp; ${rangeLabel} &nbsp;·&nbsp; Generated ${dateStr}</p>
+    <h1 style="font-size:22px;font-weight:700;color:#ffffff;margin:0 0 4px">${clientName} — ${rangeLabel}</h1>
+    <p style="font-size:12px;color:#94a3b8;margin:0">Generated ${dateStr} · ${agencyName || 'Loooped'} Report Module</p>
   </div>
-  <div class="logo">${agencyName}</div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <div style="position:relative;width:64px;height:64px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="26" fill="none" stroke="#2e344e" stroke-width="5"/>
+        <circle cx="32" cy="32" r="26" fill="none" stroke="#22c55e" stroke-width="5"
+          stroke-dasharray="${(2 * Math.PI * 26 * (manual.health_score ?? 76)) / 100} ${2 * Math.PI * 26}"
+          stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 32 32)"/>
+      </svg>
+      <div style="position:absolute;text-align:center">
+        <span style="font-size:17px;font-weight:800;color:#ffffff;display:block;line-height:1">${manual.health_score ?? 76}</span>
+        <span style="font-size:7px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-top:2px">HEALTH</span>
+      </div>
+    </div>
+    <div style="max-width:180px;font-size:11px;color:#cbd5e1;line-height:1.4">${manual.health_label || 'Weighted for a balanced goal, vs target'}</div>
+  </div>
 </div>
+
+${execHtml}
+${targetCardsHtml}
+${lastPlanHtml}
+${nextPlanHtml}
+${highlightsHtml}
 
 <div class="cards">
   ${cards.map(([label, val]) => `<div class="card"><div class="card-val">${val}</div><div class="card-label">${label}</div></div>`).join('')}
@@ -448,37 +797,11 @@ ${manual.key_insights ? `
 </div>
 </div>` : ''}
 
-${gmbCards.length > 0 ? `
-<div class="section-block">
-<h2>Google My Business</h2>
-<div class="section">
-  <div class="section-inner">
-    <div class="mini-cards">
-      ${gmbCards.map(([label, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${label}</div></div>`).join('')}
-    </div>
-    ${manual.gmb_overview ? `<div class="overview-text">${manual.gmb_overview}</div>` : ''}
-    ${manual.gmb_key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:12px;color:#333">${manual.gmb_key_insights}</div>` : ''}
-    ${manual.gmb_profile_url ? `<a href="${manual.gmb_profile_url}" class="gmb-link">View GMB Profile →</a>` : ''}
-  </div>
-</div>
-</div>` : ''}
+${gmbMultiHtml}
 
-${socialSections}
+${socialOrganicHtml}
 
-${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
-<div class="section-block">
-<h2>LinkedIn Analytics</h2>
-<div class="section">
-  <div class="section-inner">
-    ${liCards.length > 0 ? `<div class="mini-cards">${liCards.map(([label, val]) => `<div class="mini-card"><div class="mini-card-val">${val}</div><div class="mini-card-label">${label}</div></div>`).join('')}</div>` : ''}
-    ${liPostRows ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:12px 0 6px">Top Posts</p>
-    <table><thead>${liPostHead}</thead><tbody>${liPostRows}</tbody></table>` : ''}
-    ${manual.linkedin_url ? `<a href="${manual.linkedin_url}" class="gmb-link">LinkedIn Page →</a>` : ''}
-    ${manual.linkedin_data?.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:12px;color:#333">${manual.linkedin_data.key_insights}</div>` : ''}
-  </div>
-</div>
-</div>` : ''}
-
+${performanceMarketingHtml}
 
 </body></html>`;
 
@@ -486,7 +809,7 @@ ${(liCards.length > 0 || liPostRows || manual.linkedin_data?.key_insights) ? `
   if (!win) return;
   win.document.write(html);
   win.document.close();
-  setTimeout(() => { win.focus(); win.print(); }, 800);
+  setTimeout(() => { win.focus(); win.print(); }, 500);
 }
 
 const emptyLinkedIn = (): LinkedInData => ({
@@ -495,9 +818,38 @@ const emptyLinkedIn = (): LinkedInData => ({
   new_followers: null, new_followers_period: '', growth_rate: '', growth_label: '', posts: [], key_insights: null,
 });
 
+const emptyGmbLocation = (): GmbLocation => ({
+  name: '', rating: null, reviews: null, profile_url: '', overview: '',
+  calls: null, bookings: null, website_clicks: null, key_insights: '',
+  prev_rating: null, prev_reviews: null, prev_calls: null, prev_bookings: null, prev_website_clicks: null,
+});
+
+const emptyOrganicMetrics = (): OrganicMetrics => ({
+  reach: null, reach_change: '', engagement_rate: null, net_followers: null, net_followers_change: '', key_insights: null,
+});
+
+const emptyPaidMetrics = (): PaidMetrics => ({
+  spend: null, reach: null, reach_change: '', cost_per_reach: null, key_insights: null,
+});
+
 const emptyManual = (): ManualData => ({
   keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null, social_media_data: null,
-  organic_form_data: [],
+  organic_form_data: [], gmb_locations: [],
+  executive_summary: '', sig_change_whys: {}, last_period_plan: [],
+  best_performing_asset: '', next_period_plan: [],
+  period_targets: { sessions: '', leads: '', engagement_rate: '', instagram_reach: '', facebook_reach: '' },
+  meta_organic: {
+    instagram: emptyOrganicMetrics(),
+    facebook: emptyOrganicMetrics(),
+  },
+  linkedin_organic: emptyOrganicMetrics(),
+  performance_marketing: {
+    instagram_paid: emptyPaidMetrics(),
+    facebook_paid: emptyPaidMetrics(),
+    linkedin_paid: emptyPaidMetrics(),
+  },
+  health_score: 76,
+  health_label: 'Weighted for a balanced goal, vs target',
   gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
   gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
   gmb_key_insights: '', gmb_prev_rating: null, gmb_prev_reviews: null,
@@ -531,8 +883,9 @@ export default function SEO() {
   // Manual data
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
-  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | null>(null);
-  const [socialTab, setSocialTab] = useState<'linkedin' | 'instagram' | 'facebook' | 'tiktok'>('linkedin');
+  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
+  const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
+  const [paidTab, setPaidTab] = useState<'instagram_paid' | 'facebook_paid' | 'linkedin_paid'>('instagram_paid');
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -600,6 +953,20 @@ export default function SEO() {
     seoApi.getManual(selectedClient.id)
       .then((r) => {
         const data = { ...emptyManual(), ...r.data };
+        // Migrate legacy flat GMB fields into gmb_locations[0]
+        if ((!data.gmb_locations || data.gmb_locations.length === 0) &&
+            (data.gmb_rating != null || data.gmb_reviews != null || data.gmb_calls != null ||
+             data.gmb_bookings != null || data.gmb_website_clicks != null || data.gmb_profile_url || data.gmb_overview)) {
+          data.gmb_locations = [{
+            name: '', rating: data.gmb_rating, reviews: data.gmb_reviews,
+            profile_url: data.gmb_profile_url, overview: data.gmb_overview,
+            calls: data.gmb_calls, bookings: data.gmb_bookings, website_clicks: data.gmb_website_clicks,
+            key_insights: data.gmb_key_insights,
+            prev_rating: data.gmb_prev_rating, prev_reviews: data.gmb_prev_reviews,
+            prev_calls: data.gmb_prev_calls, prev_bookings: data.gmb_prev_bookings,
+            prev_website_clicks: data.gmb_prev_website_clicks,
+          }];
+        }
         setManual(data);
         setShowTiktok(!!(data.social_media_data?.tiktok && Object.values(data.social_media_data.tiktok).some((v) => v != null)));
       })
@@ -820,6 +1187,401 @@ export default function SEO() {
 
         {report && !loading && (
           <>
+            {/* ── Dark Header Banner (Client, Period & Health Score) ── */}
+            <div style={{
+              background: '#1d2033',
+              borderRadius: 16,
+              padding: '22px 28px',
+              marginBottom: 20,
+              color: '#ffffff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+              position: 'relative',
+              flexWrap: 'wrap',
+              gap: 16,
+            }}>
+              <div>
+                <h1 style={{ fontSize: 22, fontWeight: 700, color: '#ffffff', margin: '0 0 6px', letterSpacing: '-0.01em' }}>
+                  {selectedClient ? selectedClient.name : 'Report'} — {range === '28d' ? 'Last 28 Days' : range === '7d' ? 'Last 7 Days' : range === '90d' ? 'Last 90 Days' : `${customStart} to ${customEnd}`}
+                </h1>
+                <p style={{ fontSize: 13, color: '#94a3b8', margin: 0, fontWeight: 500 }}>
+                  Generated {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · {agencyName || 'Loooped'} Report Module
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                {/* Circular Health Indicator */}
+                <div style={{ position: 'relative', width: 68, height: 68, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="68" height="68" viewBox="0 0 68 68">
+                    <circle cx="34" cy="34" r="28" fill="none" stroke="#2e344e" strokeWidth="6" />
+                    <circle cx="34" cy="34" r="28" fill="none" stroke="#22c55e" strokeWidth="6"
+                      strokeDasharray={`${(2 * Math.PI * 28 * (manual.health_score ?? 76)) / 100} ${2 * Math.PI * 28}`}
+                      strokeDashoffset={0}
+                      strokeLinecap="round"
+                      transform="rotate(-90 34 34)" />
+                  </svg>
+                  <div style={{ position: 'absolute', textAlign: 'center' }}>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: '#ffffff', display: 'block', lineHeight: 1 }}>
+                      {manual.health_score ?? 76}
+                    </span>
+                    <span style={{ fontSize: 7, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginTop: 2 }}>
+                      HEALTH
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ maxWidth: 190, fontSize: 12, color: '#cbd5e1', lineHeight: 1.45 }}>
+                  {manual.health_label || 'Weighted for a balanced goal, vs target'}
+                </div>
+
+                {canEdit && (
+                  <button type="button" className="seo-manual-edit-btn" style={{ background: 'rgba(255,255,255,0.1)', color: '#ffffff', border: '1px solid rgba(255,255,255,0.2)', marginLeft: 8 }}
+                    onClick={() => openManualPanel(manualPanel === 'health' ? null : 'health')}>
+                    <Edit2 size={11} /> {manualPanel === 'health' ? 'Cancel' : 'Edit Header'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Health edit modal/panel */}
+            {manualPanel === 'health' && canEdit && (
+              <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
+                <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Report Header & Health Score (Manual Input)</h4>
+                <div className="seo-manual-grid" style={{ marginBottom: 12 }}>
+                  <div className="seo-inline-field">
+                    <label className="seo-inline-label">Health Score (Number 0-100)</label>
+                    <input className="form-input seo-inline-input" type="number" placeholder="76"
+                      value={manualEdit.health_score ?? 76}
+                      onChange={(e) => setManualEdit({ ...manualEdit, health_score: Number(e.target.value) })} />
+                  </div>
+                  <div className="seo-inline-field">
+                    <label className="seo-inline-label">Health Subtitle / Goal Label</label>
+                    <input className="form-input seo-inline-input" placeholder="Weighted for a balanced goal, vs target"
+                      value={manualEdit.health_label ?? ''}
+                      onChange={(e) => setManualEdit({ ...manualEdit, health_label: e.target.value })} />
+                  </div>
+                </div>
+                <div className="seo-manual-actions">
+                  <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Executive Summary ── */}
+            {(canEdit || manual.executive_summary) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  Executive Summary
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>manual</span>
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'exec_summary' as any ? null : 'exec_summary' as any)}>
+                      <Edit2 size={11} /> {manualPanel === ('exec_summary' as any) ? 'Cancel' : 'Edit'}
+                    </button>
+                  )}
+                </h3>
+                {manualPanel === ('exec_summary' as any) && canEdit && (
+                  <div className="seo-manual-panel">
+                    <textarea className="seo-insights-editor" rows={4}
+                      placeholder="2–3 lines. Plain English. This is the first thing the client reads.&#10;e.g. Steady month overall. Organic search and GBP kept driving qualified leads…"
+                      value={manualEdit.executive_summary}
+                      onChange={(e) => setManualEdit({ ...manualEdit, executive_summary: e.target.value })} />
+                    <div className="seo-manual-actions" style={{ marginTop: 10 }}>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {manual.executive_summary
+                  ? <p style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--ink)', margin: '8px 0 0' }}>{manual.executive_summary}</p>
+                  : !manualPanel && canEdit && <p className="page-subtitle" style={{ padding: '8px 0' }}>Click Edit to write the executive summary.</p>}
+              </div>
+            )}
+
+            {/* ── Significant Changes ── */}
+            {(() => {
+              const eng = report.engagement;
+              const prev = report.prevEngagement;
+              const sigChanges: { key: string; label: string; from: number; to: number; pct: number }[] = [];
+              if (prev) {
+                const check = (key: string, label: string, cur: number, pre: number) => {
+                  if (pre === 0) return;
+                  const pct = Math.round(((cur - pre) / pre) * 100);
+                  if (Math.abs(pct) >= 25) sigChanges.push({ key, label, from: pre, to: cur, pct });
+                };
+                check('sessions', 'Sessions', eng.sessions, prev.sessions);
+                check('users', 'Users', eng.users, prev.users);
+                check('engagementRate', 'Engagement Rate', eng.engagementRate, prev.engagementRate);
+              }
+              // GBP location checks
+              (manual.gmb_locations ?? []).forEach((loc, i) => {
+                const prefix = manual.gmb_locations.length > 1 ? `${loc.name || `Location ${i+1}`} ` : '';
+                const check = (key: string, label: string, cur: number | null, pre: number | null) => {
+                  if (cur == null || pre == null || pre === 0) return;
+                  const pct = Math.round(((cur - pre) / pre) * 100);
+                  if (Math.abs(pct) >= 25) sigChanges.push({ key: `gmb_${i}_${key}`, label: `GBP ${prefix}${label}`, from: pre, to: cur, pct });
+                };
+                check('calls', 'calls', loc.calls, loc.prev_calls);
+                check('website_clicks', 'website clicks', loc.website_clicks, loc.prev_website_clicks);
+                check('reviews', 'reviews', loc.reviews, loc.prev_reviews);
+                check('bookings', 'bookings', loc.bookings, loc.prev_bookings);
+              });
+              if (sigChanges.length === 0) return null;
+              return (
+                <div className="seo-section" style={{ border: '1.5px solid #fde68a', background: 'linear-gradient(135deg,#fffbeb 0%,#fff 100%)', borderRadius: 12, padding: '16px 20px' }}>
+                  <h3 className="seo-section__title" style={{ color: '#92400e' }}>
+                    ⚠ Significant Changes Detected
+                  </h3>
+                  {/* <p style={{ fontSize: 12, color: '#92400e', marginBottom: 14 }}>These metrics moved more than 25% vs last period. Add a one-line reason before generating the report.</p> */}
+                  {sigChanges.map(sc => (
+                    <div key={sc.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                        {sc.label}: <span style={{ color: 'var(--ink-muted)', fontWeight: 400 }}>{sc.from.toLocaleString()} → {sc.to.toLocaleString()}</span>
+                        <span style={{ marginLeft: 6, fontWeight: 700, color: sc.pct >= 0 ? '#16a34a' : '#dc2626' }}>({sc.pct >= 0 ? '+' : ''}{sc.pct}%)</span>
+                      </div>
+                      {canEdit && (
+                        <input className="form-input" placeholder="Why?" style={{ width: 260, fontSize: 12 }}
+                          value={manual.sig_change_whys?.[sc.key] ?? ''}
+                          onChange={(e) => {
+                            const updated = { ...manual, sig_change_whys: { ...(manual.sig_change_whys ?? {}), [sc.key]: e.target.value } };
+                            setManual(updated);
+                            setManualEdit(updated);
+                          }} />
+                      )}
+                      {!canEdit && manual.sig_change_whys?.[sc.key] && (
+                        <span style={{ fontSize: 12, color: 'var(--ink-muted)', fontStyle: 'italic' }}>{manual.sig_change_whys[sc.key]}</span>
+                      )}
+                    </div>
+                  ))}
+                  {canEdit && (
+                    <button className="seo-inline-save" style={{ marginTop: 6 }} onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── Last Period's Plan — Update Progress ── */}
+            {(canEdit || manual.last_period_plan?.length > 0) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  Last Period's Plan — Update Progress
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>closes the loop</span>
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === ('last_plan' as any) ? null : 'last_plan' as any)}>
+                      <Edit2 size={11} /> {manualPanel === ('last_plan' as any) ? 'Cancel' : 'Edit'}
+                    </button>
+                  )}
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>What was promised last period. Mark what actually happened.</p>
+                {manualPanel === ('last_plan' as any) && canEdit && (
+                  <div className="seo-manual-panel">
+                    {manualEdit.last_period_plan.map((item, i) => {
+                      const upd = (patch: Partial<LastPeriodPlanItem>) => {
+                        const a = [...manualEdit.last_period_plan]; a[i] = { ...a[i], ...patch };
+                        setManualEdit({ ...manualEdit, last_period_plan: a });
+                      };
+                      return (
+                        <div key={i} style={{ border: '1px solid var(--sand-border)', borderRadius: 8, padding: '12px 12px 8px', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                            <input className="form-input seo-inline-input" placeholder="Focus area (e.g. Content)" value={item.area} onChange={(e) => upd({ area: e.target.value })} style={{ width: 130 }} />
+                            <input className="form-input seo-inline-input" placeholder="Action taken" value={item.action} onChange={(e) => upd({ action: e.target.value })} style={{ flex: 1 }} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <input className="form-input seo-inline-input" placeholder="Expected outcome" value={item.expected} onChange={(e) => upd({ expected: e.target.value })} style={{ flex: 1 }} />
+                            <select className="form-input seo-inline-input" value={item.status} onChange={(e) => upd({ status: e.target.value as any })} style={{ width: 140 }}>
+                              <option value="done">✓ Done</option>
+                              <option value="partial">◐ Partially done</option>
+                              <option value="not_done">✗ Not done</option>
+                            </select>
+                            <button className="seo-manual-del" onClick={() => setManualEdit({ ...manualEdit, last_period_plan: manualEdit.last_period_plan.filter((_, j) => j !== i) })}><Trash2 size={13} /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="seo-manual-actions">
+                      <button className="seo-manual-add" onClick={() => setManualEdit({ ...manualEdit, last_period_plan: [...manualEdit.last_period_plan, { area: '', action: '', expected: '', status: 'done' }] })}>
+                        <Plus size={12} /> Add item
+                      </button>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {manual.last_period_plan?.length > 0 && manualPanel !== ('last_plan' as any) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {manual.last_period_plan.map((item, i) => {
+                      const statusColor = item.status === 'done' ? '#16a34a' : item.status === 'partial' ? '#d97706' : '#dc2626';
+                      const statusBg = item.status === 'done' ? '#f0fdf4' : item.status === 'partial' ? '#fffbeb' : '#fef2f2';
+                      const statusLabel = item.status === 'done' ? '✓ Done' : item.status === 'partial' ? '◐ Partially done' : '✗ Not done';
+                      return (
+                        <div key={i} style={{ border: `1.5px solid ${statusColor}22`, borderLeft: `4px solid ${statusColor}`, background: statusBg, borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            {item.area && (
+                              <div style={{ fontSize: 10, fontWeight: 800, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{item.area}</div>
+                            )}
+                            {item.action && (
+                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>{item.action}</div>
+                            )}
+                            {item.expected && (
+                              <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                                <span style={{ fontWeight: 600 }}>Expected outcome: </span>{item.expected}
+                              </div>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: `${statusColor}18`, padding: '3px 10px', borderRadius: 20, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Business Outcome + Next Period's Plan ── */}
+            {(canEdit || manual.best_performing_asset || manual.next_period_plan?.length > 0) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  Business Outcome
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === ('business' as any) ? null : 'business' as any)}>
+                      <Edit2 size={11} /> {manualPanel === ('business' as any) ? 'Cancel' : 'Edit'}
+                    </button>
+                  )}
+                </h3>
+                {manualPanel === ('business' as any) && canEdit && (
+                  <div className="seo-manual-panel">
+                    <div className="seo-inline-field" style={{ marginBottom: 12 }}>
+                      <label className="seo-inline-label">Best performing asset / campaign this month</label>
+                      <textarea className="form-input seo-gmb-overview-input" rows={2}
+                        placeholder="e.g. Blog: 'Eco Drain Pipes — Complete Buyer's Guide' + GBP offer post"
+                        value={manualEdit.best_performing_asset}
+                        onChange={(e) => setManualEdit({ ...manualEdit, best_performing_asset: e.target.value })} />
+                    </div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Next Period's Plan</p>
+                    {manualEdit.next_period_plan.map((item, i) => {
+                      const upd = (patch: Partial<NextPeriodPlanItem>) => {
+                        const a = [...manualEdit.next_period_plan]; a[i] = { ...a[i], ...patch };
+                        setManualEdit({ ...manualEdit, next_period_plan: a });
+                      };
+                      return (
+                        <div key={i} style={{ border: '1px solid var(--sand-border)', borderRadius: 8, padding: '12px 12px 8px', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                            <input className="form-input seo-inline-input" placeholder="Focus area (e.g. GBP)" value={item.focus} onChange={(e) => upd({ focus: e.target.value })} style={{ width: 140 }} />
+                            <button className="seo-manual-del" onClick={() => setManualEdit({ ...manualEdit, next_period_plan: manualEdit.next_period_plan.filter((_, j) => j !== i) })}><Trash2 size={13} /></button>
+                          </div>
+                          <input className="form-input seo-inline-input" placeholder="Specific action" value={item.action} onChange={(e) => upd({ action: e.target.value })} style={{ width: '100%', marginBottom: 6 }} />
+                          <input className="form-input seo-inline-input" placeholder="Expected impact" value={item.expected} onChange={(e) => upd({ expected: e.target.value })} style={{ width: '100%' }} />
+                        </div>
+                      );
+                    })}
+                    <div className="seo-manual-actions">
+                      <button className="seo-manual-add" onClick={() => setManualEdit({ ...manualEdit, next_period_plan: [...manualEdit.next_period_plan, { focus: '', action: '', expected: '' }] })}>
+                        <Plus size={12} /> Add plan item
+                      </button>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {manualPanel !== ('business' as any) && (
+                  <>
+                    {manual.best_performing_asset && (
+                      <div style={{ background: 'var(--bg-sand)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Best performing asset / campaign this month</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.6 }}>{manual.best_performing_asset}</div>
+                      </div>
+                    )}
+                    {manual.next_period_plan?.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '4px 0 10px' }}>Next Period's Plan</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                          {manual.next_period_plan.map((item, i) => (
+                            <div key={i} style={{ border: '1px solid var(--sand-border)', borderRadius: 8, padding: '12px 16px' }}>
+                              {item.focus && (
+                                <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--brand,#2563eb)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                                  Focus area: {item.focus}
+                                </div>
+                              )}
+                              {item.action && (
+                                <div style={{ marginBottom: 4 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)' }}>Specific action: </span>
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{item.action}</span>
+                                </div>
+                              )}
+                              {item.expected && (
+                                <div>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)' }}>Expected impact: </span>
+                                  <span style={{ fontSize: 12, color: 'var(--ink)' }}>{item.expected}</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── Targets — Next Period ── */}
+            {(canEdit || Object.values(manual.period_targets ?? {}).some(v => v)) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  Targets — Next Period
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>manual</span>
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === ('period_targets' as any) ? null : 'period_targets' as any)}>
+                      <Edit2 size={11} /> {manualPanel === ('period_targets' as any) ? 'Cancel' : 'Edit'}
+                    </button>
+                  )}
+                </h3>
+                <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>What this account is being held to next period.</p>
+                {manualPanel === ('period_targets' as any) && canEdit && (
+                  <div className="seo-manual-panel">
+                    <div className="seo-manual-grid">
+                      {([
+                        { key: 'sessions', label: 'Sessions target' },
+                        { key: 'leads', label: 'Leads target' },
+                        { key: 'engagement_rate', label: 'Engagement rate target' },
+                        { key: 'instagram_reach', label: 'Instagram reach target' },
+                        { key: 'facebook_reach', label: 'Facebook reach target' },
+                      ] as const).map(({ key, label }) => (
+                        <div key={key} className="seo-inline-field">
+                          <label className="seo-inline-label">{label}</label>
+                          <input className="form-input seo-inline-input" placeholder="e.g. 1,450"
+                            value={manualEdit.period_targets?.[key] ?? ''}
+                            onChange={(e) => setManualEdit({ ...manualEdit, period_targets: { ...(manualEdit.period_targets ?? {}), [key]: e.target.value } as PeriodTargets })} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {manualPanel !== ('period_targets' as any) && Object.values(manual.period_targets ?? {}).some(v => v) && (
+                  <div className="seo-cards" style={{ flexWrap: 'wrap' }}>
+                    {([
+                      { key: 'sessions', label: 'Sessions', icon: Globe },
+                      { key: 'leads', label: 'Leads', icon: Users },
+                      { key: 'engagement_rate', label: 'Engagement Rate', icon: TrendingUp },
+                      { key: 'instagram_reach', label: 'Instagram Reach', icon: Users },
+                      { key: 'facebook_reach', label: 'Facebook Reach', icon: Users },
+                    ] as const).filter(({ key }) => manual.period_targets?.[key]).map(({ key, label, icon: Icon }) => (
+                      <div key={key} className="seo-card">
+                        <div className="seo-card__icon"><Icon size={15} /></div>
+                        <div>
+                          <p className="seo-card__val">{manual.period_targets[key]}</p>
+                          <p className="seo-card__label">{label} target</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ── Summary cards ── */}
             <div className="seo-cards">
               {(() => {
@@ -1048,6 +1810,35 @@ export default function SEO() {
                   : <p className="page-subtitle" style={{ padding: '12px 0' }}>No demographics data available.</p>}
               </div>
             </div>
+
+            {/* ── Search Performance summary ── */}
+            {report.pages.length > 0 && (() => {
+              const totalClicks = report.pages.reduce((s, p) => s + p.clicks, 0);
+              const totalImpr   = report.pages.reduce((s, p) => s + p.impressions, 0);
+              const avgCtr      = totalImpr > 0 ? (totalClicks / totalImpr) * 100 : 0;
+              const avgPos      = report.pages.length > 0
+                ? report.pages.reduce((s, p) => s + p.position, 0) / report.pages.length : 0;
+              return (
+                <div className="seo-section">
+                  <h3 className="seo-section__title">Search Performance <span className="seo-badge">Search Console</span></h3>
+                  <div className="seo-cards">
+                    {[
+                      { label: 'Total clicks',   value: totalClicks.toLocaleString() },
+                      { label: 'Impressions',     value: totalImpr.toLocaleString() },
+                      { label: 'Avg. CTR',        value: `${avgCtr.toFixed(1)}%` },
+                      { label: 'Avg. position',   value: avgPos.toFixed(1) },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="seo-card">
+                        <div>
+                          <p className="seo-card__label" style={{ marginBottom: 4 }}>{label}</p>
+                          <p className="seo-card__val">{value}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Pages & Screens + Top Queries ── */}
             <div className="seo-two-col">
@@ -1420,8 +2211,19 @@ export default function SEO() {
 
             {/* ── GMB ── */}
             {(() => {
-              const hasGmb = manual.gmb_rating != null || manual.gmb_reviews != null || manual.gmb_calls != null || manual.gmb_bookings != null || manual.gmb_website_clicks != null || !!manual.gmb_overview || !!manual.gmb_profile_url;
+              const locs = manual.gmb_locations ?? [];
+              const hasGmb = locs.length > 0;
               if (!canEdit && !hasGmb) return null;
+              const gmbDelta = (cur: number, pre: number | null) => {
+                if (pre == null || pre === 0) return null;
+                const pct = Math.round(((cur - pre) / pre) * 100);
+                return <span style={{ fontSize: 10, fontWeight: 700, marginTop: 2, display: 'block', color: pct >= 0 ? '#16a34a' : '#dc2626' }}>{pct >= 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>;
+              };
+              const updLoc = (i: number, patch: Partial<GmbLocation>) => {
+                const a = [...manualEdit.gmb_locations];
+                a[i] = { ...a[i], ...patch };
+                setManualEdit({ ...manualEdit, gmb_locations: a });
+              };
               return (
                 <div className="seo-section">
                   <h3 className="seo-section__title">
@@ -1432,435 +2234,404 @@ export default function SEO() {
                       </button>
                     )}
                   </h3>
+
                   {manualPanel === 'gmb' && canEdit && (
                     <div className="seo-manual-panel">
-                      <div className="seo-manual-grid">
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">GMB Rating</label>
-                          <input className="form-input seo-inline-input" placeholder="4.5" type="number" step="0.1" min="0" max="5"
-                            value={manualEdit.gmb_rating ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_rating: e.target.value ? Number(e.target.value) : null })} />
+                      {manualEdit.gmb_locations.map((loc, i) => (
+                        <div key={i} style={{ border: '1px solid var(--sand-border)', borderRadius: 10, padding: '14px 14px 10px', marginBottom: 14 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                            <input className="form-input seo-inline-input" placeholder="Location name (e.g. Branch 1)"
+                              value={loc.name} onChange={(e) => updLoc(i, { name: e.target.value })}
+                              style={{ fontWeight: 700, fontSize: 13, maxWidth: 220 }} />
+                            {manualEdit.gmb_locations.length > 1 && (
+                              <button onClick={() => setManualEdit({ ...manualEdit, gmb_locations: manualEdit.gmb_locations.filter((_, j) => j !== i) })}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 18, lineHeight: 1 }} title="Remove location">−</button>
+                            )}
+                          </div>
+                          <div className="seo-manual-grid">
+                            <div className="seo-inline-field"><label className="seo-inline-label">Rating</label>
+                              <input className="form-input seo-inline-input" placeholder="4.5" type="number" step="0.1" min="0" max="5"
+                                value={loc.rating ?? ''} onChange={(e) => updLoc(i, { rating: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Reviews</label>
+                              <input className="form-input seo-inline-input" placeholder="120" type="number"
+                                value={loc.reviews ?? ''} onChange={(e) => updLoc(i, { reviews: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Calls</label>
+                              <input className="form-input seo-inline-input" placeholder="45" type="number"
+                                value={loc.calls ?? ''} onChange={(e) => updLoc(i, { calls: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Bookings</label>
+                              <input className="form-input seo-inline-input" placeholder="12" type="number"
+                                value={loc.bookings ?? ''} onChange={(e) => updLoc(i, { bookings: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Website Clicks</label>
+                              <input className="form-input seo-inline-input" placeholder="230" type="number"
+                                value={loc.website_clicks ?? ''} onChange={(e) => updLoc(i, { website_clicks: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Profile URL</label>
+                              <input className="form-input seo-inline-input" placeholder="https://g.page/…"
+                                value={loc.profile_url} onChange={(e) => updLoc(i, { profile_url: e.target.value })} /></div>
+                          </div>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Previous Period</p>
+                          <div className="seo-manual-grid">
+                            <div className="seo-inline-field"><label className="seo-inline-label">Prev Rating</label>
+                              <input className="form-input seo-inline-input" placeholder="4.3" type="number" step="0.1" min="0" max="5"
+                                value={loc.prev_rating ?? ''} onChange={(e) => updLoc(i, { prev_rating: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Prev Reviews</label>
+                              <input className="form-input seo-inline-input" placeholder="100" type="number"
+                                value={loc.prev_reviews ?? ''} onChange={(e) => updLoc(i, { prev_reviews: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Prev Calls</label>
+                              <input className="form-input seo-inline-input" placeholder="40" type="number"
+                                value={loc.prev_calls ?? ''} onChange={(e) => updLoc(i, { prev_calls: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Prev Bookings</label>
+                              <input className="form-input seo-inline-input" placeholder="10" type="number"
+                                value={loc.prev_bookings ?? ''} onChange={(e) => updLoc(i, { prev_bookings: e.target.value ? Number(e.target.value) : null })} /></div>
+                            <div className="seo-inline-field"><label className="seo-inline-label">Prev Website Clicks</label>
+                              <input className="form-input seo-inline-input" placeholder="200" type="number"
+                                value={loc.prev_website_clicks ?? ''} onChange={(e) => updLoc(i, { prev_website_clicks: e.target.value ? Number(e.target.value) : null })} /></div>
+                          </div>
+                          <div className="seo-inline-field" style={{ marginTop: 10 }}>
+                            <label className="seo-inline-label">Overview</label>
+                            <textarea className="form-input seo-gmb-overview-input" placeholder="Brief description…"
+                              value={loc.overview} onChange={(e) => updLoc(i, { overview: e.target.value })} />
+                          </div>
+                          <div className="seo-inline-field" style={{ marginTop: 10 }}>
+                            <label className="seo-inline-label">Key Insights</label>
+                            <textarea className="form-input seo-gmb-overview-input" placeholder="Key insights…"
+                              value={loc.key_insights} onChange={(e) => updLoc(i, { key_insights: e.target.value })} />
+                          </div>
                         </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">GMB Reviews</label>
-                          <input className="form-input seo-inline-input" placeholder="120" type="number"
-                            value={manualEdit.gmb_reviews ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_reviews: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Calls</label>
-                          <input className="form-input seo-inline-input" placeholder="45" type="number"
-                            value={manualEdit.gmb_calls ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_calls: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Bookings</label>
-                          <input className="form-input seo-inline-input" placeholder="12" type="number"
-                            value={manualEdit.gmb_bookings ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_bookings: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Website Clicks</label>
-                          <input className="form-input seo-inline-input" placeholder="230" type="number"
-                            value={manualEdit.gmb_website_clicks ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_website_clicks: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">GMB Profile URL</label>
-                          <input className="form-input seo-inline-input" placeholder="https://g.page/…"
-                            value={manualEdit.gmb_profile_url} onChange={(e) => setManualEdit({ ...manualEdit, gmb_profile_url: e.target.value })} />
-                        </div>
-                      </div>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', margin: '14px 0 6px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Previous Period (for comparison)</p>
-                      <div className="seo-manual-grid">
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Prev Rating</label>
-                          <input className="form-input seo-inline-input" placeholder="4.3" type="number" step="0.1" min="0" max="5"
-                            value={manualEdit.gmb_prev_rating ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_prev_rating: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Prev Reviews</label>
-                          <input className="form-input seo-inline-input" placeholder="100" type="number"
-                            value={manualEdit.gmb_prev_reviews ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_prev_reviews: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Prev Calls</label>
-                          <input className="form-input seo-inline-input" placeholder="40" type="number"
-                            value={manualEdit.gmb_prev_calls ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_prev_calls: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Prev Bookings</label>
-                          <input className="form-input seo-inline-input" placeholder="10" type="number"
-                            value={manualEdit.gmb_prev_bookings ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_prev_bookings: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                        <div className="seo-inline-field">
-                          <label className="seo-inline-label">Prev Website Clicks</label>
-                          <input className="form-input seo-inline-input" placeholder="200" type="number"
-                            value={manualEdit.gmb_prev_website_clicks ?? ''} onChange={(e) => setManualEdit({ ...manualEdit, gmb_prev_website_clicks: e.target.value ? Number(e.target.value) : null })} />
-                        </div>
-                      </div>
-                      <div className="seo-inline-field" style={{ marginTop: 10 }}>
-                        <label className="seo-inline-label">Overview</label>
-                        <textarea className="form-input seo-gmb-overview-input" placeholder="Brief description of GMB performance…"
-                          value={manualEdit.gmb_overview} onChange={(e) => setManualEdit({ ...manualEdit, gmb_overview: e.target.value })} />
-                      </div>
-                      <div className="seo-inline-field" style={{ marginTop: 10 }}>
-                        <label className="seo-inline-label">Key Insights</label>
-                        <textarea className="form-input seo-gmb-overview-input" placeholder="Key insights for this period…"
-                          value={manualEdit.gmb_key_insights} onChange={(e) => setManualEdit({ ...manualEdit, gmb_key_insights: e.target.value })} />
-                      </div>
-                      <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                      ))}
+                      <button className="seo-manual-add" style={{ marginBottom: 12 }}
+                        onClick={() => setManualEdit({ ...manualEdit, gmb_locations: [...manualEdit.gmb_locations, emptyGmbLocation()] })}>
+                        + Add Location
+                      </button>
+                      <div className="seo-manual-actions">
                         <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                       </div>
                     </div>
                   )}
-                  {(() => {
-                    const gmbDelta = (cur: number, pre: number | null) => {
-                      if (pre == null || pre === 0) return null;
-                      const pct = Math.round(((cur - pre) / pre) * 100);
-                      return <span style={{ fontSize: 10, fontWeight: 700, marginTop: 2, display: 'block', color: pct >= 0 ? '#16a34a' : '#dc2626' }}>{pct >= 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>;
-                    };
+
+                  {locs.map((loc, i) => {
+                    const hasData = loc.rating != null || loc.reviews != null || loc.calls != null || loc.bookings != null || loc.website_clicks != null;
                     return (
-                      <div className="seo-gmb-grid">
-                        {manual.gmb_rating != null && (<div className="seo-gmb-card"><Star size={14} className="seo-gmb-icon seo-gmb-icon--star" /><div><p className="seo-card__val">{Number(manual.gmb_rating).toFixed(1)}</p><p className="seo-card__label">Rating</p>{gmbDelta(manual.gmb_rating, manual.gmb_prev_rating)}</div></div>)}
-                        {manual.gmb_reviews != null && (<div className="seo-gmb-card"><FileText size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_reviews.toLocaleString()}</p><p className="seo-card__label">Reviews</p>{gmbDelta(manual.gmb_reviews, manual.gmb_prev_reviews)}</div></div>)}
-                        {manual.gmb_calls != null && (<div className="seo-gmb-card"><MousePointer size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_calls.toLocaleString()}</p><p className="seo-card__label">Calls</p>{gmbDelta(manual.gmb_calls, manual.gmb_prev_calls)}</div></div>)}
-                        {manual.gmb_bookings != null && (<div className="seo-gmb-card"><Check size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_bookings.toLocaleString()}</p><p className="seo-card__label">Bookings</p>{gmbDelta(manual.gmb_bookings, manual.gmb_prev_bookings)}</div></div>)}
-                        {manual.gmb_website_clicks != null && (<div className="seo-gmb-card"><Globe size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{manual.gmb_website_clicks.toLocaleString()}</p><p className="seo-card__label">Website Clicks</p>{gmbDelta(manual.gmb_website_clicks, manual.gmb_prev_website_clicks)}</div></div>)}
+                      <div key={i} style={locs.length > 1 ? { borderBottom: '1px solid var(--sand-border)', paddingBottom: 16, marginBottom: 16 } : {}}>
+                        {locs.length > 1 && loc.name && <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-muted)', marginBottom: 8 }}>{loc.name}</p>}
+                        {hasData && (
+                          <div className="seo-gmb-grid">
+                            {loc.rating != null && (<div className="seo-gmb-card"><Star size={14} className="seo-gmb-icon seo-gmb-icon--star" /><div><p className="seo-card__val">{Number(loc.rating).toFixed(1)}</p><p className="seo-card__label">Rating</p>{gmbDelta(loc.rating, loc.prev_rating)}</div></div>)}
+                            {loc.reviews != null && (<div className="seo-gmb-card"><FileText size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{loc.reviews.toLocaleString()}</p><p className="seo-card__label">Reviews</p>{gmbDelta(loc.reviews, loc.prev_reviews)}</div></div>)}
+                            {loc.calls != null && (<div className="seo-gmb-card"><MousePointer size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{loc.calls.toLocaleString()}</p><p className="seo-card__label">Calls</p>{gmbDelta(loc.calls, loc.prev_calls)}</div></div>)}
+                            {loc.bookings != null && (<div className="seo-gmb-card"><Check size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{loc.bookings.toLocaleString()}</p><p className="seo-card__label">Bookings</p>{gmbDelta(loc.bookings, loc.prev_bookings)}</div></div>)}
+                            {loc.website_clicks != null && (<div className="seo-gmb-card"><Globe size={14} className="seo-gmb-icon" /><div><p className="seo-card__val">{loc.website_clicks.toLocaleString()}</p><p className="seo-card__label">Website Clicks</p>{gmbDelta(loc.website_clicks, loc.prev_website_clicks)}</div></div>)}
+                          </div>
+                        )}
+                        {loc.overview && <p className="seo-gmb-overview-text">{loc.overview}</p>}
+                        {loc.key_insights && <div className="seo-insights-display" style={{ marginTop: 10 }}>{loc.key_insights}</div>}
+                        {loc.profile_url && <div className="seo-gmb-links"><a href={loc.profile_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Star size={11} /> GMB Profile</a></div>}
                       </div>
                     );
-                  })()}
-                  {manual.gmb_overview && <p className="seo-gmb-overview-text">{manual.gmb_overview}</p>}
-                  {manual.gmb_key_insights && <div className="seo-insights-display" style={{ marginTop: 10 }}>{manual.gmb_key_insights}</div>}
-                  {manual.gmb_profile_url && <div className="seo-gmb-links"><a href={manual.gmb_profile_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Star size={11} /> GMB Profile</a></div>}
+                  })}
                 </div>
               );
             })()}
 
             {/* ── Social Media Report ── */}
-            {(canEdit || !!manual.linkedin_data || !!manual.social_media_data) && (
-              <div className="seo-section">
-                <h2 className="seo-section__title" style={{ fontSize: 17, fontWeight: 700, borderBottom: 'none', marginBottom: 4 }}>
-                  Social Media Report
-                </h2>
+            <div className="seo-section">
+              <h2 className="seo-section__title" style={{ fontSize: 17, fontWeight: 700, borderBottom: 'none', marginBottom: 4 }}>
+                Social Media Report
+              </h2>
 
-                {/* Platform tabs */}
-                <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
-                  {(['linkedin', 'instagram', 'facebook'] as const).map((tab) => (
-                    <button key={tab} type="button" onClick={() => setSocialTab(tab)}
-                      style={{
-                        padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
-                        borderBottom: socialTab === tab ? '2px solid var(--brand,#2563eb)' : '2px solid transparent',
-                        color: socialTab === tab ? 'var(--brand,#2563eb)' : 'var(--ink-muted)',
-                        marginBottom: -1,
-                      }}>
-                      {tab === 'linkedin' ? 'LinkedIn' : tab === 'instagram' ? 'Instagram' : 'Facebook'}
-                    </button>
-                  ))}
-                  {showTiktok ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <button type="button" onClick={() => setSocialTab('tiktok')}
-                        style={{
-                          padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
-                          borderBottom: socialTab === 'tiktok' ? '2px solid var(--brand,#2563eb)' : '2px solid transparent',
-                          color: socialTab === 'tiktok' ? 'var(--brand,#2563eb)' : 'var(--ink-muted)',
-                          marginBottom: -1,
-                        }}>
-                        TikTok
-                      </button>
-                      {canEdit && (
-                        <button type="button" title="Remove TikTok"
-                          onClick={() => { setShowTiktok(false); if (socialTab === 'tiktok') setSocialTab('facebook'); }}
-                          style={{ fontSize: 14, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', padding: '0 4px', marginBottom: -1 }}>
-                          −
-                        </button>
-                      )}
-                    </div>
-                  ) : canEdit && (
-                    <button type="button" onClick={() => { setShowTiktok(true); setSocialTab('tiktok'); }}
-                      style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, background: 'none', border: '1px dashed var(--border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)', marginLeft: 4, marginBottom: 4 }}>
-                      + TikTok
-                    </button>
-                  )}
-                  {canEdit && (
-                    <button type="button" className="seo-manual-edit-btn" style={{ marginLeft: 'auto', marginRight: 4 }}
-                      onClick={() => openManualPanel(manualPanel === 'social' ? null : 'social')}>
-                      {manualPanel === 'social'
-                        ? <><X size={11} /> Cancel</>
-                        : <><Edit2 size={11} /> Edit</>}
-                    </button>
-                  )}
-                </div>
+              {/* Platform tabs */}
+              <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16, flexWrap: 'wrap', gap: 4 }}>
+                {(['meta_organic', 'linkedin_organic'] as const).map((tab) => (
+                  <button key={tab} type="button" onClick={() => setSocialTab(tab)}
+                    style={{
+                      padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
+                      borderBottom: socialTab === tab ? '2px solid var(--brand,#2563eb)' : '2px solid transparent',
+                      color: socialTab === tab ? 'var(--brand,#2563eb)' : 'var(--ink-muted)',
+                      marginBottom: -1,
+                    }}>
+                    {tab === 'meta_organic' ? 'Meta Organic' : 'LinkedIn Organic'}
+                  </button>
+                ))}
+                {canEdit && (
+                  <button type="button" className="seo-manual-edit-btn" style={{ marginLeft: 'auto', marginRight: 4 }}
+                    onClick={() => openManualPanel(manualPanel === socialTab ? null : socialTab)}>
+                    {manualPanel === socialTab
+                      ? <><X size={11} /> Cancel</>
+                      : <><Edit2 size={11} /> Edit</>}
+                  </button>
+                )}
+              </div>
 
-                {/* LinkedIn tab — existing section inline */}
-                {socialTab === 'linkedin' && (() => {
-                  const liEdit = manualEdit.linkedin_data!;
-                  const setLi = (patch: Partial<LinkedInData>) => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, ...patch } }));
-                  const setLiPost = (i: number, field: keyof LinkedInPost, val: string | number) =>
-                    setManualEdit(prev => { const posts = [...prev.linkedin_data!.posts]; posts[i] = { ...posts[i], [field]: val }; return { ...prev, linkedin_data: { ...prev.linkedin_data!, posts } }; });
+              {/* Meta Organic Tab (Instagram & Facebook) */}
+              {socialTab === 'meta_organic' && (() => {
+                const mo = manual.meta_organic ?? { instagram: emptyOrganicMetrics(), facebook: emptyOrganicMetrics() };
+                const moEdit = manualEdit.meta_organic ?? { instagram: emptyOrganicMetrics(), facebook: emptyOrganicMetrics() };
+                const setInstaOrg = (field: keyof OrganicMetrics, val: string | null) =>
+                  setManualEdit(prev => ({
+                    ...prev,
+                    meta_organic: {
+                      ...prev.meta_organic,
+                      instagram: { ...(prev.meta_organic?.instagram ?? emptyOrganicMetrics()), [field]: val },
+                    },
+                  }));
+                const setFbOrg = (field: keyof OrganicMetrics, val: string | null) =>
+                  setManualEdit(prev => ({
+                    ...prev,
+                    meta_organic: {
+                      ...prev.meta_organic,
+                      facebook: { ...(prev.meta_organic?.facebook ?? emptyOrganicMetrics()), [field]: val },
+                    },
+                  }));
+
+                const renderOrganicCard = (title: string, metrics: OrganicMetrics) => {
+                  const parsed = parseOrganicDisplay(metrics);
                   return (
-                    <>
-                      {manualPanel === 'social' && canEdit && (
-                        <div className="seo-manual-panel">
-                          <div className="seo-manual-grid" style={{ marginBottom: 12 }}>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Total Impressions</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions ?? ''} onChange={(e) => setLi({ impressions: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Organic</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions_organic ?? ''} onChange={(e) => setLi({ impressions_organic: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Impressions — Sponsored</label><input className="form-input seo-inline-input" type="number" value={liEdit.impressions_sponsored ?? ''} onChange={(e) => setLi({ impressions_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Total Clicks</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks ?? ''} onChange={(e) => setLi({ clicks: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Organic</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks_organic ?? ''} onChange={(e) => setLi({ clicks_organic: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Clicks — Sponsored</label><input className="form-input seo-inline-input" type="number" value={liEdit.clicks_sponsored ?? ''} onChange={(e) => setLi({ clicks_sponsored: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" type="number" value={manualEdit.linkedin_followers ?? ''} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_followers: e.target.value ? Number(e.target.value) : null }))} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">New Followers</label><input className="form-input seo-inline-input" type="number" value={liEdit.new_followers ?? ''} onChange={(e) => setLi({ new_followers: e.target.value ? Number(e.target.value) : null })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">New Followers Period</label><input className="form-input seo-inline-input" value={liEdit.new_followers_period} onChange={(e) => setLi({ new_followers_period: e.target.value })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Growth Rate</label><input className="form-input seo-inline-input" value={liEdit.growth_rate} onChange={(e) => setLi({ growth_rate: e.target.value })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">Growth Label</label><input className="form-input seo-inline-input" value={liEdit.growth_label} onChange={(e) => setLi({ growth_label: e.target.value })} /></div>
-                            <div className="seo-inline-field"><label className="seo-inline-label">LinkedIn URL</label><input className="form-input seo-inline-input" value={manualEdit.linkedin_url} onChange={(e) => setManualEdit(prev => ({ ...prev, linkedin_url: e.target.value }))} /></div>
-                          </div>
-                          <div className="seo-inline-field" style={{ gridColumn: '1/-1' }}>
-                            <label className="seo-inline-label">Key Insights</label>
-                            <textarea className="form-input seo-inline-input" rows={3} style={{ resize: 'vertical', width: '100%' }}
-                              value={liEdit.key_insights ?? ''}
-                              onChange={(e) => setLi({ key_insights: e.target.value || null })} />
-                          </div>
-                          <p className="seo-inline-label" style={{ marginBottom: 6 }}>Top Posts</p>
-                          <div className="seo-manual-col-headers"><span style={{ flex: 1 }}>Post title</span><span style={{ width: 90 }}>Impressions</span><span style={{ width: 70 }}>Clicks</span><span style={{ width: 28 }} /></div>
-                          {liEdit.posts.map((p, i) => (
-                            <div key={i} className="seo-manual-row">
-                              <input className="form-input seo-manual-input" placeholder="Post title" value={p.title} onChange={(e) => setLiPost(i, 'title', e.target.value)} />
-                              <input className="form-input seo-manual-input" style={{ flex: '0 0 90px' }} type="number" value={p.impressions || ''} onChange={(e) => setLiPost(i, 'impressions', Number(e.target.value))} />
-                              <input className="form-input seo-manual-input" style={{ flex: '0 0 70px' }} type="number" value={p.clicks || ''} onChange={(e) => setLiPost(i, 'clicks', Number(e.target.value))} />
-                              <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: prev.linkedin_data!.posts.filter((_, j) => j !== i) } }))}><Trash2 size={13} /></button>
-                            </div>
-                          ))}
-                          <div className="seo-manual-actions" style={{ marginTop: 8 }}>
-                            <button className="seo-manual-add" onClick={() => setManualEdit(prev => ({ ...prev, linkedin_data: { ...prev.linkedin_data!, posts: [...prev.linkedin_data!.posts, { title: '', impressions: 0, clicks: 0 }] } }))}><Plus size={12} /> Add post</button>
-                            <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
-                          </div>
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, marginBottom: 16, background: 'var(--surface)' }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--brand,#2563eb)' }}>{title}</h3>
+                      <div className="seo-li-stats">
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">
+                            {parsed.reachVal}
+                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
+                          </p>
+                          <p className="seo-card__label">Organic Reach</p>
                         </div>
-                      )}
-                      {(() => {
-                        const li = manual.linkedin_data;
-                        if (!li) return !manualPanel ? <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click + to add LinkedIn analytics.' : 'No LinkedIn data yet.'}</p> : null;
-                        const impOrg = li.impressions_organic ?? 0, impSpon = li.impressions_sponsored ?? 0, impTot = impOrg + impSpon || 1;
-                        const clkOrg = li.clicks_organic ?? 0, clkSpon = li.clicks_sponsored ?? 0, clkTot = clkOrg + clkSpon || 1;
-                        const impSponPct = Math.round((impSpon / impTot) * 100), impOrgPct = 100 - impSponPct;
-                        const clkSponPct = Math.round((clkSpon / clkTot) * 100), clkOrgPct = 100 - clkSponPct;
-                        return (
-                          <>
-                            <div className="seo-li-stats">
-                              {li.impressions != null && <div className="seo-li-stat"><p className="seo-card__val">{li.impressions.toLocaleString()}</p><p className="seo-card__label">Total Impressions</p></div>}
-                              {li.clicks != null && <div className="seo-li-stat"><p className="seo-card__val">{li.clicks.toLocaleString()}</p><p className="seo-card__label">Total Clicks</p>{(li.clicks_organic != null || li.clicks_sponsored != null) && <p className="seo-li-sub">{li.clicks_organic?.toLocaleString()} organic · {li.clicks_sponsored?.toLocaleString()} paid</p>}</div>}
-                              {manual.linkedin_followers != null && <div className="seo-li-stat"><p className="seo-card__val">{manual.linkedin_followers.toLocaleString()}</p><p className="seo-card__label">Total Followers</p>{li.new_followers != null && <p className="seo-li-sub">↑ {li.new_followers.toLocaleString()} new{li.new_followers_period ? ` in ${li.new_followers_period}` : ''}</p>}</div>}
-                              {li.growth_rate && <div className="seo-li-stat"><p className="seo-card__val seo-li-growth">{li.growth_rate}</p><p className="seo-card__label">Follower Growth Rate</p>{li.growth_label && <p className="seo-li-sub">↑ {li.growth_label}</p>}</div>}
-                            </div>
-                            {(impOrg > 0 || impSpon > 0) && (
-                              <div className="seo-li-breakdown-row">
-                                <div className="seo-li-breakdown">
-                                  <p className="seo-li-breakdown__title">Impressions breakdown</p>
-                                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${Math.max(impSponPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Sponsored {impSponPct}%</p></div>
-                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${Math.max(impOrgPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Organic {impOrgPct}%</p></div>
-                                  </div>
-                                </div>
-                                <div className="seo-li-breakdown">
-                                  <p className="seo-li-breakdown__title">Clicks breakdown</p>
-                                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap"><div className="seo-li-bar-fill seo-li-bar-fill--spon" style={{ width: `${Math.max(clkSponPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Sponsored {clkSponPct}%</p></div>
-                                    <div style={{ flex: 1 }}><div className="seo-li-bar-wrap seo-li-bar-wrap--org"><div className="seo-li-bar-fill seo-li-bar-fill--org" style={{ width: `${Math.max(clkOrgPct, 2)}%` }} /></div><p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--ink-muted)' }}>Organic {clkOrgPct}%</p></div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            {li.posts.length > 0 && (() => {
-                              const hasImpressions = li.posts.some(p => p.impressions > 0);
-                              const hasClicks = li.posts.some(p => p.clicks > 0);
-                              return (
-                                <>
-                                  <p className="seo-li-posts-title">Top performing LinkedIn posts</p>
-                                  <table className="seo-table"><thead><tr><th>Post</th>{hasImpressions && <th>Impressions</th>}{hasClicks && <th>Clicks</th>}{hasImpressions && <th>CTR</th>}</tr></thead>
-                                    <tbody>{li.posts.map((p, i) => <tr key={i}><td className="seo-source">{p.title}</td>{hasImpressions && <td>{p.impressions.toLocaleString()}</td>}{hasClicks && <td>{p.clicks.toLocaleString()}</td>}{hasImpressions && <td>{p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : '0'}%</td>}</tr>)}</tbody>
-                                  </table>
-                                </>
-                              );
-                            })()}
-                            {manual.linkedin_url && <div style={{ marginTop: 12 }}><a href={manual.linkedin_url} target="_blank" rel="noreferrer" className="seo-gmb-link"><Linkedin size={11} /> LinkedIn Page</a></div>}
-                            {li.key_insights && <div className="seo-insights-display" style={{ marginTop: 14 }} dangerouslySetInnerHTML={{ __html: li.key_insights }} />}
-                          </>
-                        );
-                      })()}
-                    </>
-                  );
-                })()}
-
-                {/* Instagram / Facebook / TikTok tabs */}
-                {socialTab !== 'linkedin' && (() => {
-                  const platform = socialTab as 'instagram' | 'facebook' | 'tiktok';
-                  const emptyPlat = (): SocialPlatformData => ({ views: null, from_organic: null, from_ads: null, reach: null, total_followers: null, new_followers: null, interactions: null, watch_time: null, likes: null, key_insights: null });
-                  const smd = manual.social_media_data;
-                  const data = smd?.[platform];
-                  const editData = manualEdit.social_media_data?.[platform] ?? emptyPlat();
-                  const setField = (field: keyof SocialPlatformData, val: string | number | null) =>
-                    setManualEdit(prev => ({
-                      ...prev,
-                      social_media_data: {
-                        instagram: emptyPlat(), facebook: emptyPlat(), tiktok: emptyPlat(),
-                        ...prev.social_media_data,
-                        [platform]: { ...(prev.social_media_data?.[platform] ?? emptyPlat()), [field]: val },
-                      },
-                    }));
-                  const numField = (field: keyof SocialPlatformData, label: string, placeholder: string) => (
-                    <div className="seo-inline-field">
-                      <label className="seo-inline-label">{label}</label>
-                      <input className="form-input seo-inline-input" type="number" placeholder={placeholder}
-                        value={(editData[field] as number | null) ?? ''}
-                        onChange={(e) => setField(field, e.target.value ? Number(e.target.value) : null)} />
-                    </div>
-                  );
-                  const fields: Record<string, JSX.Element[]> = {
-                    instagram: [
-                      numField('views', 'Views', 'e.g. 42000'),
-                      numField('from_organic', 'From Organic', 'e.g. 30000'),
-                      numField('from_ads', 'From Ads', 'e.g. 12000'),
-                      numField('reach', 'Reach', 'e.g. 15000'),
-                      numField('total_followers', 'Total Followers', 'e.g. 3200'),
-                      numField('new_followers', 'New Followers', 'e.g. 120'),
-                      numField('interactions', 'Interactions', 'e.g. 850'),
-                    ],
-                    facebook: [
-                      numField('views', 'Views', 'e.g. 20000'),
-                      numField('from_organic', 'From Organic', 'e.g. 12000'),
-                      numField('from_ads', 'From Ads', 'e.g. 8000'),
-                      numField('interactions', 'Interactions', 'e.g. 400'),
-                      <div key="watch_time" className="seo-inline-field">
-                        <label className="seo-inline-label">Watch Time</label>
-                        <input className="form-input seo-inline-input" placeholder="e.g. 1h 20m"
-                          value={(editData.watch_time as string | null) ?? ''}
-                          onChange={(e) => setField('watch_time', e.target.value || null)} />
-                      </div>,
-                    ],
-                    tiktok: [
-                      numField('views', 'Views', 'e.g. 50000'),
-                      numField('total_followers', 'Followers', 'e.g. 1800'),
-                      numField('likes', 'Likes', 'e.g. 3400'),
-                    ],
-                  };
-                  const cards: Record<string, ([string, string] | null)[]> = {
-                    instagram: [
-                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
-                      data?.from_organic != null ? ['From Organic', data.from_organic.toLocaleString()] : null,
-                      data?.from_ads != null ? ['From Ads', data.from_ads.toLocaleString()] : null,
-                      data?.reach != null ? ['Reach', data.reach.toLocaleString()] : null,
-                      data?.total_followers != null ? ['Total Followers', data.total_followers.toLocaleString()] : null,
-                      data?.new_followers != null ? ['New Followers', data.new_followers.toLocaleString()] : null,
-                      data?.interactions != null ? ['Interactions', data.interactions.toLocaleString()] : null,
-                    ],
-                    facebook: [
-                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
-                      data?.from_organic != null ? ['From Organic', data.from_organic.toLocaleString()] : null,
-                      data?.from_ads != null ? ['From Ads', data.from_ads.toLocaleString()] : null,
-                      data?.interactions != null ? ['Interactions', data.interactions.toLocaleString()] : null,
-                      data?.watch_time != null ? ['Watch Time', data.watch_time] : null,
-                    ],
-                    tiktok: [
-                      data?.views != null ? ['Views', data.views.toLocaleString()] : null,
-                      data?.total_followers != null ? ['Followers', data.total_followers.toLocaleString()] : null,
-                      data?.likes != null ? ['Likes', data.likes.toLocaleString()] : null,
-                    ],
-                  };
-                  const activeCards = (cards[platform] ?? []).filter(Boolean) as [string, string][];
-                  const hasData = activeCards.length > 0;
-
-                  const StatCard = ({ label, val, sub, accent }: { label: string; val: string; sub?: string; accent?: string }) => (
-                    <div className="seo-li-stat">
-                      <p className="seo-card__val" style={accent ? { color: accent } : {}}>{val}</p>
-                      <p className="seo-card__label">{label}</p>
-                      {sub && <p className="seo-li-sub">{sub}</p>}
-                    </div>
-                  );
-
-                  const SplitBar = ({ label, organic, ads }: { label: string; organic: number | null; ads: number | null }) => {
-                    if (organic == null && ads == null) return null;
-                    const tot = (organic ?? 0) + (ads ?? 0) || 1;
-                    const oPct = Math.round(((organic ?? 0) / tot) * 100);
-                    const aPct = 100 - oPct;
-                    return (
-                      <div style={{ marginBottom: 20 }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label} breakdown</p>
-                        <div style={{ display: 'flex', gap: 12 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ height: 8, background: 'var(--bg-sand)', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
-                              <div style={{ height: '100%', width: `${Math.max(oPct, 2)}%`, background: '#22c55e', borderRadius: 4 }} />
-                            </div>
-                            <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>Organic {oPct}% <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{(organic ?? 0).toLocaleString()}</span></p>
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ height: 8, background: 'var(--bg-sand)', borderRadius: 4, overflow: 'hidden', marginBottom: 4 }}>
-                              <div style={{ height: '100%', width: `${Math.max(aPct, 2)}%`, background: '#6366f1', borderRadius: 4 }} />
-                            </div>
-                            <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>Ads {aPct}% <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{(ads ?? 0).toLocaleString()}</span></p>
-                          </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.rateVal}</p>
+                          <p className="seo-card__label">Engagement Rate</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">
+                            {parsed.netVal}
+                            {parsed.netBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.netBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.netBadge.text}</span>}
+                          </p>
+                          <p className="seo-card__label">Net New Followers</p>
                         </div>
                       </div>
-                    );
-                  };
-
-                  return (
-                    <>
-                      {manualPanel === 'social' && canEdit && (
-                        <div className="seo-manual-panel">
-                          <div className="seo-manual-grid">
-                            {fields[platform]?.map((f, i) => <div key={i}>{f}</div>)}
-                          </div>
-                          <div style={{ gridColumn: '1/-1', marginTop: 4 }}>
-                            <label className="seo-inline-label">Key Insights</label>
-                            <textarea className="form-input seo-inline-input" rows={3} style={{ resize: 'vertical', width: '100%', marginTop: 4 }}
-                              value={editData.key_insights ?? ''}
-                              onChange={(e) => setField('key_insights', e.target.value || null)} />
-                          </div>
-                          <div className="seo-manual-actions" style={{ marginTop: 12 }}>
-                            <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
-                          </div>
+                      {parsed.key_insights && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
+                          <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
                         </div>
                       )}
-                      {hasData ? (
-                        <>
-                          {platform === 'instagram' && data && (
-                            <>
-                              <div className="seo-li-stats">
-                                {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
-                                {data.reach != null && <StatCard label="Reach" val={data.reach.toLocaleString()} />}
-                                {data.total_followers != null && <StatCard label="Total Followers" val={data.total_followers.toLocaleString()} sub={data.new_followers != null ? `↑ ${data.new_followers.toLocaleString()} new` : undefined} />}
-                                {data.interactions != null && <StatCard label="Interactions" val={data.interactions.toLocaleString()} accent="#f59e0b" />}
-                              </div>
-                              <SplitBar label="Views" organic={data.from_organic} ads={data.from_ads} />
-                              {data.key_insights && <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: data.key_insights }} />}
-                            </>
-                          )}
-                          {platform === 'facebook' && data && (
-                            <>
-                              <div className="seo-li-stats">
-                                {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
-                                {data.interactions != null && <StatCard label="Interactions" val={data.interactions.toLocaleString()} accent="#f59e0b" />}
-                                {data.watch_time != null && <StatCard label="Watch Time" val={data.watch_time} />}
-                              </div>
-                              <SplitBar label="Views" organic={data.from_organic} ads={data.from_ads} />
-                              {data.key_insights && <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: data.key_insights }} />}
-                            </>
-                          )}
-                          {platform === 'tiktok' && data && (
-                            <>
-                              <div className="seo-li-stats">
-                                {data.views != null && <StatCard label="Views" val={data.views.toLocaleString()} />}
-                                {data.total_followers != null && <StatCard label="Followers" val={data.total_followers.toLocaleString()} />}
-                                {data.likes != null && <StatCard label="Likes" val={data.likes.toLocaleString()} accent="#f43f5e" />}
-                              </div>
-                              {data.key_insights && <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: data.key_insights }} />}
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>{canEdit ? 'Click Edit to add data.' : `No ${platform} data yet.`}</p>
-                      )}
-                    </>
+                    </div>
                   );
-                })()}
+                };
+
+                return (
+                  <>
+                    {manualPanel === 'meta_organic' && canEdit && (
+                      <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Instagram Organic (Manual Inputs)</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 1,75,828" value={moEdit.instagram?.reach ?? ''} onChange={(e) => setInstaOrg('reach', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 17%" value={moEdit.instagram?.reach_change ?? ''} onChange={(e) => setInstaOrg('reach_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 2.3%" value={moEdit.instagram?.engagement_rate ?? ''} onChange={(e) => setInstaOrg('engagement_rate', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 41" value={moEdit.instagram?.net_followers ?? ''} onChange={(e) => setInstaOrg('net_followers', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 81%" value={moEdit.instagram?.net_followers_change ?? ''} onChange={(e) => setInstaOrg('net_followers_change', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 16 }}>
+                          <label className="seo-inline-label">Instagram Key Insights</label>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={moEdit.instagram?.key_insights ?? ''} onChange={(e) => setInstaOrg('key_insights', e.target.value || null)} />
+                        </div>
+
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, marginTop: 10 }}>Facebook Organic (Manual Inputs)</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 2,110" value={moEdit.facebook?.reach ?? ''} onChange={(e) => setFbOrg('reach', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 12%" value={moEdit.facebook?.reach_change ?? ''} onChange={(e) => setFbOrg('reach_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 4.6%" value={moEdit.facebook?.engagement_rate ?? ''} onChange={(e) => setFbOrg('engagement_rate', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 6" value={moEdit.facebook?.net_followers ?? ''} onChange={(e) => setFbOrg('net_followers', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 98%" value={moEdit.facebook?.net_followers_change ?? ''} onChange={(e) => setFbOrg('net_followers_change', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 16 }}>
+                          <label className="seo-inline-label">Facebook Key Insights</label>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={moEdit.facebook?.key_insights ?? ''} onChange={(e) => setFbOrg('key_insights', e.target.value || null)} />
+                        </div>
+
+                        <div className="seo-manual-actions">
+                          <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                        </div>
+                      </div>
+                    )}
+                    {renderOrganicCard('Instagram Organic', mo.instagram)}
+                    {renderOrganicCard('Facebook Organic', mo.facebook)}
+                  </>
+                );
+              })()}
+
+              {/* LinkedIn Organic Tab */}
+              {socialTab === 'linkedin_organic' && (() => {
+                const lo = manual.linkedin_organic ?? emptyOrganicMetrics();
+                const loEdit = manualEdit.linkedin_organic ?? emptyOrganicMetrics();
+                const setLiOrg = (field: keyof OrganicMetrics, val: string | null) =>
+                  setManualEdit(prev => ({
+                    ...prev,
+                    linkedin_organic: { ...(prev.linkedin_organic ?? emptyOrganicMetrics()), [field]: val },
+                  }));
+
+                const parsed = parseOrganicDisplay(lo);
+
+                return (
+                  <>
+                    {manualPanel === 'linkedin_organic' && canEdit && (
+                      <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
+                        <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>LinkedIn Organic (Manual Inputs)</h4>
+                        <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 35%" value={loEdit.reach_change ?? ''} onChange={(e) => setLiOrg('reach_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 4.9%" value={loEdit.engagement_rate ?? ''} onChange={(e) => setLiOrg('engagement_rate', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 9" value={loEdit.net_followers ?? ''} onChange={(e) => setLiOrg('net_followers', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 97%" value={loEdit.net_followers_change ?? ''} onChange={(e) => setLiOrg('net_followers_change', e.target.value || null)} /></div>
+                        </div>
+                        <div className="seo-inline-field" style={{ marginBottom: 16 }}>
+                          <label className="seo-inline-label">Key Insights</label>
+                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={loEdit.key_insights ?? ''} onChange={(e) => setLiOrg('key_insights', e.target.value || null)} />
+                        </div>
+                        <div className="seo-manual-actions">
+                          <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)' }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--brand,#2563eb)' }}>LinkedIn Organic</h3>
+                      <div className="seo-li-stats">
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">
+                            {parsed.reachVal}
+                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
+                          </p>
+                          <p className="seo-card__label">Organic Reach</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.rateVal}</p>
+                          <p className="seo-card__label">Engagement Rate</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">
+                            {parsed.netVal}
+                            {parsed.netBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.netBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.netBadge.text}</span>}
+                          </p>
+                          <p className="seo-card__label">Net New Followers</p>
+                        </div>
+                      </div>
+                      {parsed.key_insights && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
+                          <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+
+            </div>
+
+            {/* ── Performance Marketing (Paid) ── */}
+            <div className="seo-section">
+              <h2 className="seo-section__title" style={{ fontSize: 17, fontWeight: 700, borderBottom: 'none', marginBottom: 4 }}>
+                Performance Marketing
+              </h2>
+
+              {/* Platform tabs */}
+              <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16, flexWrap: 'wrap', gap: 4 }}>
+                {(['instagram_paid', 'facebook_paid', 'linkedin_paid'] as const).map((tab) => (
+                  <button key={tab} type="button" onClick={() => setPaidTab(tab)}
+                    style={{
+                      padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
+                      borderBottom: paidTab === tab ? '2px solid #059669' : '2px solid transparent',
+                      color: paidTab === tab ? '#059669' : 'var(--ink-muted)',
+                      marginBottom: -1,
+                    }}>
+                    {tab === 'instagram_paid' ? 'Instagram Paid' : tab === 'facebook_paid' ? 'Facebook Paid' : 'LinkedIn Paid'}
+                  </button>
+                ))}
+                {canEdit && (
+                  <button type="button" className="seo-manual-edit-btn" style={{ marginLeft: 'auto', marginRight: 4 }}
+                    onClick={() => openManualPanel(manualPanel === 'performance_marketing' ? null : 'performance_marketing')}>
+                    {manualPanel === 'performance_marketing'
+                      ? <><X size={11} /> Cancel</>
+                      : <><Edit2 size={11} /> Edit</>}
+                  </button>
+                )}
               </div>
-            )}
+
+              {/* Edit Mode for Performance Marketing */}
+              {manualPanel === 'performance_marketing' && canEdit && (() => {
+                const pmEdit = manualEdit.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
+                const setPaidField = (platformKey: 'instagram_paid' | 'facebook_paid' | 'linkedin_paid', field: keyof PaidMetrics, val: string | null) =>
+                  setManualEdit(prev => ({
+                    ...prev,
+                    performance_marketing: {
+                      ...(prev.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() }),
+                      [platformKey]: { ...(prev.performance_marketing?.[platformKey] ?? emptyPaidMetrics()), [field]: val },
+                    },
+                  }));
+
+                const renderPaidInputs = (title: string, pKey: 'instagram_paid' | 'facebook_paid' | 'linkedin_paid', defaultSpend: string, defaultReach: string, defaultReachChg: string, defaultCost: string) => (
+                  <div style={{ marginBottom: 20 }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{title} Inputs</h4>
+                    <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
+                      <div className="seo-inline-field"><label className="seo-inline-label">Spend</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultSpend}`} value={pmEdit[pKey]?.spend ?? ''} onChange={(e) => setPaidField(pKey, 'spend', e.target.value || null)} /></div>
+                      <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultReach}`} value={pmEdit[pKey]?.reach ?? ''} onChange={(e) => setPaidField(pKey, 'reach', e.target.value || null)} /></div>
+                      <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultReachChg}`} value={pmEdit[pKey]?.reach_change ?? ''} onChange={(e) => setPaidField(pKey, 'reach_change', e.target.value || null)} /></div>
+                      <div className="seo-inline-field"><label className="seo-inline-label">Cost / Reach Point</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultCost}`} value={pmEdit[pKey]?.cost_per_reach ?? ''} onChange={(e) => setPaidField(pKey, 'cost_per_reach', e.target.value || null)} /></div>
+                    </div>
+                    <div className="seo-inline-field">
+                      <label className="seo-inline-label">Key Insights</label>
+                      <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={pmEdit[pKey]?.key_insights ?? ''} onChange={(e) => setPaidField(pKey, 'key_insights', e.target.value || null)} />
+                    </div>
+                  </div>
+                );
+
+                return (
+                  <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
+                    {renderPaidInputs('Instagram Paid', 'instagram_paid', '18,500', '52,693', '↑ 10%', '0.35')}
+                    {renderPaidInputs('Facebook Paid', 'facebook_paid', '31,000', '74,549', '↑ 14%', '0.42')}
+                    {renderPaidInputs('LinkedIn Paid', 'linkedin_paid', '31,000', '74,549', '↑ 14%', '0.42')}
+                    <div className="seo-manual-actions">
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Display Mode for Performance Marketing */}
+              {(() => {
+                const pm = manual.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
+                const curPaid = pm[paidTab] ?? emptyPaidMetrics();
+                const parsed = parsePaidDisplay(curPaid);
+                const titleMap = { instagram_paid: 'Instagram Paid', facebook_paid: 'Facebook Paid', linkedin_paid: 'LinkedIn Paid' };
+
+                return (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)' }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{titleMap[paidTab]}</h3>
+                    <div className="seo-li-stats">
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
+                        <p className="seo-card__label">Paid Spend</p>
+                      </div>
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val">
+                          {parsed.reachVal}
+                          {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
+                        </p>
+                        <p className="seo-card__label">Paid Reach</p>
+                      </div>
+                      <div className="seo-li-stat">
+                        <p className="seo-card__val">{parsed.costVal}</p>
+                        <p className="seo-card__label">Cost / Reach Point</p>
+                      </div>
+                    </div>
+                    {parsed.key_insights && (
+                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
+                        <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
 
           </>
         )}

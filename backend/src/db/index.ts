@@ -139,6 +139,16 @@ async function createSchema(): Promise<void> {
         t.string('gmb_profile_url').nullable();
         t.string('linkedin_url').nullable();
         t.integer('linkedin_followers').nullable();
+        t.text('gmb_locations').nullable();
+        t.text('executive_summary').nullable();
+        t.text('sig_change_whys').nullable();
+        t.text('last_period_plan').nullable();
+        t.text('best_performing_asset').nullable();
+        t.text('next_period_plan').nullable();
+        t.text('period_targets').nullable();
+        t.text('meta_organic').nullable();
+        t.text('linkedin_organic').nullable();
+        t.text('performance_marketing').nullable();
         t.timestamp('updated_at').defaultTo(db.fn.now());
       });
     } else {
@@ -158,6 +168,35 @@ async function createSchema(): Promise<void> {
         t.integer('gmb_website_clicks').nullable();
         t.text('organic_form_data').nullable();
       });
+      const hasGmbLocations = await db.schema.hasColumn('seo_manual_data', 'gmb_locations');
+      if (!hasGmbLocations) {
+        await db.schema.table('seo_manual_data', (t) => {
+          t.text('gmb_locations').nullable();
+          t.text('executive_summary').nullable();
+          t.text('sig_change_whys').nullable();
+          t.text('last_period_plan').nullable();
+          t.text('best_performing_asset').nullable();
+          t.text('next_period_plan').nullable();
+          t.text('period_targets').nullable();
+        });
+      }
+      const hasMetaOrganic = await db.schema.hasColumn('seo_manual_data', 'meta_organic');
+      if (!hasMetaOrganic) {
+        await db.schema.table('seo_manual_data', (t) => {
+          t.text('meta_organic').nullable();
+          t.text('linkedin_organic').nullable();
+          t.text('performance_marketing').nullable();
+          t.integer('health_score').defaultTo(76);
+          t.string('health_label').defaultTo('Weighted for a balanced goal, vs target');
+        });
+      }
+      const hasHealth = await db.schema.hasColumn('seo_manual_data', 'health_score');
+      if (!hasHealth) {
+        await db.schema.table('seo_manual_data', (t) => {
+          t.integer('health_score').defaultTo(76);
+          t.string('health_label').defaultTo('Weighted for a balanced goal, vs target');
+        });
+      }
     }
   });
 

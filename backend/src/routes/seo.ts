@@ -432,6 +432,18 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       gmb_bookings:        row.gmb_bookings        ?? null,
       gmb_website_clicks:  row.gmb_website_clicks  ?? null,
       organic_form_data:   row.organic_form_data   ? JSON.parse(row.organic_form_data)   : [],
+      gmb_locations:       row.gmb_locations       ? JSON.parse(row.gmb_locations)       : [],
+      executive_summary:   row.executive_summary   || '',
+      sig_change_whys:     row.sig_change_whys     ? JSON.parse(row.sig_change_whys)     : {},
+      last_period_plan:    row.last_period_plan    ? JSON.parse(row.last_period_plan)    : [],
+      best_performing_asset: row.best_performing_asset || '',
+      next_period_plan:    row.next_period_plan    ? JSON.parse(row.next_period_plan)    : [],
+      period_targets:      row.period_targets      ? JSON.parse(row.period_targets)      : { sessions: '', leads: '', engagement_rate: '', instagram_reach: '', facebook_reach: '' },
+      meta_organic:        row.meta_organic        ? JSON.parse(row.meta_organic)        : null,
+      linkedin_organic:    row.linkedin_organic    ? JSON.parse(row.linkedin_organic)    : null,
+      performance_marketing: row.performance_marketing ? JSON.parse(row.performance_marketing) : null,
+      health_score:        row.health_score        ?? 76,
+      health_label:        row.health_label        || 'Weighted for a balanced goal, vs target',
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -451,7 +463,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }
-    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers } = req.body;
+    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers, gmb_locations, executive_summary, sig_change_whys, last_period_plan, best_performing_asset, next_period_plan, period_targets, meta_organic, linkedin_organic, performance_marketing, health_score, health_label } = req.body;
     const payload = {
       keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
       targets:             targets            !== undefined ? JSON.stringify(targets)            : undefined,
@@ -468,6 +480,18 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       gmb_website_clicks:  gmb_website_clicks ?? null,
       linkedin_url:        linkedin_url       || null,
       linkedin_followers:  linkedin_followers ?? null,
+      gmb_locations:       gmb_locations       !== undefined ? JSON.stringify(gmb_locations)       : undefined,
+      executive_summary:   executive_summary   !== undefined ? executive_summary                   : undefined,
+      sig_change_whys:     sig_change_whys     !== undefined ? JSON.stringify(sig_change_whys)     : undefined,
+      last_period_plan:    last_period_plan    !== undefined ? JSON.stringify(last_period_plan)    : undefined,
+      best_performing_asset: best_performing_asset !== undefined ? best_performing_asset           : undefined,
+      next_period_plan:    next_period_plan    !== undefined ? JSON.stringify(next_period_plan)    : undefined,
+      period_targets:      period_targets      !== undefined ? JSON.stringify(period_targets)      : undefined,
+      meta_organic:        meta_organic        !== undefined ? JSON.stringify(meta_organic)        : undefined,
+      linkedin_organic:    linkedin_organic    !== undefined ? JSON.stringify(linkedin_organic)    : undefined,
+      performance_marketing: performance_marketing !== undefined ? JSON.stringify(performance_marketing) : undefined,
+      health_score:        health_score        !== undefined ? Number(health_score)                : undefined,
+      health_label:        health_label        !== undefined ? health_label                        : undefined,
       updated_at:          new Date(),
     };
     const existing = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
