@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
   BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
-  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck,
+  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck, Megaphone,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -28,6 +28,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/reports',         icon: BarChart2,      label: 'Reports' },
       { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
       { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
+      { to: '/ads',             icon: Megaphone,      label: 'Ads' },
       { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
       { to: '/mail',         icon: Mail,           label: 'Mail' },
       { to: '/content',      icon: Sparkles,       label: 'Content AI' },
@@ -49,6 +50,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/reports',         icon: BarChart2,      label: 'Reports' },
       { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
       { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
+      { to: '/ads',             icon: Megaphone,      label: 'Ads' },
       { to: '/messages',        icon: MessageCircle,  label: 'Messages' },
       { to: '/mail',            icon: Mail,           label: 'Mail' },
       { to: '/content',         icon: Sparkles,       label: 'Content AI' },
@@ -65,6 +67,7 @@ const NAV: Record<Role, NavGroup> = {
     ],
     more: [
       { to: '/seo',          icon: SearchCheck,    label: 'SEO' },
+      { to: '/ads',          icon: Megaphone,      label: 'Ads' },
       { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
       { to: '/mail',         icon: Mail,           label: 'Mail' },
       { to: '/content',      icon: Sparkles,       label: 'Content AI' },
@@ -115,10 +118,13 @@ export default function Sidebar() {
   const isSeoEmployee = user.role === 'employee'
     ? (user.categories?.some((c) => /seo/i.test(c.name)) ?? false)
     : true;
+  const isAdsEmployee = user.role === 'employee'
+    ? (user.categories?.some((c) => /ads/i.test(c.name)) ?? false)
+    : true;
 
   const { top } = NAV[user.role];
   const more = NAV[user.role].more.filter(
-    (item) => item.to !== '/seo' || isSeoEmployee
+    (item) => (item.to !== '/seo' || isSeoEmployee) && (item.to !== '/ads' || isAdsEmployee)
   );
   const initials = user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 

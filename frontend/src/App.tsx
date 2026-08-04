@@ -17,6 +17,7 @@ import UserManagement from './pages/admin/UserManagement';
 import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
+import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
 
@@ -129,6 +130,16 @@ function AppRoutes() {
           guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /seo/i.test(c.name)) ?? false)}
         >
           <SEO />
+        </PrivateRoute>
+      } />
+
+      {/* Ads Analytics — admin, manager, and Ads-category employees only */}
+      <Route path="/ads" element={
+        <PrivateRoute
+          roles={['admin', 'manager', 'employee']}
+          guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /ads/i.test(c.name)) ?? false)}
+        >
+          <Ads />
         </PrivateRoute>
       } />
 

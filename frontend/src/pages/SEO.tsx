@@ -92,11 +92,10 @@ interface PeriodTargets {
 }
 
 interface OrganicMetrics {
+  views: string | null;
   reach: string | null;
-  reach_change: string | null;
-  engagement_rate: string | null;
-  net_followers: string | null;
-  net_followers_change: string | null;
+  content_interactions: string | null;
+  link_clicks: string | null;
   key_insights: string | null;
 }
 
@@ -179,46 +178,14 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
-  if (!metrics) return { reachVal: '—', reachBadge: null, rateVal: '—', netVal: '—', netBadge: null, key_insights: null };
-
-  const parseBadge = (changeStr: string | null | undefined) => {
-    if (!changeStr || !changeStr.trim()) return null;
-    const s = changeStr.trim();
-    const isDown = s.includes('↓') || s.includes('-') || s.toLowerCase().includes('down');
-    let numStr = s.replace(/[↑↓]/g, '').trim();
-    if (!numStr.endsWith('%') && !isNaN(Number(numStr.replace(/,/g, '')))) {
-      numStr = `${numStr}%`;
-    }
-    return { text: `${isDown ? '↓' : '↑'} ${numStr}`, isDown };
+  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null };
+  return {
+    viewsVal:        metrics.views?.trim()                || '—',
+    reachVal:        metrics.reach?.trim()                || '—',
+    interactionsVal: metrics.content_interactions?.trim() || '—',
+    linkClicksVal:   metrics.link_clicks?.trim()          || '—',
+    key_insights:    metrics.key_insights,
   };
-
-  let reachVal = metrics.reach?.trim() || '—';
-  let reachBadge = parseBadge(metrics.reach_change);
-
-  if (!reachBadge && reachVal !== '—') {
-    const m = reachVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
-    if (m) {
-      reachVal = m[1].trim();
-      reachBadge = parseBadge(m[2]);
-    }
-  }
-
-  let rateVal = metrics.engagement_rate?.trim() || '—';
-  if (rateVal !== '—' && !rateVal.endsWith('%')) {
-    rateVal = `${rateVal}%`;
-  }
-
-  let netVal = metrics.net_followers?.trim() || '—';
-  let netBadge = parseBadge(metrics.net_followers_change);
-
-  if (!netBadge && netVal !== '—') {
-    const m = netVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
-    if (m) {
-      netBadge = parseBadge(m[2]);
-    }
-  }
-
-  return { reachVal, reachBadge, rateVal, netVal, netBadge, key_insights: metrics.key_insights };
 };
 
 export const parsePaidDisplay = (metrics: PaidMetrics | undefined) => {
@@ -451,19 +418,14 @@ ${manual.gmb_locations.map((loc) => {
 
   // ── Social Media Organic ──
   const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined) => {
-    if (!metrics || (!metrics.reach && !metrics.engagement_rate && !metrics.net_followers && !metrics.key_insights)) return '';
+    if (!metrics || (!metrics.views && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights)) return '';
     const parsed = parseOrganicDisplay(metrics);
-    const reachValStr = parsed.reachBadge
-      ? `${parsed.reachVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.reachBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.reachBadge.text}</span>`
-      : parsed.reachVal;
-    const netValStr = parsed.netBadge
-      ? `${parsed.netVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.netBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.netBadge.text}</span>`
-      : parsed.netVal;
 
     const cards = [
-      parsed.reachVal !== '—' ? ['Organic Reach', reachValStr] : null,
-      parsed.rateVal !== '—' ? ['Engagement Rate', parsed.rateVal] : null,
-      parsed.netVal !== '—' ? ['Net New Followers', netValStr] : null,
+      parsed.viewsVal        !== '—' ? ['Views',                parsed.viewsVal]        : null,
+      parsed.reachVal        !== '—' ? ['Reach',                parsed.reachVal]        : null,
+      parsed.interactionsVal !== '—' ? ['Content Interactions', parsed.interactionsVal] : null,
+      parsed.linkClicksVal   !== '—' ? ['Link Clicks',          parsed.linkClicksVal]   : null,
     ].filter(Boolean) as [string, string][];
 
     return `
@@ -824,7 +786,7 @@ const emptyGmbLocation = (): GmbLocation => ({
 });
 
 const emptyOrganicMetrics = (): OrganicMetrics => ({
-  reach: null, reach_change: '', engagement_rate: null, net_followers: null, net_followers_change: '', key_insights: null,
+  views: null, reach: null, content_interactions: null, link_clicks: null, key_insights: null,
 });
 
 const emptyPaidMetrics = (): PaidMetrics => ({
@@ -2387,22 +2349,20 @@ export default function SEO() {
                       <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--brand,#2563eb)' }}>{title}</h3>
                       <div className="seo-li-stats">
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">
-                            {parsed.reachVal}
-                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
-                          </p>
-                          <p className="seo-card__label">Organic Reach</p>
+                          <p className="seo-card__val">{parsed.viewsVal}</p>
+                          <p className="seo-card__label">Views</p>
                         </div>
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">{parsed.rateVal}</p>
-                          <p className="seo-card__label">Engagement Rate</p>
+                          <p className="seo-card__val">{parsed.reachVal}</p>
+                          <p className="seo-card__label">Reach</p>
                         </div>
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">
-                            {parsed.netVal}
-                            {parsed.netBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.netBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.netBadge.text}</span>}
-                          </p>
-                          <p className="seo-card__label">Net New Followers</p>
+                          <p className="seo-card__val">{parsed.interactionsVal}</p>
+                          <p className="seo-card__label">Content Interactions</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.linkClicksVal}</p>
+                          <p className="seo-card__label">Link Clicks</p>
                         </div>
                       </div>
                       {parsed.key_insights && (
@@ -2421,11 +2381,10 @@ export default function SEO() {
                       <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Instagram Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" placeholder="e.g. 12,500" value={moEdit.instagram?.views ?? ''} onChange={(e) => setInstaOrg('views', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 1,75,828" value={moEdit.instagram?.reach ?? ''} onChange={(e) => setInstaOrg('reach', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 17%" value={moEdit.instagram?.reach_change ?? ''} onChange={(e) => setInstaOrg('reach_change', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 2.3%" value={moEdit.instagram?.engagement_rate ?? ''} onChange={(e) => setInstaOrg('engagement_rate', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 41" value={moEdit.instagram?.net_followers ?? ''} onChange={(e) => setInstaOrg('net_followers', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 81%" value={moEdit.instagram?.net_followers_change ?? ''} onChange={(e) => setInstaOrg('net_followers_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Content Interactions</label><input className="form-input seo-inline-input" placeholder="e.g. 430" value={moEdit.instagram?.content_interactions ?? ''} onChange={(e) => setInstaOrg('content_interactions', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Link Clicks</label><input className="form-input seo-inline-input" placeholder="e.g. 58" value={moEdit.instagram?.link_clicks ?? ''} onChange={(e) => setInstaOrg('link_clicks', e.target.value || null)} /></div>
                         </div>
                         <div className="seo-inline-field" style={{ marginBottom: 16 }}>
                           <label className="seo-inline-label">Instagram Key Insights</label>
@@ -2434,11 +2393,10 @@ export default function SEO() {
 
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, marginTop: 10 }}>Facebook Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" placeholder="e.g. 5,200" value={moEdit.facebook?.views ?? ''} onChange={(e) => setFbOrg('views', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 2,110" value={moEdit.facebook?.reach ?? ''} onChange={(e) => setFbOrg('reach', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 12%" value={moEdit.facebook?.reach_change ?? ''} onChange={(e) => setFbOrg('reach_change', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 4.6%" value={moEdit.facebook?.engagement_rate ?? ''} onChange={(e) => setFbOrg('engagement_rate', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 6" value={moEdit.facebook?.net_followers ?? ''} onChange={(e) => setFbOrg('net_followers', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 98%" value={moEdit.facebook?.net_followers_change ?? ''} onChange={(e) => setFbOrg('net_followers_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Content Interactions</label><input className="form-input seo-inline-input" placeholder="e.g. 180" value={moEdit.facebook?.content_interactions ?? ''} onChange={(e) => setFbOrg('content_interactions', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Link Clicks</label><input className="form-input seo-inline-input" placeholder="e.g. 24" value={moEdit.facebook?.link_clicks ?? ''} onChange={(e) => setFbOrg('link_clicks', e.target.value || null)} /></div>
                         </div>
                         <div className="seo-inline-field" style={{ marginBottom: 16 }}>
                           <label className="seo-inline-label">Facebook Key Insights</label>
@@ -2474,11 +2432,10 @@ export default function SEO() {
                       <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>LinkedIn Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" placeholder="e.g. 3,200" value={loEdit.views ?? ''} onChange={(e) => setLiOrg('views', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↑ 35%" value={loEdit.reach_change ?? ''} onChange={(e) => setLiOrg('reach_change', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Engagement Rate</label><input className="form-input seo-inline-input" placeholder="e.g. 4.9%" value={loEdit.engagement_rate ?? ''} onChange={(e) => setLiOrg('engagement_rate', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Net New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 9" value={loEdit.net_followers ?? ''} onChange={(e) => setLiOrg('net_followers', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Followers Change</label><input className="form-input seo-inline-input" placeholder="e.g. ↓ 97%" value={loEdit.net_followers_change ?? ''} onChange={(e) => setLiOrg('net_followers_change', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Content Interactions</label><input className="form-input seo-inline-input" placeholder="e.g. 75" value={loEdit.content_interactions ?? ''} onChange={(e) => setLiOrg('content_interactions', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Link Clicks</label><input className="form-input seo-inline-input" placeholder="e.g. 18" value={loEdit.link_clicks ?? ''} onChange={(e) => setLiOrg('link_clicks', e.target.value || null)} /></div>
                         </div>
                         <div className="seo-inline-field" style={{ marginBottom: 16 }}>
                           <label className="seo-inline-label">Key Insights</label>
@@ -2493,22 +2450,20 @@ export default function SEO() {
                       <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: 'var(--brand,#2563eb)' }}>LinkedIn Organic</h3>
                       <div className="seo-li-stats">
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">
-                            {parsed.reachVal}
-                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
-                          </p>
-                          <p className="seo-card__label">Organic Reach</p>
+                          <p className="seo-card__val">{parsed.viewsVal}</p>
+                          <p className="seo-card__label">Views</p>
                         </div>
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">{parsed.rateVal}</p>
-                          <p className="seo-card__label">Engagement Rate</p>
+                          <p className="seo-card__val">{parsed.reachVal}</p>
+                          <p className="seo-card__label">Reach</p>
                         </div>
                         <div className="seo-li-stat">
-                          <p className="seo-card__val">
-                            {parsed.netVal}
-                            {parsed.netBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.netBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.netBadge.text}</span>}
-                          </p>
-                          <p className="seo-card__label">Net New Followers</p>
+                          <p className="seo-card__val">{parsed.interactionsVal}</p>
+                          <p className="seo-card__label">Content Interactions</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.linkClicksVal}</p>
+                          <p className="seo-card__label">Link Clicks</p>
                         </div>
                       </div>
                       {parsed.key_insights && (
