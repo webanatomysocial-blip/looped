@@ -175,13 +175,7 @@ interface Report {
   client: { id: number; name: string };
 }
 
-function fmtDate(d: string) { return `${d.slice(4, 6)}/${d.slice(6, 8)}`; }
-function fmtDateLabel(d: string) {
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${months[parseInt(d.slice(4,6)) - 1]} ${parseInt(d.slice(6,8))}`;
-}
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
-function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
   if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null };
   return {
@@ -229,94 +223,18 @@ export const parsePaidDisplay = (metrics: PaidMetrics | undefined) => {
 };
 
 function downloadPDF(
-  report: Report,
   clientName: string,
   range: string,
   manual: ManualData,
-  demoCountry: string,
-  selectedAcquisitions: Set<string>,
-  selectedDemographics: Set<string>,
-  selectedPages: Set<string>,
-  selectedQueries: Set<string>,
   agencyName = 'webanatomy',
   customStart = '',
-  customEnd = '',
-  compareStart = '',
-  compareEnd = ''
+  customEnd = ''
 ) {
-  const eng = report.engagement;
-  const maxV = Math.max(...report.traffic.map((r) => Math.max(r.users, r.sessions)), 1);
-  const W = 700, H = 160, pad = 32, barW = Math.max(4, Math.floor((W - pad * 2) / report.traffic.length) - 2);
-
-  const bars = report.traffic.map((row, i) => {
-    const x = pad + i * (barW + 2);
-    const sh = Math.round((row.sessions / maxV) * H);
-    const uh = Math.round((row.users / maxV) * H);
-    return `
-      <rect x="${x}" y="${H - sh}" width="${barW}" height="${sh}" fill="#c7d2fe" rx="2"/>
-      <rect x="${x}" y="${H - uh}" width="${barW}" height="${uh}" fill="#6366f1" rx="2"/>`;
-  }).join('');
-
-  const labels = report.traffic.filter((_, i) => i % Math.ceil(report.traffic.length / 10) === 0)
-    .map((row) => {
-      const origI = report.traffic.findIndex((r) => r.date === row.date);
-      const x = pad + origI * (barW + 2) + barW / 2;
-      return `<text x="${x}" y="${H + 16}" text-anchor="middle" font-size="9" fill="#888">${fmtDate(row.date)}</text>`;
-    }).join('');
-
-  const showCmp = !!(compareStart && compareEnd && report.prevEngagement);
-  const prev = report.prevEngagement;
-  const cmpBadge = (cur: number, pre: number | undefined) => {
-    if (!showCmp || !pre || pre === 0) return '';
-    const pct = Math.round(((cur - pre) / pre) * 100);
-    return `<span style="font-size:10px;font-weight:700;margin-left:6px;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
-  };
   const gmbCmpBadge = (cur: number, pre: number | null) => {
     if (pre == null || pre === 0) return '';
     const pct = Math.round(((cur - pre) / pre) * 100);
     return ` <span style="font-size:10px;font-weight:700;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
   };
-  const cards = [
-    ['Total Users', eng.users.toLocaleString() + cmpBadge(eng.users, prev?.users)],
-    ['New Users', eng.newUsers.toLocaleString() + cmpBadge(eng.newUsers, prev?.newUsers)],
-    ['Sessions', eng.sessions.toLocaleString() + cmpBadge(eng.sessions, prev?.sessions)],
-    ['Avg. Duration', fmtDuration(eng.avgDuration) + cmpBadge(eng.avgDuration, prev?.avgDuration)],
-    ['Engagement Rate', `${eng.engagementRate}%` + cmpBadge(eng.engagementRate, prev?.engagementRate)],
-  ];
-
-  const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-weight:600">${r.channel}</td>
-      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
-    </tr>`).join('');
-
-  const showCountryCol = manual !== undefined && demoCountry === 'all';
-  const demoRows = report.demographics.filter((r) => selectedDemographics.has(r.city)).map((r: any, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-weight:600">${r.city}</td>
-      ${showCountryCol ? `<td style="padding:8px 12px;color:#888">${r.country ?? ''}</td>` : ''}
-      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
-    </tr>`).join('');
-
-  const pageRows = report.pages.filter((r) => selectedPages.has(r.page)).map((r, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shortenUrl(r.page)}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.impressions.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.ctr}%</td>
-      <td style="padding:8px 12px;text-align:right">${r.position}</td>
-    </tr>`).join('');
-
-  const queryRows = report.queries.filter((r) => selectedQueries.has(r.query)).map((r, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.query}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">${r.clicks.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.impressions.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.ctr}%</td>
-      <td style="padding:8px 12px;text-align:right">${r.position}</td>
-    </tr>`).join('');
 
   // ── Executive Summary ──
   const execHtml = manual.executive_summary ? `
@@ -690,54 +608,6 @@ ${lastPlanHtml}
 ${nextPlanHtml}
 ${highlightsHtml}
 
-<div class="cards">
-  ${cards.map(([label, val]) => `<div class="card"><div class="card-val">${val}</div><div class="card-label">${label}</div></div>`).join('')}
-</div>
-
-<h2>Website Traffic</h2>
-<div class="section">
-  <svg width="${W}" height="${H + 28}" viewBox="0 0 ${W} ${H + 28}" xmlns="http://www.w3.org/2000/svg">
-    ${bars}${labels}
-  </svg>
-  <div class="legend">
-    <span><span class="dot" style="background:#6366f1"></span>Users</span>
-    <span><span class="dot" style="background:#c7d2fe"></span>Sessions</span>
-  </div>
-</div>
-
-${acqRows && demoRows ? `<div class="two-col">
-  <div>
-    <h2>Traffic Acquisition</h2>
-    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-  </div>
-  <div>
-    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-  </div>
-</div>` : acqRows ? `
-<h2>Traffic Acquisition</h2>
-<div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-` : demoRows ? `
-<h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-<div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-` : ''}
-
-${pageRows && queryRows ? `<div class="two-col">
-  <div>
-    <h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
-    <div class="section"><table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${pageRows}</tbody></table></div>
-  </div>
-  <div>
-    <h2>Top Queries <span class="badge">Search Console</span></h2>
-    <div class="section"><table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${queryRows}</tbody></table></div>
-  </div>
-</div>` : pageRows ? `
-<h2>Pages &amp; Screens <span class="badge">Search Console</span></h2>
-<div class="section"><table><thead><tr><th>Page</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${pageRows}</tbody></table></div>
-` : queryRows ? `
-<h2>Top Queries <span class="badge">Search Console</span></h2>
-<div class="section"><table><thead><tr><th>Query</th><th>Clicks</th><th>Impr.</th><th>CTR</th><th>Pos.</th></tr></thead><tbody>${queryRows}</tbody></table></div>
-` : ''}
 
 ${kwRows ? `
 <div class="section-block">
@@ -880,21 +750,16 @@ export default function SEO() {
   const [pageSearchInput, setPageSearchInput] = useState('');
   const [pageSearch, setPageSearch]           = useState('');
   const [pagePage, setPagePage]               = useState(1);
-  const [selectedPages, setSelectedPages]     = useState<Set<string>>(new Set());
-
-  // Top Queries: search + pagination + PDF selection
+  // Top Queries: search + pagination
   const QUERIES_PER_PAGE = 10;
   const [querySearchInput, setQuerySearchInput] = useState('');
   const [querySearch, setQuerySearch]           = useState('');
   const [queryPage, setQueryPage]               = useState(1);
-  const [selectedQueries, setSelectedQueries]   = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // New report loaded — select all items by default and reset search/pagination
     setSelectedAcquisitions(new Set(report?.acquisition.map((a) => a.channel) ?? []));
     setSelectedDemographics(new Set(report?.demographics.map((d) => d.city) ?? []));
-    setSelectedPages(new Set(report?.pages.map((p) => p.page) ?? []));
-    setSelectedQueries(new Set(report?.queries.map((q) => q.query) ?? []));
     setPageSearchInput('');
     setPageSearch('');
     setPagePage(1);
@@ -1078,7 +943,7 @@ export default function SEO() {
             {report && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry, selectedAcquisitions, selectedDemographics, selectedPages, selectedQueries, agencyName, customStart, customEnd, compareStart, compareEnd)}
+                onClick={() => downloadPDF(selectedClient?.name ?? 'Client', range, manual, agencyName, customStart, customEnd)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -2193,7 +2058,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.instagram?.top_post_description ?? ''} onChange={(e) => setInstaOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.instagram?.top_post_description ?? ''} onChange={(e) => setInstaOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.instagram?.top_post_impressions ?? ''} onChange={(e) => setInstaOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
@@ -2214,7 +2079,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.facebook?.top_post_description ?? ''} onChange={(e) => setFbOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.facebook?.top_post_description ?? ''} onChange={(e) => setFbOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.facebook?.top_post_impressions ?? ''} onChange={(e) => setFbOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
@@ -2262,7 +2127,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post description</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={loEdit.top_post_description ?? ''} onChange={(e) => setLiOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={loEdit.top_post_description ?? ''} onChange={(e) => setLiOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={loEdit.top_post_impressions ?? ''} onChange={(e) => setLiOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
@@ -2430,7 +2295,7 @@ export default function SEO() {
 
             {/* ── Flags / Risks ── */}
             <div className="seo-section">
-              <div className="seo-section-header" style={{ cursor: 'default' }}>
+              <div className="seo-section-header" style={{ cursor: 'default', marginBottom : '10px' }}>
                 <div>
                   <h2 className="seo-section-title">Flags / Risks</h2>
                   <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: 0 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
