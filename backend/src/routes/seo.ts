@@ -444,6 +444,7 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       performance_marketing: row.performance_marketing ? JSON.parse(row.performance_marketing) : null,
       health_score:        row.health_score        ?? 76,
       health_label:        row.health_label        || 'Weighted for a balanced goal, vs target',
+      flags_risks:         row.flags_risks         || '',
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -463,7 +464,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }
-    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers, gmb_locations, executive_summary, sig_change_whys, last_period_plan, best_performing_asset, next_period_plan, period_targets, meta_organic, linkedin_organic, performance_marketing, health_score, health_label } = req.body;
+    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers, gmb_locations, executive_summary, sig_change_whys, last_period_plan, best_performing_asset, next_period_plan, period_targets, meta_organic, linkedin_organic, performance_marketing, health_score, health_label, flags_risks } = req.body;
     const payload = {
       keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
       targets:             targets            !== undefined ? JSON.stringify(targets)            : undefined,
@@ -492,6 +493,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       performance_marketing: performance_marketing !== undefined ? JSON.stringify(performance_marketing) : undefined,
       health_score:        health_score        !== undefined ? Number(health_score)                : undefined,
       health_label:        health_label        !== undefined ? health_label                        : undefined,
+      flags_risks:         flags_risks         !== undefined ? (flags_risks || null)               : undefined,
       updated_at:          new Date(),
     };
     const existing = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();

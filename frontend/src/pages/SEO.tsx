@@ -101,7 +101,6 @@ interface OrganicMetrics {
   top_post_impressions: string | null;
   channel_plan_action: string | null;
   channel_plan_impressions_target: string | null;
-  flags_risks: string | null;
 }
 
 interface PaidMetrics {
@@ -145,6 +144,7 @@ interface ManualData {
   performance_marketing: PerformanceMarketing;
   health_score: number;
   health_label: string;
+  flags_risks: string;
   // legacy flat fields
   gmb_rating: number | null;
   gmb_reviews: number | null;
@@ -183,18 +183,17 @@ function fmtDateLabel(d: string) {
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 function shortenUrl(url: string) { return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\?.*$/, '').slice(0, 60); }
 export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
-  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null, flags_risks: null };
+  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null };
   return {
     viewsVal:        metrics.views?.trim()                || '—',
     reachVal:        metrics.reach?.trim()                || '—',
     interactionsVal: metrics.content_interactions?.trim() || '—',
     linkClicksVal:   metrics.link_clicks?.trim()          || '—',
     key_insights:    metrics.key_insights,
-    top_post_description:        metrics.top_post_description,
-    top_post_impressions:        metrics.top_post_impressions,
-    channel_plan_action:         metrics.channel_plan_action,
+    top_post_description:            metrics.top_post_description,
+    top_post_impressions:            metrics.top_post_impressions,
+    channel_plan_action:             metrics.channel_plan_action,
     channel_plan_impressions_target: metrics.channel_plan_impressions_target,
-    flags_risks:                 metrics.flags_risks,
   };
 };
 
@@ -496,6 +495,12 @@ ${manual.gmb_locations.map((loc) => {
   ${liPaidHtml}
 </div>` : '';
 
+  const flagsRisksHtml = manual.flags_risks ? `
+<div class="section-block" style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px 20px">
+  <h2 style="color:#dc2626;font-size:14px;text-transform:uppercase;margin:0 0 8px">Flags / Risks</h2>
+  <p style="font-size:13px;color:#7f1d1d;line-height:1.7;margin:0">${manual.flags_risks.replace(/\n/g, '<br/>')}</p>
+</div>` : '';
+
   // ── Manual sections ──
   const kwRows = manual.keyword_rankings.map((k, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
@@ -775,6 +780,8 @@ ${socialOrganicHtml}
 
 ${performanceMarketingHtml}
 
+${flagsRisksHtml}
+
 </body></html>`;
 
   const win = window.open('', '_blank');
@@ -800,7 +807,6 @@ const emptyOrganicMetrics = (): OrganicMetrics => ({
   views: null, reach: null, content_interactions: null, link_clicks: null, key_insights: null,
   top_post_description: null, top_post_impressions: null,
   channel_plan_action: null, channel_plan_impressions_target: null,
-  flags_risks: null,
 });
 
 const emptyPaidMetrics = (): PaidMetrics => ({
@@ -824,6 +830,7 @@ const emptyManual = (): ManualData => ({
   },
   health_score: 76,
   health_label: 'Weighted for a balanced goal, vs target',
+  flags_risks: '',
   gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
   gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
   gmb_key_insights: '', gmb_prev_rating: null, gmb_prev_reviews: null,
@@ -2165,12 +2172,6 @@ export default function SEO() {
                           {parsed.channel_plan_impressions_target && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions target: <strong>{parsed.channel_plan_impressions_target}</strong></p>}
                         </div>
                       )}
-                      {parsed.flags_risks && (
-                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', background: '#fef2f2', borderRadius: 6, padding: '8px 10px' }}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 4 }}>Flags / Risks</p>
-                          <p style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6 }}>{parsed.flags_risks}</p>
-                        </div>
-                      )}
                     </div>
                   );
                 };
@@ -2200,12 +2201,6 @@ export default function SEO() {
                           <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={moEdit.instagram?.channel_plan_action ?? ''} onChange={(e) => setInstaOrg('channel_plan_action', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={moEdit.instagram?.channel_plan_impressions_target ?? ''} onChange={(e) => setInstaOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
                         </div>
-                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
-                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
-                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
-                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={moEdit.instagram?.flags_risks ?? ''} onChange={(e) => setInstaOrg('flags_risks', e.target.value || null)} />
-                        </div>
-
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, marginTop: 10 }}>Facebook Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
                           <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" placeholder="e.g. 5,200" value={moEdit.facebook?.views ?? ''} onChange={(e) => setFbOrg('views', e.target.value || null)} /></div>
@@ -2227,12 +2222,6 @@ export default function SEO() {
                           <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={moEdit.facebook?.channel_plan_action ?? ''} onChange={(e) => setFbOrg('channel_plan_action', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={moEdit.facebook?.channel_plan_impressions_target ?? ''} onChange={(e) => setFbOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
                         </div>
-                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
-                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
-                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
-                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={moEdit.facebook?.flags_risks ?? ''} onChange={(e) => setFbOrg('flags_risks', e.target.value || null)} />
-                        </div>
-
                         <div className="seo-manual-actions">
                           <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                         </div>
@@ -2281,11 +2270,6 @@ export default function SEO() {
                           <div className="seo-inline-field"><label className="seo-inline-label">Action</label><input className="form-input seo-inline-input" placeholder="e.g. Publish 1 technical article, engage in 3 industry group discussions" value={loEdit.channel_plan_action ?? ''} onChange={(e) => setLiOrg('channel_plan_action', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions target</label><input className="form-input seo-inline-input" placeholder="e.g. 1100" value={loEdit.channel_plan_impressions_target ?? ''} onChange={(e) => setLiOrg('channel_plan_impressions_target', e.target.value || null)} /></div>
                         </div>
-                        <div className="seo-inline-field" style={{ marginBottom: 14 }}>
-                          <label className="seo-inline-label">Flags / Risks <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(Optional)</span></label>
-                          <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 4 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
-                          <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Flags or risks…" value={loEdit.flags_risks ?? ''} onChange={(e) => setLiOrg('flags_risks', e.target.value || null)} />
-                        </div>
                         <div className="seo-manual-actions">
                           <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                         </div>
@@ -2329,12 +2313,6 @@ export default function SEO() {
                           <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Plan — Next Period</p>
                           <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>{parsed.channel_plan_action}</p>
                           {parsed.channel_plan_impressions_target && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Impressions target: <strong>{parsed.channel_plan_impressions_target}</strong></p>}
-                        </div>
-                      )}
-                      {parsed.flags_risks && (
-                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border)', background: '#fef2f2', borderRadius: 6, padding: '8px 10px' }}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 4 }}>Flags / Risks</p>
-                          <p style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6 }}>{parsed.flags_risks}</p>
                         </div>
                       )}
                     </div>
@@ -2448,6 +2426,37 @@ export default function SEO() {
                   </div>
                 );
               })()}
+            </div>
+
+            {/* ── Flags / Risks ── */}
+            <div className="seo-section">
+              <div className="seo-section-header" style={{ cursor: 'default' }}>
+                <div>
+                  <h2 className="seo-section-title">Flags / Risks</h2>
+                  <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: 0 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
+                </div>
+              </div>
+              {canEdit && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <textarea
+                    className="form-input"
+                    rows={3}
+                    style={{ width: '100%', fontSize: 13 }}
+                    placeholder="Flags or risks…"
+                    value={manualEdit.flags_risks ?? ''}
+                    onChange={(e) => setManualEdit((prev) => ({ ...prev, flags_risks: e.target.value }))}
+                  />
+                  <div className="seo-manual-actions">
+                    <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
+              {manual.flags_risks && (
+                <div style={{ margin: '0 16px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px' }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', marginBottom: 4 }}>Flags / Risks</p>
+                  <p style={{ fontSize: 13, color: '#7f1d1d', lineHeight: 1.6, margin: 0 }}>{manual.flags_risks}</p>
+                </div>
+              )}
             </div>
 
           </>

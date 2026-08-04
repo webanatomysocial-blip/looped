@@ -197,6 +197,10 @@ async function createSchema(): Promise<void> {
           t.string('health_label').defaultTo('Weighted for a balanced goal, vs target');
         });
       }
+      const hasFlagsRisks = await db.schema.hasColumn('seo_manual_data', 'flags_risks');
+      if (!hasFlagsRisks) {
+        await db.schema.table('seo_manual_data', (t) => { t.text('flags_risks').nullable(); });
+      }
     }
   });
 
