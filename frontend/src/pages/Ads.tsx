@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Edit2, Plus, Trash2, Settings, X } from 'lucide-react';
+import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -78,6 +78,106 @@ const calcGroupAvgCpl = (g: CampaignGroup): number | null => {
 
 const fmtNum  = (n: number) => n > 0 ? n.toLocaleString('en-IN') : '—';
 const fmtCur  = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function downloadPDF(clientName: string, data: AdsManualData, start: string, end: string) {
+  const period = start && end ? `${start} → ${end}` : start || end || 'All time';
+
+  const renderGroup = (key: GroupKey, label: string) => {
+    const group = data[key];
+    if (!group.campaigns.length) return '';
+    const totals = calcGroupTotals(group);
+    const avgCpl = calcGroupAvgCpl(group);
+    const rows = group.campaigns.map((c) => {
+      const leads = Number(c.leads) || 0;
+      const cost  = Number(c.cost)  || 0;
+      const cpl   = leads > 0 ? cost / leads : null;
+      const cplColor = cpl === null || avgCpl === null ? '#555' : cpl < avgCpl ? '#16a34a' : '#d97706';
+      return `<tr>
+        <td style="font-weight:600">${c.name || '—'}</td>
+        <td style="text-align:right">${fmtNum(Number(c.reach) || 0)}</td>
+        <td style="text-align:right">${fmtNum(Number(c.impressions) || 0)}</td>
+        <td style="text-align:right">${fmtNum(Number(c.clicks) || 0)}</td>
+        <td style="text-align:right;font-weight:700">${leads > 0 ? fmtNum(leads) : '—'}</td>
+        <td style="text-align:right;font-weight:700;color:${cplColor}">${cpl !== null ? fmtCur(cpl) : '—'}</td>
+        <td style="text-align:right">${cost > 0 ? fmtCur(cost) : '—'}</td>
+      </tr>`;
+    }).join('');
+    const insightsHtml = group.key_insights
+      ? `<div style="margin-top:10px;padding:10px 14px;background:#f8f8f5;border-radius:8px;border:1px solid #e0e0d6">
+          <div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Key Insights</div>
+          <div style="font-size:12px;line-height:1.7;color:#333;white-space:pre-wrap">${group.key_insights}</div>
+        </div>` : '';
+    return `
+      <div class="section" style="margin-bottom:20px">
+        <h3 style="font-size:13px;font-weight:700;color:#2563eb;margin-bottom:8px">${label} Campaigns</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#1e3a5f;color:#fff">
+              <th style="padding:8px 10px;text-align:left;font-weight:700">Campaigns</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Reach</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Impressions</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Clicks</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Leads</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Cost/Lead</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:700">Amount Spent</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr style="background:#e8edf5;font-weight:700;border-top:2px solid #c0c8d8">
+              <td style="padding:8px 10px;font-weight:700">Total</td>
+              <td style="padding:8px 10px;text-align:right">${fmtNum(totals.reach)}</td>
+              <td style="padding:8px 10px;text-align:right">${fmtNum(totals.impressions)}</td>
+              <td style="padding:8px 10px;text-align:right">${fmtNum(totals.clicks)}</td>
+              <td style="padding:8px 10px;text-align:right">${fmtNum(totals.leads)}</td>
+              <td style="padding:8px 10px;text-align:right;color:#16a34a;font-weight:700">${avgCpl !== null ? fmtCur(avgCpl) : '—'}</td>
+              <td style="padding:8px 10px;text-align:right">${totals.cost > 0 ? fmtCur(totals.cost) : '—'}</td>
+            </tr>
+          </tbody>
+        </table>
+        ${insightsHtml}
+      </div>`;
+  };
+
+  const allCampaigns = [...data.google.campaigns, ...data.linkedin.campaigns, ...data.meta.campaigns];
+  const ov = allCampaigns.reduce((acc, c) => ({ reach: acc.reach + (Number(c.reach)||0), impressions: acc.impressions + (Number(c.impressions)||0), clicks: acc.clicks + (Number(c.clicks)||0), leads: acc.leads + (Number(c.leads)||0), cost: acc.cost + (Number(c.cost)||0) }), { reach:0, impressions:0, clicks:0, leads:0, cost:0 });
+  const ovCpl = calcGroupAvgCpl({ campaigns: allCampaigns, key_insights: '' });
+
+  const cards = [
+    ['Campaigns', String(allCampaigns.length)],
+    ['Total Reach', fmtNum(ov.reach)],
+    ['Impressions', fmtNum(ov.impressions)],
+    ['Clicks', fmtNum(ov.clicks)],
+    ['Total Leads', fmtNum(ov.leads)],
+    ['Avg Cost/Lead', ovCpl !== null ? fmtCur(ovCpl) : '—'],
+    ['Total Spent', ov.cost > 0 ? fmtCur(ov.cost) : '—'],
+  ].map(([l, v]) => `<div style="background:#f0f4ff;border-radius:8px;padding:10px 14px;min-width:90px;text-align:center"><div style="font-size:15px;font-weight:700;color:#1e3a5f">${v}</div><div style="font-size:10px;color:#666;margin-top:2px">${l}</div></div>`).join('');
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ads Report — ${clientName}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#222;background:#fff;padding:28px 32px;font-size:13px}
+    table td,table th{padding:7px 10px;border-bottom:1px solid #e8e8e0}
+    table tr:nth-child(even) td{background:#f9f9f6}
+    @media print{@page{size:A4;margin:14mm 12mm}body{padding:0}}
+  </style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;border-bottom:2px solid #1e3a5f;padding-bottom:14px">
+      <div>
+        <h1 style="font-size:20px;font-weight:800;color:#1e3a5f">Ads Analytics Report</h1>
+        <div style="font-size:13px;color:#555;margin-top:4px">${clientName} &nbsp;·&nbsp; ${period}</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px">${cards}</div>
+    ${GROUPS.map(({ key, label }) => renderGroup(key, label)).join('')}
+    ${data.notes ? `<div style="margin-top:16px;padding:12px 16px;background:#f8f8f5;border-radius:8px"><div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;margin-bottom:4px">Notes</div><div style="font-size:12px;line-height:1.7;white-space:pre-wrap">${data.notes}</div></div>` : ''}
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => { win.focus(); win.print(); }, 400);
+}
 
 export default function Ads() {
   const { user } = useAuth();
@@ -348,6 +448,15 @@ export default function Ads() {
                 style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink-muted)', cursor: 'pointer' }}
                 onClick={() => { setCustomStart(''); setCustomEnd(''); }}
               >✕</button>
+            )}
+            {hasSomeData && (
+              <button
+                className="seo-download-btn"
+                onClick={() => downloadPDF(selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
+                title="Download PDF"
+              >
+                <Download size={13} /> Download PDF
+              </button>
             )}
           </div>
         </div>
