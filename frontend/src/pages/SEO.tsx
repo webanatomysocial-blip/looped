@@ -885,7 +885,7 @@ export default function SEO() {
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
-  const [paidTab, setPaidTab] = useState<'instagram_paid' | 'facebook_paid' | 'linkedin_paid'>('instagram_paid');
+  const [paidTab, setPaidTab] = useState<'meta_paid' | 'linkedin_paid'>('meta_paid');
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -2534,7 +2534,7 @@ export default function SEO() {
 
               {/* Platform tabs */}
               <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16, flexWrap: 'wrap', gap: 4 }}>
-                {(['instagram_paid', 'facebook_paid', 'linkedin_paid'] as const).map((tab) => (
+                {(['meta_paid', 'linkedin_paid'] as const).map((tab) => (
                   <button key={tab} type="button" onClick={() => setPaidTab(tab)}
                     style={{
                       padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
@@ -2542,7 +2542,7 @@ export default function SEO() {
                       color: paidTab === tab ? '#059669' : 'var(--ink-muted)',
                       marginBottom: -1,
                     }}>
-                    {tab === 'instagram_paid' ? 'Instagram Paid' : tab === 'facebook_paid' ? 'Facebook Paid' : 'LinkedIn Paid'}
+                    {tab === 'meta_paid' ? 'Meta Paid' : 'LinkedIn Paid'}
                   </button>
                 ))}
                 {canEdit && (
@@ -2598,37 +2598,46 @@ export default function SEO() {
               {/* Display Mode for Performance Marketing */}
               {(() => {
                 const pm = manual.performance_marketing ?? { instagram_paid: emptyPaidMetrics(), facebook_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
-                const curPaid = pm[paidTab] ?? emptyPaidMetrics();
-                const parsed = parsePaidDisplay(curPaid);
-                const titleMap = { instagram_paid: 'Instagram Paid', facebook_paid: 'Facebook Paid', linkedin_paid: 'LinkedIn Paid' };
 
-                return (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)' }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{titleMap[paidTab]}</h3>
-                    <div className="seo-li-stats">
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
-                        <p className="seo-card__label">Paid Spend</p>
+                const renderPaidCard = (title: string, metrics: PaidMetrics | undefined, isLast = false) => {
+                  const parsed = parsePaidDisplay(metrics);
+                  return (
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)', marginBottom: isLast ? 0 : 16 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{title}</h3>
+                      <div className="seo-li-stats">
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
+                          <p className="seo-card__label">Paid Spend</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">
+                            {parsed.reachVal}
+                            {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
+                          </p>
+                          <p className="seo-card__label">Paid Reach</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.costVal}</p>
+                          <p className="seo-card__label">Cost / Reach Point</p>
+                        </div>
                       </div>
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val">
-                          {parsed.reachVal}
-                          {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
-                        </p>
-                        <p className="seo-card__label">Paid Reach</p>
-                      </div>
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val">{parsed.costVal}</p>
-                        <p className="seo-card__label">Cost / Reach Point</p>
-                      </div>
+                      {parsed.key_insights && (
+                        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
+                          <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                        </div>
+                      )}
                     </div>
-                    {parsed.key_insights && (
-                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
-                        <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
-                      </div>
-                    )}
-                  </div>
+                  );
+                };
+
+                return paidTab === 'meta_paid' ? (
+                  <>
+                    {renderPaidCard('Instagram Paid', pm.instagram_paid, false)}
+                    {renderPaidCard('Facebook Paid', pm.facebook_paid, true)}
+                  </>
+                ) : (
+                  renderPaidCard('LinkedIn Paid', pm.linkedin_paid, true)
                 );
               })()}
             </div>
