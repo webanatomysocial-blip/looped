@@ -303,8 +303,8 @@ export default function Ads() {
               <span style={{ width: 90 }}>Impressions</span>
               <span style={{ width: 70 }}>Clicks</span>
               <span style={{ width: 65 }}>Leads</span>
+              <span style={{ width: 80, color: 'var(--brand,#2563eb)' }}>Cost/Lead <span style={{ fontSize: 9, fontWeight: 400 }}>(auto)</span></span>
               <span style={{ width: 100 }}>Amount Spent (₹)</span>
-              <span style={{ width: 80 }}>Cost/Lead</span>
               <span style={{ width: 26 }} />
             </div>
             {editGroup.campaigns.map((c, i) => {
@@ -318,8 +318,8 @@ export default function Ads() {
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.impressions} onChange={(e) => updCampaign(key, i, { impressions: e.target.value })} style={{ width: 90 }} />
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.clicks}      onChange={(e) => updCampaign(key, i, { clicks: e.target.value })}      style={{ width: 70 }} />
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.leads}       onChange={(e) => updCampaign(key, i, { leads: e.target.value })}       style={{ width: 65 }} />
+                  <span style={{ width: 80, fontSize: 13, fontWeight: 700, color: cost > 0 && leads > 0 ? '#16a34a' : 'var(--ink-muted)', textAlign: 'right' }}>{cpl}</span>
                   <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost}     onChange={(e) => updCampaign(key, i, { cost: e.target.value })}        style={{ width: 100 }} />
-                  <span style={{ width: 80, fontSize: 12, color: 'var(--ink-muted)', textAlign: 'right' }}>{cpl}</span>
                   <button className="seo-manual-del" onClick={() => removeCampaign(key, i)}><Trash2 size={13} /></button>
                 </div>
               );
