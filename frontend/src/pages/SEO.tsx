@@ -345,7 +345,7 @@ ${manual.gmb_locations.map((loc) => {
 
   // ── Social Media Organic ──
   const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined) => {
-    if (!metrics || (!metrics.views && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights)) return '';
+    if (!metrics || (!metrics.views && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights && !metrics.top_post_description && !metrics.channel_plan_action)) return '';
     const parsed = parseOrganicDisplay(metrics);
 
     const cards = [
@@ -361,6 +361,18 @@ ${manual.gmb_locations.map((loc) => {
           <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;color:#6366f1">${title}</h3>
           ${cards.length ? `<div class="mini-cards">${cards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>` : ''}
           ${parsed.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:10px;color:#333">${parsed.key_insights}</div>` : ''}
+          ${parsed.top_post_description ? `
+            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:4px">Top Performing Post</p>
+              <p style="font-size:13px;color:#1a1a1a;line-height:1.6;margin:0">${parsed.top_post_description}</p>
+              ${parsed.top_post_impressions ? `<p style="font-size:12px;color:#64748b;margin-top:2px">Impressions: <strong>${parsed.top_post_impressions}</strong></p>` : ''}
+            </div>` : ''}
+          ${parsed.channel_plan_action ? `
+            <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:4px">Plan — Next Period</p>
+              <p style="font-size:13px;color:#1a1a1a;line-height:1.6;margin:0">${parsed.channel_plan_action}</p>
+              ${parsed.channel_plan_impressions_target ? `<p style="font-size:12px;color:#64748b;margin-top:2px">Impressions target: <strong>${parsed.channel_plan_impressions_target}</strong></p>` : ''}
+            </div>` : ''}
         </div>
       </div>
     `;
