@@ -16,6 +16,7 @@ interface ManualCampaign {
   impressions: string;
   clicks: string;
   leads: string;
+  cost_per_lead: string;
   cost: string;
 }
 
@@ -41,7 +42,7 @@ const GROUPS: { key: GroupKey; label: string; badge: string }[] = [
 
 const emptyGroup = (): CampaignGroup => ({ campaigns: [], key_insights: '' });
 const emptyManual = (): AdsManualData => ({ notes: '', google: emptyGroup(), linkedin: emptyGroup(), meta: emptyGroup() });
-const emptyCampaign = (): ManualCampaign => ({ name: '', reach: '', impressions: '', clicks: '', leads: '', cost: '' });
+const emptyCampaign = (): ManualCampaign => ({ name: '', reach: '', impressions: '', clicks: '', leads: '', cost_per_lead: '', cost: '' });
 
 const parseManualData = (raw: any): AdsManualData => {
   const base = emptyManual();
@@ -68,10 +69,10 @@ const calcGroupTotals = (g: CampaignGroup) =>
     { reach: 0, impressions: 0, clicks: 0, leads: 0, cost: 0 },
   );
 
-// Total Cost/Lead = avg of individual per-campaign CPLs
+// Total Cost/Lead = avg of manually entered per-campaign cost/lead values
 const calcGroupAvgCpl = (g: CampaignGroup): number | null => {
   const cpls = g.campaigns
-    .map((c) => { const l = Number(c.leads); const cost = Number(c.cost); return l > 0 ? cost / l : null; })
+    .map((c) => Number(c.cost_per_lead) || null)
     .filter((v): v is number => v !== null);
   return cpls.length > 0 ? cpls.reduce((a, b) => a + b, 0) / cpls.length : null;
 };
@@ -90,7 +91,7 @@ function downloadPDF(clientName: string, data: AdsManualData, start: string, end
     const rows = group.campaigns.map((c) => {
       const leads = Number(c.leads) || 0;
       const cost  = Number(c.cost)  || 0;
-      const cpl   = leads > 0 ? cost / leads : null;
+      const cpl   = Number(c.cost_per_lead) || null;
       const cplColor = cpl === null || avgCpl === null ? '#555' : cpl < avgCpl ? '#16a34a' : '#d97706';
       return `<tr>
         <td style="font-weight:600">${c.name || '—'}</td>
@@ -303,23 +304,20 @@ export default function Ads() {
               <span style={{ width: 90 }}>Impressions</span>
               <span style={{ width: 70 }}>Clicks</span>
               <span style={{ width: 65 }}>Leads</span>
-              <span style={{ width: 80, color: 'var(--brand,#2563eb)' }}>Cost/Lead <span style={{ fontSize: 9, fontWeight: 400 }}>(auto)</span></span>
+              <span style={{ width: 80 }}>Cost/Lead (₹)</span>
               <span style={{ width: 100 }}>Amount Spent (₹)</span>
               <span style={{ width: 26 }} />
             </div>
             {editGroup.campaigns.map((c, i) => {
-              const leads = Number(c.leads) || 0;
-              const cost  = Number(c.cost)  || 0;
-              const cpl   = leads > 0 ? `₹${(cost / leads).toFixed(2)}` : '—';
               return (
                 <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                   <input className="form-input seo-inline-input" placeholder="Campaign name" value={c.name}        onChange={(e) => updCampaign(key, i, { name: e.target.value })}        style={{ flex: 2 }} />
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.reach}       onChange={(e) => updCampaign(key, i, { reach: e.target.value })}       style={{ width: 82 }} />
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.impressions} onChange={(e) => updCampaign(key, i, { impressions: e.target.value })} style={{ width: 90 }} />
                   <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.clicks}      onChange={(e) => updCampaign(key, i, { clicks: e.target.value })}      style={{ width: 70 }} />
-                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.leads}       onChange={(e) => updCampaign(key, i, { leads: e.target.value })}       style={{ width: 65 }} />
-                  <span style={{ width: 80, fontSize: 13, fontWeight: 700, color: cost > 0 && leads > 0 ? '#16a34a' : 'var(--ink-muted)', textAlign: 'right' }}>{cpl}</span>
-                  <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost}     onChange={(e) => updCampaign(key, i, { cost: e.target.value })}        style={{ width: 100 }} />
+                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.leads}         onChange={(e) => updCampaign(key, i, { leads: e.target.value })}         style={{ width: 65 }} />
+                  <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost_per_lead} onChange={(e) => updCampaign(key, i, { cost_per_lead: e.target.value })} style={{ width: 80 }} />
+                  <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost}         onChange={(e) => updCampaign(key, i, { cost: e.target.value })}         style={{ width: 100 }} />
                   <button className="seo-manual-del" onClick={() => removeCampaign(key, i)}><Trash2 size={13} /></button>
                 </div>
               );
@@ -368,7 +366,7 @@ export default function Ads() {
                   {group.campaigns.map((c, i) => {
                     const leads = Number(c.leads) || 0;
                     const cost  = Number(c.cost)  || 0;
-                    const cpl   = leads > 0 ? cost / leads : null;
+                    const cpl   = Number(c.cost_per_lead) || null;
                     return (
                       <tr key={i}>
                         <td style={{ fontWeight: 600 }}>{c.name || '—'}</td>
