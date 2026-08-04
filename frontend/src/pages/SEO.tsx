@@ -223,18 +223,62 @@ export const parsePaidDisplay = (metrics: PaidMetrics | undefined) => {
 };
 
 function downloadPDF(
+  report: Report,
   clientName: string,
   range: string,
   manual: ManualData,
+  demoCountry: string,
+  selectedAcquisitions: Set<string>,
+  selectedDemographics: Set<string>,
   agencyName = 'webanatomy',
   customStart = '',
-  customEnd = ''
+  customEnd = '',
+  compareStart = '',
+  compareEnd = ''
 ) {
+  const eng = report.engagement;
+  const showCmp = !!(compareStart && compareEnd && report.prevEngagement);
+  const prev = report.prevEngagement;
+  const cmpBadge = (cur: number, pre: number | undefined) => {
+    if (!showCmp || !pre || pre === 0) return '';
+    const pct = Math.round(((cur - pre) / pre) * 100);
+    return `<span style="font-size:10px;font-weight:700;margin-left:6px;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
+  };
   const gmbCmpBadge = (cur: number, pre: number | null) => {
     if (pre == null || pre === 0) return '';
     const pct = Math.round(((cur - pre) / pre) * 100);
     return ` <span style="font-size:10px;font-weight:700;color:${pct >= 0 ? '#16a34a' : '#dc2626'}">${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%</span>`;
   };
+
+  const cards = [
+    ['Total Users',     eng.users.toLocaleString()         + cmpBadge(eng.users, prev?.users)],
+    ['New Users',       eng.newUsers.toLocaleString()       + cmpBadge(eng.newUsers, prev?.newUsers)],
+    ['Sessions',        eng.sessions.toLocaleString()       + cmpBadge(eng.sessions, prev?.sessions)],
+    ['Avg. Duration',   fmtDuration(eng.avgDuration)        + cmpBadge(eng.avgDuration, prev?.avgDuration)],
+    ['Engagement Rate', `${eng.engagementRate}%`            + cmpBadge(eng.engagementRate, prev?.engagementRate)],
+  ];
+
+  const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-weight:600">${r.channel}</td>
+      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
+    </tr>`).join('');
+
+  const showCountryCol = demoCountry === 'all';
+  const demoRows = report.demographics.filter((r) => selectedDemographics.has(r.city)).map((r: any, i) => `
+    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+      <td style="padding:8px 12px;font-weight:600">${r.city}</td>
+      ${showCountryCol ? `<td style="padding:8px 12px;color:#888">${r.country ?? ''}</td>` : ''}
+      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
+    </tr>`).join('');
+
+  const totalClicks = report.pages.reduce((s, p) => s + p.clicks, 0);
+  const totalImpr   = report.pages.reduce((s, p) => s + p.impressions, 0);
+  const avgCtr      = totalImpr > 0 ? ((totalClicks / totalImpr) * 100).toFixed(1) : '0.0';
+  const avgPos      = report.pages.length > 0
+    ? (report.pages.reduce((s, p) => s + p.position, 0) / report.pages.length).toFixed(1) : '—';
 
   // ── Executive Summary ──
   const execHtml = manual.executive_summary ? `
@@ -620,6 +664,39 @@ ${lastPlanHtml}
 ${nextPlanHtml}
 ${highlightsHtml}
 
+<div class="cards">
+  ${cards.map(([label, val]) => `<div class="card"><div class="card-val">${val}</div><div class="card-label">${label}</div></div>`).join('')}
+</div>
+
+${acqRows && demoRows ? `<div class="two-col">
+  <div>
+    <h2>Traffic Acquisition</h2>
+    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+  </div>
+  <div>
+    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
+    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+  </div>
+</div>` : acqRows ? `
+<h2>Traffic Acquisition</h2>
+<div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+` : demoRows ? `
+<h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
+<div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+` : ''}
+
+${totalClicks > 0 ? `
+<div class="section-block">
+<h2>Search Performance <span class="badge">Search Console</span></h2>
+<div class="section"><div class="section-inner">
+  <div class="mini-cards">
+    <div class="mini-card"><div class="mini-card-val">${totalClicks.toLocaleString()}</div><div class="mini-card-label">Total Clicks</div></div>
+    <div class="mini-card"><div class="mini-card-val">${totalImpr.toLocaleString()}</div><div class="mini-card-label">Impressions</div></div>
+    <div class="mini-card"><div class="mini-card-val">${avgCtr}%</div><div class="mini-card-label">Avg. CTR</div></div>
+    <div class="mini-card"><div class="mini-card-val">${avgPos}</div><div class="mini-card-label">Avg. Position</div></div>
+  </div>
+</div></div>
+</div>` : ''}
 
 ${kwRows ? `
 <div class="section-block">
@@ -955,7 +1032,7 @@ export default function SEO() {
             {report && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(selectedClient?.name ?? 'Client', range, manual, agencyName, customStart, customEnd)}
+                onClick={() => downloadPDF(report!, selectedClient?.name ?? 'Client', range, manual, demoCountry, selectedAcquisitions, selectedDemographics, agencyName, customStart, customEnd, compareStart, compareEnd)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
