@@ -447,7 +447,7 @@ export default function Ads() {
                 onClick={() => { setCustomStart(''); setCustomEnd(''); }}
               >✕</button>
             )}
-            {hasSomeData && (
+            {selectedClient && (
               <button
                 className="seo-download-btn"
                 onClick={() => downloadPDF(selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
