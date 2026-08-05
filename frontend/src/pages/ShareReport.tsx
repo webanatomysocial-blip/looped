@@ -11,6 +11,18 @@ export default function ShareReport() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
 
+  // Override the app-wide overflow:hidden so this page can scroll
+  useEffect(() => {
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+    };
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     axios.get(`${API}/public/seo/${token}`)
