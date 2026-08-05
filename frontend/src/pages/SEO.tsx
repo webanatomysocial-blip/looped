@@ -16,7 +16,7 @@ interface PageRow { page: string; clicks: number; impressions: number; ctr: numb
 interface QueryRow { query: string; clicks: number; impressions: number; ctr: number; position: number; }
 interface KeywordRank { keyword: string; rank: number; change: number; }
 interface Target { name: string; target: number; achieved: number; unit: string; }
-interface OrganicForm  { date: string; source: string; contact: string; }
+interface OrganicForm  { date: string; source: string; contact: string; doc_link?: string; }
 interface LinkedInPost { title: string; impressions: number; clicks: number; }
 interface LinkedInData {
   impressions: number | null;
@@ -279,7 +279,7 @@ function downloadPDF(
   ].filter(Boolean) as [string, string][];
   const targetCardsHtml = ptCards.length > 0 ? `
 <div class="section-block">
-<h2>Period Targets</h2>
+<h2>Current Period Targets</h2>
 <div class="section">
   <div class="section-inner">
     <div class="mini-cards">${ptCards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>
@@ -369,15 +369,15 @@ ${manual.gmb_locations.map((loc) => {
 </div>` : '';
 
   // ── Social Media Organic ──
-  const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined) => {
+  const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined, labels?: { views?: string; reach?: string; interactions?: string; linkClicks?: string }) => {
     if (!metrics || (!metrics.views && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights && !metrics.top_post_description && !metrics.channel_plan_action)) return '';
     const parsed = parseOrganicDisplay(metrics);
 
     const cards = [
-      parsed.viewsVal        !== '—' ? ['Views',                parsed.viewsVal]        : null,
-      parsed.reachVal        !== '—' ? ['Reach',                parsed.reachVal]        : null,
-      parsed.interactionsVal !== '—' ? ['Content Interactions', parsed.interactionsVal] : null,
-      parsed.linkClicksVal   !== '—' ? ['Link Clicks',          parsed.linkClicksVal]   : null,
+      parsed.viewsVal        !== '—' ? [labels?.views        ?? 'Views',                parsed.viewsVal]        : null,
+      parsed.reachVal        !== '—' ? [labels?.reach        ?? 'Reach',                parsed.reachVal]        : null,
+      parsed.interactionsVal !== '—' ? [labels?.interactions ?? 'Content Interactions', parsed.interactionsVal] : null,
+      parsed.linkClicksVal   !== '—' ? [labels?.linkClicks   ?? 'Link Clicks',          parsed.linkClicksVal]   : null,
     ].filter(Boolean) as [string, string][];
 
     return `
@@ -405,7 +405,7 @@ ${manual.gmb_locations.map((loc) => {
 
   const instaOrgHtml = renderOrganicBlock('Instagram Organic', manual.meta_organic?.instagram);
   const fbOrgHtml = renderOrganicBlock('Facebook Organic', manual.meta_organic?.facebook);
-  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic);
+  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic, { views: 'Impressions', reach: 'Relations', interactions: 'Total Followers', linkClicks: 'New Followers' });
 
   const socialOrganicHtml = (instaOrgHtml || fbOrgHtml || liOrgHtml) ? `
 <div class="section-block">
@@ -579,6 +579,7 @@ ${manual.gmb_locations.map((loc) => {
       <td style="padding:8px 12px;font-size:11px">${row.date}</td>
       <td style="padding:8px 12px;font-size:11px">${row.source}</td>
       <td style="padding:8px 12px;font-size:11px">${row.contact}</td>
+      <td style="padding:8px 12px;font-size:11px">${row.doc_link ? `<a href="${row.doc_link}" style="color:#6366f1;text-decoration:underline">View Doc</a>` : '—'}</td>
     </tr>`).join('');
 
   const fmtD = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -662,6 +663,7 @@ ${lastPlanHtml}
 ${nextPlanHtml}
 ${highlightsHtml}
 
+<h2>Website Performance</h2>
 <div class="cards">
   ${cards.map(([label, val]) => `<div class="card"><div class="card-val">${val}</div><div class="card-label">${label}</div></div>`).join('')}
 </div>
@@ -709,16 +711,16 @@ ${organicRows ? `
 <div class="section-block">
 <h2>Organic Form Submissions</h2>
 <div class="section">
-  <table><thead><tr><th>Date</th><th>Source</th><th>Contact</th></tr></thead>
+  <table><thead><tr><th>Date</th><th>Source</th><th>Contact</th><th>Doc</th></tr></thead>
   <tbody>${organicRows}</tbody></table>
 </div>
 </div>` : ''}
 
 ${targetRows ? `
 <div class="section-block">
-<h2>Targets</h2>
+<h2>Targets — Achieved vs Set</h2>
 <div class="section">
-  <table><thead><tr><th>Metric</th><th>Achieved</th><th>Target</th></tr></thead>
+  <table><thead><tr><th>Metric</th><th>Achieved</th><th>Target (Set)</th></tr></thead>
   <tbody>${targetRows}</tbody></table>
 </div>
 </div>` : ''}
@@ -1457,7 +1459,7 @@ export default function SEO() {
             {(canEdit || Object.values(manual.period_targets ?? {}).some(v => v)) && (
               <div className="seo-section">
                 <h3 className="seo-section__title">
-                  Targets — Next Period
+                  Current Period Targets
                   <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>manual</span>
                   {canEdit && (
                     <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === ('period_targets' as any) ? null : 'period_targets' as any)}>
@@ -1511,7 +1513,8 @@ export default function SEO() {
               </div>
             )}
 
-            {/* ── Summary cards ── */}
+            {/* ── Website Performance ── */}
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: '20px 0 10px', color: 'var(--ink)' }}>Website Performance</h3>
             <div className="seo-cards">
               {(() => {
                 const eng = report.engagement;
@@ -1778,6 +1781,7 @@ export default function SEO() {
                       <span style={{ width: 100 }}>Date</span>
                       <span style={{ width: 130 }}>Source</span>
                       <span style={{ flex: 1 }}>Contact</span>
+                      <span style={{ flex: 1 }}>Doc Link (optional)</span>
                       <span style={{ width: 28 }} />
                     </div>
                     {manualEdit.organic_form_data.map((row, i) => (
@@ -1788,6 +1792,8 @@ export default function SEO() {
                           onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], source: v }; return { ...prev, organic_form_data: a }; }); }} />
                         <input className="form-input seo-manual-input" placeholder="R. Naidu · 90xxxxx210" value={row.contact}
                           onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], contact: v }; return { ...prev, organic_form_data: a }; }); }} />
+                        <input className="form-input seo-manual-input" placeholder="https://docs.google.com/..." value={row.doc_link ?? ''}
+                          onChange={(e) => { const v = e.target.value; setManualEdit(prev => { const a = [...prev.organic_form_data]; a[i] = { ...a[i], doc_link: v || undefined }; return { ...prev, organic_form_data: a }; }); }} />
                         <button className="seo-manual-del" onClick={() => setManualEdit(prev => ({ ...prev, organic_form_data: prev.organic_form_data.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
                       </div>
                     ))}
@@ -1799,10 +1805,15 @@ export default function SEO() {
                 )}
                 {manual.organic_form_data.length > 0
                   ? <table className="seo-table">
-                      <thead><tr><th>Date</th><th>Source</th><th>Contact</th></tr></thead>
+                      <thead><tr><th>Date</th><th>Source</th><th>Contact</th><th>Doc</th></tr></thead>
                       <tbody>
                         {manual.organic_form_data.map((row, i) => (
-                          <tr key={i}><td>{row.date}</td><td>{row.source}</td><td>{row.contact}</td></tr>
+                          <tr key={i}>
+                            <td>{row.date}</td>
+                            <td>{row.source}</td>
+                            <td>{row.contact}</td>
+                            <td>{row.doc_link ? <a href={row.doc_link} target="_blank" rel="noreferrer" style={{ color: '#6366f1', textDecoration: 'underline', fontSize: 12 }}>View Doc</a> : '—'}</td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
@@ -2199,10 +2210,10 @@ export default function SEO() {
                       <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>LinkedIn Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Views</label><input className="form-input seo-inline-input" placeholder="e.g. 3,200" value={loEdit.views ?? ''} onChange={(e) => setLiOrg('views', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Content Interactions</label><input className="form-input seo-inline-input" placeholder="e.g. 75" value={loEdit.content_interactions ?? ''} onChange={(e) => setLiOrg('content_interactions', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Link Clicks</label><input className="form-input seo-inline-input" placeholder="e.g. 18" value={loEdit.link_clicks ?? ''} onChange={(e) => setLiOrg('link_clicks', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 3,200" value={loEdit.views ?? ''} onChange={(e) => setLiOrg('views', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Relations</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 1,250" value={loEdit.content_interactions ?? ''} onChange={(e) => setLiOrg('content_interactions', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 18" value={loEdit.link_clicks ?? ''} onChange={(e) => setLiOrg('link_clicks', e.target.value || null)} /></div>
                         </div>
                         <div className="seo-inline-field" style={{ marginBottom: 16 }}>
                           <label className="seo-inline-label">Key Insights</label>
@@ -2228,19 +2239,19 @@ export default function SEO() {
                       <div className="seo-li-stats">
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.viewsVal}</p>
-                          <p className="seo-card__label">Views</p>
+                          <p className="seo-card__label">Impressions</p>
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.reachVal}</p>
-                          <p className="seo-card__label">Reach</p>
+                          <p className="seo-card__label">Relations</p>
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.interactionsVal}</p>
-                          <p className="seo-card__label">Content Interactions</p>
+                          <p className="seo-card__label">Total Followers</p>
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.linkClicksVal}</p>
-                          <p className="seo-card__label">Link Clicks</p>
+                          <p className="seo-card__label">New Followers</p>
                         </div>
                       </div>
                       {parsed.key_insights && (
