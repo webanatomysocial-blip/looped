@@ -513,11 +513,14 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
     const db = getDB();
-    const { range = '28d', startDate, endDate } = req.body;
+    const { range = '28d', startDate, endDate, demographics, acquisitions, country } = req.body;
     const token = randomUUID();
     await db('client_companies').where({ id: req.params.clientId }).update({
       share_token: token, share_range: range,
       share_start: startDate || null, share_end: endDate || null,
+      share_demographics: demographics ? JSON.stringify(demographics) : null,
+      share_acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
+      share_country: country || null,
     });
     res.json({ token });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -529,7 +532,7 @@ router.delete('/share/:clientId', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
     await getDB()('client_companies').where({ id: req.params.clientId }).update({
-      share_token: null, share_range: null, share_start: null, share_end: null,
+      share_token: null, share_range: null, share_start: null, share_end: null, share_demographics: null, share_acquisitions: null, share_country: null,
     });
     res.json({ message: 'Revoked' });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -641,21 +644,27 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       ? engagementRes.value.rows[0].metricValues
       : null;
 
+    const selectedCities: string[] = client.share_demographics ? JSON.parse(client.share_demographics) : [];
+    const selectedChannels: string[] = client.share_acquisitions ? JSON.parse(client.share_acquisitions) : [];
+
+    const allDemographics = demoRes.status === 'fulfilled' && demoRes.value?.rows
+      ? demoRes.value.rows.map((r: any) => ({ city: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value) }))
+      : [];
+    const allAcquisition = acquisitionRes.status === 'fulfilled' && acquisitionRes.value?.rows
+      ? acquisitionRes.value.rows.map((r: any) => ({ channel: r.dimensionValues[0].value, sessions: Number(r.metricValues[0].value), users: Number(r.metricValues[1].value) }))
+      : [];
+
     const report = {
       traffic: trafficRes.status === 'fulfilled' && trafficRes.value?.rows
         ? trafficRes.value.rows.map((r: any) => ({ date: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value), pageviews: Number(r.metricValues[2].value), newUsers: Number(r.metricValues[3].value) }))
         : [],
-      acquisition: acquisitionRes.status === 'fulfilled' && acquisitionRes.value?.rows
-        ? acquisitionRes.value.rows.map((r: any) => ({ channel: r.dimensionValues[0].value, sessions: Number(r.metricValues[0].value), users: Number(r.metricValues[1].value) }))
-        : [],
+      acquisition: selectedChannels.length > 0 ? allAcquisition.filter((r: any) => selectedChannels.includes(r.channel)) : allAcquisition,
       engagement: eng
         ? { avgDuration: Math.round(Number(eng[0].value)), bounceRate: Math.round(Number(eng[1].value) * 100), pagesPerSession: Number(Number(eng[2].value).toFixed(1)), engagementRate: Math.round(Number(eng[3].value) * 100), sessions: Number(eng[4].value), users: Number(eng[5].value), newUsers: Number(eng[6].value) }
         : { avgDuration: 0, bounceRate: 0, pagesPerSession: 0, engagementRate: 0, sessions: 0, users: 0, newUsers: 0 },
       prevEngagement: null,
       prevAcquisition: [],
-      demographics: demoRes.status === 'fulfilled' && demoRes.value?.rows
-        ? demoRes.value.rows.map((r: any) => ({ city: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value) }))
-        : [],
+      demographics: selectedCities.length > 0 ? allDemographics.filter((r: any) => selectedCities.includes(r.city)) : allDemographics,
       pages: gscRes.status === 'fulfilled' && gscRes.value?.rows
         ? gscRes.value.rows.map((r: any) => ({ page: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
         : [],

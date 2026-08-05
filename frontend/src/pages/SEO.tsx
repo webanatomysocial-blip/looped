@@ -1062,7 +1062,7 @@ export default function SEO() {
                     setShareCopied(true);
                     setTimeout(() => setShareCopied(false), 2000);
                   } else {
-                    const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined });
+                    const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry });
                     setShareToken(r.data.token);
                     const link = `${window.location.origin}/share/${r.data.token}`;
                     await navigator.clipboard.writeText(link);

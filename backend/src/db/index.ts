@@ -124,6 +124,14 @@ async function createSchema(): Promise<void> {
           t.string('share_end').nullable();
         });
       }
+      const hasShareDemographics = await db.schema.hasColumn('client_companies', 'share_demographics');
+      if (!hasShareDemographics) {
+        await db.schema.table('client_companies', (t) => {
+          t.text('share_demographics').nullable(); // JSON array of selected city names
+          t.text('share_acquisitions').nullable(); // JSON array of selected channel names
+          t.string('share_country').nullable();
+        });
+      }
     }
   });
 
