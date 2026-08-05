@@ -265,12 +265,12 @@ export default function ShareReport() {
             {[
               { title: 'Instagram Organic', m: manual.meta_organic?.instagram, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
               { title: 'Facebook Organic', m: manual.meta_organic?.facebook, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
-              { title: 'LinkedIn Organic', m: manual.linkedin_organic, labels: ['Impressions', 'Relations', 'Total Followers', 'New Followers'] },
-            ].filter(({ m }) => m && (m.views || m.reach || m.content_interactions || m.link_clicks || m.key_insights || m.top_post_description || m.channel_plan_action)).map(({ title, m, labels }) => (
+              { title: 'LinkedIn Organic', m: manual.linkedin_organic, labels: ['Impressions', 'Clicks', 'Relations', 'Total Followers', 'New Followers'], isLinkedIn: true },
+            ].filter(({ m }) => m && (m.views || m.clicks || m.reach || m.content_interactions || m.link_clicks || m.key_insights || m.top_post_description || m.channel_plan_action)).map(({ title, m, labels, isLinkedIn }: any) => (
               <div key={title} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginBottom: 12 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#6366f1' }}>{title}</h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  {[m.views, m.reach, m.content_interactions, m.link_clicks].map((v: any, i: number) => v ? <MiniCard key={i} label={labels[i]} val={v} /> : null)}
+                  {(isLinkedIn ? [m.views, m.clicks, m.reach, m.content_interactions, m.link_clicks] : [m.views, m.reach, m.content_interactions, m.link_clicks]).map((v: any, i: number) => v ? <MiniCard key={i} label={labels[i]} val={v} /> : null)}
                 </div>
                 {m.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, marginTop: 8 }}>{m.key_insights}</p>}
                 {m.top_post_description && (

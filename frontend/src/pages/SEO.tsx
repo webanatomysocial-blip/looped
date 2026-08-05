@@ -93,6 +93,7 @@ interface PeriodTargets {
 
 interface OrganicMetrics {
   views: string | null;
+  clicks: string | null;
   reach: string | null;
   content_interactions: string | null;
   link_clicks: string | null;
@@ -173,9 +174,10 @@ interface Report {
 
 function fmtDuration(s: number) { const m = Math.floor(s / 60); return `${m}m ${s % 60}s`; }
 export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
-  if (!metrics) return { viewsVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null };
+  if (!metrics) return { viewsVal: '—', clicksVal: '—', reachVal: '—', interactionsVal: '—', linkClicksVal: '—', key_insights: null, top_post_description: null, top_post_impressions: null, channel_plan_action: null, channel_plan_impressions_target: null };
   return {
     viewsVal:        metrics.views?.trim()                || '—',
+    clicksVal:       metrics.clicks?.trim()               || '—',
     reachVal:        metrics.reach?.trim()                || '—',
     interactionsVal: metrics.content_interactions?.trim() || '—',
     linkClicksVal:   metrics.link_clicks?.trim()          || '—',
@@ -369,12 +371,13 @@ ${manual.gmb_locations.map((loc) => {
 </div>` : '';
 
   // ── Social Media Organic ──
-  const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined, labels?: { views?: string; reach?: string; interactions?: string; linkClicks?: string }) => {
-    if (!metrics || (!metrics.views && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights && !metrics.top_post_description && !metrics.channel_plan_action)) return '';
+  const renderOrganicBlock = (title: string, metrics: OrganicMetrics | undefined, labels?: { views?: string; clicks?: string; reach?: string; interactions?: string; linkClicks?: string }) => {
+    if (!metrics || (!metrics.views && !metrics.clicks && !metrics.reach && !metrics.content_interactions && !metrics.link_clicks && !metrics.key_insights && !metrics.top_post_description && !metrics.channel_plan_action)) return '';
     const parsed = parseOrganicDisplay(metrics);
 
     const cards = [
       parsed.viewsVal        !== '—' ? [labels?.views        ?? 'Views',                parsed.viewsVal]        : null,
+      labels?.clicks && parsed.clicksVal !== '—' ? [labels.clicks, parsed.clicksVal] : null,
       parsed.reachVal        !== '—' ? [labels?.reach        ?? 'Reach',                parsed.reachVal]        : null,
       parsed.interactionsVal !== '—' ? [labels?.interactions ?? 'Content Interactions', parsed.interactionsVal] : null,
       parsed.linkClicksVal   !== '—' ? [labels?.linkClicks   ?? 'Link Clicks',          parsed.linkClicksVal]   : null,
@@ -405,7 +408,7 @@ ${manual.gmb_locations.map((loc) => {
 
   const instaOrgHtml = renderOrganicBlock('Instagram Organic', manual.meta_organic?.instagram);
   const fbOrgHtml = renderOrganicBlock('Facebook Organic', manual.meta_organic?.facebook);
-  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic, { views: 'Impressions', reach: 'reactions', interactions: 'Total Followers', linkClicks: 'New Followers' });
+  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic, { views: 'Impressions', clicks: 'Clicks', reach: 'reactions', interactions: 'Total Followers', linkClicks: 'New Followers' });
 
   const socialOrganicHtml = (instaOrgHtml || fbOrgHtml || liOrgHtml) ? `
 <div class="section-block">
@@ -771,7 +774,7 @@ const emptyGmbLocation = (): GmbLocation => ({
 });
 
 const emptyOrganicMetrics = (): OrganicMetrics => ({
-  views: null, reach: null, content_interactions: null, link_clicks: null, key_insights: null,
+  views: null, clicks: null, reach: null, content_interactions: null, link_clicks: null, key_insights: null,
   top_post_description: null, top_post_impressions: null,
   channel_plan_action: null, channel_plan_impressions_target: null,
 });
@@ -2273,6 +2276,7 @@ export default function SEO() {
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>LinkedIn Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 3,200" value={loEdit.views ?? ''} onChange={(e) => setLiOrg('views', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Clicks</label><input className="form-input seo-inline-input" placeholder="e.g. 420" value={loEdit.clicks ?? ''} onChange={(e) => setLiOrg('clicks', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">reactions</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 1,250" value={loEdit.content_interactions ?? ''} onChange={(e) => setLiOrg('content_interactions', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 18" value={loEdit.link_clicks ?? ''} onChange={(e) => setLiOrg('link_clicks', e.target.value || null)} /></div>
@@ -2302,6 +2306,10 @@ export default function SEO() {
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.viewsVal}</p>
                           <p className="seo-card__label">Impressions</p>
+                        </div>
+                        <div className="seo-li-stat">
+                          <p className="seo-card__val">{parsed.clicksVal}</p>
+                          <p className="seo-card__label">Clicks</p>
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.reachVal}</p>
