@@ -103,24 +103,20 @@ interface OrganicMetrics {
   channel_plan_impressions_target: string | null;
 }
 
-interface PaidMetrics {
-  spend: string | null;
-  reach: string | null;
-  reach_change: string | null;
-  cost_per_reach: string | null;
-  key_insights: string | null;
-}
-
 interface MetaOrganic {
   instagram: OrganicMetrics;
   facebook: OrganicMetrics;
 }
 
+interface PmCampaign {
+  name: string; reach: string; impressions: string;
+  clicks: string; leads: string; cost_per_lead: string; cost: string;
+}
+interface PmGroup { campaigns: PmCampaign[]; key_insights: string; }
 interface PerformanceMarketing {
-  meta_paid: PaidMetrics;
-  linkedin_paid: PaidMetrics;
-  instagram_paid?: PaidMetrics;
-  facebook_paid?: PaidMetrics;
+  google: PmGroup;
+  linkedin: PmGroup;
+  meta: PmGroup;
 }
 
 interface ManualData {
@@ -191,35 +187,20 @@ export const parseOrganicDisplay = (metrics: OrganicMetrics | undefined) => {
   };
 };
 
-export const parsePaidDisplay = (metrics: PaidMetrics | undefined) => {
-  if (!metrics) return { spendVal: '—', reachVal: '—', reachBadge: null, costVal: '—', key_insights: null };
+const calcPmTotals = (g: PmGroup) => g.campaigns.reduce(
+  (acc, c) => ({
+    reach: acc.reach + (Number(c.reach) || 0),
+    impressions: acc.impressions + (Number(c.impressions) || 0),
+    clicks: acc.clicks + (Number(c.clicks) || 0),
+    leads: acc.leads + (Number(c.leads) || 0),
+    cost: acc.cost + (Number(c.cost) || 0),
+  }),
+  { reach: 0, impressions: 0, clicks: 0, leads: 0, cost: 0 }
+);
 
-  const parseBadge = (changeStr: string | null | undefined) => {
-    if (!changeStr || !changeStr.trim()) return null;
-    const s = changeStr.trim();
-    const isDown = s.includes('↓') || s.includes('-') || s.toLowerCase().includes('down');
-    let numStr = s.replace(/[↑↓]/g, '').trim();
-    if (!numStr.endsWith('%') && !isNaN(Number(numStr.replace(/,/g, '')))) {
-      numStr = `${numStr}%`;
-    }
-    return { text: `${isDown ? '↓' : '↑'} ${numStr}`, isDown };
-  };
-
-  const spendVal = metrics.spend?.trim() || '—';
-  let reachVal = metrics.reach?.trim() || '—';
-  let reachBadge = parseBadge(metrics.reach_change);
-
-  if (!reachBadge && reachVal !== '—') {
-    const m = reachVal.match(/^(.*?)\s+([↑↓].*|\+.*|\-.*|\d+%\s*)$/);
-    if (m) {
-      reachVal = m[1].trim();
-      reachBadge = parseBadge(m[2]);
-    }
-  }
-
-  const costVal = metrics.cost_per_reach?.trim() || '—';
-
-  return { spendVal, reachVal, reachBadge, costVal, key_insights: metrics.key_insights };
+const calcPmAvgCpl = (g: PmGroup): number | null => {
+  const vals = g.campaigns.map((c) => Number(c.cost_per_lead)).filter((v) => !isNaN(v) && v > 0);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 };
 
 function downloadPDF(
@@ -435,38 +416,55 @@ ${manual.gmb_locations.map((loc) => {
 </div>` : '';
 
   // ── Performance Marketing (Paid) ──
-  const renderPaidBlock = (title: string, metrics: PaidMetrics | undefined) => {
-    if (!metrics || (!metrics.spend && !metrics.reach && !metrics.cost_per_reach && !metrics.key_insights)) return '';
-    const parsed = parsePaidDisplay(metrics);
-    const reachValStr = parsed.reachBadge
-      ? `${parsed.reachVal} <span style="font-size:11px;font-weight:700;margin-left:4px;color:${parsed.reachBadge.isDown ? '#dc2626' : '#16a34a'}">${parsed.reachBadge.text}</span>`
-      : parsed.reachVal;
-
-    const cards = [
-      parsed.spendVal !== '—' ? ['Paid Spend', parsed.spendVal] : null,
-      parsed.reachVal !== '—' ? ['Paid Reach', reachValStr] : null,
-      parsed.costVal !== '—' ? ['Cost / Reach Point', parsed.costVal] : null,
-    ].filter(Boolean) as [string, string][];
-
+  const renderPmGroupBlock = (title: string, g: PmGroup | undefined) => {
+    if (!g || g.campaigns.length === 0) return '';
+    const tot = calcPmTotals(g);
+    const avgCpl = calcPmAvgCpl(g);
+    const cols = ['Campaign', 'Reach', 'Impressions', 'Clicks', 'Leads', 'Cost/Lead (₹)', 'Amount Spent (₹)'];
+    const rows = g.campaigns.map((c, i) => `
+      <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+        <td style="padding:7px 10px;font-size:12px">${c.name || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.reach || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.impressions || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.clicks || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.leads || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.cost_per_lead || '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${c.cost || '—'}</td>
+      </tr>`).join('');
+    const totRow = `
+      <tr style="background:#f1f5f9;font-weight:700">
+        <td style="padding:7px 10px;font-size:12px">Total</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${tot.reach.toLocaleString()}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${tot.impressions.toLocaleString()}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${tot.clicks.toLocaleString()}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${tot.leads.toLocaleString()}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${avgCpl !== null ? avgCpl.toFixed(2) : '—'}</td>
+        <td style="padding:7px 10px;text-align:right;font-size:12px">${tot.cost.toLocaleString()}</td>
+      </tr>`;
     return `
-      <div class="section" style="margin-bottom:14px">
-        <div class="section-inner">
-          <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;color:#059669">${title}</h3>
-          ${cards.length ? `<div class="mini-cards">${cards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>` : ''}
-          ${parsed.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:10px;color:#333">${parsed.key_insights}</div>` : ''}
+      <div style="margin-bottom:16px">
+        <h3 style="font-size:13px;font-weight:700;margin-bottom:8px;color:#059669">${title}</h3>
+        <div class="section" style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr>${cols.map((c) => `<th style="padding:7px 10px;text-align:${c === 'Campaign' ? 'left' : 'right'};font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;text-transform:uppercase">${c}</th>`).join('')}</tr></thead>
+            <tbody>${rows}${totRow}</tbody>
+          </table>
         </div>
-      </div>
-    `;
+        ${g.key_insights ? `<div style="font-size:13px;line-height:1.7;margin-top:10px;color:#333">${g.key_insights}</div>` : ''}
+      </div>`;
   };
 
-  const metaPaidHtml = renderPaidBlock('Meta Paid (Ads)', manual.performance_marketing?.meta_paid || manual.performance_marketing?.instagram_paid);
-  const liPaidHtml = renderPaidBlock('LinkedIn Paid (Ads)', manual.performance_marketing?.linkedin_paid);
+  const pm = manual.performance_marketing;
+  const googlePmHtml  = renderPmGroupBlock('Google Ads', pm?.google);
+  const liPmHtml      = renderPmGroupBlock('LinkedIn Ads', pm?.linkedin);
+  const metaPmHtml    = renderPmGroupBlock('Meta Ads', pm?.meta);
 
-  const performanceMarketingHtml = (metaPaidHtml || liPaidHtml) ? `
+  const performanceMarketingHtml = (googlePmHtml || liPmHtml || metaPmHtml) ? `
 <div class="section-block">
   <h2>Performance Marketing</h2>
-  ${metaPaidHtml}
-  ${liPaidHtml}
+  ${googlePmHtml}
+  ${liPmHtml}
+  ${metaPmHtml}
 </div>` : '';
 
   const flagsRisksHtml = manual.flags_risks ? `
@@ -768,9 +766,8 @@ const emptyOrganicMetrics = (): OrganicMetrics => ({
   channel_plan_action: null, channel_plan_impressions_target: null,
 });
 
-const emptyPaidMetrics = (): PaidMetrics => ({
-  spend: null, reach: null, reach_change: '', cost_per_reach: null, key_insights: null,
-});
+const emptyPmCampaign = (): PmCampaign => ({ name: '', reach: '', impressions: '', clicks: '', leads: '', cost_per_lead: '', cost: '' });
+const emptyPmGroup = (): PmGroup => ({ campaigns: [], key_insights: '' });
 
 const emptyManual = (): ManualData => ({
   keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null, social_media_data: null,
@@ -783,10 +780,7 @@ const emptyManual = (): ManualData => ({
     facebook: emptyOrganicMetrics(),
   },
   linkedin_organic: emptyOrganicMetrics(),
-  performance_marketing: {
-    meta_paid: emptyPaidMetrics(),
-    linkedin_paid: emptyPaidMetrics(),
-  },
+  performance_marketing: { google: emptyPmGroup(), linkedin: emptyPmGroup(), meta: emptyPmGroup() },
   health_score: 76,
   health_label: 'Weighted for a balanced goal, vs target',
   flags_risks: '',
@@ -825,7 +819,7 @@ export default function SEO() {
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
-  const [paidTab, setPaidTab] = useState<'meta_paid' | 'linkedin_paid'>('meta_paid');
+  const [paidTab, setPaidTab] = useState<'google' | 'linkedin' | 'meta'>('google');
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -2284,59 +2278,72 @@ export default function SEO() {
 
               {/* Platform tabs */}
               <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)', marginBottom: 16, flexWrap: 'wrap', gap: 4 }}>
-                {(['meta_paid', 'linkedin_paid'] as const).map((tab) => (
-                  <button key={tab} type="button" onClick={() => setPaidTab(tab)}
+                {([['google', 'Google'], ['linkedin', 'LinkedIn'], ['meta', 'Meta']] as const).map(([key, label]) => (
+                  <button key={key} type="button" onClick={() => setPaidTab(key)}
                     style={{
                       padding: '8px 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
-                      borderBottom: paidTab === tab ? '2px solid #059669' : '2px solid transparent',
-                      color: paidTab === tab ? '#059669' : 'var(--ink-muted)',
+                      borderBottom: paidTab === key ? '2px solid #059669' : '2px solid transparent',
+                      color: paidTab === key ? '#059669' : 'var(--ink-muted)',
                       marginBottom: -1,
-                    }}>
-                    {tab === 'meta_paid' ? 'Meta Paid' : 'LinkedIn Paid'}
+                    }}>{label}
                   </button>
                 ))}
                 {canEdit && (
                   <button type="button" className="seo-manual-edit-btn" style={{ marginLeft: 'auto', marginRight: 4 }}
                     onClick={() => openManualPanel(manualPanel === 'performance_marketing' ? null : 'performance_marketing')}>
-                    {manualPanel === 'performance_marketing'
-                      ? <><X size={11} /> Cancel</>
-                      : <><Edit2 size={11} /> Edit</>}
+                    {manualPanel === 'performance_marketing' ? <><X size={11} /> Cancel</> : <><Edit2 size={11} /> Edit</>}
                   </button>
                 )}
               </div>
 
-              {/* Edit Mode for Performance Marketing */}
+              {/* Edit Mode */}
               {manualPanel === 'performance_marketing' && canEdit && (() => {
-                const pmEdit = manualEdit.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
-                const setPaidField = (platformKey: 'meta_paid' | 'linkedin_paid', field: keyof PaidMetrics, val: string | null) =>
-                  setManualEdit(prev => ({
-                    ...prev,
-                    performance_marketing: {
-                      ...(prev.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() }),
-                      [platformKey]: { ...(prev.performance_marketing?.[platformKey] ?? emptyPaidMetrics()), [field]: val },
-                    },
-                  }));
-
-                const renderPaidInputs = (title: string, pKey: 'meta_paid' | 'linkedin_paid', defaultSpend: string, defaultReach: string, defaultReachChg: string, defaultCost: string) => (
-                  <div style={{ marginBottom: 20 }}>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{title} Inputs</h4>
-                    <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                      <div className="seo-inline-field"><label className="seo-inline-label">Spend</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultSpend}`} value={pmEdit[pKey]?.spend ?? ''} onChange={(e) => setPaidField(pKey, 'spend', e.target.value || null)} /></div>
-                      <div className="seo-inline-field"><label className="seo-inline-label">Reach</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultReach}`} value={pmEdit[pKey]?.reach ?? ''} onChange={(e) => setPaidField(pKey, 'reach', e.target.value || null)} /></div>
-                      <div className="seo-inline-field"><label className="seo-inline-label">Reach Change</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultReachChg}`} value={pmEdit[pKey]?.reach_change ?? ''} onChange={(e) => setPaidField(pKey, 'reach_change', e.target.value || null)} /></div>
-                      <div className="seo-inline-field"><label className="seo-inline-label">Cost / Reach Point</label><input className="form-input seo-inline-input" placeholder={`e.g. ${defaultCost}`} value={pmEdit[pKey]?.cost_per_reach ?? ''} onChange={(e) => setPaidField(pKey, 'cost_per_reach', e.target.value || null)} /></div>
-                    </div>
-                    <div className="seo-inline-field">
-                      <label className="seo-inline-label">Key Insights</label>
-                      <textarea className="form-input seo-inline-input" rows={2} style={{ width: '100%' }} placeholder="Key insights…" value={pmEdit[pKey]?.key_insights ?? ''} onChange={(e) => setPaidField(pKey, 'key_insights', e.target.value || null)} />
-                    </div>
-                  </div>
-                );
+                const gKey = paidTab;
+                const grpEdit = manualEdit.performance_marketing?.[gKey] ?? emptyPmGroup();
+                const updCamp = (i: number, patch: Partial<PmCampaign>) =>
+                  setManualEdit(prev => {
+                    const arr = [...(prev.performance_marketing?.[gKey]?.campaigns ?? [])];
+                    arr[i] = { ...arr[i], ...patch };
+                    return { ...prev, performance_marketing: { ...prev.performance_marketing, [gKey]: { ...grpEdit, campaigns: arr } } };
+                  });
+                const addCamp = () =>
+                  setManualEdit(prev => ({ ...prev, performance_marketing: { ...prev.performance_marketing, [gKey]: { ...grpEdit, campaigns: [...grpEdit.campaigns, emptyPmCampaign()] } } }));
+                const delCamp = (i: number) =>
+                  setManualEdit(prev => { const arr = [...grpEdit.campaigns]; arr.splice(i, 1); return { ...prev, performance_marketing: { ...prev.performance_marketing, [gKey]: { ...grpEdit, campaigns: arr } } }; });
+                const updInsights = (val: string) =>
+                  setManualEdit(prev => ({ ...prev, performance_marketing: { ...prev.performance_marketing, [gKey]: { ...grpEdit, key_insights: val } } }));
 
                 return (
-                  <div className="seo-manual-panel" style={{ marginBottom: 20 }}>
-                    {renderPaidInputs('Meta Paid', 'meta_paid', '49,500', '1,27,242', '↑ 12%', '0.39')}
-                    {renderPaidInputs('LinkedIn Paid', 'linkedin_paid', '31,000', '74,549', '↑ 14%', '0.42')}
+                  <div className="seo-manual-panel">
+                    <div style={{ display: 'flex', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', marginBottom: 6, padding: '0 2px' }}>
+                      <span style={{ flex: 2 }}>Campaign Name</span>
+                      <span style={{ width: 82 }}>Reach</span>
+                      <span style={{ width: 90 }}>Impressions</span>
+                      <span style={{ width: 70 }}>Clicks</span>
+                      <span style={{ width: 65 }}>Leads</span>
+                      <span style={{ width: 80 }}>Cost/Lead (₹)</span>
+                      <span style={{ width: 100 }}>Amount Spent (₹)</span>
+                      <span style={{ width: 26 }} />
+                    </div>
+                    {grpEdit.campaigns.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                        <input className="form-input seo-inline-input" placeholder="Campaign name" value={c.name} onChange={(e) => updCamp(i, { name: e.target.value })} style={{ flex: 2 }} />
+                        <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.reach} onChange={(e) => updCamp(i, { reach: e.target.value })} style={{ width: 82 }} />
+                        <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.impressions} onChange={(e) => updCamp(i, { impressions: e.target.value })} style={{ width: 90 }} />
+                        <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.clicks} onChange={(e) => updCamp(i, { clicks: e.target.value })} style={{ width: 70 }} />
+                        <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.leads} onChange={(e) => updCamp(i, { leads: e.target.value })} style={{ width: 65 }} />
+                        <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost_per_lead} onChange={(e) => updCamp(i, { cost_per_lead: e.target.value })} style={{ width: 80 }} />
+                        <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost} onChange={(e) => updCamp(i, { cost: e.target.value })} style={{ width: 100 }} />
+                        <button className="seo-manual-del" onClick={() => delCamp(i)}><Trash2 size={13} /></button>
+                      </div>
+                    ))}
+                    <div className="seo-manual-actions" style={{ justifyContent: 'flex-start', marginBottom: 14 }}>
+                      <button className="seo-manual-add" onClick={addCamp}><Plus size={12} /> Add campaign</button>
+                    </div>
+                    <div className="seo-inline-field" style={{ marginBottom: 16 }}>
+                      <label className="seo-inline-label">Key Insights</label>
+                      <textarea className="form-input seo-inline-input" rows={3} style={{ width: '100%' }} placeholder="Key insights for this channel…" value={grpEdit.key_insights} onChange={(e) => updInsights(e.target.value)} />
+                    </div>
                     <div className="seo-manual-actions">
                       <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
                     </div>
@@ -2344,37 +2351,55 @@ export default function SEO() {
                 );
               })()}
 
-              {/* Display Mode for Performance Marketing */}
+              {/* Display Mode */}
               {(() => {
-                const pm = manual.performance_marketing ?? { meta_paid: emptyPaidMetrics(), linkedin_paid: emptyPaidMetrics() };
-                const curPaid = paidTab === 'meta_paid' ? (pm.meta_paid || pm.instagram_paid) : pm.linkedin_paid;
-                const parsed = parsePaidDisplay(curPaid);
-                const title = paidTab === 'meta_paid' ? 'Meta Paid' : 'LinkedIn Paid';
-
+                const grp = manual.performance_marketing?.[paidTab] ?? emptyPmGroup();
+                const tot = calcPmTotals(grp);
+                const avgCpl = calcPmAvgCpl(grp);
+                const cplColor = (v: number | null) => avgCpl === null || v === null ? 'var(--ink-muted)' : v < avgCpl ? '#16a34a' : v > avgCpl ? '#d97706' : 'var(--ink)';
+                if (grp.campaigns.length === 0) return <p style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '8px 0' }}>No campaigns yet.</p>;
                 return (
-                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, background: 'var(--surface)' }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: '#059669' }}>{title}</h3>
-                    <div className="seo-li-stats">
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val" style={{ color: '#059669' }}>{parsed.spendVal}</p>
-                        <p className="seo-card__label">Paid Spend</p>
-                      </div>
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val">
-                          {parsed.reachVal}
-                          {parsed.reachBadge && <span style={{ fontSize: 11, fontWeight: 700, marginLeft: 6, color: parsed.reachBadge.isDown ? '#dc2626' : '#16a34a' }}>{parsed.reachBadge.text}</span>}
-                        </p>
-                        <p className="seo-card__label">Paid Reach</p>
-                      </div>
-                      <div className="seo-li-stat">
-                        <p className="seo-card__val">{parsed.costVal}</p>
-                        <p className="seo-card__label">Cost / Reach Point</p>
-                      </div>
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--surface)' }}>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface-2)' }}>
+                            {['Campaign', 'Reach', 'Impressions', 'Clicks', 'Leads', 'Cost/Lead (₹)', 'Amount Spent (₹)'].map((h) => (
+                              <th key={h} style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textAlign: h === 'Campaign' ? 'left' : 'right', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grp.campaigns.map((c, i) => {
+                            const cpl = Number(c.cost_per_lead) || null;
+                            return (
+                              <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{c.name || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.reach || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.impressions || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.clicks || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.leads || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: cplColor(cpl) }}>{c.cost_per_lead || '—'}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{c.cost || '—'}</td>
+                              </tr>
+                            );
+                          })}
+                          <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface-2)', fontWeight: 700 }}>
+                            <td style={{ padding: '8px 12px' }}>Total</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{tot.reach.toLocaleString()}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{tot.impressions.toLocaleString()}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{tot.clicks.toLocaleString()}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{tot.leads.toLocaleString()}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{avgCpl !== null ? avgCpl.toFixed(2) : '—'}</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{tot.cost.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
-                    {parsed.key_insights && (
-                      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--border)' }}>
+                    {grp.key_insights && (
+                      <div style={{ padding: '10px 16px', borderTop: '1px dashed var(--border)' }}>
                         <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Key Insights</p>
-                        <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: parsed.key_insights }} />
+                        <div className="seo-insights-display" dangerouslySetInnerHTML={{ __html: grp.key_insights }} />
                       </div>
                     )}
                   </div>

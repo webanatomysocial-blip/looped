@@ -682,6 +682,18 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+
+  await db.schema.hasTable('ads_manual_data').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('ads_manual_data', (t) => {
+        t.increments('id').primary();
+        t.integer('client_id').notNullable().references('id').inTable('client_companies');
+        t.text('notes').nullable();
+        t.text('campaigns_manual').nullable();
+        t.timestamp('updated_at').defaultTo(db.fn.now());
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {
