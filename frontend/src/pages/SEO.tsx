@@ -1807,14 +1807,21 @@ export default function SEO() {
                   ? <table className="seo-table">
                       <thead><tr><th>Date</th><th>Source</th><th>Contact</th><th>Doc</th></tr></thead>
                       <tbody>
-                        {manual.organic_form_data.map((row, i) => (
-                          <tr key={i}>
-                            <td>{row.date}</td>
-                            <td>{row.source}</td>
-                            <td>{row.contact}</td>
-                            <td>{row.doc_link ? <a href={row.doc_link} target="_blank" rel="noreferrer" style={{ color: '#6366f1', textDecoration: 'underline', fontSize: 12 }}>View Doc</a> : '—'}</td>
-                          </tr>
-                        ))}
+                        {manual.organic_form_data.map((row, i) => {
+                          const hasFields = row.date || row.source || row.contact;
+                          return hasFields ? (
+                            <tr key={i}>
+                              <td>{row.date || '—'}</td>
+                              <td>{row.source || '—'}</td>
+                              <td>{row.contact || '—'}</td>
+                              <td>{row.doc_link ? <a href={row.doc_link} target="_blank" rel="noreferrer" style={{ color: '#6366f1', textDecoration: 'underline', fontSize: 12 }}>View Doc</a> : '—'}</td>
+                            </tr>
+                          ) : row.doc_link ? (
+                            <tr key={i}>
+                              <td colSpan={4}><a href={row.doc_link} target="_blank" rel="noreferrer" style={{ color: '#6366f1', textDecoration: 'underline', fontSize: 12 }}>View Doc</a></td>
+                            </tr>
+                          ) : null;
+                        })}
                       </tbody>
                     </table>
                   : !manualPanel && <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add form submission data.</p>}
