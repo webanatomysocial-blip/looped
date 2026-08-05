@@ -11,7 +11,6 @@ export default function ShareReport() {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState('');
 
-  // Override the app-wide overflow:hidden so this page can scroll
   useEffect(() => {
     document.documentElement.style.overflow = 'auto';
     document.body.style.overflow = 'auto';
@@ -48,13 +47,13 @@ export default function ShareReport() {
   const { client, manual, report } = data;
   const eng = report?.engagement;
 
-  const engCards = eng ? [
-    ['Total Users', eng.users?.toLocaleString()],
-    ['New Users', eng.newUsers?.toLocaleString()],
-    ['Sessions', eng.sessions?.toLocaleString()],
-    ['Avg. Duration', fmtDuration(eng.avgDuration)],
-    ['Engagement Rate', `${eng.engagementRate}%`],
-  ] : [];
+  const totalClicks = report?.pages?.reduce((s: number, p: any) => s + (p.clicks || 0), 0) ?? 0;
+  const totalImpr   = report?.pages?.reduce((s: number, p: any) => s + (p.impressions || 0), 0) ?? 0;
+  const avgCtr      = totalImpr > 0 ? ((totalClicks / totalImpr) * 100).toFixed(1) : '0.0';
+  const avgPos      = report?.pages?.length > 0
+    ? (report.pages.reduce((s: number, p: any) => s + p.position, 0) / report.pages.length).toFixed(1) : '—';
+
+  const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
 
   return (
     <div style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif', background: '#f1f5f9', minHeight: '100vh', padding: '32px 24px' }}>
@@ -77,16 +76,85 @@ export default function ShareReport() {
         {/* Executive Summary */}
         {manual.executive_summary && (
           <Section title="Executive Summary">
-            <p style={{ fontSize: 13, lineHeight: 1.7, color: '#334155' }}>{manual.executive_summary}</p>
+            <p style={{ fontSize: 13, lineHeight: 1.7, color: '#334155', margin: 0 }}>{manual.executive_summary}</p>
+          </Section>
+        )}
+
+        {/* Current Period Targets */}
+        {manual.period_targets && Object.values(manual.period_targets).some((v) => v) && (
+          <Section title="Current Period Targets">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {[
+                ['Sessions', manual.period_targets.sessions],
+                ['Leads', manual.period_targets.leads],
+                ['Engagement Rate', manual.period_targets.engagement_rate],
+                ['Instagram Reach', manual.period_targets.instagram_reach],
+                ['Facebook Reach', manual.period_targets.facebook_reach],
+              ].filter(([, v]) => v).map(([label, val]) => (
+                <MiniCard key={label as string} label={label as string} val={val as string} />
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {/* Last Period Plan */}
+        {manual.last_period_plan?.length > 0 && (
+          <Section title="Last Period's Plan — Progress">
+            <Table
+              head={['Focus Area', 'Action Taken', 'Expected Result', 'Status']}
+              rows={manual.last_period_plan.map((p: any) => [
+                p.area, p.action, p.expected,
+                <span style={{ fontWeight: 700, color: p.status === 'done' ? '#16a34a' : p.status === 'partial' ? '#d97706' : '#dc2626' }}>
+                  {p.status === 'done' ? '✓ Done' : p.status === 'partial' ? '⚠ Partial' : '✕ Not Done'}
+                </span>,
+              ])}
+            />
+          </Section>
+        )}
+
+        {/* Next Period Plan */}
+        {manual.next_period_plan?.length > 0 && (
+          <Section title="Next Period's Plan">
+            <Table
+              head={['Focus Area', 'Planned Action', 'Expected Impact']}
+              rows={manual.next_period_plan.map((p: any) => [p.focus, p.action, p.expected])}
+            />
+          </Section>
+        )}
+
+        {/* Key Highlights */}
+        {(manual.best_performing_asset || sigWhys) && (
+          <Section title="Key Highlights & Insights">
+            {manual.best_performing_asset && (
+              <p style={{ fontSize: 13, lineHeight: 1.6, marginBottom: sigWhys ? 10 : 0 }}>
+                <strong>Best Performing Asset:</strong> {manual.best_performing_asset}
+              </p>
+            )}
+            {sigWhys && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '8px 0 4px' }}>Significant Changes & Reasons</p>
+                <ul style={{ paddingLeft: 20, margin: 0 }}>
+                  {Object.entries(manual.sig_change_whys).map(([k, v]) => (
+                    <li key={k} style={{ fontSize: 12, marginBottom: 4 }}><strong>{k}:</strong> {v as string}</li>
+                  ))}
+                </ul>
+              </>
+            )}
           </Section>
         )}
 
         {/* Website Performance */}
-        {engCards.length > 0 && (
+        {eng && (
           <>
-            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '20px 0 10px' }}>Website Performance</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10, marginBottom: 20 }}>
-              {engCards.map(([label, val]) => (
+            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Website Performance</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: 20 }}>
+              {[
+                ['Total Users', eng.users?.toLocaleString()],
+                ['New Users', eng.newUsers?.toLocaleString()],
+                ['Sessions', eng.sessions?.toLocaleString()],
+                ['Avg. Duration', fmtDuration(eng.avgDuration)],
+                ['Engagement Rate', `${eng.engagementRate}%`],
+              ].map(([label, val]) => (
                 <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{val}</div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 3, textTransform: 'uppercase' }}>{label}</div>
@@ -96,10 +164,15 @@ export default function ShareReport() {
           </>
         )}
 
-        {/* Traffic Acquisition */}
-        {report?.acquisition?.length > 0 && (
-          <Section title="Traffic Acquisition">
-            <Table head={['Channel', 'Sessions', 'Users']} rows={report.acquisition.map((r: any) => [r.channel, r.sessions.toLocaleString(), r.users.toLocaleString()])} />
+        {/* Search Performance */}
+        {totalClicks > 0 && (
+          <Section title="Search Performance">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              <MiniCard label="Total Clicks" val={totalClicks.toLocaleString()} />
+              <MiniCard label="Impressions" val={totalImpr.toLocaleString()} />
+              <MiniCard label="Avg. CTR" val={`${avgCtr}%`} />
+              <MiniCard label="Avg. Position" val={avgPos} />
+            </div>
           </Section>
         )}
 
@@ -110,26 +183,16 @@ export default function ShareReport() {
           </Section>
         )}
 
-        {/* Targets */}
-        {manual.targets?.length > 0 && (
-          <Section title="Targets — Achieved vs Set">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {manual.targets.map((t: any, i: number) => {
-                const pct = t.target > 0 ? Math.min(100, Math.round((t.achieved / t.target) * 100)) : 0;
-                const done = pct >= 100;
-                return (
-                  <div key={i}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</span>
-                      <span style={{ fontSize: 12, color: '#64748b' }}>{t.achieved.toLocaleString()}{t.unit && ` ${t.unit}`} / {t.target.toLocaleString()}{t.unit && ` ${t.unit}`} <strong style={{ color: done ? '#16a34a' : '#0f172a' }}>{pct}%</strong></span>
-                    </div>
-                    <div style={{ height: 6, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: done ? '#16a34a' : '#6366f1', borderRadius: 4 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {/* Traffic Acquisition + Demographics */}
+        {report?.acquisition?.length > 0 && (
+          <Section title="Traffic Acquisition">
+            <Table head={['Channel', 'Sessions', 'Users']} rows={report.acquisition.map((r: any) => [r.channel, r.sessions.toLocaleString(), r.users.toLocaleString()])} />
+          </Section>
+        )}
+
+        {report?.demographics?.length > 0 && (
+          <Section title="Demographics — Cities">
+            <Table head={['City', 'Users', 'Sessions']} rows={report.demographics.map((r: any) => [r.city, r.users.toLocaleString(), r.sessions.toLocaleString()])} />
           </Section>
         )}
 
@@ -146,6 +209,29 @@ export default function ShareReport() {
           </Section>
         )}
 
+        {/* Targets — Achieved vs Set */}
+        {manual.targets?.length > 0 && (
+          <Section title="Targets — Achieved vs Set">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {manual.targets.map((t: any, i: number) => {
+                const pct = t.target > 0 ? Math.min(100, Math.round((t.achieved / t.target) * 100)) : 0;
+                const done = pct >= 100;
+                return (
+                  <div key={i}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{t.name}</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>{t.achieved?.toLocaleString()}{t.unit && ` ${t.unit}`} / {t.target?.toLocaleString()}{t.unit && ` ${t.unit}`} <strong style={{ color: done ? '#16a34a' : '#0f172a' }}>{pct}%</strong></span>
+                    </div>
+                    <div style={{ height: 6, background: '#e2e8f0', borderRadius: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: done ? '#16a34a' : '#6366f1', borderRadius: 4 }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+        )}
+
         {/* Key Insights */}
         {manual.key_insights && (
           <Section title="Key Insights">
@@ -157,15 +243,17 @@ export default function ShareReport() {
         {manual.gmb_locations?.length > 0 && (
           <Section title="Google My Business">
             {manual.gmb_locations.map((loc: any, i: number) => (
-              <div key={i} style={{ marginBottom: 16 }}>
+              <div key={i} style={{ marginBottom: i < manual.gmb_locations.length - 1 ? 20 : 0 }}>
                 {loc.name && <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{loc.name}</h3>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
                   {loc.rating != null && <MiniCard label="Rating" val={Number(loc.rating).toFixed(1)} />}
                   {loc.reviews != null && <MiniCard label="Reviews" val={Number(loc.reviews).toLocaleString()} />}
                   {loc.calls != null && <MiniCard label="Calls" val={Number(loc.calls).toLocaleString()} />}
+                  {loc.bookings != null && <MiniCard label="Bookings" val={Number(loc.bookings).toLocaleString()} />}
                   {loc.website_clicks != null && <MiniCard label="Website Clicks" val={Number(loc.website_clicks).toLocaleString()} />}
                 </div>
-                {loc.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6 }}>{loc.key_insights}</p>}
+                {loc.overview && <p style={{ fontSize: 12, color: '#555', lineHeight: 1.55, marginBottom: 6 }}>{loc.overview}</p>}
+                {loc.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, margin: 0 }}>{loc.key_insights}</p>}
               </div>
             ))}
           </Section>
@@ -178,17 +266,25 @@ export default function ShareReport() {
               { title: 'Instagram Organic', m: manual.meta_organic?.instagram, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
               { title: 'Facebook Organic', m: manual.meta_organic?.facebook, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
               { title: 'LinkedIn Organic', m: manual.linkedin_organic, labels: ['Impressions', 'Relations', 'Total Followers', 'New Followers'] },
-            ].filter(({ m }) => m && (m.views || m.reach || m.content_interactions || m.link_clicks || m.key_insights)).map(({ title, m, labels }) => (
+            ].filter(({ m }) => m && (m.views || m.reach || m.content_interactions || m.link_clicks || m.key_insights || m.top_post_description || m.channel_plan_action)).map(({ title, m, labels }) => (
               <div key={title} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginBottom: 12 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#6366f1' }}>{title}</h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  {[m.views, m.reach, m.content_interactions, m.link_clicks].map((v, i) => v ? <MiniCard key={i} label={labels[i]} val={v} /> : null)}
+                  {[m.views, m.reach, m.content_interactions, m.link_clicks].map((v: any, i: number) => v ? <MiniCard key={i} label={labels[i]} val={v} /> : null)}
                 </div>
                 {m.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, marginTop: 8 }}>{m.key_insights}</p>}
                 {m.top_post_description && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Top Performing Post</p>
-                    <p style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6 }}>{m.top_post_description}</p>
+                    <p style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6, margin: 0 }}>{m.top_post_description}</p>
+                    {m.top_post_impressions && <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Impressions: <strong>{m.top_post_impressions}</strong></p>}
+                  </div>
+                )}
+                {m.channel_plan_action && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Plan — Next Period</p>
+                    <p style={{ fontSize: 13, color: '#1a1a1a', lineHeight: 1.6, margin: 0 }}>{m.channel_plan_action}</p>
+                    {m.channel_plan_impressions_target && <p style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Impressions target: <strong>{m.channel_plan_impressions_target}</strong></p>}
                   </div>
                 )}
               </div>
@@ -197,54 +293,60 @@ export default function ShareReport() {
         )}
 
         {/* Performance Marketing */}
-        {manual.performance_marketing && (
-          (() => {
-            const pm = manual.performance_marketing;
-            const groups = [['Google Ads', pm.google], ['LinkedIn Ads', pm.linkedin], ['Meta Ads', pm.meta]] as [string, any][];
-            const hasAny = groups.some(([, g]) => g?.campaigns?.length > 0);
-            if (!hasAny) return null;
-            return (
-              <Section title="Performance Marketing">
-                {groups.filter(([, g]) => g?.campaigns?.length > 0).map(([title, g]) => {
-                  const tot = g.campaigns.reduce((a: any, c: any) => ({ reach: a.reach + (Number(c.reach) || 0), impressions: a.impressions + (Number(c.impressions) || 0), clicks: a.clicks + (Number(c.clicks) || 0), leads: a.leads + (Number(c.leads) || 0), cost: a.cost + (Number(c.cost) || 0) }), { reach: 0, impressions: 0, clicks: 0, leads: 0, cost: 0 });
-                  return (
-                    <div key={title} style={{ marginBottom: 16 }}>
-                      <h3 style={{ fontSize: 13, fontWeight: 700, color: '#059669', marginBottom: 8 }}>{title}</h3>
-                      <div style={{ overflowX: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                          <thead><tr>{['Campaign', 'Reach', 'Impressions', 'Clicks', 'Leads', 'Cost/Lead (₹)', 'Spent (₹)'].map((h) => <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Campaign' ? 'left' : 'right', fontSize: 10, fontWeight: 700, color: '#64748b', background: '#f1f5f9', textTransform: 'uppercase' }}>{h}</th>)}</tr></thead>
-                          <tbody>
-                            {g.campaigns.map((c: any, i: number) => (
-                              <tr key={i} style={{ background: i % 2 === 0 ? '#f9f9f9' : '#fff' }}>
-                                <td style={{ padding: '6px 10px' }}>{c.name || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.reach || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.impressions || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.clicks || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.leads || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.cost_per_lead || '—'}</td>
-                                <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.cost || '—'}</td>
-                              </tr>
-                            ))}
-                            <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
-                              <td style={{ padding: '6px 10px' }}>Total</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.reach.toLocaleString()}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.impressions.toLocaleString()}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.clicks.toLocaleString()}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.leads.toLocaleString()}</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>—</td>
-                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.cost.toLocaleString()}</td>
+        {manual.performance_marketing && (() => {
+          const pm = manual.performance_marketing;
+          const groups: [string, any][] = [['Google Ads', pm.google], ['LinkedIn Ads', pm.linkedin], ['Meta Ads', pm.meta]];
+          const active = groups.filter(([, g]) => g?.campaigns?.length > 0);
+          if (!active.length) return null;
+          return (
+            <Section title="Performance Marketing">
+              {active.map(([title, g]) => {
+                const tot = g.campaigns.reduce((a: any, c: any) => ({
+                  reach: a.reach + (Number(c.reach) || 0),
+                  impressions: a.impressions + (Number(c.impressions) || 0),
+                  clicks: a.clicks + (Number(c.clicks) || 0),
+                  leads: a.leads + (Number(c.leads) || 0),
+                  cost: a.cost + (Number(c.cost) || 0),
+                }), { reach: 0, impressions: 0, clicks: 0, leads: 0, cost: 0 });
+                return (
+                  <div key={title} style={{ marginBottom: 20 }}>
+                    <h3 style={{ fontSize: 13, fontWeight: 700, color: '#059669', marginBottom: 8 }}>{title}</h3>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead><tr>{['Campaign', 'Reach', 'Impressions', 'Clicks', 'Leads', 'Cost/Lead (₹)', 'Spent (₹)'].map((h) => (
+                          <th key={h} style={{ padding: '6px 10px', textAlign: h === 'Campaign' ? 'left' : 'right', fontSize: 10, fontWeight: 700, color: '#64748b', background: '#f1f5f9', textTransform: 'uppercase' }}>{h}</th>
+                        ))}</tr></thead>
+                        <tbody>
+                          {g.campaigns.map((c: any, i: number) => (
+                            <tr key={i} style={{ background: i % 2 === 0 ? '#f9f9f9' : '#fff' }}>
+                              <td style={{ padding: '6px 10px' }}>{c.name || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.reach || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.impressions || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.clicks || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.leads || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.cost_per_lead || '—'}</td>
+                              <td style={{ padding: '6px 10px', textAlign: 'right' }}>{c.cost || '—'}</td>
                             </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                      {g.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, marginTop: 8 }}>{g.key_insights}</p>}
+                          ))}
+                          <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
+                            <td style={{ padding: '6px 10px' }}>Total</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.reach.toLocaleString()}</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.impressions.toLocaleString()}</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.clicks.toLocaleString()}</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.leads.toLocaleString()}</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>—</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>{tot.cost.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
-                  );
-                })}
-              </Section>
-            );
-          })()
-        )}
+                    {g.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, marginTop: 8 }}>{g.key_insights}</p>}
+                  </div>
+                );
+              })}
+            </Section>
+          );
+        })()}
 
         {/* Flags / Risks */}
         {manual.flags_risks && (
