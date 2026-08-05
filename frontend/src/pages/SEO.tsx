@@ -242,8 +242,8 @@ function downloadPDF(
   const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.channel}</td>
-      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:left">${r.sessions.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:left">${r.users.toLocaleString()}</td>
     </tr>`).join('');
 
   const showCountryCol = demoCountry === 'all';
@@ -251,8 +251,8 @@ function downloadPDF(
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.city}</td>
       ${showCountryCol ? `<td style="padding:8px 12px;color:#888">${r.country ?? ''}</td>` : ''}
-      <td style="padding:8px 12px;text-align:right">${r.users.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:right">${r.sessions.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:left">${r.users.toLocaleString()}</td>
+      <td style="padding:8px 12px;text-align:left">${r.sessions.toLocaleString()}</td>
     </tr>`).join('');
 
   const totalClicks = report.pages.reduce((s, p) => s + p.clicks, 0);
@@ -477,15 +477,15 @@ ${manual.gmb_locations.map((loc) => {
   const kwRows = manual.keyword_rankings.map((k, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${k.keyword}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">#${k.rank ?? '—'}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">#${k.change ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:left;font-weight:700">#${k.rank ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:left;font-weight:700">#${k.change ?? '—'}</td>
     </tr>`).join('');
 
   const targetRows = manual.targets.map((t, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${t.name}</td>
-      <td style="padding:8px 12px;text-align:right">${t.achieved ?? '—'}</td>
-      <td style="padding:8px 12px;text-align:right">${t.target ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:left">${t.achieved ?? '—'}</td>
+      <td style="padding:8px 12px;text-align:left">${t.target ?? '—'}</td>
     </tr>`).join('');
 
   const li = manual.linkedin_data;
@@ -506,9 +506,9 @@ ${manual.gmb_locations.map((loc) => {
     const ctr = p.impressions > 0 ? ((p.clicks / p.impressions) * 100).toFixed(2) : null;
     return `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px">${p.title}</td>
-      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:right">${p.impressions.toLocaleString()}</td>` : ''}
-      ${liHasClicks ? `<td style="padding:8px 12px;text-align:right">${p.clicks.toLocaleString()}</td>` : ''}
-      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:right">${ctr ?? '—'}%</td>` : ''}
+      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:left">${p.impressions.toLocaleString()}</td>` : ''}
+      ${liHasClicks ? `<td style="padding:8px 12px;text-align:left">${p.clicks.toLocaleString()}</td>` : ''}
+      ${liHasImpressions ? `<td style="padding:8px 12px;text-align:left">${ctr ?? '—'}%</td>` : ''}
     </tr>`;
   }).join('') : '';
 
@@ -574,13 +574,21 @@ ${manual.gmb_locations.map((loc) => {
 </div>`;
   }).join('');
 
-  const organicRows = manual.organic_form_data.map((row, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-size:11px">${row.date}</td>
-      <td style="padding:8px 12px;font-size:11px">${row.source}</td>
-      <td style="padding:8px 12px;font-size:11px">${row.contact}</td>
-      <td style="padding:8px 12px;font-size:11px">${row.doc_link ? `<a href="${row.doc_link}" style="color:#6366f1;text-decoration:underline">View Doc</a>` : '—'}</td>
-    </tr>`).join('');
+  const organicRows = manual.organic_form_data
+    .filter((row) => row.date || row.source || row.contact || row.doc_link)
+    .map((row, i) => {
+      const hasFields = row.date || row.source || row.contact;
+      return hasFields
+        ? `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+            <td style="padding:8px 12px;font-size:11px">${row.date || '—'}</td>
+            <td style="padding:8px 12px;font-size:11px">${row.source || '—'}</td>
+            <td style="padding:8px 12px;font-size:11px">${row.contact || '—'}</td>
+            <td style="padding:8px 12px;font-size:11px">${row.doc_link ? `<a href="${row.doc_link}" style="color:#6366f1;text-decoration:underline">View Doc</a>` : '—'}</td>
+          </tr>`
+        : `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+            <td colspan="4" style="padding:8px 12px;font-size:11px"><a href="${row.doc_link}" style="color:#6366f1;text-decoration:underline">View Doc</a></td>
+          </tr>`;
+    }).join('');
 
   const fmtD = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   const today = new Date();
@@ -611,7 +619,7 @@ ${manual.gmb_locations.map((loc) => {
   .mini-card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { text-align: left; font-size: 10px; font-weight: 700; color: #64748b; padding: 8px 12px; background: #f1f5f9; text-transform: uppercase; letter-spacing: 0.05em; }
-  th:not(:first-child) { text-align: right; }
+  th:not(:first-child) { text-align: left; }
   .section { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; page-break-inside: avoid; background: #fff; }
   .section-inner { padding: 14px 20px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -2159,7 +2167,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.instagram?.top_post_description ?? ''} onChange={(e) => setInstaOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post title</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.instagram?.top_post_description ?? ''} onChange={(e) => setInstaOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.instagram?.top_post_impressions ?? ''} onChange={(e) => setInstaOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
@@ -2180,7 +2188,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.facebook?.top_post_description ?? ''} onChange={(e) => setFbOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post title</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={moEdit.facebook?.top_post_description ?? ''} onChange={(e) => setFbOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={moEdit.facebook?.top_post_impressions ?? ''} onChange={(e) => setFbOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
@@ -2228,7 +2236,7 @@ export default function SEO() {
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Top performing post this period</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 10 }}>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Post tittle</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={loEdit.top_post_description ?? ''} onChange={(e) => setLiOrg('top_post_description', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">Post title</label><input className="form-input seo-inline-input" placeholder="e.g. MEP layout planning checklist for contractors" value={loEdit.top_post_description ?? ''} onChange={(e) => setLiOrg('top_post_description', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 410" value={loEdit.top_post_impressions ?? ''} onChange={(e) => setLiOrg('top_post_impressions', e.target.value || null)} /></div>
                         </div>
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, marginTop: 12 }}>Plan for this channel next period</h4>
