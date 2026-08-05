@@ -1,9 +1,10 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { GoogleAuth } from 'google-auth-library';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import path from 'path';
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 router.use(authenticate);
@@ -506,4 +507,164 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// POST /api/seo/share/:clientId — generate share token (saves current range)
+router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
+  const { role } = req.user!;
+  if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
+  try {
+    const db = getDB();
+    const { range = '28d', startDate, endDate } = req.body;
+    const token = randomUUID();
+    await db('client_companies').where({ id: req.params.clientId }).update({
+      share_token: token, share_range: range,
+      share_start: startDate || null, share_end: endDate || null,
+    });
+    res.json({ token });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// DELETE /api/seo/share/:clientId — revoke share token
+router.delete('/share/:clientId', async (req: AuthRequest, res: Response) => {
+  const { role } = req.user!;
+  if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
+  try {
+    await getDB()('client_companies').where({ id: req.params.clientId }).update({
+      share_token: null, share_range: null, share_start: null, share_end: null,
+    });
+    res.json({ message: 'Revoked' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// GET /api/seo/share-info/:clientId — check if token exists (for the share button UI)
+router.get('/share-info/:clientId', async (req: AuthRequest, res: Response) => {
+  try {
+    const row = await getDB()('client_companies').where({ id: req.params.clientId }).select('share_token', 'share_range').first();
+    res.json({ token: row?.share_token || null, range: row?.share_range || null });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 export default router;
+
+// ── Public router (no auth) ─────────────────────────────────────────────────
+export const publicSeoRouter = Router();
+
+publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    const client = await db('client_companies').where({ share_token: req.params.token }).first();
+    if (!client) { res.status(404).json({ error: 'Report not found or link has been revoked' }); return; }
+
+    const range = client.share_range || '28d';
+    const customStart = client.share_start || null;
+    const customEnd   = client.share_end   || null;
+    const isCustom    = range === 'custom' && customStart && customEnd;
+
+    // Manual data
+    const manual = await db('seo_manual_data').where({ client_id: client.id }).first();
+    const manualData = manual ? {
+      keyword_rankings:    manual.keyword_rankings      ? JSON.parse(manual.keyword_rankings)      : [],
+      targets:             manual.targets               ? JSON.parse(manual.targets)               : [],
+      key_insights:        manual.key_achievements      || '',
+      organic_form_data:   manual.organic_form_data     ? JSON.parse(manual.organic_form_data)     : [],
+      gmb_locations:       manual.gmb_locations         ? JSON.parse(manual.gmb_locations)         : [],
+      executive_summary:   manual.executive_summary     || '',
+      sig_change_whys:     manual.sig_change_whys       ? JSON.parse(manual.sig_change_whys)       : {},
+      last_period_plan:    manual.last_period_plan      ? JSON.parse(manual.last_period_plan)      : [],
+      best_performing_asset: manual.best_performing_asset || '',
+      next_period_plan:    manual.next_period_plan      ? JSON.parse(manual.next_period_plan)      : [],
+      period_targets:      manual.period_targets        ? JSON.parse(manual.period_targets)        : {},
+      meta_organic:        manual.meta_organic          ? JSON.parse(manual.meta_organic)          : null,
+      linkedin_organic:    manual.linkedin_organic      ? JSON.parse(manual.linkedin_organic)      : null,
+      performance_marketing: manual.performance_marketing ? JSON.parse(manual.performance_marketing) : null,
+      health_score:        manual.health_score          ?? 76,
+      health_label:        manual.health_label          || '',
+      flags_risks:         manual.flags_risks           || '',
+      gmb_rating: manual.gmb_rating, gmb_reviews: manual.gmb_reviews, gmb_profile_url: manual.gmb_profile_url,
+      gmb_overview: manual.gmb_overview || '', gmb_calls: manual.gmb_calls, gmb_bookings: manual.gmb_bookings,
+      gmb_website_clicks: manual.gmb_website_clicks, linkedin_url: manual.linkedin_url, linkedin_followers: manual.linkedin_followers,
+      linkedin_data: null, social_media_data: null,
+    } : {};
+
+    // GA4 data (if configured)
+    if (!client.ga_property_id) {
+      res.json({ client: { id: client.id, name: client.name }, range, manual: manualData, report: null });
+      return;
+    }
+
+    const { token: gToken, error: authError } = await getAccessToken();
+    if (!gToken) { res.status(500).json({ error: authError ?? 'Google auth failed' }); return; }
+
+    const ga4Start = isCustom ? customStart : ga4StartDate(range);
+    const ga4End   = isCustom ? customEnd   : 'today';
+    const gscStart = isCustom ? customStart : formatDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
+    const gscEnd   = isCustom ? customEnd   : formatDate(0);
+    const ga4Base  = `https://analyticsdata.googleapis.com/v1beta/properties/${client.ga_property_id}:runReport`;
+    const headers  = { Authorization: `Bearer ${gToken}`, 'Content-Type': 'application/json' };
+
+    const engagementMetrics = [
+      { name: 'averageSessionDuration' }, { name: 'bounceRate' },
+      { name: 'screenPageViewsPerSession' }, { name: 'engagementRate' },
+      { name: 'sessions' }, { name: 'activeUsers' }, { name: 'newUsers' },
+    ];
+
+    const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes] = await Promise.allSettled([
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'date' }],
+        metrics: [{ name: 'activeUsers' }, { name: 'sessions' }, { name: 'screenPageViews' }, { name: 'newUsers' }],
+        orderBys: [{ dimension: { dimensionName: 'date' } }],
+      }) }).then((r) => r.json()),
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'sessionDefaultChannelGrouping' }],
+        metrics: [{ name: 'sessions' }, { name: 'activeUsers' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10,
+      }) }).then((r) => r.json()),
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }], metrics: engagementMetrics,
+      }) }).then((r) => r.json()),
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
+        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+        dimensions: [{ name: 'city' }],
+        metrics: [{ name: 'activeUsers' }, { name: 'sessions' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 20,
+      }) }).then((r) => r.json()),
+      client.gsc_site_url
+        ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'page')
+        : Promise.resolve(null),
+      client.gsc_site_url
+        ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'query')
+        : Promise.resolve(null),
+    ]);
+
+    const eng = engagementRes.status === 'fulfilled' && engagementRes.value?.rows?.[0]?.metricValues
+      ? engagementRes.value.rows[0].metricValues
+      : null;
+
+    const report = {
+      traffic: trafficRes.status === 'fulfilled' && trafficRes.value?.rows
+        ? trafficRes.value.rows.map((r: any) => ({ date: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value), pageviews: Number(r.metricValues[2].value), newUsers: Number(r.metricValues[3].value) }))
+        : [],
+      acquisition: acquisitionRes.status === 'fulfilled' && acquisitionRes.value?.rows
+        ? acquisitionRes.value.rows.map((r: any) => ({ channel: r.dimensionValues[0].value, sessions: Number(r.metricValues[0].value), users: Number(r.metricValues[1].value) }))
+        : [],
+      engagement: eng
+        ? { avgDuration: Math.round(Number(eng[0].value)), bounceRate: Math.round(Number(eng[1].value) * 100), pagesPerSession: Number(Number(eng[2].value).toFixed(1)), engagementRate: Math.round(Number(eng[3].value) * 100), sessions: Number(eng[4].value), users: Number(eng[5].value), newUsers: Number(eng[6].value) }
+        : { avgDuration: 0, bounceRate: 0, pagesPerSession: 0, engagementRate: 0, sessions: 0, users: 0, newUsers: 0 },
+      prevEngagement: null,
+      prevAcquisition: [],
+      demographics: demoRes.status === 'fulfilled' && demoRes.value?.rows
+        ? demoRes.value.rows.map((r: any) => ({ city: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value) }))
+        : [],
+      pages: gscRes.status === 'fulfilled' && gscRes.value?.rows
+        ? gscRes.value.rows.map((r: any) => ({ page: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
+        : [],
+      queries: gscQueriesRes.status === 'fulfilled' && gscQueriesRes.value?.rows
+        ? gscQueriesRes.value.rows.map((r: any) => ({ query: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
+        : [],
+      client: { id: client.id, name: client.name },
+    };
+
+    res.json({ client: { id: client.id, name: client.name }, range, customStart, customEnd, manual: manualData, report });
+  } catch (e: any) { res.status(500).json({ error: 'Server error' }); }
+});

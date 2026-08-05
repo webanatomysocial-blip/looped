@@ -115,6 +115,15 @@ async function createSchema(): Promise<void> {
           t.string('gsc_site_url').nullable();
         });
       }
+      const hasShareToken = await db.schema.hasColumn('client_companies', 'share_token');
+      if (!hasShareToken) {
+        await db.schema.table('client_companies', (t) => {
+          t.string('share_token').nullable().unique();
+          t.string('share_range').nullable();
+          t.string('share_start').nullable();
+          t.string('share_end').nullable();
+        });
+      }
     }
   });
 

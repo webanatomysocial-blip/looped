@@ -405,7 +405,7 @@ ${manual.gmb_locations.map((loc) => {
 
   const instaOrgHtml = renderOrganicBlock('Instagram Organic', manual.meta_organic?.instagram);
   const fbOrgHtml = renderOrganicBlock('Facebook Organic', manual.meta_organic?.facebook);
-  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic, { views: 'Impressions', reach: 'Relations', interactions: 'Total Followers', linkClicks: 'New Followers' });
+  const liOrgHtml = renderOrganicBlock('LinkedIn Organic', manual.linkedin_organic, { views: 'Impressions', reach: 'reactions', interactions: 'Total Followers', linkClicks: 'New Followers' });
 
   const socialOrganicHtml = (instaOrgHtml || fbOrgHtml || liOrgHtml) ? `
 <div class="section-block">
@@ -830,6 +830,10 @@ export default function SEO() {
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
   const [paidTab, setPaidTab] = useState<'google' | 'linkedin' | 'meta'>('google');
+
+  // Share link
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -910,6 +914,11 @@ export default function SEO() {
         setShowTiktok(!!(data.social_media_data?.tiktok && Object.values(data.social_media_data.tiktok).some((v) => v != null)));
       })
       .catch(() => { setManual(emptyManual()); setShowTiktok(false); });
+
+    // Load existing share token for this client
+    seoApi.getShareInfo(selectedClient.id)
+      .then((r) => setShareToken(r.data.token || null))
+      .catch(() => setShareToken(null));
   }, [selectedClient]);
 
   const openManualPanel = (panel: typeof manualPanel) => {
@@ -1040,6 +1049,43 @@ export default function SEO() {
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
+              </button>
+            )}
+            {selectedClient && canEdit && (
+              <button
+                className="seo-download-btn"
+                style={{ background: shareToken ? '#f0fdf4' : undefined, borderColor: shareToken ? '#86efac' : undefined, color: shareToken ? '#16a34a' : undefined }}
+                onClick={async () => {
+                  if (shareToken) {
+                    const link = `${window.location.origin}/share/${shareToken}`;
+                    await navigator.clipboard.writeText(link);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 2000);
+                  } else {
+                    const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined });
+                    setShareToken(r.data.token);
+                    const link = `${window.location.origin}/share/${r.data.token}`;
+                    await navigator.clipboard.writeText(link);
+                    setShareCopied(true);
+                    setTimeout(() => setShareCopied(false), 2000);
+                  }
+                }}
+                title={shareToken ? 'Copy share link' : 'Generate share link'}
+              >
+                {shareCopied ? <><Check size={13} /> Copied!</> : shareToken ? <><Globe size={13} /> Copy Link</> : <><Globe size={13} /> Share</>}
+              </button>
+            )}
+            {shareToken && canEdit && (
+              <button
+                style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
+                onClick={async () => {
+                  if (!confirm('Revoke this share link? Anyone with the old link will lose access.')) return;
+                  await seoApi.revokeShare(selectedClient!.id);
+                  setShareToken(null);
+                }}
+                title="Revoke share link"
+              >
+                Revoke
               </button>
             )}
           </div>
@@ -2226,7 +2272,7 @@ export default function SEO() {
                         <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>LinkedIn Organic (Manual Inputs)</h4>
                         <div className="seo-manual-grid" style={{ marginBottom: 14 }}>
                           <div className="seo-inline-field"><label className="seo-inline-label">Impressions</label><input className="form-input seo-inline-input" placeholder="e.g. 3,200" value={loEdit.views ?? ''} onChange={(e) => setLiOrg('views', e.target.value || null)} /></div>
-                          <div className="seo-inline-field"><label className="seo-inline-label">Relations</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
+                          <div className="seo-inline-field"><label className="seo-inline-label">reactions</label><input className="form-input seo-inline-input" placeholder="e.g. 960" value={loEdit.reach ?? ''} onChange={(e) => setLiOrg('reach', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">Total Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 1,250" value={loEdit.content_interactions ?? ''} onChange={(e) => setLiOrg('content_interactions', e.target.value || null)} /></div>
                           <div className="seo-inline-field"><label className="seo-inline-label">New Followers</label><input className="form-input seo-inline-input" placeholder="e.g. 18" value={loEdit.link_clicks ?? ''} onChange={(e) => setLiOrg('link_clicks', e.target.value || null)} /></div>
                         </div>
@@ -2258,7 +2304,7 @@ export default function SEO() {
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.reachVal}</p>
-                          <p className="seo-card__label">Relations</p>
+                          <p className="seo-card__label">reactions</p>
                         </div>
                         <div className="seo-li-stat">
                           <p className="seo-card__val">{parsed.interactionsVal}</p>

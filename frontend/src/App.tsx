@@ -17,6 +17,7 @@ import UserManagement from './pages/admin/UserManagement';
 import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
+import ShareReport from './pages/ShareReport';
 import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
@@ -165,6 +166,7 @@ function AppRoutes() {
       } />
 
       {/* Default redirect */}
+      <Route path="/share/:token" element={<ShareReport />} />
       <Route path="/" element={
         user?.role === 'client'
           ? <Navigate to="/projects" replace />

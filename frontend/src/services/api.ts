@@ -139,6 +139,9 @@ export const seoApi = {
     api.put(`/seo/clients/${clientId}`, data),
   getManual: (clientId: number) => api.get(`/seo/manual/${clientId}`),
   updateManual: (clientId: number, data: any) => api.put(`/seo/manual/${clientId}`, data),
+  getShareInfo: (clientId: number) => api.get(`/seo/share-info/${clientId}`),
+  createShare: (clientId: number, data: { range: string; startDate?: string; endDate?: string }) => api.post(`/seo/share/${clientId}`, data),
+  revokeShare: (clientId: number) => api.delete(`/seo/share/${clientId}`),
 };
 
 export const contentApi = {
