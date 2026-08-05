@@ -911,6 +911,7 @@ export default function SEO() {
           }];
         }
         setManual(data);
+        setManualEdit(data);
         setShowTiktok(!!(data.social_media_data?.tiktok && Object.values(data.social_media_data.tiktok).some((v) => v != null)));
       })
       .catch(() => { setManual(emptyManual()); setShowTiktok(false); });
