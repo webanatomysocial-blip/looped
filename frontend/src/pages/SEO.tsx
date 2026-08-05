@@ -668,23 +668,6 @@ ${highlightsHtml}
   ${cards.map(([label, val]) => `<div class="card"><div class="card-val">${val}</div><div class="card-label">${label}</div></div>`).join('')}
 </div>
 
-${acqRows && demoRows ? `<div class="two-col">
-  <div>
-    <h2>Traffic Acquisition</h2>
-    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-  </div>
-  <div>
-    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-  </div>
-</div>` : acqRows ? `
-<h2>Traffic Acquisition</h2>
-<div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-` : demoRows ? `
-<h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-<div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-` : ''}
-
 ${totalClicks > 0 ? `
 <div class="section-block">
 <h2>Search Performance <span class="badge">Search Console</span></h2>
@@ -706,6 +689,23 @@ ${kwRows ? `
   <tbody>${kwRows}</tbody></table>
 </div>
 </div>` : ''}
+
+${acqRows && demoRows ? `<div class="two-col">
+  <div>
+    <h2>Traffic Acquisition</h2>
+    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+  </div>
+  <div>
+    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
+    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+  </div>
+</div>` : acqRows ? `
+<h2>Traffic Acquisition</h2>
+<div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
+` : demoRows ? `
+<h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
+<div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
+` : ''}
 
 ${organicRows ? `
 <div class="section-block">
