@@ -201,6 +201,7 @@ async function createSchema(): Promise<void> {
         t.text('targets').nullable();            // JSON: [{name, target, achieved, unit}]
         t.text('key_achievements').nullable();   // JSON: [{title, value}]
         t.text('linkedin_data').nullable();      // JSON: rich linkedin metrics + posts
+        t.text('social_media_data').nullable();  // JSON: instagram / facebook stats
         t.text('gmb_overview').nullable();
         t.integer('gmb_calls').nullable();
         t.integer('gmb_bookings').nullable();
@@ -222,6 +223,9 @@ async function createSchema(): Promise<void> {
         t.text('meta_organic').nullable();
         t.text('linkedin_organic').nullable();
         t.text('performance_marketing').nullable();
+        t.integer('health_score').defaultTo(76);
+        t.string('health_label').defaultTo('Weighted for a balanced goal, vs target');
+        t.text('flags_risks').nullable();
         t.timestamp('updated_at').defaultTo(db.fn.now());
       });
     } else {
@@ -259,8 +263,6 @@ async function createSchema(): Promise<void> {
           t.text('meta_organic').nullable();
           t.text('linkedin_organic').nullable();
           t.text('performance_marketing').nullable();
-          t.integer('health_score').defaultTo(76);
-          t.string('health_label').defaultTo('Weighted for a balanced goal, vs target');
         });
       }
       const hasHealth = await db.schema.hasColumn('seo_manual_data', 'health_score');

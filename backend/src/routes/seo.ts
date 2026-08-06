@@ -504,7 +504,10 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       await db('seo_manual_data').insert({ ...payload, client_id: req.params.clientId });
     }
     res.json({ message: 'Saved' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('Error saving SEO manual data:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // POST /api/seo/share/:clientId — create a new share token for current date range
