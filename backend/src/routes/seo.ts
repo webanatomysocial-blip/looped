@@ -688,7 +688,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       prevAcquisition: prevAcquisitionRes.status === 'fulfilled' && prevAcquisitionRes.value?.rows
         ? prevAcquisitionRes.value.rows.map((r: any) => ({ channel: r.dimensionValues[0].value, sessions: Number(r.metricValues[0].value), users: Number(r.metricValues[1].value) }))
         : [],
-      demographics: selectedCitiesLower.length > 0 ? allDemographics.filter((r: any) => selectedCitiesLower.includes(r.city.toLowerCase())) : allDemographics,
+      demographics: selectedCitiesLower.length > 0 ? allDemographics.filter((r: any) => selectedCitiesLower.includes(r.city.toLowerCase())) : [],
       pages: gscRes.status === 'fulfilled' && gscRes.value?.rows
         ? gscRes.value.rows.map((r: any) => ({ page: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
         : [],
