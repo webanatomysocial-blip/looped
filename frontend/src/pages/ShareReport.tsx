@@ -55,6 +55,12 @@ export default function ShareReport() {
 
   const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
 
+  const delta = (cur: number, pre?: number) => {
+    if (!pre) return null;
+    const pct = Math.round(((cur - pre) / pre) * 100);
+    return { pct, color: pct >= 0 ? '#16a34a' : '#dc2626', label: `${pct >= 0 ? '+' : ''}${pct}%` };
+  };
+
   const prev = report?.prevEngagement;
   const sigChanges: { key: string; label: string; from: number; to: number; pct: number }[] = [];
   if (eng && prev) {
@@ -186,14 +192,17 @@ export default function ShareReport() {
           <Section title="Website Performance">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10 }}>
               {[
-                ['Total Users', (eng.users ?? 0).toLocaleString()],
-                ['New Users', (eng.newUsers ?? 0).toLocaleString()],
-                ['Sessions', (eng.sessions ?? 0).toLocaleString()],
-                ['Avg. Duration', fmtDuration(eng.avgDuration ?? 0)],
-                ['Engagement Rate', `${eng.engagementRate ?? 0}%`],
-              ].map(([label, val]) => (
+                { label: 'Total Users',     val: (eng.users ?? 0).toLocaleString(),       d: delta(eng.users, prev?.users) },
+                { label: 'New Users',       val: (eng.newUsers ?? 0).toLocaleString(),     d: delta(eng.newUsers, prev?.newUsers) },
+                { label: 'Sessions',        val: (eng.sessions ?? 0).toLocaleString(),     d: delta(eng.sessions, prev?.sessions) },
+                { label: 'Avg. Duration',   val: fmtDuration(eng.avgDuration ?? 0),        d: delta(eng.avgDuration, prev?.avgDuration) },
+                { label: 'Engagement Rate', val: `${eng.engagementRate ?? 0}%`,            d: delta(eng.engagementRate, prev?.engagementRate) },
+              ].map(({ label, val, d }) => (
                 <div key={label} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{val}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{val}</div>
+                    {d && <span style={{ fontSize: 11, fontWeight: 700, color: d.color }}>{d.label}</span>}
+                  </div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 3, textTransform: 'uppercase' }}>{label}</div>
                 </div>
               ))}
@@ -223,7 +232,35 @@ export default function ShareReport() {
         {/* Traffic Acquisition + Demographics */}
         {report?.acquisition?.length > 0 && (
           <Section title="Traffic Acquisition">
-            <Table head={['Channel', 'Sessions', 'Users']} rows={report.acquisition.map((r: any) => [r.channel, r.sessions.toLocaleString(), r.users.toLocaleString()])} />
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  {['Channel', 'Sessions', 'Users'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#64748b', fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {report.acquisition.map((r: any, i: number) => {
+                  const p = report.prevAcquisition?.find((x: any) => x.channel === r.channel);
+                  const ds = delta(r.sessions, p?.sessions);
+                  const du = delta(r.users, p?.users);
+                  return (
+                    <tr key={r.channel} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                      <td style={{ padding: '8px 12px' }}>{r.channel}</td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {r.sessions.toLocaleString()}
+                        {ds && <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 5, color: ds.color }}>{ds.label}</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px' }}>
+                        {r.users.toLocaleString()}
+                        {du && <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 5, color: du.color }}>{du.label}</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </Section>
         )}
 
