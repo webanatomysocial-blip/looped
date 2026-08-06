@@ -127,49 +127,49 @@ export default function ShareReport() {
           const bpaItems: string[] = Array.isArray(manual.best_performing_asset)
             ? manual.best_performing_asset.filter(Boolean)
             : (manual.best_performing_asset ? [manual.best_performing_asset] : []);
-          return (bpaItems.length > 0 || sigWhys) && (
+          return bpaItems.length > 0 && (
             <Section title="Key Highlights & Insights">
-              {bpaItems.length > 0 && (
-                <div style={{ marginBottom: sigWhys ? 10 : 0 }}>
-                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '0 0 4px' }}>Best Performing Asset / Campaign</p>
-                  <ul style={{ paddingLeft: 20, margin: 0 }}>
-                    {bpaItems.map((item, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 2 }}>{item}</li>)}
-                  </ul>
-                </div>
-              )}
-              {sigWhys && (
-                <>
-                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '8px 0 4px' }}>Notable Changes This Period</p>
-                  <ul style={{ paddingLeft: 20, margin: 0 }}>
-                    {Object.entries(manual.sig_change_whys).map(([k, v]) => (
-                      <li key={k} style={{ fontSize: 12, marginBottom: 4 }}><strong>{k}:</strong> {v as string}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '0 0 6px' }}>Best Performing Asset / Campaign</p>
+                <ul style={{ paddingLeft: 20, margin: 0 }}>
+                  {bpaItems.map((item, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>{item}</li>)}
+                </ul>
+              </div>
             </Section>
           );
         })()}
 
+        {/* Notable Changes This Period (Separate Section) */}
+        {sigWhys && (
+          <Section title="Notable Changes This Period">
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {Object.entries(manual.sig_change_whys).map(([k, v]) => (
+                <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
+                  <strong>{k}:</strong> {v as string}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
         {/* Website Performance */}
         {eng && (
-          <>
-            <h2 style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Website Performance</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10, marginBottom: 20 }}>
+          <Section title="Website Performance">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 10 }}>
               {[
-                ['Total Users', eng.users?.toLocaleString()],
-                ['New Users', eng.newUsers?.toLocaleString()],
-                ['Sessions', eng.sessions?.toLocaleString()],
-                ['Avg. Duration', fmtDuration(eng.avgDuration)],
-                ['Engagement Rate', `${eng.engagementRate}%`],
+                ['Total Users', (eng.users ?? 0).toLocaleString()],
+                ['New Users', (eng.newUsers ?? 0).toLocaleString()],
+                ['Sessions', (eng.sessions ?? 0).toLocaleString()],
+                ['Avg. Duration', fmtDuration(eng.avgDuration ?? 0)],
+                ['Engagement Rate', `${eng.engagementRate ?? 0}%`],
               ].map(([label, val]) => (
-                <div key={label} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
+                <div key={label} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px' }}>
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{val}</div>
                   <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 3, textTransform: 'uppercase' }}>{label}</div>
                 </div>
               ))}
             </div>
-          </>
+          </Section>
         )}
 
         {/* Search Performance */}
