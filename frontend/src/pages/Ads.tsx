@@ -187,6 +187,7 @@ export default function Ads() {
 
   const [clients,        setClients]        = useState<AdsClient[]>([]);
   const [selectedClient, setSelectedClient] = useState<AdsClient | null>(null);
+  const [isFullScan,     setIsFullScan]     = useState(true);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [cfCustomerId,   setCfCustomerId]   = useState('');
   const [cfSaving,       setCfSaving]       = useState(false);
@@ -205,19 +206,35 @@ export default function Ads() {
   useEffect(() => {
     api.get('/ads/clients').then((r) => {
       setClients(r.data);
-      if (r.data[0]) setSelectedClient(r.data[0]);
     }).catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!selectedClient) return;
-    api.get(`/ads/manual/${selectedClient.id}`)
-      .then((r) => setManual(parseManualData(r.data)))
-      .catch(() => setManual(emptyManual()));
-    adsApi.getShareTokens(selectedClient.id)
-      .then((r) => setShareTokens(r.data || []))
-      .catch(() => setShareTokens([]));
-  }, [selectedClient]);
+    if (isFullScan) {
+      if (!clients.length) return;
+      Promise.all(
+        clients.map((c) =>
+          api.get(`/ads/manual/${c.id}`).then((r) => parseManualData(r.data)).catch(() => emptyManual())
+        )
+      ).then((results) => {
+        const combined = emptyManual();
+        results.forEach((res) => {
+          combined.google.campaigns.push(...res.google.campaigns);
+          combined.linkedin.campaigns.push(...res.linkedin.campaigns);
+          combined.meta.campaigns.push(...res.meta.campaigns);
+        });
+        setManual(combined);
+      });
+      setShareTokens([]);
+    } else if (selectedClient) {
+      api.get(`/ads/manual/${selectedClient.id}`)
+        .then((r) => setManual(parseManualData(r.data)))
+        .catch(() => setManual(emptyManual()));
+      adsApi.getShareTokens(selectedClient.id)
+        .then((r) => setShareTokens(r.data || []))
+        .catch(() => setShareTokens([]));
+    }
+  }, [isFullScan, selectedClient, clients]);
 
   const openGroupEdit = (key: GroupKey) => {
     setManualEdit({ ...manual, [key]: { ...manual[key], campaigns: manual[key].campaigns.map((c) => ({ ...c })) } });
@@ -296,7 +313,7 @@ export default function Ads() {
       <div key={key} className="seo-section">
         <h3 className="seo-section__title">
           Campaigns <span className="seo-badge">{badge}</span>
-          {canEdit && (
+          {canEdit && !isFullScan && (
             <button className="seo-manual-edit-btn" onClick={() => isEditing ? setEditingGroup(null) : openGroupEdit(key)}>
               <Edit2 size={11} /> {isEditing ? 'Cancel' : 'Edit'}
             </button>
@@ -454,10 +471,10 @@ export default function Ads() {
                 onClick={() => { setCustomStart(''); setCustomEnd(''); }}
               >✕</button>
             )}
-            {selectedClient && (
+            {(selectedClient || isFullScan) && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
+                onClick={() => downloadPDF(isFullScan ? 'All Clients (Full Scan)' : selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -501,7 +518,7 @@ export default function Ads() {
                       className="seo-inline-save"
                       style={{ width: '100%', marginTop: 4 }}
                       onClick={async () => {
-                        const r = await adsApi.createShare(selectedClient.id, { startDate: customStart || undefined, endDate: customEnd || undefined });
+                        const r = await adsApi.createShare(selectedClient!.id, { startDate: customStart || undefined, endDate: customEnd || undefined });
                         const newToken = r.data.token;
                         setShareTokens((prev) => [{ token: newToken, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
                         const link = `${window.location.origin}/share/ads/${newToken}`;
@@ -520,11 +537,17 @@ export default function Ads() {
         {/* ── Client tabs ── */}
         <div className="seo-nav">
           <div className="seo-client-row">
+            <button
+              className={`seo-client-btn${isFullScan ? ' active' : ''}`}
+              onClick={() => { setIsFullScan(true); setSelectedClient(null); setEditingClientId(null); setEditingGroup(null); }}
+            >
+              <span>Full scan</span>
+            </button>
             {clients.map((c) => (
               <div key={c.id} className="seo-client-wrap">
                 <button
-                  className={`seo-client-btn${selectedClient?.id === c.id ? ' active' : ''}`}
-                  onClick={() => { setSelectedClient(c); setEditingClientId(null); setEditingGroup(null); }}
+                  className={`seo-client-btn${!isFullScan && selectedClient?.id === c.id ? ' active' : ''}`}
+                  onClick={() => { setIsFullScan(false); setSelectedClient(c); setEditingClientId(null); setEditingGroup(null); }}
                 >
                   <span>{c.name}</span>
                   {canEdit && (
@@ -533,6 +556,7 @@ export default function Ads() {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (editingClientId === c.id) { setEditingClientId(null); return; }
+                        setIsFullScan(false);
                         setSelectedClient(c);
                         setEditingClientId(c.id);
                         setCfCustomerId(c.ads_customer_id || '');
