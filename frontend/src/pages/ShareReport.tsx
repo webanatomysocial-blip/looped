@@ -80,6 +80,19 @@ export default function ShareReport() {
           </Section>
         )}
 
+        {/* Notable Changes This Period — below Executive Summary */}
+        {sigWhys && (
+          <Section title="Notable Changes This Period">
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {Object.entries(manual.sig_change_whys).map(([k, v]) => (
+                <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
+                  <strong>{k}:</strong> {v as string}
+                </li>
+              ))}
+            </ul>
+          </Section>
+        )}
+
         {/* Current Period Targets */}
         {manual.period_targets && Object.values(manual.period_targets).some((v) => v) && (
           <Section title="Current Period Targets">
@@ -138,19 +151,6 @@ export default function ShareReport() {
             </Section>
           );
         })()}
-
-        {/* Notable Changes This Period (Separate Section) */}
-        {sigWhys && (
-          <Section title="Notable Changes This Period">
-            <ul style={{ paddingLeft: 20, margin: 0 }}>
-              {Object.entries(manual.sig_change_whys).map(([k, v]) => (
-                <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
-                  <strong>{k}:</strong> {v as string}
-                </li>
-              ))}
-            </ul>
-          </Section>
-        )}
 
         {/* Website Performance */}
         {eng && (
