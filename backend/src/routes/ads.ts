@@ -12,7 +12,10 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const clients = await db('client_companies').select('id', 'name', 'ads_customer_id').orderBy('name');
     res.json(clients);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('Error fetching ads clients:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // PUT /api/ads/clients/:id — save customer ID

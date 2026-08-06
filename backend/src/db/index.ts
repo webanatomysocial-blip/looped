@@ -104,6 +104,7 @@ async function createSchema(): Promise<void> {
         t.string('name').notNullable();
         t.string('ga_property_id').nullable();   // GA4 Property ID e.g. "123456789"
         t.string('gsc_site_url').nullable();      // GSC site URL e.g. "https://example.com/"
+        t.string('ads_customer_id').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     } else {
@@ -113,6 +114,12 @@ async function createSchema(): Promise<void> {
         await db.schema.table('client_companies', (t) => {
           t.string('ga_property_id').nullable();
           t.string('gsc_site_url').nullable();
+        });
+      }
+      const hasAdsCustId = await db.schema.hasColumn('client_companies', 'ads_customer_id');
+      if (!hasAdsCustId) {
+        await db.schema.table('client_companies', (t) => {
+          t.string('ads_customer_id').nullable();
         });
       }
       const hasShareToken = await db.schema.hasColumn('client_companies', 'share_token');
