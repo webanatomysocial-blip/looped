@@ -486,7 +486,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       executive_summary:   executive_summary   !== undefined ? executive_summary                   : undefined,
       sig_change_whys:     sig_change_whys     !== undefined ? JSON.stringify(sig_change_whys)     : undefined,
       last_period_plan:    last_period_plan    !== undefined ? JSON.stringify(last_period_plan)    : undefined,
-      best_performing_asset: best_performing_asset !== undefined ? best_performing_asset           : undefined,
+      best_performing_asset: best_performing_asset !== undefined ? (typeof best_performing_asset === 'string' ? best_performing_asset : JSON.stringify(best_performing_asset)) : undefined,
       next_period_plan:    next_period_plan    !== undefined ? JSON.stringify(next_period_plan)    : undefined,
       period_targets:      period_targets      !== undefined ? JSON.stringify(period_targets)      : undefined,
       meta_organic:        meta_organic        !== undefined ? JSON.stringify(meta_organic)        : undefined,
