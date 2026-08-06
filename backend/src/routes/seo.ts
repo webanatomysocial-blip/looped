@@ -510,7 +510,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
 // POST /api/seo/share/:clientId — create a new share token for current date range
 router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
-  if (!['admin', 'manager'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
+  if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
     const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country } = req.body;
     const token = randomUUID();
@@ -529,7 +529,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
 // DELETE /api/seo/share-token/:token — revoke a specific token
 router.delete('/share-token/:token', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
-  if (!['admin', 'manager'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
+  if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
     await getDB()('seo_share_tokens').where({ token: req.params.token }).delete();
     res.json({ message: 'Revoked' });
