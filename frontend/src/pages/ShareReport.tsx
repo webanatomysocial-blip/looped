@@ -55,6 +55,19 @@ export default function ShareReport() {
 
   const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
 
+  const prev = report?.prevEngagement;
+  const sigChanges: { key: string; label: string; from: number; to: number; pct: number }[] = [];
+  if (eng && prev) {
+    const check = (key: string, label: string, cur: number, pre: number) => {
+      if (!pre) return;
+      const pct = Math.round(((cur - pre) / pre) * 100);
+      sigChanges.push({ key, label, from: pre, to: cur, pct });
+    };
+    check('sessions', 'Sessions', eng.sessions, prev.sessions);
+    check('users', 'Users', eng.users, prev.users);
+    check('engagementRate', 'Engagement Rate', eng.engagementRate, prev.engagementRate);
+  }
+
   return (
     <div style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif', background: '#f1f5f9', minHeight: '100vh', padding: '32px 24px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -81,14 +94,30 @@ export default function ShareReport() {
         )}
 
         {/* Notable Changes This Period — below Executive Summary */}
-        {sigWhys && (
+        {(sigWhys || sigChanges.length > 0) && (
           <Section title="Notable Changes This Period">
             <ul style={{ paddingLeft: 20, margin: 0 }}>
-              {Object.entries(manual.sig_change_whys).map(([k, v]) => (
-                <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
-                  <strong>{k}:</strong> {v as string}
+              {sigChanges.map(sc => (
+                <li key={sc.key} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 6 }}>
+                  <strong>{sc.label}:</strong>{' '}
+                  {sc.from.toLocaleString()} → {sc.to.toLocaleString()}{' '}
+                  <span style={{ color: sc.pct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
+                    ({sc.pct >= 0 ? '+' : ''}{sc.pct}%)
+                  </span>
+                  {manual.sig_change_whys?.[sc.key] && (
+                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>
+                      {' '}: {manual.sig_change_whys[sc.key]}
+                    </span>
+                  )}
                 </li>
               ))}
+              {sigWhys && Object.entries(manual.sig_change_whys)
+                .filter(([k]) => !sigChanges.find(sc => sc.key === k))
+                .map(([k, v]) => (
+                  <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
+                    <strong>{k}:</strong> {v as string}
+                  </li>
+                ))}
             </ul>
           </Section>
         )}
