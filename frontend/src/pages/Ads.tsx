@@ -3,6 +3,7 @@ import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download, Globe } from 'lu
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import api, { adsApi } from '../services/api';
+import '../css/pages/SEO.css';
 
 interface AdsClient {
   id: number;
