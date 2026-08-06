@@ -143,6 +143,24 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // multi-token share links for SEO
+  await db.schema.hasTable('seo_share_tokens').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('seo_share_tokens', (t) => {
+        t.increments('id').primary();
+        t.string('token').notNullable().unique();
+        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.string('range').nullable();
+        t.string('start_date').nullable();
+        t.string('end_date').nullable();
+        t.text('demographics').nullable();
+        t.text('acquisitions').nullable();
+        t.string('country').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
   // seo manual data (keyword rankings, targets, gmb, linkedin, organic submissions, key achievements)
   await db.schema.hasTable('seo_manual_data').then(async (exists) => {
     if (!exists) {

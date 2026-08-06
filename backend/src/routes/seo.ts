@@ -507,42 +507,42 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// POST /api/seo/share/:clientId — generate share token (saves current range)
+// POST /api/seo/share/:clientId — create a new share token for current date range
 router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const db = getDB();
     const { range = '28d', startDate, endDate, demographics, acquisitions, country } = req.body;
     const token = randomUUID();
-    await db('client_companies').where({ id: req.params.clientId }).update({
-      share_token: token, share_range: range,
-      share_start: startDate || null, share_end: endDate || null,
-      share_demographics: demographics ? JSON.stringify(demographics) : null,
-      share_acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
-      share_country: country || null,
+    await getDB()('seo_share_tokens').insert({
+      token, client_id: req.params.clientId, range,
+      start_date: startDate || null, end_date: endDate || null,
+      demographics: demographics ? JSON.stringify(demographics) : null,
+      acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
+      country: country || null,
     });
     res.json({ token });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// DELETE /api/seo/share/:clientId — revoke share token
-router.delete('/share/:clientId', async (req: AuthRequest, res: Response) => {
+// DELETE /api/seo/share-token/:token — revoke a specific token
+router.delete('/share-token/:token', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    await getDB()('client_companies').where({ id: req.params.clientId }).update({
-      share_token: null, share_range: null, share_start: null, share_end: null, share_demographics: null, share_acquisitions: null, share_country: null,
-    });
+    await getDB()('seo_share_tokens').where({ token: req.params.token }).delete();
     res.json({ message: 'Revoked' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// GET /api/seo/share-info/:clientId — check if token exists (for the share button UI)
-router.get('/share-info/:clientId', async (req: AuthRequest, res: Response) => {
+// GET /api/seo/share-tokens/:clientId — list all tokens for a client
+router.get('/share-tokens/:clientId', async (req: AuthRequest, res: Response) => {
   try {
-    const row = await getDB()('client_companies').where({ id: req.params.clientId }).select('share_token', 'share_range').first();
-    res.json({ token: row?.share_token || null, range: row?.share_range || null });
+    const rows = await getDB()('seo_share_tokens')
+      .where({ client_id: req.params.clientId })
+      .select('token', 'range', 'start_date', 'end_date', 'created_at')
+      .orderBy('created_at', 'desc');
+    res.json(rows);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -554,12 +554,14 @@ export const publicSeoRouter = Router();
 publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
   try {
     const db = getDB();
-    const client = await db('client_companies').where({ share_token: req.params.token }).first();
+    const shareRow = await db('seo_share_tokens').where({ token: req.params.token }).first();
+    if (!shareRow) { res.status(404).json({ error: 'Report not found or link has been revoked' }); return; }
+    const client = await db('client_companies').where({ id: shareRow.client_id }).first();
     if (!client) { res.status(404).json({ error: 'Report not found or link has been revoked' }); return; }
 
-    const range = client.share_range || '28d';
-    const customStart = client.share_start || null;
-    const customEnd   = client.share_end   || null;
+    const range = shareRow.range || '28d';
+    const customStart = shareRow.start_date || null;
+    const customEnd   = shareRow.end_date   || null;
     const isCustom    = range === 'custom' && customStart && customEnd;
 
     // Manual data
@@ -644,8 +646,8 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       ? engagementRes.value.rows[0].metricValues
       : null;
 
-    const selectedCities: string[] = client.share_demographics ? JSON.parse(client.share_demographics) : [];
-    const selectedChannels: string[] = client.share_acquisitions ? JSON.parse(client.share_acquisitions) : [];
+    const selectedCities: string[] = shareRow.demographics ? JSON.parse(shareRow.demographics) : [];
+    const selectedChannels: string[] = shareRow.acquisitions ? JSON.parse(shareRow.acquisitions) : [];
 
     const allDemographics = demoRes.status === 'fulfilled' && demoRes.value?.rows
       ? demoRes.value.rows.map((r: any) => ({ city: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value) }))

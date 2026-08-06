@@ -145,9 +145,9 @@ export const seoApi = {
     api.put(`/seo/clients/${clientId}`, data),
   getManual: (clientId: number) => api.get(`/seo/manual/${clientId}`),
   updateManual: (clientId: number, data: any) => api.put(`/seo/manual/${clientId}`, data),
-  getShareInfo: (clientId: number) => api.get(`/seo/share-info/${clientId}`),
+  getShareTokens: (clientId: number) => api.get(`/seo/share-tokens/${clientId}`),
   createShare: (clientId: number, data: { range: string; startDate?: string; endDate?: string; demographics?: string[]; acquisitions?: string[]; country?: string }) => api.post(`/seo/share/${clientId}`, data),
-  revokeShare: (clientId: number) => api.delete(`/seo/share/${clientId}`),
+  revokeShareToken: (token: string) => api.delete(`/seo/share-token/${token}`),
 };
 
 export const contentApi = {
