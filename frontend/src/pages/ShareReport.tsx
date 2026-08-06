@@ -123,25 +123,33 @@ export default function ShareReport() {
         )}
 
         {/* Key Highlights */}
-        {(manual.best_performing_asset || sigWhys) && (
-          <Section title="Key Highlights & Insights">
-            {manual.best_performing_asset && (
-              <p style={{ fontSize: 13, lineHeight: 1.6, marginBottom: sigWhys ? 10 : 0 }}>
-                <strong>Best Performing Asset:</strong> {manual.best_performing_asset}
-              </p>
-            )}
-            {sigWhys && (
-              <>
-                <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '8px 0 4px' }}>Significant Changes & Reasons</p>
-                <ul style={{ paddingLeft: 20, margin: 0 }}>
-                  {Object.entries(manual.sig_change_whys).map(([k, v]) => (
-                    <li key={k} style={{ fontSize: 12, marginBottom: 4 }}><strong>{k}:</strong> {v as string}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-          </Section>
-        )}
+        {(() => {
+          const bpaItems: string[] = Array.isArray(manual.best_performing_asset)
+            ? manual.best_performing_asset.filter(Boolean)
+            : (manual.best_performing_asset ? [manual.best_performing_asset] : []);
+          return (bpaItems.length > 0 || sigWhys) && (
+            <Section title="Key Highlights & Insights">
+              {bpaItems.length > 0 && (
+                <div style={{ marginBottom: sigWhys ? 10 : 0 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '0 0 4px' }}>Best Performing Asset / Campaign</p>
+                  <ul style={{ paddingLeft: 20, margin: 0 }}>
+                    {bpaItems.map((item, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 2 }}>{item}</li>)}
+                  </ul>
+                </div>
+              )}
+              {sigWhys && (
+                <>
+                  <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '8px 0 4px' }}>Notable Changes This Period</p>
+                  <ul style={{ paddingLeft: 20, margin: 0 }}>
+                    {Object.entries(manual.sig_change_whys).map(([k, v]) => (
+                      <li key={k} style={{ fontSize: 12, marginBottom: 4 }}><strong>{k}:</strong> {v as string}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </Section>
+          );
+        })()}
 
         {/* Website Performance */}
         {eng && (

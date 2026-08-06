@@ -166,11 +166,21 @@ async function createSchema(): Promise<void> {
         t.string('range').nullable();
         t.string('start_date').nullable();
         t.string('end_date').nullable();
+        t.string('compare_start').nullable();
+        t.string('compare_end').nullable();
         t.text('demographics').nullable();
         t.text('acquisitions').nullable();
         t.string('country').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasCompareStart = await db.schema.hasColumn('seo_share_tokens', 'compare_start');
+      if (!hasCompareStart) {
+        await db.schema.table('seo_share_tokens', (t) => {
+          t.string('compare_start').nullable();
+          t.string('compare_end').nullable();
+        });
+      }
     }
   });
 

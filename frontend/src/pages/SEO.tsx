@@ -132,7 +132,7 @@ interface ManualData {
   executive_summary: string;
   sig_change_whys: Record<string, string>;
   last_period_plan: LastPeriodPlanItem[];
-  best_performing_asset: string;
+  best_performing_asset: string | string[];
   next_period_plan: NextPeriodPlanItem[];
   period_targets: PeriodTargets;
   // Social & Performance Marketing
@@ -332,14 +332,15 @@ function downloadPDF(
 
   // ── Highlights & Whys ──
   const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
-  const highlightsHtml = (sigWhys || manual.best_performing_asset) ? `
+  const bpaItems = Array.isArray(manual.best_performing_asset) ? manual.best_performing_asset.filter(Boolean) : (manual.best_performing_asset ? [manual.best_performing_asset as string] : []);
+  const highlightsHtml = (sigWhys || bpaItems.length > 0) ? `
 <div class="section-block">
 <h2>Key Highlights &amp; Insights</h2>
 <div class="section">
   <div class="section-inner">
-    ${manual.best_performing_asset ? `<p style="font-size:13px;line-height:1.6;margin-bottom:10px"><b>Best Performing Asset:</b> ${manual.best_performing_asset}</p>` : ''}
+    ${bpaItems.length > 0 ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:0 0 4px">Best Performing Asset / Campaign</p><ul>${bpaItems.map((item) => `<li style="font-size:13px;line-height:1.6;margin-bottom:4px">${item}</li>`).join('')}</ul>` : ''}
     ${sigWhys ? `
-      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:8px 0 4px">Significant Changes &amp; Reasons</p>
+      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:8px 0 4px">Notable Changes This Period</p>
       <ul>${Object.entries(manual.sig_change_whys).map(([k, v]) => `<li style="font-size:12px;margin-bottom:4px"><b>${k}:</b> ${v}</li>`).join('')}</ul>
     ` : ''}
   </div>
@@ -786,7 +787,7 @@ const emptyManual = (): ManualData => ({
   keyword_rankings: [], targets: [], key_insights: '', linkedin_data: null, social_media_data: null,
   organic_form_data: [], gmb_locations: [],
   executive_summary: '', sig_change_whys: {}, last_period_plan: [],
-  best_performing_asset: '', next_period_plan: [],
+  best_performing_asset: [], next_period_plan: [],
   period_targets: { sessions: '', leads: '', engagement_rate: '', instagram_reach: '', facebook_reach: '' },
   meta_organic: {
     instagram: emptyOrganicMetrics(),
@@ -913,6 +914,10 @@ export default function SEO() {
             prev_calls: data.gmb_prev_calls, prev_bookings: data.gmb_prev_bookings,
             prev_website_clicks: data.gmb_prev_website_clicks,
           }];
+        }
+        // Migrate best_performing_asset string → string[]
+        if (typeof data.best_performing_asset === 'string') {
+          data.best_performing_asset = data.best_performing_asset ? [data.best_performing_asset] : [];
         }
         setManual(data);
         setManualEdit(data);
@@ -1094,7 +1099,7 @@ export default function SEO() {
                       className="seo-inline-save"
                       style={{ width: '100%', marginTop: 4 }}
                       onClick={async () => {
-                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry });
+                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry });
                         const newToken = r.data.token;
                         setShareTokens((prev) => [{ token: newToken, range, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
                         const link = `${window.location.origin}/share/${newToken}`;
@@ -1334,17 +1339,16 @@ export default function SEO() {
               return (
                 <div className="seo-section" style={{ border: '1.5px solid #fde68a', background: 'linear-gradient(135deg,#fffbeb 0%,#fff 100%)', borderRadius: 12, padding: '16px 20px' }}>
                   <h3 className="seo-section__title" style={{ color: '#92400e' }}>
-                    ⚠ Significant Changes Detected
+                    Notable Changes This Period
                   </h3>
-                  {/* <p style={{ fontSize: 12, color: '#92400e', marginBottom: 14 }}>These metrics moved more than 25% vs last period. Add a one-line reason before generating the report.</p> */}
                   {sigChanges.map(sc => (
-                    <div key={sc.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                      <div style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                    <div key={sc.key} style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                         {sc.label}: <span style={{ color: 'var(--ink-muted)', fontWeight: 400 }}>{sc.from.toLocaleString()} → {sc.to.toLocaleString()}</span>
                         <span style={{ marginLeft: 6, fontWeight: 700, color: sc.pct >= 0 ? '#16a34a' : '#dc2626' }}>({sc.pct >= 0 ? '+' : ''}{sc.pct}%)</span>
                       </div>
                       {canEdit && (
-                        <input className="form-input" placeholder="Why?" style={{ width: 260, fontSize: 12 }}
+                        <input className="form-input" placeholder="Why?" style={{ width: '100%', fontSize: 12, marginTop: 6 }}
                           value={manual.sig_change_whys?.[sc.key] ?? ''}
                           onChange={(e) => {
                             const updated = { ...manual, sig_change_whys: { ...(manual.sig_change_whys ?? {}), [sc.key]: e.target.value } };
@@ -1353,7 +1357,7 @@ export default function SEO() {
                           }} />
                       )}
                       {!canEdit && manual.sig_change_whys?.[sc.key] && (
-                        <span style={{ fontSize: 12, color: 'var(--ink-muted)', fontStyle: 'italic' }}>{manual.sig_change_whys[sc.key]}</span>
+                        <p style={{ fontSize: 12, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 4 }}>{manual.sig_change_whys[sc.key]}</p>
                       )}
                     </div>
                   ))}
@@ -1443,7 +1447,7 @@ export default function SEO() {
             )}
 
             {/* ── Business Outcome + Next Period's Plan ── */}
-            {(canEdit || manual.best_performing_asset || manual.next_period_plan?.length > 0) && (
+            {(canEdit || (Array.isArray(manual.best_performing_asset) && manual.best_performing_asset.length > 0) || manual.next_period_plan?.length > 0) && (
               <div className="seo-section">
                 <h3 className="seo-section__title">
                   Business Outcome
@@ -1455,12 +1459,26 @@ export default function SEO() {
                 </h3>
                 {manualPanel === ('business' as any) && canEdit && (
                   <div className="seo-manual-panel">
-                    <div className="seo-inline-field" style={{ marginBottom: 12 }}>
+                    <div style={{ marginBottom: 12 }}>
                       <label className="seo-inline-label">Best performing asset / campaign this month</label>
-                      <textarea className="form-input seo-gmb-overview-input" rows={2}
-                        placeholder="e.g. Blog: 'Eco Drain Pipes — Complete Buyer's Guide' + GBP offer post"
-                        value={manualEdit.best_performing_asset}
-                        onChange={(e) => setManualEdit({ ...manualEdit, best_performing_asset: e.target.value })} />
+                      {(Array.isArray(manualEdit.best_performing_asset) ? manualEdit.best_performing_asset : []).map((item, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                          <input className="form-input seo-inline-input" style={{ flex: 1 }} placeholder="e.g. Blog: 'Eco Drain Pipes Guide'"
+                            value={item}
+                            onChange={(e) => {
+                              const arr = [...(manualEdit.best_performing_asset as string[])];
+                              arr[i] = e.target.value;
+                              setManualEdit({ ...manualEdit, best_performing_asset: arr });
+                            }} />
+                          <button className="seo-manual-del" onClick={() => {
+                            const arr = (manualEdit.best_performing_asset as string[]).filter((_, j) => j !== i);
+                            setManualEdit({ ...manualEdit, best_performing_asset: arr });
+                          }}><Trash2 size={13} /></button>
+                        </div>
+                      ))}
+                      <button className="seo-manual-add" onClick={() => setManualEdit({ ...manualEdit, best_performing_asset: [...(manualEdit.best_performing_asset as string[]), ''] })}>
+                        <Plus size={12} /> Add item
+                      </button>
                     </div>
                     <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', margin: '14px 0 8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Next Period's Plan</p>
                     {manualEdit.next_period_plan.map((item, i) => {
@@ -1489,10 +1507,12 @@ export default function SEO() {
                 )}
                 {manualPanel !== ('business' as any) && (
                   <>
-                    {manual.best_performing_asset && (
+                    {Array.isArray(manual.best_performing_asset) && manual.best_performing_asset.length > 0 && (
                       <div style={{ background: 'var(--bg-sand)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
                         <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Best performing asset / campaign this month</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.6 }}>{manual.best_performing_asset}</div>
+                        {(manual.best_performing_asset as string[]).map((item, i) => (
+                          <div key={i} style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', lineHeight: 1.6 }}>• {item}</div>
+                        ))}
                       </div>
                     )}
                     {manual.next_period_plan?.length > 0 && (

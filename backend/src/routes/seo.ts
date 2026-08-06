@@ -512,11 +512,12 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, demographics, acquisitions, country } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country } = req.body;
     const token = randomUUID();
     await getDB()('seo_share_tokens').insert({
       token, client_id: req.params.clientId, range,
       start_date: startDate || null, end_date: endDate || null,
+      compare_start: compareStart || null, compare_end: compareEnd || null,
       demographics: demographics ? JSON.stringify(demographics) : null,
       acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
       country: country || null,
@@ -612,7 +613,10 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       { name: 'sessions' }, { name: 'activeUsers' }, { name: 'newUsers' },
     ];
 
-    const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes] = await Promise.allSettled([
+    const compareStart = shareRow.compare_start || null;
+    const compareEnd   = shareRow.compare_end   || null;
+
+    const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes, prevEngagementRes, prevAcquisitionRes] = await Promise.allSettled([
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
         dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
         dimensions: [{ name: 'date' }],
@@ -640,10 +644,19 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       client.gsc_site_url
         ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'query')
         : Promise.resolve(null),
+      compareStart && compareEnd
+        ? fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json())
+        : Promise.resolve(null),
+      compareStart && compareEnd
+        ? fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json())
+        : Promise.resolve(null),
     ]);
 
     const eng = engagementRes.status === 'fulfilled' && engagementRes.value?.rows?.[0]?.metricValues
       ? engagementRes.value.rows[0].metricValues
+      : null;
+    const prevEng = prevEngagementRes.status === 'fulfilled' && prevEngagementRes.value?.rows?.[0]?.metricValues
+      ? prevEngagementRes.value.rows[0].metricValues
       : null;
 
     const selectedCities: string[] = shareRow.demographics ? JSON.parse(shareRow.demographics) : [];
@@ -664,8 +677,12 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       engagement: eng
         ? { avgDuration: Math.round(Number(eng[0].value)), bounceRate: Math.round(Number(eng[1].value) * 100), pagesPerSession: Number(Number(eng[2].value).toFixed(1)), engagementRate: Math.round(Number(eng[3].value) * 100), sessions: Number(eng[4].value), users: Number(eng[5].value), newUsers: Number(eng[6].value) }
         : { avgDuration: 0, bounceRate: 0, pagesPerSession: 0, engagementRate: 0, sessions: 0, users: 0, newUsers: 0 },
-      prevEngagement: null,
-      prevAcquisition: [],
+      prevEngagement: prevEng
+        ? { avgDuration: Math.round(Number(prevEng[0].value)), bounceRate: Math.round(Number(prevEng[1].value) * 100), pagesPerSession: Number(Number(prevEng[2].value).toFixed(1)), engagementRate: Math.round(Number(prevEng[3].value) * 100), sessions: Number(prevEng[4].value), users: Number(prevEng[5].value), newUsers: Number(prevEng[6].value) }
+        : null,
+      prevAcquisition: prevAcquisitionRes.status === 'fulfilled' && prevAcquisitionRes.value?.rows
+        ? prevAcquisitionRes.value.rows.map((r: any) => ({ channel: r.dimensionValues[0].value, sessions: Number(r.metricValues[0].value), users: Number(r.metricValues[1].value) }))
+        : [],
       demographics: selectedCities.length > 0 ? allDemographics.filter((r: any) => selectedCities.includes(r.city)) : allDemographics,
       pages: gscRes.status === 'fulfilled' && gscRes.value?.rows
         ? gscRes.value.rows.map((r: any) => ({ page: r.keys[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }))
