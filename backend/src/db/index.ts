@@ -143,6 +143,19 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  await db.schema.hasTable('ads_share_tokens').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('ads_share_tokens', (t) => {
+        t.increments('id').primary();
+        t.string('token').notNullable().unique();
+        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.string('start_date').nullable();
+        t.string('end_date').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
   // multi-token share links for SEO
   await db.schema.hasTable('seo_share_tokens').then(async (exists) => {
     if (!exists) {

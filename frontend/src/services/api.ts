@@ -132,9 +132,9 @@ export const reportsApi = {
 };
 
 export const adsApi = {
-  getShareInfo: (clientId: number) => api.get(`/ads/share-info/${clientId}`),
+  getShareTokens: (clientId: number) => api.get(`/ads/share-tokens/${clientId}`),
   createShare: (clientId: number, data: { startDate?: string; endDate?: string }) => api.post(`/ads/share/${clientId}`, data),
-  revokeShare: (clientId: number) => api.delete(`/ads/share/${clientId}`),
+  revokeShareToken: (token: string) => api.delete(`/ads/share-token/${token}`),
 };
 
 export const seoApi = {

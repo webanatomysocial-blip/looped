@@ -148,24 +148,22 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Forbidden' }); return; }
   const { startDate, endDate } = req.body;
   const token = randomUUID();
-  await getDB()('client_companies').where({ id: req.params.clientId }).update({
-    ads_share_token: token,
-    ads_share_start: startDate || null,
-    ads_share_end: endDate || null,
-  });
+  await getDB()('ads_share_tokens').insert({ token, client_id: req.params.clientId, start_date: startDate || null, end_date: endDate || null });
   res.json({ token });
 });
 
-// DELETE /api/ads/share/:clientId
-router.delete('/share/:clientId', async (req: AuthRequest, res: Response) => {
-  await getDB()('client_companies').where({ id: req.params.clientId }).update({ ads_share_token: null, ads_share_start: null, ads_share_end: null });
+// DELETE /api/ads/share-token/:token
+router.delete('/share-token/:token', async (req: AuthRequest, res: Response) => {
+  const { role } = req.user!;
+  if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  await getDB()('ads_share_tokens').where({ token: req.params.token }).delete();
   res.json({ message: 'Revoked' });
 });
 
-// GET /api/ads/share-info/:clientId
-router.get('/share-info/:clientId', async (req: AuthRequest, res: Response) => {
-  const row = await getDB()('client_companies').where({ id: req.params.clientId }).select('ads_share_token').first();
-  res.json({ token: row?.ads_share_token || null });
+// GET /api/ads/share-tokens/:clientId
+router.get('/share-tokens/:clientId', async (req: AuthRequest, res: Response) => {
+  const rows = await getDB()('ads_share_tokens').where({ client_id: req.params.clientId }).select('token', 'start_date', 'end_date', 'created_at').orderBy('created_at', 'desc');
+  res.json(rows);
 });
 
 export default router;
@@ -174,7 +172,9 @@ export const publicAdsRouter = Router();
 publicAdsRouter.get('/:token', async (req: Request, res: Response) => {
   try {
     const db = getDB();
-    const client = await db('client_companies').where({ ads_share_token: req.params.token }).first();
+    const shareRow = await db('ads_share_tokens').where({ token: req.params.token }).first();
+    if (!shareRow) { res.status(404).json({ error: 'Not found' }); return; }
+    const client = await db('client_companies').where({ id: shareRow.client_id }).first();
     if (!client) { res.status(404).json({ error: 'Not found' }); return; }
     const row = await db('ads_manual_data').where({ client_id: client.id }).first();
     const data = {
@@ -183,8 +183,8 @@ publicAdsRouter.get('/:token', async (req: Request, res: Response) => {
     };
     res.json({
       clientName: client.name,
-      startDate: client.ads_share_start || null,
-      endDate: client.ads_share_end || null,
+      startDate: shareRow.start_date || null,
+      endDate: shareRow.end_date || null,
       data,
     });
   } catch { res.status(500).json({ error: 'Server error' }); }

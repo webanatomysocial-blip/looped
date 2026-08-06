@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download, Globe, Check } from 'lucide-react';
+import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download, Globe } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import api, { adsApi } from '../services/api';
@@ -197,8 +197,9 @@ export default function Ads() {
   const [manualEdit,   setManualEdit]   = useState<AdsManualData>(emptyManual());
   const [editingGroup, setEditingGroup] = useState<GroupKey | null>(null);
   const [saving,       setSaving]       = useState(false);
-  const [shareToken,   setShareToken]   = useState<string | null>(null);
-  const [shareCopied,  setShareCopied]  = useState(false);
+  const [shareTokens,    setShareTokens]    = useState<{ token: string; start_date: string | null; end_date: string | null }[]>([]);
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [shareCopied,    setShareCopied]    = useState<string | null>(null);
 
   useEffect(() => {
     api.get('/ads/clients').then((r) => {
@@ -212,9 +213,9 @@ export default function Ads() {
     api.get(`/ads/manual/${selectedClient.id}`)
       .then((r) => setManual(parseManualData(r.data)))
       .catch(() => setManual(emptyManual()));
-    adsApi.getShareInfo(selectedClient.id)
-      .then((r) => setShareToken(r.data.token))
-      .catch(() => setShareToken(null));
+    adsApi.getShareTokens(selectedClient.id)
+      .then((r) => setShareTokens(r.data || []))
+      .catch(() => setShareTokens([]));
   }, [selectedClient]);
 
   const openGroupEdit = (key: GroupKey) => {
@@ -462,33 +463,55 @@ export default function Ads() {
               </button>
             )}
             {selectedClient && canEdit && (
-              <button
-                className="seo-download-btn"
-                style={shareToken ? { background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a' } : undefined}
-                onClick={async () => {
-                  if (shareToken) {
-                    await navigator.clipboard.writeText(`${window.location.origin}/share/ads/${shareToken}`);
-                  } else {
-                    const r = await adsApi.createShare(selectedClient.id, { startDate: customStart || undefined, endDate: customEnd || undefined });
-                    setShareToken(r.data.token);
-                    await navigator.clipboard.writeText(`${window.location.origin}/share/ads/${r.data.token}`);
-                  }
-                  setShareCopied(true);
-                  setTimeout(() => setShareCopied(false), 2000);
-                }}
-              >
-                {shareCopied ? <><Check size={13} /> Copied!</> : shareToken ? <><Globe size={13} /> Copy Link</> : <><Globe size={13} /> Share</>}
-              </button>
-            )}
-            {shareToken && canEdit && (
-              <button
-                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', cursor: 'pointer' }}
-                onClick={async () => {
-                  if (!confirm('Revoke this share link? Anyone with the old link will lose access.')) return;
-                  await adsApi.revokeShare(selectedClient!.id);
-                  setShareToken(null);
-                }}
-              >Revoke</button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="seo-download-btn"
+                  style={shareTokens.length > 0 ? { background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a' } : undefined}
+                  onClick={() => setShowSharePanel((v) => !v)}
+                >
+                  <Globe size={13} /> Share {shareTokens.length > 0 && `(${shareTokens.length})`}
+                </button>
+                {showSharePanel && (
+                  <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: 14, minWidth: 320 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Share Links</p>
+                    {shareTokens.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>No links yet.</p>}
+                    {shareTokens.map((t) => {
+                      const label = t.start_date && t.end_date ? `${t.start_date} → ${t.end_date}` : 'All time';
+                      const link = `${window.location.origin}/share/ads/${t.token}`;
+                      return (
+                        <div key={t.token} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, padding: '6px 8px', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                          <span style={{ flex: 1, fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                          <button
+                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid var(--border)', background: shareCopied === t.token ? '#f0fdf4' : 'var(--surface)', color: shareCopied === t.token ? '#16a34a' : 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            onClick={async () => { await navigator.clipboard.writeText(link); setShareCopied(t.token); setTimeout(() => setShareCopied(null), 2000); }}
+                          >{shareCopied === t.token ? '✓ Copied' : 'Copy'}</button>
+                          <button
+                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
+                            onClick={async () => {
+                              if (!confirm('Revoke this link?')) return;
+                              await adsApi.revokeShareToken(t.token);
+                              setShareTokens((prev) => prev.filter((x) => x.token !== t.token));
+                            }}
+                          >Revoke</button>
+                        </div>
+                      );
+                    })}
+                    <button
+                      className="seo-inline-save"
+                      style={{ width: '100%', marginTop: 4 }}
+                      onClick={async () => {
+                        const r = await adsApi.createShare(selectedClient.id, { startDate: customStart || undefined, endDate: customEnd || undefined });
+                        const newToken = r.data.token;
+                        setShareTokens((prev) => [{ token: newToken, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
+                        const link = `${window.location.origin}/share/ads/${newToken}`;
+                        await navigator.clipboard.writeText(link);
+                        setShareCopied(newToken);
+                        setTimeout(() => setShareCopied(null), 2000);
+                      }}
+                    >+ Create link for current dates &amp; copy</button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
