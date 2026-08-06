@@ -1,4 +1,5 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request } from 'express';
+import { randomUUID } from 'crypto';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
@@ -141,4 +142,50 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// POST /api/ads/share/:clientId
+router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
+  const { role } = req.user!;
+  if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  const { startDate, endDate } = req.body;
+  const token = randomUUID();
+  await getDB()('client_companies').where({ id: req.params.clientId }).update({
+    ads_share_token: token,
+    ads_share_start: startDate || null,
+    ads_share_end: endDate || null,
+  });
+  res.json({ token });
+});
+
+// DELETE /api/ads/share/:clientId
+router.delete('/share/:clientId', async (req: AuthRequest, res: Response) => {
+  await getDB()('client_companies').where({ id: req.params.clientId }).update({ ads_share_token: null, ads_share_start: null, ads_share_end: null });
+  res.json({ message: 'Revoked' });
+});
+
+// GET /api/ads/share-info/:clientId
+router.get('/share-info/:clientId', async (req: AuthRequest, res: Response) => {
+  const row = await getDB()('client_companies').where({ id: req.params.clientId }).select('ads_share_token').first();
+  res.json({ token: row?.ads_share_token || null });
+});
+
 export default router;
+
+export const publicAdsRouter = Router();
+publicAdsRouter.get('/:token', async (req: Request, res: Response) => {
+  try {
+    const db = getDB();
+    const client = await db('client_companies').where({ ads_share_token: req.params.token }).first();
+    if (!client) { res.status(404).json({ error: 'Not found' }); return; }
+    const row = await db('ads_manual_data').where({ client_id: client.id }).first();
+    const data = {
+      notes: row?.notes || '',
+      campaigns_manual: row?.campaigns_manual ? JSON.parse(row.campaigns_manual) : {},
+    };
+    res.json({
+      clientName: client.name,
+      startDate: client.ads_share_start || null,
+      endDate: client.ads_share_end || null,
+      data,
+    });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});

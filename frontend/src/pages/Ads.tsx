@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download } from 'lucide-react';
+import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download, Globe, Check } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
+import api, { adsApi } from '../services/api';
 
 interface AdsClient {
   id: number;
@@ -197,6 +197,8 @@ export default function Ads() {
   const [manualEdit,   setManualEdit]   = useState<AdsManualData>(emptyManual());
   const [editingGroup, setEditingGroup] = useState<GroupKey | null>(null);
   const [saving,       setSaving]       = useState(false);
+  const [shareToken,   setShareToken]   = useState<string | null>(null);
+  const [shareCopied,  setShareCopied]  = useState(false);
 
   useEffect(() => {
     api.get('/ads/clients').then((r) => {
@@ -210,6 +212,9 @@ export default function Ads() {
     api.get(`/ads/manual/${selectedClient.id}`)
       .then((r) => setManual(parseManualData(r.data)))
       .catch(() => setManual(emptyManual()));
+    adsApi.getShareInfo(selectedClient.id)
+      .then((r) => setShareToken(r.data.token))
+      .catch(() => setShareToken(null));
   }, [selectedClient]);
 
   const openGroupEdit = (key: GroupKey) => {
@@ -455,6 +460,35 @@ export default function Ads() {
               >
                 <Download size={13} /> Download PDF
               </button>
+            )}
+            {selectedClient && canEdit && (
+              <button
+                className="seo-download-btn"
+                style={shareToken ? { background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a' } : undefined}
+                onClick={async () => {
+                  if (shareToken) {
+                    await navigator.clipboard.writeText(`${window.location.origin}/share/ads/${shareToken}`);
+                  } else {
+                    const r = await adsApi.createShare(selectedClient.id, { startDate: customStart || undefined, endDate: customEnd || undefined });
+                    setShareToken(r.data.token);
+                    await navigator.clipboard.writeText(`${window.location.origin}/share/ads/${r.data.token}`);
+                  }
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                }}
+              >
+                {shareCopied ? <><Check size={13} /> Copied!</> : shareToken ? <><Globe size={13} /> Copy Link</> : <><Globe size={13} /> Share</>}
+              </button>
+            )}
+            {shareToken && canEdit && (
+              <button
+                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', cursor: 'pointer' }}
+                onClick={async () => {
+                  if (!confirm('Revoke this share link? Anyone with the old link will lose access.')) return;
+                  await adsApi.revokeShare(selectedClient!.id);
+                  setShareToken(null);
+                }}
+              >Revoke</button>
             )}
           </div>
         </div>

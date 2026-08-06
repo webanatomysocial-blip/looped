@@ -21,7 +21,7 @@ import internalChatRoutes from './routes/internal-chat';
 import emailRoutes from './routes/emails';
 import contentRoutes from './routes/content';
 import seoRoutes, { publicSeoRouter } from './routes/seo';
-import adsRoutes from './routes/ads';
+import adsRoutes, { publicAdsRouter } from './routes/ads';
 import capacityRoutes from './routes/capacity';
 import timeLogsRoutes from './routes/time-logs';
 import { startEmailScheduler } from './services/scheduler';
@@ -70,6 +70,7 @@ app.use('/api/content', contentRoutes);
 app.use('/api/seo', seoRoutes);
 app.use('/api/public/seo', publicSeoRouter);
 app.use('/api/ads', adsRoutes);
+app.use('/api/public/ads', publicAdsRouter);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
 

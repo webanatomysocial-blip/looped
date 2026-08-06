@@ -132,6 +132,14 @@ async function createSchema(): Promise<void> {
           t.string('share_country').nullable();
         });
       }
+      const hasAdsShareToken = await db.schema.hasColumn('client_companies', 'ads_share_token');
+      if (!hasAdsShareToken) {
+        await db.schema.table('client_companies', (t) => {
+          t.string('ads_share_token').nullable().unique();
+          t.string('ads_share_start').nullable();
+          t.string('ads_share_end').nullable();
+        });
+      }
     }
   });
 

@@ -131,6 +131,12 @@ export const reportsApi = {
   projectsByClient: () => api.get('/reports/projects-by-client'),
 };
 
+export const adsApi = {
+  getShareInfo: (clientId: number) => api.get(`/ads/share-info/${clientId}`),
+  createShare: (clientId: number, data: { startDate?: string; endDate?: string }) => api.post(`/ads/share/${clientId}`, data),
+  revokeShare: (clientId: number) => api.delete(`/ads/share/${clientId}`),
+};
+
 export const seoApi = {
   clients: () => api.get('/seo/clients'),
   report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string, compareStart?: string, compareEnd?: string) =>
