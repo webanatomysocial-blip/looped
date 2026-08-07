@@ -53,7 +53,7 @@ export default function ShareReport() {
   const avgPos      = report?.pages?.length > 0
     ? (report.pages.reduce((s: number, p: any) => s + p.position, 0) / report.pages.length).toFixed(1) : '—';
 
-  const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
+  const sigWhys = manual.sig_change_whys && Object.values(manual.sig_change_whys).some((v: any) => v?.trim?.());
 
   const delta = (cur: number, pre?: number) => {
     if (!pre) return null;
@@ -113,7 +113,7 @@ export default function ShareReport() {
         )}
 
         {/* Notable Changes This Period — below Executive Summary */}
-        {(sigWhys || sigChanges.length > 0) && (
+        {sigWhys && (
           <Section title="Notable Changes This Period">
             <ul style={{ paddingLeft: 20, margin: 0 }}>
               {sigChanges.map(sc => (
