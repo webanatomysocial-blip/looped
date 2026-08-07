@@ -73,6 +73,19 @@ export default function ShareReport() {
     check('users', 'Users', eng.users, prev.users);
     check('engagementRate', 'Engagement Rate', eng.engagementRate, prev.engagementRate);
   }
+  // GMB location sig changes
+  (manual.gmb_locations ?? []).forEach((loc: any, i: number) => {
+    const prefix = (manual.gmb_locations?.length ?? 0) > 1 ? `${loc.name || `Location ${i + 1}`} ` : '';
+    const checkGmb = (key: string, label: string, cur: number | null, pre: number | null) => {
+      if (cur == null || pre == null || pre === 0) return;
+      const pct = Math.round(((cur - pre) / pre) * 100);
+      sigChanges.push({ key: `gmb_${i}_${key}`, label: `GBP ${prefix}${label}`, from: pre, to: cur, pct });
+    };
+    checkGmb('calls', 'Calls', loc.calls, loc.prev_calls);
+    checkGmb('website_clicks', 'Website Clicks', loc.website_clicks, loc.prev_website_clicks);
+    checkGmb('reviews', 'Reviews', loc.reviews, loc.prev_reviews);
+    checkGmb('bookings', 'Bookings', loc.bookings, loc.prev_bookings);
+  });
 
   return (
     <div style={{ fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif', background: '#f1f5f9', minHeight: '100vh', padding: '32px 24px' }}>
@@ -119,11 +132,24 @@ export default function ShareReport() {
               ))}
               {sigWhys && Object.entries(manual.sig_change_whys)
                 .filter(([k]) => !sigChanges.find(sc => sc.key === k))
-                .map(([k, v]) => (
-                  <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
-                    <strong>{k}:</strong> {v as string}
-                  </li>
-                ))}
+                .map(([k, v]) => {
+                  const labelMap: Record<string, string> = {
+                    sessions: 'Sessions', users: 'Users', engagementRate: 'Engagement Rate',
+                  };
+                  const gmbMatch = k.match(/^gmb_(\d+)_(.+)$/);
+                  let label = labelMap[k] ?? k;
+                  if (gmbMatch) {
+                    const loc = manual.gmb_locations?.[Number(gmbMatch[1])];
+                    const prefix = (manual.gmb_locations?.length ?? 0) > 1 ? `${loc?.name || `Location ${Number(gmbMatch[1]) + 1}`} ` : '';
+                    const fieldMap: Record<string, string> = { calls: 'Calls', website_clicks: 'Website Clicks', reviews: 'Reviews', bookings: 'Bookings' };
+                    label = `GBP ${prefix}${fieldMap[gmbMatch[2]] ?? gmbMatch[2]}`;
+                  }
+                  return (
+                    <li key={k} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 4 }}>
+                      <strong>{label}:</strong> {v as string}
+                    </li>
+                  );
+                })}
             </ul>
           </Section>
         )}
