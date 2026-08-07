@@ -517,6 +517,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   try {
     const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country } = req.body;
     const token = randomUUID();
+    const manualRow = await getDB()('seo_manual_data').where({ client_id: req.params.clientId }).first();
     await getDB()('seo_share_tokens').insert({
       token, client_id: req.params.clientId, range,
       start_date: startDate || null, end_date: endDate || null,
@@ -524,6 +525,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
       demographics: demographics ? JSON.stringify(demographics) : null,
       acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
       country: country || null,
+      manual_snapshot: manualRow ? JSON.stringify(manualRow) : null,
     });
     res.json({ token });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -568,8 +570,10 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
     const customEnd   = shareRow.end_date   || null;
     const isCustom    = range === 'custom' && customStart && customEnd;
 
-    // Manual data
-    const manual = await db('seo_manual_data').where({ client_id: client.id }).first();
+    // Manual data — use snapshot if available, else live
+    const manual = shareRow.manual_snapshot
+      ? JSON.parse(shareRow.manual_snapshot)
+      : await db('seo_manual_data').where({ client_id: client.id }).first();
     const manualData = manual ? {
       keyword_rankings:    manual.keyword_rankings      ? JSON.parse(manual.keyword_rankings)      : [],
       targets:             manual.targets               ? JSON.parse(manual.targets)               : [],

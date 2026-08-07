@@ -188,6 +188,12 @@ async function createSchema(): Promise<void> {
           t.string('compare_end').nullable();
         });
       }
+      const hasSnapshot = await db.schema.hasColumn('seo_share_tokens', 'manual_snapshot');
+      if (!hasSnapshot) {
+        await db.schema.table('seo_share_tokens', (t) => {
+          t.text('manual_snapshot').nullable();
+        });
+      }
     }
   });
 
