@@ -116,18 +116,16 @@ export default function ShareReport() {
         {sigWhys && (
           <Section title="Notable Changes This Period">
             <ul style={{ paddingLeft: 20, margin: 0 }}>
-              {sigChanges.map(sc => (
+              {sigChanges.filter(sc => manual.sig_change_whys?.[sc.key]?.trim?.()).map(sc => (
                 <li key={sc.key} style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 6 }}>
                   <strong>{sc.label}:</strong>{' '}
                   {sc.from.toLocaleString()} → {sc.to.toLocaleString()}{' '}
                   <span style={{ color: sc.pct >= 0 ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
                     ({sc.pct >= 0 ? '+' : ''}{sc.pct}%)
                   </span>
-                  {manual.sig_change_whys?.[sc.key] && (
-                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>
-                      {' '}: {manual.sig_change_whys[sc.key]}
-                    </span>
-                  )}
+                  <span style={{ color: '#64748b', fontStyle: 'italic' }}>
+                    {' '}: {manual.sig_change_whys[sc.key]}
+                  </span>
                 </li>
               ))}
               {sigWhys && Object.entries(manual.sig_change_whys)
