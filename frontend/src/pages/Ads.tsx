@@ -202,6 +202,8 @@ export default function Ads() {
   const [shareTokens,    setShareTokens]    = useState<{ token: string; start_date: string | null; end_date: string | null }[]>([]);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [shareCopied,    setShareCopied]    = useState<string | null>(null);
+  const [adApprovals,    setAdApprovals]    = useState<any[]>([]);
+  const [approvalsLoading, setApprovalsLoading] = useState(false);
 
   useEffect(() => {
     api.get('/ads/clients').then((r) => {
@@ -233,6 +235,14 @@ export default function Ads() {
       adsApi.getShareTokens(selectedClient.id)
         .then((r) => setShareTokens(r.data || []))
         .catch(() => setShareTokens([]));
+      setAdApprovals([]);
+      if (selectedClient.ads_customer_id) {
+        setApprovalsLoading(true);
+        adsApi.adApprovals(selectedClient.id)
+          .then((r) => setAdApprovals(r.data.ads || []))
+          .catch(() => setAdApprovals([]))
+          .finally(() => setApprovalsLoading(false));
+      }
     }
   }, [isFullScan, selectedClient, clients]);
 
@@ -634,6 +644,49 @@ export default function Ads() {
               />
             ) : (
               manual.notes && <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{manual.notes}</p>
+            )}
+          </div>
+        )}
+        {/* ── Ad Approval Status ── */}
+        {selectedClient?.ads_customer_id && (
+          <div className="seo-section">
+            <h3 className="seo-section__title">Ad Approval Status</h3>
+            {approvalsLoading && <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>Fetching ad approvals…</p>}
+            {!approvalsLoading && adApprovals.length === 0 && (
+              <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>No active ads found.</p>
+            )}
+            {!approvalsLoading && adApprovals.length > 0 && (
+              <table className="seo-table" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Campaign</th>
+                    <th style={{ textAlign: 'left' }}>Ad Group</th>
+                    <th style={{ textAlign: 'left' }}>Ad</th>
+                    <th style={{ textAlign: 'left' }}>Status</th>
+                    <th style={{ textAlign: 'left' }}>Approval</th>
+                    <th style={{ textAlign: 'left' }}>Issues</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adApprovals.map((ad: any) => {
+                    const approval = ad.approval_status ?? 'UNKNOWN';
+                    const color = approval === 'APPROVED' ? '#16a34a' : approval === 'APPROVED_LIMITED' ? '#d97706' : approval === 'DISAPPROVED' ? '#dc2626' : '#64748b';
+                    const icon = approval === 'APPROVED' ? '✅' : approval === 'APPROVED_LIMITED' ? '⚠️' : approval === 'DISAPPROVED' ? '❌' : '🔄';
+                    return (
+                      <tr key={ad.id}>
+                        <td>{ad.campaign}</td>
+                        <td>{ad.ad_group}</td>
+                        <td>{ad.name || ad.id}</td>
+                        <td><span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{ad.status}</span></td>
+                        <td><span style={{ fontWeight: 700, color }}>{icon} {approval.replace(/_/g, ' ')}</span></td>
+                        <td style={{ color: '#dc2626', fontSize: 11 }}>
+                          {ad.policy_topics?.map((t: any) => `${t.topic} (${t.type})`).join(', ') || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         )}

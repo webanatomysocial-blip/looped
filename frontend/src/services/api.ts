@@ -133,6 +133,7 @@ export const reportsApi = {
 
 export const adsApi = {
   getShareTokens: (clientId: number) => api.get(`/ads/share-tokens/${clientId}`),
+  adApprovals: (clientId: number) => api.get(`/ads/ad-approvals/${clientId}`),
   createShare: (clientId: number, data: { startDate?: string; endDate?: string }) => api.post(`/ads/share/${clientId}`, data),
   revokeShareToken: (token: string) => api.delete(`/ads/share-token/${token}`),
 };

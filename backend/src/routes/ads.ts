@@ -110,6 +110,80 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET /api/ads/ad-approvals/:clientId
+router.get('/ad-approvals/:clientId', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const client = await db('client_companies').where({ id: req.params.clientId }).select('ads_customer_id').first();
+    if (!client?.ads_customer_id) { res.status(400).json({ error: 'Google Ads Customer ID not configured' }); return; }
+
+    const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    const refreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
+    const clientId = process.env.GOOGLE_ADS_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+    const managerCustomerId = process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID;
+
+    if (!devToken || !refreshToken || !clientId || !clientSecret) {
+      res.status(503).json({ error: 'Google Ads API not configured' }); return;
+    }
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
+    });
+    const tokenData = await tokenRes.json() as any;
+    if (!tokenData.access_token) { res.status(502).json({ error: 'Failed to get access token' }); return; }
+
+    const customerId = client.ads_customer_id.replace(/-/g, '');
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${tokenData.access_token}`,
+      'developer-token': devToken,
+      'Content-Type': 'application/json',
+    };
+    if (managerCustomerId) headers['login-customer-id'] = managerCustomerId.replace(/-/g, '');
+
+    const query = `
+      SELECT
+        ad_group_ad.ad.id,
+        ad_group_ad.ad.name,
+        ad_group_ad.ad.type,
+        ad_group_ad.status,
+        ad_group_ad.policy_summary.approval_status,
+        ad_group_ad.policy_summary.policy_topic_entries,
+        ad_group.name,
+        campaign.name
+      FROM ad_group_ad
+      WHERE ad_group_ad.status != 'REMOVED'
+      ORDER BY campaign.name
+      LIMIT 100
+    `;
+
+    const adsRes = await fetch(
+      `https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`,
+      { method: 'POST', headers, body: JSON.stringify({ query }) }
+    );
+    const adsData = await adsRes.json() as any;
+    if (!adsRes.ok) { res.status(502).json({ error: adsData.error?.message || 'Google Ads API error' }); return; }
+
+    const ads = (adsData.results ?? []).map((r: any) => ({
+      id:              r.adGroupAd?.ad?.id,
+      name:            r.adGroupAd?.ad?.name || r.adGroupAd?.ad?.id,
+      type:            r.adGroupAd?.ad?.type,
+      status:          r.adGroupAd?.status,
+      approval_status: r.adGroupAd?.policySummary?.approvalStatus ?? 'UNKNOWN',
+      policy_topics:   (r.adGroupAd?.policySummary?.policyTopicEntries ?? []).map((e: any) => ({ topic: e.topic, type: e.type })),
+      ad_group:        r.adGroup?.name,
+      campaign:        r.campaign?.name,
+    }));
+
+    res.json({ ads });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/ads/manual/:clientId
 router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   try {
