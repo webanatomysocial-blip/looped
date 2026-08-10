@@ -76,7 +76,7 @@ export const tasksApi = {
 export const capacityApi = {
   daily: () => api.get('/capacity/daily'),
   check: (userId: number) => api.get(`/capacity/check/${userId}`),
-  team: (pod?: 'pod1' | 'pod2', date?: string) => api.get('/capacity/team', { params: { ...(pod ? { pod } : {}), ...(date ? { date } : {}) } }),
+  team: (pod?: 'pod1' | 'pod2', date?: string, overdue?: boolean) => api.get('/capacity/team', { params: { ...(pod ? { pod } : {}), ...(date ? { date } : {}), ...(overdue ? { overdue: 'true' } : {}) } }),
 };
 
 export const approvalsApi = {

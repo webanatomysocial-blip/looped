@@ -35,10 +35,11 @@ export default function TeamCapacityPage() {
   const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
   const [page, setPage] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
+  const [showOverdue, setShowOverdue] = useState(false);
 
-  const load = useCallback(async (pod?: 'pod1' | 'pod2', date?: string) => {
+  const load = useCallback(async (pod?: 'pod1' | 'pod2', date?: string, overdue?: boolean) => {
     try {
-      const res = await capacityApi.team(pod, date || undefined);
+      const res = await capacityApi.team(pod, date || undefined, overdue);
       setTeam(res.data);
     } catch { /* silent */ }
     finally { setLoading(false); }
@@ -46,10 +47,10 @@ export default function TeamCapacityPage() {
 
   useEffect(() => {
     const pod = isAdmin && podTab !== 'all' ? podTab : undefined;
-    load(pod, dateFilter);
-    const poll = setInterval(() => load(pod, dateFilter), 30000);
+    load(pod, showOverdue ? undefined : dateFilter, showOverdue);
+    const poll = setInterval(() => load(pod, showOverdue ? undefined : dateFilter, showOverdue), 30000);
     return () => clearInterval(poll);
-  }, [load, podTab, isAdmin, dateFilter]);
+  }, [load, podTab, isAdmin, dateFilter, showOverdue]);
 
   const totalPages  = Math.max(1, Math.ceil(team.length / PAGE_SIZE));
   const paginated   = team.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -67,10 +68,12 @@ export default function TeamCapacityPage() {
           <div>
             <h2 className="page-title">Team Capacity</h2>
             <p className="page-subtitle">
-              {dateFilter
-                ? new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-                : new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              {!loading && !dateFilter && ` · ${activeCount} of ${team.length} members working now`}
+              {showOverdue
+                ? 'Tasks past their due date'
+                : dateFilter
+                  ? new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+                  : new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              {!loading && !dateFilter && !showOverdue && ` · ${activeCount} of ${team.length} members working now`}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -87,25 +90,34 @@ export default function TeamCapacityPage() {
                 ))}
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <input
-                type="date"
-                className="form-input"
-                style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
-                value={dateFilter}
-                onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-              />
-              {dateFilter && (
-                <button
-                  className="filter-tab"
-                  style={{ padding: '7px 10px', fontSize: 11 }}
-                  onClick={() => { setDateFilter(''); setPage(1); }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <button className="btn-secondary tc-refresh-btn" onClick={() => load(isAdmin && podTab !== 'all' ? podTab : undefined, dateFilter)}>
+            <button
+              className={`filter-tab${showOverdue ? ' active' : ''}`}
+              style={{ padding: '7px 12px', fontSize: 12, color: showOverdue ? '#dc2626' : undefined, borderColor: showOverdue ? '#dc2626' : undefined }}
+              onClick={() => { setShowOverdue(!showOverdue); setPage(1); }}
+            >
+              Overdue
+            </button>
+            {!showOverdue && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="date"
+                  className="form-input"
+                  style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
+                  value={dateFilter}
+                  onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+                />
+                {dateFilter && (
+                  <button
+                    className="filter-tab"
+                    style={{ padding: '7px 10px', fontSize: 11 }}
+                    onClick={() => { setDateFilter(''); setPage(1); }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
+            <button className="btn-secondary tc-refresh-btn" onClick={() => load(isAdmin && podTab !== 'all' ? podTab : undefined, showOverdue ? undefined : dateFilter, showOverdue)}>
               <RefreshCw size={13} /> Refresh
             </button>
           </div>

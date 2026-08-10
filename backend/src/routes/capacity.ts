@@ -179,7 +179,7 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
       .where({ session_date: today })
       .select('*');
 
-    const isToday = today === new Date().toISOString().slice(0, 10);
+    const isOverdue = req.query.overdue === 'true';
 
     let taskQuery = db('tasks as t')
       .join('task_assignees as ta', 'ta.task_id', 't.id')
@@ -191,8 +191,9 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
       })
       .whereNotIn('t.status', ['completed']);
 
-    if (!isToday) {
-      // For a past/future date, show only tasks due on that date
+    if (isOverdue) {
+      taskQuery = taskQuery.where('t.due_date', '<', today).whereNotNull('t.due_date');
+    } else {
       taskQuery = taskQuery.where('t.due_date', today);
     }
 
