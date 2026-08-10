@@ -145,16 +145,34 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
       .select('tl.*', 'u.name as user_name', 'u.avatar_color as user_color', 't.title as task_title')
       .orderBy('tl.log_date', 'desc');
 
-    // Also include live running sessions (not yet paused/done)
-    const liveSessions = await db('task_sessions as ts')
+    // Include all task sessions (running + paused) not yet converted to time_logs
+    const allSessions = await db('task_sessions as ts')
       .join('tasks as t', 'ts.task_id', 't.id')
+      .join('users as u', 'ts.user_id', 'u.id')
       .where('t.project_id', projectId)
-      .whereNull('ts.ended_at')
-      .select('ts.started_at', 'ts.user_id');
+      .where('ts.session_date', '>=', cycleStartStr)
+      .select('ts.id', 'ts.task_id', 'ts.started_at', 'ts.ended_at', 'ts.user_id', 'ts.session_date', 't.title as task_title', 'u.name as user_name', 'u.avatar_color as user_color');
     const nowMs = Date.now();
-    const liveHours = liveSessions.reduce((s: number, ls: any) => s + (nowMs - Number(ls.started_at)) / 3600000, 0);
 
-    const hoursUsed = logs.reduce((s: number, l: any) => s + Number(l.hours), 0) + liveHours;
+    // Only count session hours for tasks that don't already have time_log entries (avoid double-counting)
+    const loggedTaskIds = new Set(logs.map((l: any) => l.task_id));
+    const sessionHours = allSessions
+      .filter((s: any) => !loggedTaskIds.has(s.task_id))
+      .reduce((sum: number, s: any) => {
+        const end = s.ended_at ? Number(new Date(s.ended_at)) : nowMs;
+        return sum + (end - Number(new Date(s.started_at))) / 3600000;
+      }, 0);
+
+    // Build session-based pseudo log entries for display
+    const sessionLogs = allSessions
+      .filter((s: any) => !loggedTaskIds.has(s.task_id))
+      .map((s: any) => {
+        const end = s.ended_at ? Number(new Date(s.ended_at)) : nowMs;
+        const hrs = Math.round(((end - Number(new Date(s.started_at))) / 3600000) * 100) / 100;
+        return { id: `session_${s.id}`, log_date: s.session_date, user_id: s.user_id, user_name: s.user_name, user_color: s.user_color, task_title: s.task_title, hours: hrs, notes: s.ended_at ? null : '(timer running)' };
+      });
+
+    const hoursUsed = logs.reduce((s: number, l: any) => s + Number(l.hours), 0) + sessionHours;
     const bucket = Number(project.monthly_hours_bucket) || 0;
     const budgetAmount = Number(project.budget_amount) || 0;
     const ratePerHour = bucket > 0 && budgetAmount > 0 ? budgetAmount / bucket : 0;
@@ -175,7 +193,7 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
       warning: pct >= 80,
       cycle_start: cycleStartStr,
       cycle_end: cycleEndStr,
-      logs,
+      logs: [...logs, ...sessionLogs].sort((a: any, b: any) => b.log_date.localeCompare(a.log_date)),
     });
   } catch (err) {
     console.error(err);
