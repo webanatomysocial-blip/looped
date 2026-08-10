@@ -14,7 +14,7 @@ export default function XLR8Page() {
     projectsApi.list().then((r) => {
       const xlr8 = r.data.filter((p: Project) => p.service_type === 'xlr8');
       setProjects(xlr8);
-      if (xlr8.length === 1) setSelectedId(xlr8[0].id);
+      if (xlr8.length === 1) setSelectedId(xlr8[0].id); // auto-select if only one
     });
   }, []);
 
@@ -49,7 +49,7 @@ export default function XLR8Page() {
             <h2 className="page-title">XLR8 Bucket Usage</h2>
             <p className="page-subtitle">Monthly hours bucket and team breakdown</p>
           </div>
-          {projects.length > 1 && (
+          {projects.length > 0 && (
             <select
               className="form-input"
               style={{ maxWidth: 280, fontSize: 13 }}
@@ -57,7 +57,7 @@ export default function XLR8Page() {
               onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : '')}
             >
               <option value="">Select project…</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}{(p as any).client_name ? ` — ${(p as any).client_name}` : ''}</option>)}
             </select>
           )}
         </div>
