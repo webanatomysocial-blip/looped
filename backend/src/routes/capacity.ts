@@ -65,6 +65,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where('ts.user_id', userId)
       .where('ts.session_date', today)
       .whereNotIn('ts.task_id', assignedTaskIds.length ? assignedTaskIds : [0])
+      .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name',
