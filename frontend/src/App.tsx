@@ -22,6 +22,7 @@ import ShareAdsReport from './pages/ShareAdsReport';
 import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
+import XLR8Page from './pages/XLR8Page';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
@@ -94,6 +95,13 @@ function AppRoutes() {
       <Route path="/project-reports" element={
         <PrivateRoute roles={['admin', 'manager']}>
           <ProjectReports />
+        </PrivateRoute>
+      } />
+
+      {/* XLR8 Bucket — admin + manager */}
+      <Route path="/xlr8" element={
+        <PrivateRoute roles={['admin', 'manager']}>
+          <XLR8Page />
         </PrivateRoute>
       } />
 

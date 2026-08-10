@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
   BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
-  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck, Megaphone,
+  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck, Megaphone, Zap,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -27,6 +27,7 @@ const NAV: Record<Role, NavGroup> = {
     more: [
       { to: '/reports',         icon: BarChart2,      label: 'Reports' },
       { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
+      { to: '/xlr8',            icon: Zap,            label: 'XLR8' },
       { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
       { to: '/ads',             icon: Megaphone,      label: 'Ads' },
       { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
@@ -49,6 +50,7 @@ const NAV: Record<Role, NavGroup> = {
     more: [
       { to: '/reports',         icon: BarChart2,      label: 'Reports' },
       { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
+      { to: '/xlr8',            icon: Zap,            label: 'XLR8' },
       { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
       { to: '/ads',             icon: Megaphone,      label: 'Ads' },
       { to: '/messages',        icon: MessageCircle,  label: 'Messages' },
