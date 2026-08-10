@@ -187,7 +187,7 @@ export default function Ads() {
 
   const [clients,        setClients]        = useState<AdsClient[]>([]);
   const [selectedClient, setSelectedClient] = useState<AdsClient | null>(null);
-  const [isFullScan,     setIsFullScan]     = useState(true);
+  const [isFullScan,     setIsFullScan]     = useState(false);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [cfCustomerId,   setCfCustomerId]   = useState('');
   const [cfSaving,       setCfSaving]       = useState(false);
@@ -537,12 +537,6 @@ export default function Ads() {
         {/* ── Client tabs ── */}
         <div className="seo-nav">
           <div className="seo-client-row">
-            <button
-              className={`seo-client-btn${isFullScan ? ' active' : ''}`}
-              onClick={() => { setIsFullScan(true); setSelectedClient(null); setEditingClientId(null); setEditingGroup(null); }}
-            >
-              <span>Full scan</span>
-            </button>
             {clients.map((c) => (
               <div key={c.id} className="seo-client-wrap">
                 <button
