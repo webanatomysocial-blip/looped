@@ -807,10 +807,9 @@ async function createSchema(): Promise<void> {
       const hasOtp = await db.schema.hasColumn('contact_forms', 'otp_enabled');
       if (!hasOtp) await db.schema.table('contact_forms', (t) => { t.boolean('otp_enabled').notNullable().defaultTo(false); });
       // Make contact_project_id nullable in MySQL (was NOT NULL in older deployments)
-      const dbClient = (db.client as any).config?.client || '';
-      if (dbClient.includes('mysql')) {
+      if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_forms', 'contact_project_id');
-        if (hasContactProjCol) await db.raw('ALTER TABLE contact_forms MODIFY contact_project_id INT NULL');
+        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_forms` MODIFY `contact_project_id` INT NULL');
       }
     }
   });
@@ -829,10 +828,9 @@ async function createSchema(): Promise<void> {
     } else {
       const hasCid = await db.schema.hasColumn('contact_submissions', 'client_id');
       if (!hasCid) await db.schema.table('contact_submissions', (t) => { t.integer('client_id').nullable(); });
-      const dbClient = (db.client as any).config?.client || '';
-      if (dbClient.includes('mysql')) {
+      if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_submissions', 'contact_project_id');
-        if (hasContactProjCol) await db.raw('ALTER TABLE contact_submissions MODIFY contact_project_id INT NULL');
+        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_submissions` MODIFY `contact_project_id` INT NULL');
       }
     }
 

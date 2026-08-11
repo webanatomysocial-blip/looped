@@ -64,6 +64,7 @@ router.post('/:id/forms', async (req: AuthRequest, res: Response) => {
   const [id] = await getDB()('contact_forms').insert({
     name: name.trim(),
     client_id: req.params.id,
+    contact_project_id: null,
     to_emails: '',
     fields: JSON.stringify(defaultFields),
   });
