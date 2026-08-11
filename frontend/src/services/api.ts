@@ -105,6 +105,8 @@ export const notificationsApi = {
 export const messagesApi = {
   list: (projectId?: number) => api.get('/messages', { params: projectId ? { project_id: projectId } : {} }),
   send: (message: string, projectId?: number) => api.post('/messages', { message, project_id: projectId }),
+  uploadFile: (projectId: number, formData: FormData) =>
+    api.post(`/messages/upload/${projectId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
 };
 
 export const internalChatApi = {
@@ -162,7 +164,7 @@ export const contactFormsApi = {
   listForms: (projectId: number) => api.get(`/contact-forms/${projectId}/forms`),
   createForm: (projectId: number, name: string) => api.post(`/contact-forms/${projectId}/forms`, { name }),
   getForm: (formId: number) => api.get(`/contact-forms/forms/${formId}`),
-  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string }) =>
+  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string; redirectUrl?: string; otpEnabled?: boolean }) =>
     api.patch(`/contact-forms/forms/${formId}`, data),
   deleteForm: (formId: number) => api.delete(`/contact-forms/forms/${formId}`),
   listSubmissions: (projectId: number) => api.get(`/contact-forms/${projectId}/submissions`),

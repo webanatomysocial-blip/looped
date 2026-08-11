@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
-import { Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip } from 'lucide-react';
+import { Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip, UserPlus, X } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi, projectsApi, internalChatApi, usersApi } from '../services/api';
@@ -25,6 +25,9 @@ export default function Messages() {
   const [newChatName, setNewChatName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const clientFileInputRef = useRef<HTMLInputElement>(null);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [addMemberIds, setAddMemberIds] = useState<number[]>([]);
 
   // --- Client chat state ---
   const [clientMsgs, setClientMsgs] = useState<Message[]>([]);
@@ -96,6 +99,28 @@ export default function Messages() {
     internalChatApi.getMessages(activeChat.id).then((r) => setInternalMsgs(r.data));
     e.target.value = '';
   };
+
+  const handleClientFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0] || !selectedProject) return;
+    const fd = new FormData();
+    fd.append('file', e.target.files[0]);
+    await messagesApi.uploadFile(selectedProject.id, fd);
+    messagesApi.list(selectedProject.id).then((r) => setClientMsgs(r.data));
+    e.target.value = '';
+  };
+
+  const addMembersToGroup = async () => {
+    if (!activeChat || !addMemberIds.length) return;
+    await Promise.all(addMemberIds.map((uid) => internalChatApi.addMember(activeChat.id, uid)));
+    const refreshed = await internalChatApi.listChats();
+    setChats(refreshed.data);
+    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    if (found) setActiveChat(found);
+    setShowAddMember(false);
+    setAddMemberIds([]);
+  };
+
+  const nonMembers = teamUsers.filter((u) => !activeChat?.members.some((m) => m.id === u.id));
 
   const createChat = async () => {
     if (!selectedMembers.length) return;
@@ -246,11 +271,49 @@ export default function Messages() {
               ) : (
                 <>
                   <div className="msg-chat-header">
-                    <p className="msg-chat-header__name">{getChatLabel(activeChat)}</p>
-                    <p className="msg-chat-header__sub">
-                      {activeChat.members.map((m) => m.name).join(', ')}
-                    </p>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p className="msg-chat-header__name">{getChatLabel(activeChat)}</p>
+                      <p className="msg-chat-header__sub">{activeChat.members.map((m) => m.name).join(', ')}</p>
+                    </div>
+                    {activeChat.type === 'group' && (
+                      <button
+                        className="msg-new-btn"
+                        title="Add member"
+                        onClick={() => { setShowAddMember((v) => !v); setAddMemberIds([]); }}
+                        style={{ marginLeft: 8, flexShrink: 0 }}
+                      >
+                        {showAddMember ? <X size={14} /> : <UserPlus size={14} />}
+                      </button>
+                    )}
                   </div>
+
+                  {showAddMember && activeChat.type === 'group' && (
+                    <div className="msg-new-form" style={{ borderBottom: '1px solid var(--border)', borderRadius: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Add members</p>
+                      {nonMembers.length === 0 ? (
+                        <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>Everyone is already in this group.</p>
+                      ) : (
+                        <>
+                          <div className="msg-member-select">
+                            {nonMembers.map((u) => (
+                              <div
+                                key={u.id}
+                                className={`msg-member-row${addMemberIds.includes(u.id) ? ' selected' : ''}`}
+                                onClick={() => setAddMemberIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
+                              >
+                                <div className="msg-member-dot" style={{ background: u.avatar_color }} />
+                                <span className="msg-member-name">{u.name}</span>
+                                <span className="msg-member-role">{u.role}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <button className="msg-create-btn" onClick={addMembersToGroup} disabled={!addMemberIds.length}>
+                            Add to group
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   <div className="msg-chat-body">
                     {internalMsgs.length === 0 && (
@@ -322,6 +385,16 @@ export default function Messages() {
                   >
                     <p className="msg-project-item__name">{p.name}</p>
                     {p.client_name && <p className="msg-project-item__client">{p.client_name}</p>}
+                    {p.members.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                        {p.members.map((m) => (
+                          <span key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--ink-muted)' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: m.avatar_color, flexShrink: 0, display: 'inline-block' }} />
+                            {m.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -340,6 +413,11 @@ export default function Messages() {
                     <p className="msg-chat-header__name">{selectedProject.name}</p>
                     <p className="msg-chat-header__sub">
                       {selectedProject.client_name ? `Client: ${selectedProject.client_name}` : 'No client'}
+                      {selectedProject.members.length > 0 && (
+                        <span style={{ marginLeft: 8 }}>
+                          · {selectedProject.members.map((m) => m.name).join(', ')}
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -352,10 +430,18 @@ export default function Messages() {
                     )}
                     {clientMsgs.map((msg) => {
                       const isMe = msg.sender_id === user?.id;
+                      const fileUrl = (msg as any).file_url;
+                      const fileName = (msg as any).file_name;
                       return (
                         <div key={msg.id} className={`msg-bubble-wrap${isMe ? ' msg-bubble-wrap--mine' : ' msg-bubble-wrap--theirs'}`}>
                           {!isMe && <p className="msg-sender-name">{msg.sender_name}</p>}
-                          <div className={`msg-bubble${isMe ? ' msg-bubble--mine' : ' msg-bubble--theirs'}`}>{msg.message}</div>
+                          {fileUrl ? (
+                            <a href={fileUrl} target="_blank" rel="noreferrer" className={`msg-bubble msg-bubble--file${isMe ? ' msg-bubble--mine' : ' msg-bubble--theirs'}`}>
+                              <Paperclip size={12} /> {fileName || msg.message}
+                            </a>
+                          ) : (
+                            <div className={`msg-bubble${isMe ? ' msg-bubble--mine' : ' msg-bubble--theirs'}`}>{msg.message}</div>
+                          )}
                           <p className="msg-time">{format(new Date(msg.created_at), 'h:mm a')}</p>
                         </div>
                       );
@@ -364,6 +450,10 @@ export default function Messages() {
                   </div>
 
                   <form onSubmit={sendClient} className="msg-send-form">
+                    <input type="file" ref={clientFileInputRef} style={{ display: 'none' }} onChange={handleClientFileUpload} />
+                    <button type="button" className="msg-attach-btn" onClick={() => clientFileInputRef.current?.click()} title="Attach file">
+                      <Paperclip size={15} />
+                    </button>
                     <input
                       className="msg-send-input"
                       placeholder={`Message ${selectedProject.name}…`}

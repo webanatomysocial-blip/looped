@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { GoogleAuth } from 'google-auth-library';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { visibleCompanyIds } from '../utils/companyAccess';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -52,16 +53,6 @@ function ga4StartDate(range: string): string {
   return map[range] ?? '28daysAgo';
 }
 
-// Helper: company IDs accessible to an employee via their assigned projects
-async function employeeCompanyIds(db: any, userId: number): Promise<number[]> {
-  return db('projects as p')
-    .join('project_members as pm', 'pm.project_id', 'p.id')
-    .where('pm.user_id', userId)
-    .whereNotNull('p.client_company_id')
-    .distinct('p.client_company_id')
-    .pluck('p.client_company_id');
-}
-
 // GET /api/seo/clients — companies visible to the logged-in user
 router.get('/clients', async (req: AuthRequest, res: Response) => {
   try {
@@ -71,24 +62,14 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
     if (role === 'client') {
       const user = await db('users').where({ id: userId }).select('client_company_id').first();
       if (!user?.client_company_id) { res.json([]); return; }
-      const companies = await db('client_companies')
-        .where({ id: user.client_company_id })
-        .select('id', 'name', 'ga_property_id', 'gsc_site_url');
-      res.json(companies);
-    } else if (role === 'employee') {
-      // Employee only sees companies from projects they're assigned to
-      const ids = await employeeCompanyIds(db, userId);
-      if (!ids.length) { res.json([]); return; }
-      const clients = await db('client_companies')
-        .whereIn('id', ids)
-        .select('id', 'name', 'ga_property_id', 'gsc_site_url')
-        .orderBy('name');
-      res.json(clients);
-    } else {
-      // Admin and manager see every company
-      const clients = await db('client_companies').select('id', 'name', 'ga_property_id', 'gsc_site_url').orderBy('name');
-      res.json(clients);
+      res.json(await db('client_companies').where({ id: user.client_company_id }).select('id', 'name', 'ga_property_id', 'gsc_site_url'));
+      return;
     }
+
+    const ids = await visibleCompanyIds(db, role, userId);
+    const q = db('client_companies').select('id', 'name', 'ga_property_id', 'gsc_site_url').orderBy('name');
+    if (ids !== null) { if (!ids.length) { res.json([]); return; } q.whereIn('id', ids); }
+    res.json(await q);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
@@ -100,11 +81,10 @@ router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager', 'employee'].includes(role)) {
     res.status(403).json({ error: 'Access denied' }); return;
   }
-  // Employee must be assigned to a project with this company
-  if (role === 'employee') {
+  if (role !== 'admin') {
     const db = getDB();
-    const ids = await employeeCompanyIds(db, userId);
-    if (!ids.map(String).includes(String(req.params.id))) {
+    const ids = await visibleCompanyIds(db, role, userId);
+    if (ids !== null && !ids.map(String).includes(String(req.params.id))) {
       res.status(403).json({ error: 'Access denied' }); return;
     }
   }
@@ -129,13 +109,12 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
       if (String(user?.client_company_id) !== String(req.params.clientId)) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
-    } else if (role === 'employee') {
-      const ids = await employeeCompanyIds(db, userId);
-      if (!ids.map(String).includes(String(req.params.clientId))) {
+    } else if (role !== 'admin') {
+      const ids = await visibleCompanyIds(db, role, userId);
+      if (ids !== null && !ids.map(String).includes(String(req.params.clientId))) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }
-    // admin and manager: unrestricted
 
     const client = await db('client_companies').where({ id: req.params.clientId }).first();
     if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
@@ -458,10 +437,9 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   }
   try {
     const db = getDB();
-    // Employee must be assigned to this company's project
-    if (role === 'employee') {
-      const ids = await employeeCompanyIds(db, userId);
-      if (!ids.map(String).includes(String(req.params.clientId))) {
+    if (role !== 'admin') {
+      const ids = await visibleCompanyIds(db, role, userId);
+      if (ids !== null && !ids.map(String).includes(String(req.params.clientId))) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }

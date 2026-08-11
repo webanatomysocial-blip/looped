@@ -802,6 +802,10 @@ async function createSchema(): Promise<void> {
     } else {
       const hasCid = await db.schema.hasColumn('contact_forms', 'client_id');
       if (!hasCid) await db.schema.table('contact_forms', (t) => { t.integer('client_id').nullable(); });
+      const hasRedirect = await db.schema.hasColumn('contact_forms', 'redirect_url');
+      if (!hasRedirect) await db.schema.table('contact_forms', (t) => { t.text('redirect_url').nullable(); });
+      const hasOtp = await db.schema.hasColumn('contact_forms', 'otp_enabled');
+      if (!hasOtp) await db.schema.table('contact_forms', (t) => { t.boolean('otp_enabled').notNullable().defaultTo(false); });
     }
   });
 
@@ -820,7 +824,35 @@ async function createSchema(): Promise<void> {
       const hasCid = await db.schema.hasColumn('contact_submissions', 'client_id');
       if (!hasCid) await db.schema.table('contact_submissions', (t) => { t.integer('client_id').nullable(); });
     }
+
+    // Backfill client_id from contact_project_id via matching name in client_companies
+    const hasProjectsTable = await db.schema.hasTable('contact_projects');
+    if (hasProjectsTable) {
+      await db.raw(`
+        UPDATE contact_forms
+        SET client_id = (
+          SELECT cc.id FROM client_companies cc
+          INNER JOIN contact_projects cp ON LOWER(cp.name) = LOWER(cc.name)
+          WHERE cp.id = contact_forms.contact_project_id
+        )
+        WHERE client_id IS NULL AND contact_project_id IS NOT NULL
+      `);
+      await db.raw(`
+        UPDATE contact_submissions
+        SET client_id = (SELECT client_id FROM contact_forms WHERE contact_forms.id = contact_submissions.contact_form_id)
+        WHERE client_id IS NULL
+      `);
+    }
   });
+
+  // Add file_url / file_name to messages table for client chat attachments
+  const hasMsgFileUrl = await db.schema.hasColumn('messages', 'file_url');
+  if (!hasMsgFileUrl) {
+    await db.schema.table('messages', (t) => {
+      t.string('file_url').nullable();
+      t.string('file_name').nullable();
+    });
+  }
 }
 
 async function seedAdmin(): Promise<void> {

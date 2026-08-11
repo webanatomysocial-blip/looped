@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle } from 'lucide-react';
+import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
@@ -53,11 +53,17 @@ export default function Home() {
   // elapsed counts seconds since the last API fetch — added on top of the
   // already-baked tracked_seconds values so nothing is counted twice.
   const [elapsed, setElapsed] = useState(0);
-  const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'accepted'>('all');
+  const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'accepted' | 'overdue'>('all');
   const [projects, setProjects] = useState<Project[]>([]);
   const [priorityPage, setPriorityPage] = useState(1);
   const PAGE_SIZE = 5;
   const [approvedTasks, setApprovedTasks] = useState<{ id: number; task_title: string; project_name: string; final_approved_at: string }[]>([]);
+  const [dismissedApprovedIds, setDismissedApprovedIds] = useState<Set<number>>(
+    () => new Set(JSON.parse(localStorage.getItem('dismissed_approved_ids') || '[]'))
+  );
+  const [dismissedRejectedIds, setDismissedRejectedIds] = useState<Set<number>>(
+    () => new Set(JSON.parse(localStorage.getItem('dismissed_rejected_ids') || '[]'))
+  );
   const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -148,13 +154,31 @@ export default function Home() {
     ? 'Status: Approaching capacity limit'
     : 'Status: On track';
 
-  const allTasks = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
+  const allTasksRaw = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
+  const today = new Date().toISOString().slice(0, 10);
+  const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && t.due_date && t.due_date < today);
+  const allTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today);
   const pendingTasks  = allTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
   const acceptedTasks = allTasks.filter(t => t.acceptance_status === 'accepted');
+
+  const visibleApproved = approvedTasks.filter(a => !dismissedApprovedIds.has(a.id));
+  const visibleRejected = allTasksRaw.filter(t => t.has_rejected_approval && !dismissedRejectedIds.has(t.id));
+
+  const dismissApproved = () => {
+    const next = new Set([...dismissedApprovedIds, ...visibleApproved.map(a => a.id)]);
+    setDismissedApprovedIds(next);
+    localStorage.setItem('dismissed_approved_ids', JSON.stringify([...next]));
+  };
+  const dismissRejected = () => {
+    const next = new Set([...dismissedRejectedIds, ...visibleRejected.map(t => t.id)]);
+    setDismissedRejectedIds(next);
+    localStorage.setItem('dismissed_rejected_ids', JSON.stringify([...next]));
+  };
 
   const visibleTasks =
     taskFilter === 'pending'  ? pendingTasks  :
     taskFilter === 'accepted' ? acceptedTasks :
+    taskFilter === 'overdue'  ? overdueTasks  :
     allTasks;
 
   const priorityTotalPages = Math.max(1, Math.ceil(visibleTasks.length / PAGE_SIZE));
@@ -242,6 +266,7 @@ export default function Home() {
                   { key: 'all',      label: 'All',      count: allTasks.length },
                   { key: 'pending',  label: 'Pending',  count: pendingTasks.length },
                   { key: 'accepted', label: 'Accepted', count: acceptedTasks.length },
+                  { key: 'overdue',  label: 'Overdue',  count: overdueTasks.length },
                 ] as const).map(({ key, label, count }) => (
                   <button
                     key={key}
@@ -250,7 +275,7 @@ export default function Home() {
                   >
                     {label}
                     {count > 0 && (
-                      <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 700, opacity: taskFilter === key ? 0.75 : 0.5 }}>
+                      <span style={{ marginLeft: 5, fontSize: 10, fontWeight: 700, opacity: taskFilter === key ? 0.75 : 0.5, color: key === 'overdue' ? '#ef4444' : undefined }}>
                         {count}
                       </span>
                     )}
@@ -431,16 +456,19 @@ export default function Home() {
             </div>
 
             {/* Rejected tasks */}
-            {allTasks.some(t => t.has_rejected_approval) && (
+            {visibleRejected.length > 0 && (
               <div className="card" style={{ padding: '18px 24px', border: '1.5px solid #fca5a5', background: 'linear-gradient(135deg,#fff5f5 0%,#fff 100%)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <XCircle size={16} color="#ef4444" />
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#dc2626' }}>Rejected Approvals</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, background: '#fee2e2', color: '#b91c1c', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-                    {allTasks.filter(t => t.has_rejected_approval).length}
+                  <span style={{ fontSize: 11, background: '#fee2e2', color: '#b91c1c', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                    {visibleRejected.length}
                   </span>
+                  <button onClick={dismissRejected} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: '#b91c1c', opacity: 0.6 }} title="Dismiss">
+                    <X size={14} />
+                  </button>
                 </div>
-                {allTasks.filter(t => t.has_rejected_approval).map(t => (
+                {visibleRejected.map(t => (
                   <Link key={t.id} to="/tasks" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #fee2e2' }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -454,16 +482,19 @@ export default function Home() {
             )}
 
             {/* Approved tasks */}
-            {approvedTasks.length > 0 && (
+            {visibleApproved.length > 0 && (
               <div className="card" style={{ padding: '18px 24px', border: '1.5px solid #86efac', background: 'linear-gradient(135deg,#f0fdf4 0%,#fff 100%)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <CheckCircle size={16} color="#16a34a" />
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>Approved Tasks</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11, background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
-                    {approvedTasks.length}
+                  <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                    {visibleApproved.length}
                   </span>
+                  <button onClick={dismissApproved} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: '#15803d', opacity: 0.6 }} title="Dismiss">
+                    <X size={14} />
+                  </button>
                 </div>
-                {approvedTasks.map(a => (
+                {visibleApproved.map(a => (
                   <Link key={a.id} to="/approvals" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid #dcfce7' }}>
                     <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -572,15 +603,19 @@ export default function Home() {
               </div>
             )}
             <div style={{ padding: '16px 24px', borderTop: '1px solid #e8e3da', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {doneModalChecklist.length === 0 || doneModalChecklist.every(i => i.completed) ? (
-                <button className="drawer-submit" onClick={confirmDone} style={{ background: '#4caf7d' }}>
-                  <Check size={15} /> Yes, mark as complete
-                </button>
-              ) : (
-                <button className="drawer-submit" onClick={confirmDone}>
-                  Mark as done anyway
-                </button>
+              {doneModalChecklist.length > 0 && !doneModalChecklist.every(i => i.completed) && (
+                <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                  Complete all checklist items before marking as done.
+                </div>
               )}
+              <button
+                className="drawer-submit"
+                onClick={confirmDone}
+                disabled={doneModalChecklist.length > 0 && !doneModalChecklist.every(i => i.completed)}
+                style={{ background: '#4caf7d', opacity: (doneModalChecklist.length > 0 && !doneModalChecklist.every(i => i.completed)) ? 0.4 : 1, cursor: (doneModalChecklist.length > 0 && !doneModalChecklist.every(i => i.completed)) ? 'not-allowed' : 'pointer' }}
+              >
+                <Check size={15} /> Yes, mark as complete
+              </button>
               <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
                 Go back
               </button>

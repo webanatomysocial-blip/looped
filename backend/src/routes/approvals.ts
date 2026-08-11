@@ -332,6 +332,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         rejection_notes: null,
       });
       await db('tasks').where({ id: task_id }).update({ status: 'in_review' });
+      await closeTaskTimers(task_id);
       await notifyByRole(db, firstStage.role, task.project_id, `"${title}" has been resubmitted for review`);
       res.json({ id: rejectedRecord.id, resubmitted: true });
       return;
@@ -347,6 +348,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     });
 
     await db('tasks').where({ id: task_id }).update({ status: 'in_review' });
+    await closeTaskTimers(task_id);
     await notifyByRole(db, firstStage.role, task.project_id,
       `New approval request: "${title}" is awaiting your review`);
 
@@ -608,6 +610,7 @@ async function handleLegacyReview(
       updates.final_approved_at = new Date();
       updates.final_notes = notes || null;
       await db('tasks').where({ id: approval.task_id }).update({ status: 'completed' });
+      await closeTaskTimers(approval.task_id);
       await createNotification(approval.submitted_by, `Work on "${approval.title}" approved!`, 'approval', approval.project_id);
     } else if (action === 'request_revision') {
       updates.status = 'revision_requested';

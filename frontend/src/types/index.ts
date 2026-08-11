@@ -51,6 +51,7 @@ export interface User {
   pod?: 'pod1' | 'pod2' | null;
   categories?: EmployeeCategory[];
   monthly_salary?: number | null;
+  client_company_id?: number | null;
 }
 
 export interface ClientCompany {

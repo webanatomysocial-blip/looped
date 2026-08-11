@@ -2,6 +2,7 @@ import { Router, Response, Request } from 'express';
 import { randomUUID } from 'crypto';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { visibleCompanyIds } from '../utils/companyAccess';
 
 const router = Router();
 router.use(authenticate);
@@ -10,8 +11,11 @@ router.use(authenticate);
 router.get('/clients', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const clients = await db('client_companies').select('id', 'name', 'ads_customer_id').orderBy('name');
-    res.json(clients);
+    const { role, id: userId } = req.user!;
+    const ids = await visibleCompanyIds(db, role, userId);
+    const q = db('client_companies').select('id', 'name', 'ads_customer_id').orderBy('name');
+    if (ids !== null) { if (!ids.length) { res.json([]); return; } q.whereIn('id', ids); }
+    res.json(await q);
   } catch (err) {
     console.error('Error fetching ads clients:', err);
     res.status(500).json({ error: 'Server error' });

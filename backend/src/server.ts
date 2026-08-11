@@ -84,6 +84,9 @@ app.use('/api/contact-forms', contactFormsRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Serve uploaded files (assets, chat attachments) — always, dev and prod
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Serve built frontend in production (frontend/dist → backend/public via build script)
 if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(__dirname, '../public');

@@ -9,7 +9,8 @@ interface Submission {
   id: number;
   form_name: string;
   data: Record<string, string>;
-  created_at: string;
+  created_at?: string;
+  createdAt?: string;
 }
 
 function csvEscape(value: unknown) {
@@ -46,7 +47,7 @@ export default function ContactFormSubmissions() {
     if (!allSubmissions) return null;
     return allSubmissions.filter((s) => {
       if (formName && s.form_name !== formName) return false;
-      const submittedAt = s.created_at.slice(0, 10);
+      const submittedAt = (s.created_at || s.createdAt || '').slice(0, 10);
       if (from && submittedAt < from) return false;
       if (to && submittedAt > to) return false;
       return true;
@@ -65,7 +66,7 @@ export default function ContactFormSubmissions() {
     const rows = submissions.map((s) => [
       s.form_name,
       ...columns.map((col) => s.data[col] ?? ''),
-      new Date(s.created_at).toLocaleString(),
+      new Date(s.created_at || s.createdAt || '').toLocaleString(),
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -121,7 +122,7 @@ export default function ContactFormSubmissions() {
                   <tr key={s.id}>
                     <td>{s.form_name}</td>
                     {columns.map((col) => <td key={col}>{s.data[col] ?? ''}</td>)}
-                    <td>{new Date(s.created_at).toLocaleString()}</td>
+                    <td>{new Date(s.created_at || s.createdAt || '').toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

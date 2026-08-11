@@ -20,6 +20,21 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where('session_date', '<', today)
       .update({ ended_at: db.raw('started_at') });
 
+    // Close open sessions for tasks that are in_review or completed — timer must not run during review
+    const inReviewTaskIds = await db('task_sessions as ts')
+      .join('tasks as t', 'ts.task_id', 't.id')
+      .where('ts.user_id', userId)
+      .whereNull('ts.ended_at')
+      .whereIn('t.status', ['in_review', 'completed'])
+      .pluck('ts.task_id');
+    if (inReviewTaskIds.length) {
+      await db('task_sessions')
+        .where('user_id', userId)
+        .whereNull('ended_at')
+        .whereIn('task_id', inReviewTaskIds)
+        .update({ ended_at: new Date() });
+    }
+
     // All sessions today for this user
     const sessions = await db('task_sessions')
       .where({ user_id: userId, session_date: today })

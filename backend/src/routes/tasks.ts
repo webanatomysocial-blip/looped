@@ -246,21 +246,24 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       const workerId  = working_person_id ? Number(working_person_id) : null;
       const managerId = task_manager_id   ? Number(task_manager_id)   : null;
       updates.assigned_to = workerId;
-      const prevAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('user_id', 'assignee_role');
-      const prevWorker  = prevAssignees.find((a: any) => a.assignee_role === 'employee')?.user_id ?? null;
-      const prevManager = prevAssignees.find((a: any) => a.assignee_role === 'manager')?.user_id ?? null;
+      const prevAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('user_id', 'assignee_role', 'acceptance_status');
+      const prevWorker  = prevAssignees.find((a: any) => a.assignee_role === 'employee');
+      const prevManager = prevAssignees.find((a: any) => a.assignee_role === 'manager');
       await db('task_assignees').where({ task_id: req.params.id }).delete();
       const inserts: any[] = [];
-      if (workerId)  inserts.push({ task_id: req.params.id, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
-      if (managerId) inserts.push({ task_id: req.params.id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
+      if (workerId) {
+        const sameWorker = prevWorker && Number(prevWorker.user_id) === workerId;
+        inserts.push({ task_id: req.params.id, user_id: workerId, assignee_role: 'employee', acceptance_status: sameWorker ? prevWorker.acceptance_status : 'pending' });
+      }
+      if (managerId) inserts.push({ task_id: req.params.id, user_id: managerId, assignee_role: 'manager', acceptance_status: 'accepted' });
       if (inserts.length) await db('task_assignees').insert(inserts);
       const taskRow = await db('tasks').where({ id: req.params.id }).select('title', 'project_id').first();
       const proj = taskRow ? await db('projects').where({ id: taskRow.project_id }).select('name').first() : null;
       const projName = proj?.name || 'a project';
-      if (workerId && workerId !== req.user!.id && workerId !== Number(prevWorker)) {
+      if (workerId && workerId !== req.user!.id && workerId !== Number(prevWorker?.user_id)) {
         await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
       }
-      if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager)) {
+      if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager?.user_id)) {
         await createNotification(managerId, `You are managing task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
       }
     } else if (assignee_ids !== undefined) {

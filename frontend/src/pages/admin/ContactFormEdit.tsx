@@ -6,9 +6,9 @@ import CopyButton from '../../components/ContactForms/CopyButton';
 import { contactFormsApi } from '../../services/api';
 import '../../css/pages/ContactForms.css';
 
-interface Field { name: string; label: string; type: string; required: boolean }
+interface Field { name: string; label: string; type: string; required: boolean; options?: string }
 
-const FIELD_TYPES = ['text', 'email', 'tel', 'textarea'];
+const FIELD_TYPES = ['text', 'email', 'tel', 'number', 'url', 'date', 'textarea', 'select', 'file'];
 
 const TEMPLATE_PLACEHOLDER = `<form class="wa-contact-form">
   <input name="name" placeholder="Name" required>
@@ -52,7 +52,9 @@ export default function ContactFormEdit() {
   const [fields, setFields] = useState<Field[]>([]);
   const [toEmails, setToEmails] = useState('');
   const [template, setTemplate] = useState('');
-  const [tab, setTab] = useState<'template' | 'fields'>('template');
+  const [redirectUrl, setRedirectUrl] = useState('');
+  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [tab, setTab] = useState<'template' | 'fields' | 'redirection'>('template');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -62,7 +64,9 @@ export default function ContactFormEdit() {
       setForm(data);
       setFields(data.fields);
       setToEmails(data.toEmails ?? data.to_emails ?? '');
-      setTemplate(data.template);
+      setTemplate(data.template || '');
+      setRedirectUrl(data.redirect_url || '');
+      setOtpEnabled(!!data.otp_enabled);
     });
     contactFormsApi.getProject(projectId).then((res) => setProject(res.data));
   }, [projectId, formId]);
@@ -89,7 +93,7 @@ export default function ContactFormEdit() {
     setSaving(true);
     setSaved(false);
     const fieldsToSave = usingTemplate ? parseFieldsFromTemplate(template) : fields;
-    await contactFormsApi.updateForm(Number(formId), { fields: fieldsToSave, toEmails, template });
+    await contactFormsApi.updateForm(Number(formId), { fields: fieldsToSave, toEmails, template, redirectUrl, otpEnabled });
     setFields(fieldsToSave);
     setSaving(false);
     setSaved(true);
@@ -124,7 +128,7 @@ export default function ContactFormEdit() {
         <h2 className="cf-section-title">Recipients</h2>
         <input
           className="cf-recipients"
-          placeholder="e.g. sales@example.com, ops@example.com"
+          placeholder="e.g. hello@yourdomain.com, team@yourdomain.com"
           value={toEmails}
           onChange={(e) => setToEmails(e.target.value)}
         />
@@ -133,6 +137,7 @@ export default function ContactFormEdit() {
         <div className="cf-tabs">
           <button type="button" className={tab === 'template' ? 'cf-tab cf-tab-active' : 'cf-tab'} onClick={() => setTab('template')}>Template</button>
           <button type="button" className={tab === 'fields' ? 'cf-tab cf-tab-active' : 'cf-tab'} onClick={() => setTab('fields')}>Fields</button>
+          <button type="button" className={tab === 'redirection' ? 'cf-tab cf-tab-active' : 'cf-tab'} onClick={() => setTab('redirection')}>Redirection</button>
         </div>
 
         {tab === 'template' && (
@@ -191,20 +196,53 @@ export default function ContactFormEdit() {
         {tab === 'fields' && !usingTemplate && (
           <div className="cf-fields">
             {fields.map((field, i) => (
-              <div key={i} className="cf-field-row">
-                <input placeholder="field name (e.g. email)" value={field.name} onChange={(e) => updateField(i, { name: e.target.value })} />
-                <input placeholder="label" value={field.label} onChange={(e) => updateField(i, { label: e.target.value })} />
-                <select value={field.type} onChange={(e) => updateField(i, { type: e.target.value })}>
-                  {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <label className="cf-field-required">
-                  <input type="checkbox" checked={field.required} onChange={(e) => updateField(i, { required: e.target.checked })} />
-                  required
-                </label>
-                <button type="button" className="btn-danger" onClick={() => removeField(i)}>Remove</button>
+              <div key={i} className="cf-field-group">
+                <div className="cf-field-row">
+                  <input placeholder="field name (e.g. phone)" value={field.name} onChange={(e) => updateField(i, { name: e.target.value })} />
+                  <input placeholder="label (e.g. Phone Number)" value={field.label} onChange={(e) => updateField(i, { label: e.target.value })} />
+                  <select value={field.type} onChange={(e) => updateField(i, { type: e.target.value })}>
+                    {FIELD_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <label className="cf-field-required">
+                    <input type="checkbox" checked={field.required} onChange={(e) => updateField(i, { required: e.target.checked })} />
+                    required
+                  </label>
+                  <button type="button" className="btn-danger" onClick={() => removeField(i)}>Remove</button>
+                </div>
+                {field.type === 'select' && (
+                  <input
+                    className="cf-options-input"
+                    placeholder="Options (comma-separated): e.g. Option A, Option B, Option C"
+                    value={field.options || ''}
+                    onChange={(e) => updateField(i, { options: e.target.value })}
+                  />
+                )}
               </div>
             ))}
             <button type="button" className="btn-secondary" onClick={addField}>+ Add field</button>
+          </div>
+        )}
+
+        {tab === 'redirection' && (
+          <div className="cf-fields">
+            <h2 className="cf-section-title">OTP Verification</h2>
+            <label className="cf-toggle-row">
+              <span className="cf-toggle-switch">
+                <input type="checkbox" checked={otpEnabled} onChange={(e) => setOtpEnabled(e.target.checked)} />
+                <span className="cf-toggle-thumb" />
+              </span>
+              <span className="cf-toggle-label">Require email OTP before submission</span>
+            </label>
+            <p className="cf-hint">When enabled, users must verify their email with a one-time code before they can submit.</p>
+
+            <h2 className="cf-section-title" style={{ marginTop: '28px' }}>Redirect URL</h2>
+            <p className="cf-hint">After a successful submission, redirect the user to this URL. Leave blank to show the default success message.</p>
+            <input
+              className="cf-recipients"
+              placeholder="https://example.com/thank-you"
+              value={redirectUrl}
+              onChange={(e) => setRedirectUrl(e.target.value)}
+            />
           </div>
         )}
 

@@ -18,8 +18,9 @@ export default function ContactFormTest() {
 
   useEffect(() => {
     const script = document.createElement('script');
-    script.src = '/embed.js';
+    script.src = '/embed.js?v=' + Date.now();
     script.setAttribute('data-form-id', String(formId));
+    script.setAttribute('data-no-redirect', 'true');
     document.body.appendChild(script);
     return () => { document.body.removeChild(script); };
   }, [formId]);

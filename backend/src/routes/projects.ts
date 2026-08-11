@@ -24,6 +24,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       query = query
         .join('project_members as pm', 'p.id', 'pm.project_id')
         .where('pm.user_id', userId);
+    } else if (role === 'manager') {
+      const managerUser = await db('users').where({ id: userId }).select('pod').first();
+      if (managerUser?.pod) query = query.where('p.pod', managerUser.pod);
     }
 
     const projects = await query.orderBy('p.created_at', 'desc');

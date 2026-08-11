@@ -709,7 +709,18 @@ export default function Tasks() {
                 {/* Approvers (Sequential) */}
                 {(() => {
                   const FLOW_ROLES = ['employee', 'manager', 'admin', 'client'] as const;
-                  const rolePool = users.filter(u => u.role === flowRoleTab);
+                  const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
+                  const projectPod = selectedProject?.members
+                    .map(m => users.find(u => u.id === m.user_id && u.role === 'employee')?.pod)
+                    .find(pod => !!pod) ?? null;
+                  const rolePool = users.filter(u => {
+                    if (u.role !== flowRoleTab) return false;
+                    if (flowRoleTab === 'client' && selectedProject?.client_company_id)
+                      return u.client_company_id === selectedProject.client_company_id;
+                    if (flowRoleTab === 'manager' && projectPod)
+                      return u.pod === projectPod;
+                    return true;
+                  });
 
                   // Category sub-tabs — only relevant for employees
                   const empCategories: { id: number; name: string }[] = [];
@@ -763,7 +774,14 @@ export default function Tasks() {
                             onClick={() => { setFlowRoleTab(r); setFlowCategoryTab('all'); }}
                           >
                             {r.charAt(0).toUpperCase() + r.slice(1)}
-                            <span className="ap-role-tab__count">{users.filter(u => u.role === r).length}</span>
+                            <span className="ap-role-tab__count">{users.filter(u => {
+                              if (u.role !== r) return false;
+                              if (r === 'client' && selectedProject?.client_company_id)
+                                return u.client_company_id === selectedProject.client_company_id;
+                              if (r === 'manager' && projectPod)
+                                return u.pod === projectPod;
+                              return true;
+                            }).length}</span>
                           </button>
                         ))}
                       </div>
@@ -954,7 +972,7 @@ export default function Tasks() {
                       </div>
                       {(editForm.est_hours || editForm.est_minutes !== '0') && (
                         <div style={{ fontSize: 12, color: 'var(--ink-muted)', fontWeight: 600, whiteSpace: 'nowrap', paddingBottom: 14 }}>
-                          = {Number(editForm.est_hours || 0)}h {editForm.est_minutes}m
+                          = {Math.floor(Number(editForm.est_hours || 0))}h {Math.round(Number(editForm.est_minutes || 0))}m
                         </div>
                       )}
                     </div>

@@ -273,7 +273,7 @@ export default function TeamCapacityPage() {
                             </div>
                             <div className="tc-task-meta">
                               <div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: 12 }}>{fmtSeconds(task.tracked_seconds_today)}</div>
-                              {task.estimated_hours && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{task.estimated_hours}h est.</div>}
+                              {task.estimated_hours && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{Math.floor(task.estimated_hours)}h {Math.round((task.estimated_hours % 1) * 60)}m est.</div>}
                               <div className={`tc-task-status tc-task-status--${task.acceptance_status}`}>
                                 {task.acceptance_status}
                               </div>

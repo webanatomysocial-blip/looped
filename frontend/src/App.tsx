@@ -90,23 +90,23 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* Reports — admin + manager */}
+      {/* Reports — admin only */}
       <Route path="/reports" element={
-        <PrivateRoute roles={['admin', 'manager']}>
+        <PrivateRoute roles={['admin']}>
           <Reports />
         </PrivateRoute>
       } />
 
-      {/* Project Reports — admin + manager */}
+      {/* Project Reports — admin only */}
       <Route path="/project-reports" element={
-        <PrivateRoute roles={['admin', 'manager']}>
+        <PrivateRoute roles={['admin']}>
           <ProjectReports />
         </PrivateRoute>
       } />
 
-      {/* XLR8 Bucket — admin + manager */}
+      {/* XLR8 Bucket — admin only */}
       <Route path="/xlr8" element={
-        <PrivateRoute roles={['admin', 'manager']}>
+        <PrivateRoute roles={['admin']}>
           <XLR8Page />
         </PrivateRoute>
       } />
@@ -182,27 +182,27 @@ function AppRoutes() {
 
       {/* Contact Forms — admin only */}
       <Route path="/contact-forms" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContactFormProjects />
         </PrivateRoute>
       } />
       <Route path="/contact-forms/:id" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContactFormProjectDetail />
         </PrivateRoute>
       } />
       <Route path="/contact-forms/:id/submissions" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContactFormSubmissions />
         </PrivateRoute>
       } />
       <Route path="/contact-forms/:id/forms/:formId" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContactFormEdit />
         </PrivateRoute>
       } />
       <Route path="/contact-forms/:id/forms/:formId/test" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContactFormTest />
         </PrivateRoute>
       } />
