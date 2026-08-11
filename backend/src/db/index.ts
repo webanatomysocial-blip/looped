@@ -775,6 +775,44 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+
+  // contact-forms: embeddable per-site contact forms (migrated from standalone contactform app)
+  await db.schema.hasTable('contact_projects').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('contact_projects', (t) => {
+        t.increments('id').primary();
+        t.string('name').notNullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
+  await db.schema.hasTable('contact_forms').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('contact_forms', (t) => {
+        t.increments('id').primary();
+        t.string('name').notNullable();
+        t.text('fields').notNullable().defaultTo('[]'); // JSON: [{name,label,type,required}]
+        t.string('to_emails').notNullable().defaultTo('');
+        t.text('template').notNullable().defaultTo('');
+        t.integer('contact_project_id').notNullable().references('id').inTable('contact_projects').onDelete('CASCADE');
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
+  await db.schema.hasTable('contact_submissions').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('contact_submissions', (t) => {
+        t.increments('id').primary();
+        t.text('data').notNullable(); // JSON: {fieldName: value}
+        t.string('form_name').notNullable();
+        t.integer('contact_project_id').notNullable().references('id').inTable('contact_projects').onDelete('CASCADE');
+        t.integer('contact_form_id').nullable().references('id').inTable('contact_forms').onDelete('SET NULL');
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {

@@ -4,6 +4,7 @@ import {
   LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
   BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
   Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck, Megaphone, Zap,
+  MailPlus,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -35,6 +36,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/content',      icon: Sparkles,       label: 'Content AI' },
       { to: '/notifications',icon: Bell,           label: 'Notifications' },
       { to: '/admin/users',  icon: Users,          label: 'Users' },
+      { to: '/contact-forms',icon: MailPlus,       label: 'Contact Forms' },
     ],
   },
   manager: {

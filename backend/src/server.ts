@@ -24,10 +24,19 @@ import seoRoutes, { publicSeoRouter } from './routes/seo';
 import adsRoutes, { publicAdsRouter } from './routes/ads';
 import capacityRoutes from './routes/capacity';
 import timeLogsRoutes from './routes/time-logs';
+import contactFormsRoutes, { publicContactFormsRouter } from './routes/contact-forms';
 import { startEmailScheduler } from './services/scheduler';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Public contact-forms endpoints (embed config + submit): mounted before the
+// global CORS policy below, since embedded WordPress sites call these
+// cross-origin and set their own permissive CORS headers per-route.
+app.use('/api/public/contact-forms', publicContactFormsRouter);
 
 app.use(
   helmet({
@@ -48,8 +57,6 @@ app.options(/.*/, cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(morgan(':method :url :status :response-time ms - :res[content-length]'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Uploads served only via authenticated /api/assets/:id/download
 
@@ -73,6 +80,7 @@ app.use('/api/ads', adsRoutes);
 app.use('/api/public/ads', publicAdsRouter);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
+app.use('/api/contact-forms', contactFormsRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

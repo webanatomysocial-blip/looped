@@ -14,6 +14,11 @@ import Messages from './pages/Messages';
 import ApprovedFiles from './pages/ApprovedFiles';
 import Settings from './pages/Settings';
 import UserManagement from './pages/admin/UserManagement';
+import ContactFormProjects from './pages/admin/ContactFormProjects';
+import ContactFormProjectDetail from './pages/admin/ContactFormProjectDetail';
+import ContactFormSubmissions from './pages/admin/ContactFormSubmissions';
+import ContactFormEdit from './pages/admin/ContactFormEdit';
+import ContactFormTest from './pages/admin/ContactFormTest';
 import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
@@ -172,6 +177,33 @@ function AppRoutes() {
       <Route path="/admin/users" element={
         <PrivateRoute roles={['admin']}>
           <UserManagement />
+        </PrivateRoute>
+      } />
+
+      {/* Contact Forms — admin only */}
+      <Route path="/contact-forms" element={
+        <PrivateRoute roles={['admin']}>
+          <ContactFormProjects />
+        </PrivateRoute>
+      } />
+      <Route path="/contact-forms/:id" element={
+        <PrivateRoute roles={['admin']}>
+          <ContactFormProjectDetail />
+        </PrivateRoute>
+      } />
+      <Route path="/contact-forms/:id/submissions" element={
+        <PrivateRoute roles={['admin']}>
+          <ContactFormSubmissions />
+        </PrivateRoute>
+      } />
+      <Route path="/contact-forms/:id/forms/:formId" element={
+        <PrivateRoute roles={['admin']}>
+          <ContactFormEdit />
+        </PrivateRoute>
+      } />
+      <Route path="/contact-forms/:id/forms/:formId/test" element={
+        <PrivateRoute roles={['admin']}>
+          <ContactFormTest />
         </PrivateRoute>
       } />
 

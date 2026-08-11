@@ -156,6 +156,20 @@ export const contentApi = {
     api.post('/content/generate', data),
 };
 
+export const contactFormsApi = {
+  listProjects: () => api.get('/contact-forms'),
+  getProject: (id: number) => api.get(`/contact-forms/${id}`),
+  createProject: (name: string) => api.post('/contact-forms', { name }),
+  deleteProject: (id: number) => api.delete(`/contact-forms/${id}`),
+  listForms: (projectId: number) => api.get(`/contact-forms/${projectId}/forms`),
+  createForm: (projectId: number, name: string) => api.post(`/contact-forms/${projectId}/forms`, { name }),
+  getForm: (formId: number) => api.get(`/contact-forms/forms/${formId}`),
+  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string }) =>
+    api.patch(`/contact-forms/forms/${formId}`, data),
+  deleteForm: (formId: number) => api.delete(`/contact-forms/forms/${formId}`),
+  listSubmissions: (projectId: number) => api.get(`/contact-forms/${projectId}/submissions`),
+};
+
 export const timeLogsApi = {
   byProject: (projectId: number, params?: { from?: string; to?: string }) =>
     api.get(`/time-logs/project/${projectId}`, { params }),
