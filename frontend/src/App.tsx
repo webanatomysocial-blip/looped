@@ -23,6 +23,7 @@ import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
 import XLR8Page from './pages/XLR8Page';
+import LandingPage from './pages/LandingPage';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
@@ -178,9 +179,9 @@ function AppRoutes() {
       <Route path="/share/:token" element={<ShareReport />} />
       <Route path="/share/ads/:token" element={<ShareAdsReport />} />
       <Route path="/" element={
-        user?.role === 'client'
-          ? <Navigate to="/projects" replace />
-          : <Navigate to="/dashboard" replace />
+        user
+          ? (user.role === 'client' ? <Navigate to="/projects" replace /> : <Navigate to="/dashboard" replace />)
+          : <LandingPage />
       } />
       <Route path="*" element={
         user?.role === 'client'
