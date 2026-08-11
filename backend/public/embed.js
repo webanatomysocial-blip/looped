@@ -33,8 +33,8 @@
       /* Field wrapper */
       '.wa-cf-field { display: flex; flex-direction: column; gap: 6px; }',
 
-      /* Label */
-      '.wa-cf-form label { font-size: 12px; font-weight: 700; color: #111111; letter-spacing: 0.03em; text-transform: uppercase; }',
+      /* Label — tag chip style */
+      '.wa-cf-form label { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; color: #555555; letter-spacing: 0.05em; text-transform: uppercase; background: rgba(255,255,255,0.75); border: 1px solid rgba(228,228,232,0.9); border-radius: 99px; padding: 3px 10px; width: fit-content; }',
 
       /* Inputs & textarea — frosted glass style */
       '.wa-cf-form input, .wa-cf-form textarea, .wa-cf-form select { width: 100%; padding: 11px 16px; border: 1.5px solid rgba(255,255,255,0.85); border-radius: 14px; font-size: 14px; font-family: inherit; font-weight: 400; background: rgba(255,255,255,0.70); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: #111111; box-sizing: border-box; box-shadow: 0 1px 12px rgba(0,0,0,0.04); transition: border-color 0.15s, box-shadow 0.15s; outline: none; -webkit-appearance: none; appearance: none; }',
