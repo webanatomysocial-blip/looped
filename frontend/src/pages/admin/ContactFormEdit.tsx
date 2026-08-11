@@ -150,7 +150,21 @@ export default function ContactFormEdit() {
               </div>
               <div className="cf-preview-panel">
                 <div className="cf-preview-panel-header"><span className="cf-preview-url-bar">Live preview</span></div>
-                <iframe className="cf-template-preview" srcDoc={template || TEMPLATE_PLACEHOLDER} title="Form preview" />
+                <iframe className="cf-template-preview" title="Form preview" srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: #EAEAEC; padding: 24px; -webkit-font-smoothing: antialiased; }
+  form { display: flex; flex-direction: column; gap: 16px; max-width: 480px; }
+  .wa-cf-field { display: flex; flex-direction: column; gap: 6px; }
+  label { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; color: #555; letter-spacing: 0.05em; text-transform: uppercase; background: rgba(255,255,255,0.75); border: 1px solid rgba(228,228,232,0.9); border-radius: 99px; padding: 3px 10px; width: fit-content; }
+  input, textarea, select { width: 100%; padding: 11px 16px; border: 1.5px solid rgba(255,255,255,0.85); border-radius: 14px; font-size: 14px; font-family: inherit; background: rgba(255,255,255,0.70); backdrop-filter: blur(8px); color: #111; box-shadow: 0 1px 12px rgba(0,0,0,0.04); transition: border-color 0.15s; outline: none; }
+  input:focus, textarea:focus { border-color: #111; box-shadow: 0 0 0 3px rgba(17,17,17,0.06); }
+  input::placeholder, textarea::placeholder { color: #aaa; }
+  textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
+  button[type="submit"], button:not([type]) { display: inline-flex; align-items: center; background: #111; color: #fff; border: none; border-radius: 99px; padding: 11px 26px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; margin-top: 4px; }
+  button[type="submit"]:hover { background: #333; }
+</style></head><body>${template || TEMPLATE_PLACEHOLDER}</body></html>`} />
               </div>
             </div>
             <p className="cf-hint">Paste your form's HTML. Field names and required checks are detected automatically.</p>
