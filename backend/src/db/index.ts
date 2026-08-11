@@ -806,10 +806,13 @@ async function createSchema(): Promise<void> {
       if (!hasRedirect) await db.schema.table('contact_forms', (t) => { t.text('redirect_url').nullable(); });
       const hasOtp = await db.schema.hasColumn('contact_forms', 'otp_enabled');
       if (!hasOtp) await db.schema.table('contact_forms', (t) => { t.boolean('otp_enabled').notNullable().defaultTo(false); });
-      // Make contact_project_id nullable in MySQL (was NOT NULL in older deployments)
+      // Fix non-nullable columns in MySQL from older deployments
       if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_forms', 'contact_project_id');
         if (hasContactProjCol) await db.raw('ALTER TABLE `contact_forms` MODIFY `contact_project_id` INT NULL');
+        const hasTemplate = await db.schema.hasColumn('contact_forms', 'template');
+        if (hasTemplate) await db.raw("ALTER TABLE `contact_forms` MODIFY `template` TEXT NULL DEFAULT NULL");
+        else await db.schema.table('contact_forms', (t) => { t.text('template').nullable(); });
       }
     }
   });

@@ -66,6 +66,7 @@ router.post('/:id/forms', async (req: AuthRequest, res: Response) => {
     client_id: req.params.id,
     contact_project_id: null,
     to_emails: '',
+    template: null,
     fields: JSON.stringify(defaultFields),
   });
   const form = await getDB()('contact_forms').where({ id }).first();
