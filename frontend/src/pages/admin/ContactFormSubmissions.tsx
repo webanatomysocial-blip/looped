@@ -7,9 +7,9 @@ import '../../css/pages/ContactForms.css';
 
 interface Submission {
   id: number;
-  formName: string;
+  form_name: string;
   data: Record<string, string>;
-  createdAt: string;
+  created_at: string;
 }
 
 function csvEscape(value: unknown) {
@@ -38,15 +38,15 @@ export default function ContactFormSubmissions() {
   const formNames = useMemo(() => {
     const names = new Set<string>();
     forms.forEach((f) => names.add(f.name));
-    allSubmissions?.forEach((s) => names.add(s.formName));
+    allSubmissions?.forEach((s) => names.add(s.form_name));
     return Array.from(names).sort();
   }, [forms, allSubmissions]);
 
   const submissions = useMemo(() => {
     if (!allSubmissions) return null;
     return allSubmissions.filter((s) => {
-      if (formName && s.formName !== formName) return false;
-      const submittedAt = s.createdAt.slice(0, 10);
+      if (formName && s.form_name !== formName) return false;
+      const submittedAt = s.created_at.slice(0, 10);
       if (from && submittedAt < from) return false;
       if (to && submittedAt > to) return false;
       return true;
@@ -63,9 +63,9 @@ export default function ContactFormSubmissions() {
     if (!submissions) return;
     const header = ['Form', ...columns, 'Submitted At'];
     const rows = submissions.map((s) => [
-      s.formName,
+      s.form_name,
       ...columns.map((col) => s.data[col] ?? ''),
-      new Date(s.createdAt).toLocaleString(),
+      new Date(s.created_at).toLocaleString(),
     ]);
     const csv = [header, ...rows].map((row) => row.map(csvEscape).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -119,9 +119,9 @@ export default function ContactFormSubmissions() {
               <tbody>
                 {submissions.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.formName}</td>
+                    <td>{s.form_name}</td>
                     {columns.map((col) => <td key={col}>{s.data[col] ?? ''}</td>)}
-                    <td>{new Date(s.createdAt).toLocaleString()}</td>
+                    <td>{new Date(s.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
