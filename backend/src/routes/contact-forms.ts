@@ -10,41 +10,28 @@ function parseForm(form: any) {
   return { ...form, fields: JSON.parse(form.fields || '[]') };
 }
 
-// ---- projects ----
+// ---- clients (from client_companies, same as SEO/Ads) ----
 
 router.get('/', async (_req: AuthRequest, res: Response) => {
   const db = getDB();
-  const projects = await db('contact_projects').select('*').orderBy('created_at', 'desc');
-  const counts = await db('contact_forms').select('contact_project_id').count({ n: '*' }).groupBy('contact_project_id');
+  const clients = await db('client_companies').select('id', 'name').orderBy('name');
+  const counts = await db('contact_forms').select('client_id').count({ n: '*' }).groupBy('client_id');
   const countMap: Record<number, number> = {};
-  counts.forEach((c: any) => { countMap[c.contact_project_id] = Number(c.n); });
-  res.json(projects.map((p: any) => ({ ...p, formCount: countMap[p.id] || 0 })));
-});
-
-router.post('/', async (req: AuthRequest, res: Response) => {
-  const { name } = req.body;
-  if (!name?.trim()) { res.status(400).json({ error: 'Project name is required.' }); return; }
-  const [id] = await getDB()('contact_projects').insert({ name: name.trim() });
-  const project = await getDB()('contact_projects').where({ id }).first();
-  res.status(201).json(project);
+  counts.forEach((c: any) => { countMap[c.client_id] = Number(c.n); });
+  res.json(clients.map((c: any) => ({ ...c, formCount: countMap[c.id] || 0 })));
 });
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
-  const project = await getDB()('contact_projects').where({ id: req.params.id }).first();
-  if (!project) { res.status(404).json({ error: 'Not found.' }); return; }
-  res.json(project);
-});
-
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
-  await getDB()('contact_projects').where({ id: req.params.id }).delete();
-  res.status(204).end();
+  const client = await getDB()('client_companies').where({ id: req.params.id }).select('id', 'name').first();
+  if (!client) { res.status(404).json({ error: 'Not found.' }); return; }
+  res.json(client);
 });
 
 // ---- forms ----
 
 router.get('/:id/forms', async (req: AuthRequest, res: Response) => {
   const db = getDB();
-  const forms = await db('contact_forms').where({ contact_project_id: req.params.id }).orderBy('created_at', 'desc');
+  const forms = await db('contact_forms').where({ client_id: req.params.id }).orderBy('created_at', 'desc');
   const counts = await db('contact_submissions').select('contact_form_id').count({ n: '*' }).groupBy('contact_form_id');
   const countMap: Record<number, number> = {};
   counts.forEach((c: any) => { countMap[c.contact_form_id] = Number(c.n); });
@@ -54,6 +41,8 @@ router.get('/:id/forms', async (req: AuthRequest, res: Response) => {
 router.post('/:id/forms', async (req: AuthRequest, res: Response) => {
   const { name } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Form name is required.' }); return; }
+  const client = await getDB()('client_companies').where({ id: req.params.id }).first();
+  if (!client) { res.status(404).json({ error: 'Client not found.' }); return; }
   const defaultFields = [
     { name: 'name', label: 'Name', type: 'text', required: true },
     { name: 'email', label: 'Email', type: 'email', required: true },
@@ -61,7 +50,7 @@ router.post('/:id/forms', async (req: AuthRequest, res: Response) => {
   ];
   const [id] = await getDB()('contact_forms').insert({
     name: name.trim(),
-    contact_project_id: req.params.id,
+    client_id: req.params.id,
     to_emails: process.env.CONTACT_TO_EMAIL || '',
     fields: JSON.stringify(defaultFields),
   });
@@ -96,14 +85,14 @@ router.delete('/forms/:formId', async (req: AuthRequest, res: Response) => {
 
 router.get('/:id/submissions', async (req: AuthRequest, res: Response) => {
   const submissions = await getDB()('contact_submissions')
-    .where({ contact_project_id: req.params.id })
+    .where({ client_id: req.params.id })
     .orderBy('created_at', 'desc');
   res.json(submissions.map((s: any) => ({ ...s, data: JSON.parse(s.data) })));
 });
 
 export default router;
 
-// ---- public (no auth): embed config + submit, called cross-origin from embedded WordPress sites ----
+// ---- public (no auth): embed config + submit ----
 
 export const publicContactFormsRouter = Router();
 
@@ -113,14 +102,8 @@ const corsHeaders = (res: Response) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type');
 };
 
-publicContactFormsRouter.options('/forms/:formId', (_req: Request, res: Response) => {
-  corsHeaders(res);
-  res.status(204).end();
-});
-publicContactFormsRouter.options('/forms/:formId/submit', (_req: Request, res: Response) => {
-  corsHeaders(res);
-  res.status(204).end();
-});
+publicContactFormsRouter.options('/forms/:formId', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
+publicContactFormsRouter.options('/forms/:formId/submit', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
 
 publicContactFormsRouter.get('/forms/:formId', async (req: Request, res: Response) => {
   corsHeaders(res);
@@ -147,7 +130,7 @@ publicContactFormsRouter.post('/forms/:formId/submit', async (req: Request, res:
 
   await db('contact_submissions').insert({
     contact_form_id: form.id,
-    contact_project_id: form.contact_project_id,
+    client_id: form.client_id,
     form_name: form.name,
     data: JSON.stringify(values),
   });

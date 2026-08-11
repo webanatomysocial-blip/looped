@@ -792,12 +792,16 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('contact_forms', (t) => {
         t.increments('id').primary();
         t.string('name').notNullable();
-        t.text('fields').notNullable().defaultTo('[]'); // JSON: [{name,label,type,required}]
+        t.text('fields').notNullable().defaultTo('[]');
         t.string('to_emails').notNullable().defaultTo('');
         t.text('template').notNullable().defaultTo('');
-        t.integer('contact_project_id').notNullable().references('id').inTable('contact_projects').onDelete('CASCADE');
+        t.integer('contact_project_id').nullable();
+        t.integer('client_id').nullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasCid = await db.schema.hasColumn('contact_forms', 'client_id');
+      if (!hasCid) await db.schema.table('contact_forms', (t) => { t.integer('client_id').nullable(); });
     }
   });
 
@@ -805,12 +809,16 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('contact_submissions', (t) => {
         t.increments('id').primary();
-        t.text('data').notNullable(); // JSON: {fieldName: value}
+        t.text('data').notNullable();
         t.string('form_name').notNullable();
-        t.integer('contact_project_id').notNullable().references('id').inTable('contact_projects').onDelete('CASCADE');
+        t.integer('contact_project_id').nullable();
+        t.integer('client_id').nullable();
         t.integer('contact_form_id').nullable().references('id').inTable('contact_forms').onDelete('SET NULL');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasCid = await db.schema.hasColumn('contact_submissions', 'client_id');
+      if (!hasCid) await db.schema.table('contact_submissions', (t) => { t.integer('client_id').nullable(); });
     }
   });
 }

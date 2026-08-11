@@ -16,20 +16,20 @@ interface ContactForm {
 
 export default function ContactFormProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const projectId = Number(id);
-  const [project, setProject] = useState<{ id: number; name: string } | null>(null);
+  const clientId = Number(id);
+  const [client, setClient] = useState<{ id: number; name: string } | null>(null);
   const [forms, setForms] = useState<ContactForm[] | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ContactForm | null>(null);
 
   function load() {
-    contactFormsApi.getProject(projectId).then((res) => setProject(res.data));
-    contactFormsApi.listForms(projectId).then((res) => setForms(res.data));
+    contactFormsApi.getProject(clientId).then((res) => setClient(res.data));
+    contactFormsApi.listForms(clientId).then((res) => setForms(res.data));
   }
 
-  useEffect(load, [projectId]);
+  useEffect(load, [clientId]);
 
   async function handleCreate(name: string) {
-    await contactFormsApi.createForm(projectId, name);
+    await contactFormsApi.createForm(clientId, name);
     load();
   }
 
@@ -43,10 +43,10 @@ export default function ContactFormProjectDetail() {
   return (
     <Layout>
       <div className="cf-page">
-        <Breadcrumb items={[{ label: 'Contact Forms', href: '/contact-forms' }, { label: project?.name || '...' }]} />
+        <Breadcrumb items={[{ label: 'Contact Forms', href: '/contact-forms' }, { label: client?.name || '...' }]} />
         <div className="cf-header">
-          <h1>{project?.name || '...'}</h1>
-          <Link to={`/contact-forms/${projectId}/submissions`} className="btn-secondary">View Submissions</Link>
+          <h1>{client?.name || '...'}</h1>
+          <Link to={`/contact-forms/${clientId}/submissions`} className="btn-secondary">View Submissions</Link>
         </div>
 
         <CreateBox placeholder="Form name" buttonLabel="Create form" onCreate={handleCreate} />
@@ -57,7 +57,7 @@ export default function ContactFormProjectDetail() {
           {forms?.map((form) => (
             <ListCard
               key={form.id}
-              href={`/contact-forms/${projectId}/forms/${form.id}`}
+              href={`/contact-forms/${clientId}/forms/${form.id}`}
               title={form.name}
               meta={`${form.submissionCount} submission${form.submissionCount === 1 ? '' : 's'}`}
               onDelete={() => setDeleteTarget(form)}
