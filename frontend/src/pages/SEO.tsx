@@ -1166,10 +1166,26 @@ export default function SEO() {
                               onClick={async () => {
                                 if (!selectedClient) return;
                                 setDownloadingId(r.id);
+                                const savedRange = r.range || '28d';
+                                const isCustomSaved = savedRange === 'custom' && r.start_date && r.end_date;
                                 try {
-                                  const res = await seoApi.report(selectedClient.id, r.range, r.start_date || undefined, r.end_date || undefined, r.country || undefined, r.compare_start || undefined, r.compare_end || undefined);
-                                  downloadPDF(res.data.report, selectedClient.name, r.range, manual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
-                                } catch { alert('Failed to fetch report data.'); }
+                                  const res = await seoApi.report(
+                                    selectedClient.id,
+                                    savedRange,
+                                    isCustomSaved ? r.start_date : undefined,
+                                    isCustomSaved ? r.end_date : undefined,
+                                    r.country || undefined,
+                                    r.compare_start || undefined,
+                                    r.compare_end || undefined,
+                                  );
+                                  const rpt = res.data?.report ?? res.data;
+                                  if (!rpt) throw new Error('No report data');
+                                  let snapManual = manual;
+                                  if (r.manual_snapshot) {
+                                    try { snapManual = { ...emptyManual(), ...(typeof r.manual_snapshot === 'string' ? JSON.parse(r.manual_snapshot) : r.manual_snapshot) }; } catch {}
+                                  }
+                                  downloadPDF(rpt, selectedClient.name, savedRange, snapManual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
+                                } catch (e: any) { alert('Failed to fetch report data: ' + (e?.response?.data?.error || e?.message || 'unknown error')); }
                                 finally { setDownloadingId(null); }
                               }}
                             >{downloadingId === r.id ? 'Loading…' : '↓ Download PDF'}</button>
