@@ -591,12 +591,12 @@ export default function Projects() {
             <div className="drawer-body">
               <div>
                 <label className="form-label">Project name *</label>
-                <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus />
+                <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus readOnly={!!(editProject && user?.role === 'manager')} style={editProject && user?.role === 'manager' ? { background: 'var(--bg-sand)', color: 'var(--ink-muted)', cursor: 'default' } : {}} />
               </div>
 
               <div>
                 <label className="form-label">Client</label>
-                <select className="form-input" value={form.client_company_id}
+                <select className="form-input" value={form.client_company_id} disabled={!!(editProject && user?.role === 'manager')}
                   onChange={(e) => {
                     const cid = e.target.value;
                     const client = companies.find((c) => String(c.id) === cid);
@@ -831,11 +831,15 @@ export default function Projects() {
                     <div className="member-role-tabs" style={{ marginTop: 8 }}>
                       {(['admins', 'managers', 'employees'] as MemberTab[]).map((tab) => {
                         const sel = countSelected(tab);
+                        const lockedForManager = editProject && user?.role === 'manager' && tab !== 'employees';
                         return (
-                          <button key={tab} type="button" className={`member-role-tab${memberTab === tab ? ' active' : ''}`}
-                            onClick={() => { setMemberTab(tab); setEmpSubTab('all'); }}>
+                          <button key={tab} type="button"
+                            className={`member-role-tab${memberTab === tab ? ' active' : ''}`}
+                            onClick={() => { setMemberTab(tab); setEmpSubTab('all'); }}
+                            style={lockedForManager ? { opacity: 0.5, cursor: 'default', pointerEvents: 'none' } : {}}>
                             {tab.charAt(0).toUpperCase() + tab.slice(1)}
                             {sel > 0 && <span className="member-role-tab__badge">{sel}</span>}
+                            {lockedForManager && <span style={{ fontSize: 10, marginLeft: 4 }}>🔒</span>}
                           </button>
                         );
                       })}
@@ -858,9 +862,12 @@ export default function Projects() {
                     )}
                     <div className="member-list">
                       {visibleUsers().length === 0 && <p className="member-list-empty">No users in this category</p>}
-                      {visibleUsers().map((u) => (
-                        <label key={u.id} className={`member-list-row${form.member_ids.includes(u.id) ? ' member-list-row--selected' : ''}`}>
-                          <input type="checkbox" checked={form.member_ids.includes(u.id)} onChange={() => toggleMember(u.id)} style={{ display: 'none' }} />
+                      {visibleUsers().map((u) => {
+                        const isLocked = editProject && user?.role === 'manager' && memberTab !== 'employees';
+                        return (
+                        <label key={u.id} className={`member-list-row${form.member_ids.includes(u.id) ? ' member-list-row--selected' : ''}${isLocked ? ' member-list-row--locked' : ''}`}
+                          style={isLocked ? { opacity: 0.6, cursor: 'default', pointerEvents: 'none' } : {}}>
+                          <input type="checkbox" checked={form.member_ids.includes(u.id)} onChange={() => !isLocked && toggleMember(u.id)} style={{ display: 'none' }} />
                           <div className="member-list-row__check">
                             {form.member_ids.includes(u.id) && <span className="member-list-row__tick">✓</span>}
                           </div>
@@ -872,7 +879,8 @@ export default function Projects() {
                             )}
                           </div>
                         </label>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </>
