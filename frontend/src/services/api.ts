@@ -154,6 +154,7 @@ export const seoApi = {
   getSavedReports: (clientId: number) => api.get(`/seo/saved-reports/${clientId}`),
   saveReport: (clientId: number, data: { name: string; range: string; start_date?: string; end_date?: string; compare_start?: string; compare_end?: string; country?: string }) => api.post(`/seo/saved-reports/${clientId}`, data),
   deleteSavedReport: (reportId: number) => api.delete(`/seo/saved-reports/${reportId}`),
+  revokeAndRegenerateToken: (reportId: number) => api.patch(`/seo/saved-reports/${reportId}/revoke-token`),
 };
 
 export const contentApi = {

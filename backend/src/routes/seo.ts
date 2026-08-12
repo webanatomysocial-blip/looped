@@ -699,12 +699,23 @@ router.get('/saved-reports/:clientId', async (req: AuthRequest, res: Response) =
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// POST save a report snapshot
+// POST save a report snapshot — auto-creates a share token
 router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
   const { name, range, start_date, end_date, compare_start, compare_end, country } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
+    const token = randomUUID();
+    // Store share token in seo_share_tokens so it works with /share/:token
+    await db('seo_share_tokens').insert({
+      client_id: req.params.clientId,
+      token,
+      range: range || '28d',
+      start_date: start_date || null,
+      end_date: end_date || null,
+      compare_start: compare_start || null,
+      compare_end: compare_end || null,
+    });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
       created_by: req.user!.id,
@@ -715,6 +726,7 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
       compare_start: compare_start || null,
       compare_end: compare_end || null,
       country: country || null,
+      share_token: token,
     });
     const row = await db('seo_saved_reports as sr')
       .join('users as u', 'sr.created_by', 'u.id')
@@ -725,10 +737,27 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// DELETE a saved report
+// DELETE a saved report — also revokes its share token
 router.delete('/saved-reports/:reportId', async (req: AuthRequest, res: Response) => {
   try {
-    await getDB()('seo_saved_reports').where({ id: req.params.reportId }).delete();
+    const db = getDB();
+    const row = await db('seo_saved_reports').where({ id: req.params.reportId }).first();
+    if (row?.share_token) await db('seo_share_tokens').where({ token: row.share_token }).delete();
+    await db('seo_saved_reports').where({ id: req.params.reportId }).delete();
     res.status(204).end();
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// PATCH saved report — revoke and regenerate share token
+router.patch('/saved-reports/:reportId/revoke-token', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const row = await db('seo_saved_reports').where({ id: req.params.reportId }).first();
+    if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+    if (row.share_token) await db('seo_share_tokens').where({ token: row.share_token }).delete();
+    const token = randomUUID();
+    await db('seo_share_tokens').insert({ client_id: row.client_id, token, range: row.range, start_date: row.start_date || null, end_date: row.end_date || null, compare_start: row.compare_start || null, compare_end: row.compare_end || null });
+    await db('seo_saved_reports').where({ id: req.params.reportId }).update({ share_token: token });
+    res.json({ share_token: token });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });

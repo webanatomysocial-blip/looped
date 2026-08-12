@@ -835,10 +835,6 @@ export default function SEO() {
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
   const [paidTab, setPaidTab] = useState<'google' | 'linkedin' | 'meta'>('google');
 
-  // Share links
-  const [shareTokens, setShareTokens] = useState<{ token: string; range: string | null; start_date: string | null; end_date: string | null }[]>([]);
-  const [showSharePanel, setShowSharePanel] = useState(false);
-  const [shareCopied, setShareCopied] = useState<string | null>(null);
 
   // Saved reports
   const [savedReports, setSavedReports] = useState<any[]>([]);
@@ -847,6 +843,7 @@ export default function SEO() {
   const [saveReportName, setSaveReportName] = useState('');
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [savedCopied, setSavedCopied] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -932,10 +929,6 @@ export default function SEO() {
         setShowTiktok(!!(data.social_media_data?.tiktok && Object.values(data.social_media_data.tiktok).some((v) => v != null)));
       })
       .catch(() => { setManual(emptyManual()); setShowTiktok(false); });
-
-    seoApi.getShareTokens(selectedClient.id)
-      .then((r) => setShareTokens(r.data || []))
-      .catch(() => setShareTokens([]));
 
     seoApi.getSavedReports(selectedClient.id)
       .then((r) => setSavedReports(r.data || []))
@@ -1077,7 +1070,7 @@ export default function SEO() {
                 <button
                   className="seo-download-btn"
                   style={{ background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' }}
-                  onClick={() => { setShowSavedReports((v) => !v); setShowSharePanel(false); }}
+                  onClick={() => setShowSavedReports((v) => !v)}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                   Saved {savedReports.length > 0 && `(${savedReports.length})`}
@@ -1090,6 +1083,7 @@ export default function SEO() {
                     )}
                     {savedReports.map((r: any) => {
                       const dateLabel = r.start_date && r.end_date ? `${r.start_date} → ${r.end_date}` : r.range || '28d';
+                      const shareLink = r.share_token ? `${window.location.origin}/share/${r.share_token}` : null;
                       return (
                         <div key={r.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg-sand, #f9f9f6)', borderRadius: 7, border: '1px solid var(--border)' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1104,17 +1098,36 @@ export default function SEO() {
                             >Delete</button>
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{dateLabel} · saved by {r.created_by_name}</div>
-                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                             <button
-                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface, #fff)', color: 'var(--ink)', cursor: downloadingId === r.id ? 'wait' : 'pointer', opacity: downloadingId === r.id ? 0.6 : 1 }}
+                              disabled={downloadingId === r.id}
                               onClick={async () => {
-                                const token = await seoApi.createShare(selectedClient.id, { range: r.range, startDate: r.start_date || undefined, endDate: r.end_date || undefined, compareStart: r.compare_start || undefined, compareEnd: r.compare_end || undefined, country: r.country || undefined });
-                                const link = `${window.location.origin}/share/${token.data.token}`;
-                                await navigator.clipboard.writeText(link);
-                                setSavedCopied(r.id);
-                                setTimeout(() => setSavedCopied(null), 2000);
+                                if (!selectedClient) return;
+                                setDownloadingId(r.id);
+                                try {
+                                  const res = await seoApi.report(selectedClient.id, r.range, r.start_date || undefined, r.end_date || undefined, r.country || undefined, r.compare_start || undefined, r.compare_end || undefined);
+                                  downloadPDF(res.data.report, selectedClient.name, r.range, manual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
+                                } catch { alert('Failed to fetch report data.'); }
+                                finally { setDownloadingId(null); }
                               }}
-                            >{savedCopied === r.id ? '✓ Copied' : 'Copy Share Link'}</button>
+                            >{downloadingId === r.id ? 'Loading…' : '↓ Download PDF'}</button>
+                            {shareLink && (
+                              <button
+                                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
+                                onClick={async () => { await navigator.clipboard.writeText(shareLink); setSavedCopied(r.id); setTimeout(() => setSavedCopied(null), 2000); }}
+                              >{savedCopied === r.id ? '✓ Copied' : 'Copy Share Link'}</button>
+                            )}
+                            {shareLink && (
+                              <button
+                                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', cursor: 'pointer' }}
+                                onClick={async () => {
+                                  if (!confirm('Revoke this share link? A new one will be generated.')) return;
+                                  const res = await seoApi.revokeAndRegenerateToken(r.id);
+                                  setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? { ...x, share_token: res.data.share_token } : x));
+                                }}
+                              >Revoke Link</button>
+                            )}
                           </div>
                         </div>
                       );
@@ -1172,58 +1185,6 @@ export default function SEO() {
                         onClick={() => setShowSaveForm(true)}
                       >+ Save current report</button>
                     )}
-                  </div>
-                )}
-              </div>
-            )}
-            {selectedClient && canEdit && (
-              <div style={{ position: 'relative' }}>
-                <button
-                  className="seo-download-btn"
-                  style={shareTokens.length > 0 ? { background: '#f0fdf4', borderColor: '#86efac', color: '#16a34a' } : undefined}
-                  onClick={() => setShowSharePanel((v) => !v)}
-                >
-                  <Globe size={13} /> Share {shareTokens.length > 0 && `(${shareTokens.length})`}
-                </button>
-                {showSharePanel && (
-                  <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: 14, minWidth: 320 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Share Links</p>
-                    {shareTokens.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>No links yet.</p>}
-                    {shareTokens.map((t) => {
-                      const label = t.start_date && t.end_date ? `${t.start_date} → ${t.end_date}` : t.range || 'All time';
-                      const link = `${window.location.origin}/share/${t.token}`;
-                      return (
-                        <div key={t.token} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, padding: '6px 8px', background: 'var(--bg)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                          <span style={{ flex: 1, fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                          <button
-                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid var(--border)', background: shareCopied === t.token ? '#f0fdf4' : 'var(--surface)', color: shareCopied === t.token ? '#16a34a' : 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            onClick={async () => { await navigator.clipboard.writeText(link); setShareCopied(t.token); setTimeout(() => setShareCopied(null), 2000); }}
-                          >{shareCopied === t.token ? '✓ Copied' : 'Copy'}</button>
-                          <button
-                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
-                            onClick={async () => {
-                              
-                              if (!confirm('Revoke this link?')) return;
-                              await seoApi.revokeShareToken(t.token);
-                              setShareTokens((prev) => prev.filter((x) => x.token !== t.token));
-                            }}
-                          >Revoke</button>
-                        </div>
-                      );
-                    })}
-                    <button
-                      className="seo-inline-save"
-                      style={{ width: '100%', marginTop: 4 }}
-                      onClick={async () => {
-                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry });
-                        const newToken = r.data.token;
-                        setShareTokens((prev) => [{ token: newToken, range, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
-                        const link = `${window.location.origin}/share/${newToken}`;
-                        await navigator.clipboard.writeText(link);
-                        setShareCopied(newToken);
-                        setTimeout(() => setShareCopied(null), 2000);
-                      }}
-                    >+ Create link for current dates &amp; copy</button>
                   </div>
                 )}
               </div>

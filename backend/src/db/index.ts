@@ -871,8 +871,12 @@ async function createSchema(): Promise<void> {
         t.string('compare_start').nullable();
         t.string('compare_end').nullable();
         t.string('country').nullable();
+        t.string('share_token').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasShareToken = await db.schema.hasColumn('seo_saved_reports', 'share_token');
+      if (!hasShareToken) await db.schema.table('seo_saved_reports', (t) => t.string('share_token').nullable());
     }
   });
 
