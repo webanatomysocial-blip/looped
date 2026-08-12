@@ -330,22 +330,69 @@ function downloadPDF(
 </div>
 </div>` : '';
 
-  // ── Highlights & Whys ──
-  const sigWhys = manual.sig_change_whys && Object.keys(manual.sig_change_whys).length > 0;
+  // ── Key Highlights (BPA only, matching share link design) ──
   const bpaItems = Array.isArray(manual.best_performing_asset) ? manual.best_performing_asset.filter(Boolean) : (manual.best_performing_asset ? [manual.best_performing_asset as string] : []);
-  const highlightsHtml = (sigWhys || bpaItems.length > 0) ? `
+  const highlightsHtml = bpaItems.length > 0 ? `
 <div class="section-block">
 <h2>Key Highlights &amp; Insights</h2>
 <div class="section">
   <div class="section-inner">
-    ${bpaItems.length > 0 ? `<p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:0 0 4px">Best Performing Asset / Campaign</p><ul>${bpaItems.map((item) => `<li style="font-size:13px;line-height:1.6;margin-bottom:4px">${item}</li>`).join('')}</ul>` : ''}
-    ${sigWhys ? `
-      <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:8px 0 4px">Notable Changes This Period</p>
-      <ul>${Object.entries(manual.sig_change_whys).map(([k, v]) => `<li style="font-size:12px;margin-bottom:4px"><b>${k}:</b> ${v}</li>`).join('')}</ul>
-    ` : ''}
+    <p style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:#888;margin:0 0 4px">Best Performing Asset / Campaign</p>
+    <ul>${bpaItems.map((item) => `<li style="font-size:13px;line-height:1.6;margin-bottom:4px">${item}</li>`).join('')}</ul>
   </div>
 </div>
 </div>` : '';
+
+  // ── Notable Changes (separate section, matching share link design) ──
+  const notableChangesHtml = (() => {
+    const hasSigWhys = manual.sig_change_whys && Object.values(manual.sig_change_whys).some((v: any) => (v as string)?.trim?.());
+    if (!hasSigWhys) return '';
+    const sigChanges: { key: string; label: string; from: number; to: number; pct: number }[] = [];
+    if (eng && prev) {
+      const check = (key: string, label: string, cur: number, pre: number) => {
+        if (!pre) return;
+        const pct = Math.round(((cur - pre) / pre) * 100);
+        sigChanges.push({ key, label, from: pre, to: cur, pct });
+      };
+      check('sessions', 'Sessions', eng.sessions, prev.sessions);
+      check('users', 'Users', eng.users, prev.users);
+      check('engagementRate', 'Engagement Rate', eng.engagementRate, prev.engagementRate);
+    }
+    (manual.gmb_locations ?? []).forEach((loc: any, gi: number) => {
+      const prefix = (manual.gmb_locations?.length ?? 0) > 1 ? `${loc.name || `Location ${gi + 1}`} ` : '';
+      const checkGmb = (key: string, label: string, cur: number | null, pre: number | null) => {
+        if (cur == null || pre == null || pre === 0) return;
+        const pct = Math.round(((cur - pre) / pre) * 100);
+        sigChanges.push({ key: `gmb_${gi}_${key}`, label: `GBP ${prefix}${label}`, from: pre, to: cur, pct });
+      };
+      checkGmb('calls', 'Calls', loc.calls, loc.prev_calls);
+      checkGmb('website_clicks', 'Website Clicks', loc.website_clicks, loc.prev_website_clicks);
+      checkGmb('reviews', 'Reviews', loc.reviews, loc.prev_reviews);
+      checkGmb('bookings', 'Bookings', loc.bookings, loc.prev_bookings);
+    });
+    const labelMap: Record<string, string> = { sessions: 'Sessions', users: 'Users', engagementRate: 'Engagement Rate' };
+    const fieldMap: Record<string, string> = { calls: 'Calls', website_clicks: 'Website Clicks', reviews: 'Reviews', bookings: 'Bookings' };
+    const items = [
+      ...sigChanges.filter(sc => (manual.sig_change_whys?.[sc.key] as string)?.trim?.()).map(sc => `<li style="font-size:13px;line-height:1.6;margin-bottom:6px"><strong>${sc.label}:</strong> ${sc.from.toLocaleString()} → ${sc.to.toLocaleString()} <span style="font-weight:700;color:${sc.pct >= 0 ? '#16a34a' : '#dc2626'}">(${sc.pct >= 0 ? '+' : ''}${sc.pct}%)</span> <span style="color:#64748b;font-style:italic">: ${manual.sig_change_whys[sc.key]}</span></li>`),
+      ...Object.entries(manual.sig_change_whys).filter(([k, v]) => (v as string)?.trim?.() && !sigChanges.find(sc => sc.key === k)).map(([k, v]) => {
+        const gmbMatch = k.match(/^gmb_(\d+)_(.+)$/);
+        let label = labelMap[k] ?? k;
+        if (gmbMatch) {
+          const loc = manual.gmb_locations?.[Number(gmbMatch[1])];
+          const pre = (manual.gmb_locations?.length ?? 0) > 1 ? `${loc?.name || `Location ${Number(gmbMatch[1]) + 1}`} ` : '';
+          label = `GBP ${pre}${fieldMap[gmbMatch[2]] ?? gmbMatch[2]}`;
+        }
+        return `<li style="font-size:13px;line-height:1.6;margin-bottom:4px"><strong>${label}:</strong> ${v}</li>`;
+      }),
+    ].join('');
+    return items ? `
+<div class="section-block">
+<h2>Notable Changes This Period</h2>
+<div class="section"><div class="section-inner">
+  <ul style="padding-left:20px;margin:0">${items}</ul>
+</div></div>
+</div>` : '';
+  })();
 
   // ── Multi GMB ──
   const gmbMultiHtml = manual.gmb_locations && manual.gmb_locations.length > 0 ? `
@@ -485,12 +532,25 @@ ${manual.gmb_locations.map((loc) => {
       <td style="padding:8px 12px;text-align:left;font-weight:700">#${k.change ?? '—'}</td>
     </tr>`).join('');
 
-  const targetRows = manual.targets.map((t, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
-      <td style="padding:8px 12px;font-weight:600">${t.name}</td>
-      <td style="padding:8px 12px;text-align:left">${t.achieved ?? '—'}</td>
-      <td style="padding:8px 12px;text-align:left">${t.target ?? '—'}</td>
-    </tr>`).join('');
+  const targetProgressHtml = manual.targets.length > 0 ? `
+<div class="section-block">
+<h2>Targets — Achieved vs Set</h2>
+<div class="section"><div class="section-inner" style="display:flex;flex-direction:column;gap:10px">
+  ${manual.targets.map((t) => {
+    const pct = Number(t.target) > 0 ? Math.min(100, Math.round((Number(t.achieved) / Number(t.target)) * 100)) : 0;
+    const done = pct >= 100;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:13px;font-weight:600">${t.name}</span>
+        <span style="font-size:12px;color:#64748b">${t.achieved ?? '—'} / ${t.target ?? '—'} <strong style="color:${done ? '#16a34a' : '#0f172a'}">${pct}%</strong></span>
+      </div>
+      <div style="height:6px;background:#e2e8f0;border-radius:4px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${done ? '#16a34a' : '#6366f1'};border-radius:4px"></div>
+      </div>
+    </div>`;
+  }).join('')}
+</div></div>
+</div>` : '';
 
   const li = manual.linkedin_data;
   const liCards = li ? [
@@ -609,17 +669,17 @@ ${manual.gmb_locations.map((loc) => {
 <title>SEO &amp; Social Analytics Report — ${clientName}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #fff; padding: 32px 36px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #f1f5f9; padding: 32px 36px; }
   h1 { font-size: 22px; font-weight: 800; color: #ffffff; }
   h2 { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 12px; margin-top: 24px; text-transform: uppercase; letter-spacing: 0.05em; }
   .meta { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-  .cards { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 10px; margin-bottom: 20px; }
   .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; }
   .card-val { font-size: 20px; font-weight: 800; color: #0f172a; }
   .card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
   .mini-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
   .mini-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
-  .mini-card-val { font-size: 16px; font-weight: 800; color: #0f172a; }
+  .mini-card-val { font-size: 15px; font-weight: 800; color: #0f172a; }
   .mini-card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { text-align: left; font-size: 10px; font-weight: 700; color: #64748b; padding: 8px 12px; background: #f1f5f9; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -670,6 +730,7 @@ ${manual.gmb_locations.map((loc) => {
 </div>
 
 ${execHtml}
+${notableChangesHtml}
 ${targetCardsHtml}
 ${lastPlanHtml}
 ${nextPlanHtml}
@@ -702,22 +763,17 @@ ${kwRows ? `
 </div>
 </div>` : ''}
 
-${acqRows && demoRows ? `<div class="two-col">
-  <div>
-    <h2>Traffic Acquisition</h2>
-    <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-  </div>
-  <div>
-    <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
-    <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-  </div>
-</div>` : acqRows ? `
+${acqRows ? `
+<div class="section-block">
 <h2>Traffic Acquisition</h2>
 <div class="section"><table><thead><tr><th>Channel</th><th>Sessions</th><th>Users</th></tr></thead><tbody>${acqRows}</tbody></table></div>
-` : demoRows ? `
+</div>` : ''}
+
+${demoRows ? `
+<div class="section-block">
 <h2>Demographics — Cities${demoCountry !== 'all' ? ` (${demoCountry})` : ''}</h2>
 <div class="section"><table><thead><tr><th>City</th>${showCountryCol ? '<th>Country</th>' : ''}<th>Users</th><th>Sessions</th></tr></thead><tbody>${demoRows}</tbody></table></div>
-` : ''}
+</div>` : ''}
 
 ${organicRows ? `
 <div class="section-block">
@@ -728,14 +784,7 @@ ${organicRows ? `
 </div>
 </div>` : ''}
 
-${targetRows ? `
-<div class="section-block">
-<h2>Targets — Achieved vs Set</h2>
-<div class="section">
-  <table><thead><tr><th>Metric</th><th>Achieved</th><th>Target (Set)</th></tr></thead>
-  <tbody>${targetRows}</tbody></table>
-</div>
-</div>` : ''}
+${targetProgressHtml}
 
 ${manual.key_insights ? `
 <div class="section-block">
