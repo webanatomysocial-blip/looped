@@ -33,9 +33,9 @@ export default function UserManagement() {
 
   useEffect(() => { load(); loadCats(); }, []);
 
-  const openCreate = () => {
+  const openCreate = (presetRole?: Role) => {
     setEditUser(null);
-    setForm(defaultForm);
+    setForm({ ...defaultForm, role: presetRole ?? 'employee' });
     setError('');
     setShowModal(true);
   };
@@ -130,6 +130,9 @@ export default function UserManagement() {
             <button className="cat-manage-btn" onClick={() => setShowCatPanel(!showCatPanel)} title="Manage categories">
               <Tag size={14} /> Categories
             </button>
+            <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13 }} onClick={() => openCreate(filterRole !== 'all' ? filterRole as Role : undefined)}>
+              <UserPlus size={14} /> Add User{filterRole !== 'all' ? ` (${filterRole})` : ''}
+            </button>
           </div>
         </div>
 
@@ -208,10 +211,6 @@ export default function UserManagement() {
             </div>
           ))}
 
-          <button className="project-add-card" style={{ minHeight: 100 }} onClick={openCreate}>
-            <div className="project-add-card__icon"><UserPlus size={16} /></div>
-            <span>Add user</span>
-          </button>
         </div>
       </div>
 
@@ -243,20 +242,22 @@ export default function UserManagement() {
                   placeholder={editUser ? 'Leave blank to keep unchanged' : ''}
                 />
               </div>
-              <div>
-                <label className="form-label">Role *</label>
-                <div className="user-form-role-row" style={{ marginTop: 6 }}>
-                  {ROLE_OPTIONS.map((r) => (
-                    <button
-                      key={r} type="button"
-                      onClick={() => setForm({ ...form, role: r })}
-                      className={`role-btn role-btn--${r}${form.role === r ? ' role-btn--selected' : ''}`}
-                    >
-                      {r}
-                    </button>
-                  ))}
+              {(editUser || filterRole === 'all') && (
+                <div>
+                  <label className="form-label">Role *</label>
+                  <div className="user-form-role-row" style={{ marginTop: 6 }}>
+                    {ROLE_OPTIONS.map((r) => (
+                      <button
+                        key={r} type="button"
+                        onClick={() => setForm({ ...form, role: r })}
+                        className={`role-btn role-btn--${r}${form.role === r ? ' role-btn--selected' : ''}`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
               <div>
                 <label className="form-label">Pod (Team)</label>
                 <div className="user-form-role-row" style={{ marginTop: 6 }}>
