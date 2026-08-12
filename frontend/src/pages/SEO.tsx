@@ -848,9 +848,6 @@ export default function SEO() {
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [savedCopied, setSavedCopied] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
-  const [editingReportId, setEditingReportId] = useState<number | null>(null);
-  const [editReportForm, setEditReportForm] = useState({ name: '', range: '28d', start_date: '', end_date: '', compare_start: '', compare_end: '', country: '' });
-  const [editReportSaving, setEditReportSaving] = useState(false);
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -1095,111 +1092,64 @@ export default function SEO() {
                     {savedReports.map((r: any) => {
                       const dateLabel = r.start_date && r.end_date ? `${r.start_date} → ${r.end_date}` : r.range || '28d';
                       const shareLink = r.share_token ? `${window.location.origin}/share/${r.share_token}` : null;
-                      const isEditing = editingReportId === r.id;
                       return (
-                        <div key={r.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg-sand, #f9f9f6)', borderRadius: 7, border: `1px solid ${isEditing ? '#93c5fd' : 'var(--border)'}` }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              <input
-                                autoFocus
-                                placeholder="Report name"
-                                value={editReportForm.name}
-                                onChange={(e) => setEditReportForm((f) => ({ ...f, name: e.target.value }))}
-                                style={{ padding: '5px 8px', fontSize: 13, borderRadius: 5, border: '1px solid var(--border)', outline: 'none', fontWeight: 600 }}
-                              />
-                              <select
-                                value={editReportForm.range}
-                                onChange={(e) => setEditReportForm((f) => ({ ...f, range: e.target.value }))}
-                                style={{ padding: '5px 8px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', outline: 'none' }}
-                              >
-                                <option value="7d">Last 7 days</option>
-                                <option value="28d">Last 28 days</option>
-                                <option value="90d">Last 90 days</option>
-                                <option value="custom">Custom range</option>
-                              </select>
-                              {editReportForm.range === 'custom' && (
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                  <input type="date" value={editReportForm.start_date} onChange={(e) => setEditReportForm((f) => ({ ...f, start_date: e.target.value }))} style={{ flex: 1, padding: '4px 6px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', outline: 'none' }} />
-                                  <input type="date" value={editReportForm.end_date} onChange={(e) => setEditReportForm((f) => ({ ...f, end_date: e.target.value }))} style={{ flex: 1, padding: '4px 6px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', outline: 'none' }} />
-                                </div>
-                              )}
-                              <input
-                                placeholder="Country (optional)"
-                                value={editReportForm.country}
-                                onChange={(e) => setEditReportForm((f) => ({ ...f, country: e.target.value }))}
-                                style={{ padding: '5px 8px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', outline: 'none' }}
-                              />
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <button
-                                  className="seo-inline-save"
-                                  style={{ flex: 1 }}
-                                  disabled={editReportSaving || !editReportForm.name.trim()}
-                                  onClick={async () => {
-                                    setEditReportSaving(true);
-                                    try {
-                                      const res = await seoApi.updateSavedReport(r.id, editReportForm);
-                                      setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? res.data : x));
-                                      setEditingReportId(null);
-                                    } finally { setEditReportSaving(false); }
-                                  }}
-                                >{editReportSaving ? 'Saving…' : 'Save'}</button>
-                                <button
-                                  style={{ padding: '4px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--ink-muted)' }}
-                                  onClick={() => setEditingReportId(null)}
-                                >Cancel</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                                <button
-                                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer' }}
-                                  onClick={() => { setEditingReportId(r.id); setEditReportForm({ name: r.name, range: r.range || '28d', start_date: r.start_date || '', end_date: r.end_date || '', compare_start: r.compare_start || '', compare_end: r.compare_end || '', country: r.country || '' }); }}
-                                >Edit</button>
-                                <button
-                                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
-                                  onClick={async () => {
-                                    if (!confirm('Delete this saved report?')) return;
-                                    await seoApi.deleteSavedReport(r.id);
-                                    setSavedReports((prev) => prev.filter((x: any) => x.id !== r.id));
-                                  }}
-                                >Delete</button>
-                              </div>
-                              <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{dateLabel} · saved by {r.created_by_name}</div>
-                              <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                                {shareLink && (
-                                  <button
-                                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
-                                    onClick={async () => { await navigator.clipboard.writeText(shareLink); setSavedCopied(r.id); setTimeout(() => setSavedCopied(null), 2000); }}
-                                  >{savedCopied === r.id ? '✓ Copied' : 'Copy Share Link'}</button>
-                                )}
-                                {shareLink && (
-                                  <button
-                                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', cursor: 'pointer' }}
-                                    onClick={async () => {
-                                      if (!confirm('Revoke this share link? A new one will be generated.')) return;
-                                      const res = await seoApi.revokeAndRegenerateToken(r.id);
-                                      setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? { ...x, share_token: res.data.share_token } : x));
-                                    }}
-                                  >Revoke Link</button>
-                                )}
-                                <button
-                                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface, #fff)', color: 'var(--ink)', cursor: downloadingId === r.id ? 'wait' : 'pointer', opacity: downloadingId === r.id ? 0.6 : 1 }}
-                                  disabled={downloadingId === r.id}
-                                  onClick={async () => {
-                                    if (!selectedClient) return;
-                                    setDownloadingId(r.id);
-                                    try {
-                                      const res = await seoApi.report(selectedClient.id, r.range, r.start_date || undefined, r.end_date || undefined, r.country || undefined, r.compare_start || undefined, r.compare_end || undefined);
-                                      downloadPDF(res.data.report, selectedClient.name, r.range, manual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
-                                    } catch { alert('Failed to fetch report data.'); }
-                                    finally { setDownloadingId(null); }
-                                  }}
-                                >{downloadingId === r.id ? 'Loading…' : '↓ Download PDF'}</button>
-                              </div>
-                            </>
-                          )}
+                        <div key={r.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg-sand, #f9f9f6)', borderRadius: 7, border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                            <button
+                              title="Load this report's settings into the page"
+                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer' }}
+                              onClick={() => {
+                                setRange(r.range || '28d');
+                                setCustomStart(r.start_date || '');
+                                setCustomEnd(r.end_date || '');
+                                setCompareStart(r.compare_start || '');
+                                setCompareEnd(r.compare_end || '');
+                                if (r.country) setDemoCountry(r.country);
+                                setShowSavedReports(false);
+                              }}
+                            >Load</button>
+                            <button
+                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
+                              onClick={async () => {
+                                if (!confirm('Delete this saved report?')) return;
+                                await seoApi.deleteSavedReport(r.id);
+                                setSavedReports((prev) => prev.filter((x: any) => x.id !== r.id));
+                              }}
+                            >Delete</button>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{dateLabel} · saved by {r.created_by_name}</div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            {shareLink && (
+                              <button
+                                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
+                                onClick={async () => { await navigator.clipboard.writeText(shareLink); setSavedCopied(r.id); setTimeout(() => setSavedCopied(null), 2000); }}
+                              >{savedCopied === r.id ? '✓ Copied' : 'Copy Share Link'}</button>
+                            )}
+                            {shareLink && (
+                              <button
+                                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', cursor: 'pointer' }}
+                                onClick={async () => {
+                                  if (!confirm('Revoke this share link? A new one will be generated.')) return;
+                                  const res = await seoApi.revokeAndRegenerateToken(r.id);
+                                  setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? { ...x, share_token: res.data.share_token } : x));
+                                }}
+                              >Revoke Link</button>
+                            )}
+                            <button
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: 'var(--surface, #fff)', color: 'var(--ink)', cursor: downloadingId === r.id ? 'wait' : 'pointer', opacity: downloadingId === r.id ? 0.6 : 1 }}
+                              disabled={downloadingId === r.id}
+                              onClick={async () => {
+                                if (!selectedClient) return;
+                                setDownloadingId(r.id);
+                                try {
+                                  const res = await seoApi.report(selectedClient.id, r.range, r.start_date || undefined, r.end_date || undefined, r.country || undefined, r.compare_start || undefined, r.compare_end || undefined);
+                                  downloadPDF(res.data.report, selectedClient.name, r.range, manual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
+                                } catch { alert('Failed to fetch report data.'); }
+                                finally { setDownloadingId(null); }
+                              }}
+                            >{downloadingId === r.id ? 'Loading…' : '↓ Download PDF'}</button>
+                          </div>
                         </div>
                       );
                     })}
