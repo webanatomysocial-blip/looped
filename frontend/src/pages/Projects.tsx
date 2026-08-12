@@ -536,7 +536,7 @@ export default function Projects() {
                             </div>
                             {project.budget_amount && project.monthly_hours_bucket && (
                               <p className="proj-rate-inline">
-                                ₹{((project.hours_this_cycle ?? 0) * (project.budget_amount / project.monthly_hours_bucket)).toLocaleString('en-IN', { maximumFractionDigits: 0 })} spent · {Math.max(0, project.monthly_hours_bucket - (project.hours_this_cycle ?? 0)).toFixed(1)}h left
+                                ₹{((project.hours_this_cycle ?? 0) * ((project.budget_amount * (1 - (project.budget_cutoff_pct ?? 0) / 100)) / project.monthly_hours_bucket)).toLocaleString('en-IN', { maximumFractionDigits: 0 })} spent · {Math.max(0, project.monthly_hours_bucket - (project.hours_this_cycle ?? 0)).toFixed(1)}h left
                               </p>
                             )}
                           </div>
@@ -703,7 +703,7 @@ export default function Projects() {
                   {form.budget_amount && form.monthly_hours_bucket && Number(form.monthly_hours_bucket) > 0 && (
                     <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                       <p className="proj-rate-hint" style={{ margin: 0 }}>
-                        ₹{(Number(form.budget_amount) / Number(form.monthly_hours_bucket)).toLocaleString('en-IN', { maximumFractionDigits: 2 })} / hr
+                        ₹{((Number(form.budget_amount) * (1 - (Number(form.budget_cutoff_pct) || 0) / 100)) / Number(form.monthly_hours_bucket)).toLocaleString('en-IN', { maximumFractionDigits: 2 })} / hr
                       </p>
                     </div>
                   )}

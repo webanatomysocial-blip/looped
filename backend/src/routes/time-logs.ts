@@ -175,7 +175,9 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
     const hoursUsed = logs.reduce((s: number, l: any) => s + Number(l.hours), 0) + sessionHours;
     const bucket = Number(project.monthly_hours_bucket) || 0;
     const budgetAmount = Number(project.budget_amount) || 0;
-    const ratePerHour = bucket > 0 && budgetAmount > 0 ? budgetAmount / bucket : 0;
+    const cutoffPct = Number(project.budget_cutoff_pct) || 0;
+    const workingBudget = budgetAmount * (1 - cutoffPct / 100);
+    const ratePerHour = bucket > 0 && workingBudget > 0 ? workingBudget / bucket : 0;
     const pct = bucket > 0 ? Math.round((hoursUsed / bucket) * 100) : 0;
 
     res.json({
@@ -184,11 +186,12 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
       client_name: project.client_name,
       monthly_hours_bucket: bucket,
       budget_amount: budgetAmount,
+      working_budget: Math.round(workingBudget * 100) / 100,
       rate_per_hour: Math.round(ratePerHour * 100) / 100,
       hours_used: Math.round(hoursUsed * 100) / 100,
       hours_remaining: Math.max(0, Math.round((bucket - hoursUsed) * 100) / 100),
       amount_spent: Math.round(hoursUsed * ratePerHour * 100) / 100,
-      amount_remaining: Math.max(0, Math.round((budgetAmount - hoursUsed * ratePerHour) * 100) / 100),
+      amount_remaining: Math.max(0, Math.round((workingBudget - hoursUsed * ratePerHour) * 100) / 100),
       usage_pct: pct,
       warning: pct >= 80,
       cycle_start: cycleStartStr,
