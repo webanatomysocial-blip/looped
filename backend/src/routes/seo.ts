@@ -701,10 +701,12 @@ router.get('/saved-reports/:clientId', async (req: AuthRequest, res: Response) =
 
 // POST save a report snapshot
 router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
-  const { name, range, start_date, end_date, compare_start, compare_end, country } = req.body;
+  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
+    const token = randomUUID();
+    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
       created_by: req.user!.id,
@@ -715,6 +717,8 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
       compare_start: compare_start || null,
       compare_end: compare_end || null,
       country: country || null,
+      share_token: token,
+      manual_snapshot: manual_snapshot ? JSON.stringify(manual_snapshot) : null,
     });
     const row = await db('seo_saved_reports as sr')
       .join('users as u', 'sr.created_by', 'u.id')
@@ -725,9 +729,9 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// PUT update a saved report (name + date fields)
+// PUT update a saved report (name + date fields + manual snapshot)
 router.put('/saved-reports/:reportId', async (req: AuthRequest, res: Response) => {
-  const { name, range, start_date, end_date, compare_start, compare_end, country } = req.body;
+  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
@@ -736,6 +740,7 @@ router.put('/saved-reports/:reportId', async (req: AuthRequest, res: Response) =
       start_date: start_date || null, end_date: end_date || null,
       compare_start: compare_start || null, compare_end: compare_end || null,
       country: country || null,
+      manual_snapshot: manual_snapshot ? JSON.stringify(manual_snapshot) : null,
     });
     const row = await db('seo_saved_reports as sr').join('users as u', 'sr.created_by', 'u.id').where('sr.id', req.params.reportId).select('sr.*', 'u.name as created_by_name').first();
     res.json(row);

@@ -1106,6 +1106,13 @@ export default function SEO() {
                                 setCompareStart(r.compare_start || '');
                                 setCompareEnd(r.compare_end || '');
                                 if (r.country) setDemoCountry(r.country);
+                                if (r.manual_snapshot) {
+                                  try {
+                                    const snap = typeof r.manual_snapshot === 'string' ? JSON.parse(r.manual_snapshot) : r.manual_snapshot;
+                                    setManual({ ...emptyManual(), ...snap });
+                                    setManualEdit({ ...emptyManual(), ...snap });
+                                  } catch {}
+                                }
                                 setShowSavedReports(false);
                               }}
                             >Load</button>
@@ -1184,6 +1191,7 @@ export default function SEO() {
                                   compare_start: compareStart || undefined,
                                   compare_end: compareEnd || undefined,
                                   country: demoCountry || undefined,
+                                  manual_snapshot: manual,
                                 });
                                 setSavedReports((prev) => [res.data, ...prev]);
                                 setSaveReportName('');
