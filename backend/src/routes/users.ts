@@ -60,10 +60,9 @@ router.get('/companies', requireRoles('admin', 'manager'), async (_req: AuthRequ
   try {
     const db = getDB();
     const companies = await db('client_companies as cc')
-      .leftJoin('users as u', function (this: any) {
-        this.on('u.client_company_id', 'cc.id').andOnVal('u.role', 'client');
-      })
-      .select('cc.*', 'u.pod')
+      .leftJoin('users as u', 'u.client_company_id', 'cc.id')
+      .where(function (this: any) { this.where('u.role', 'client').orWhereNull('u.id'); })
+      .select('cc.*', 'u.pod', 'u.name as client_user_name')
       .orderBy('cc.name');
     res.json(companies);
   } catch {

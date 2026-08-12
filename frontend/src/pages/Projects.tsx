@@ -742,21 +742,25 @@ export default function Projects() {
                   <div>
                     <label className="form-label">Send to pod *</label>
                     <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                      {(['pod1', 'pod2'] as const).map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setForm({ ...form, pod: p })}
-                          style={{
-                            flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                            border: form.pod === p ? '2px solid var(--brand)' : '2px solid var(--border)',
-                            background: form.pod === p ? 'var(--brand-light,#eff6ff)' : 'transparent',
-                            color: form.pod === p ? 'var(--brand)' : 'var(--ink-muted)',
-                          }}
-                        >
-                          {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
-                        </button>
-                      ))}
+                      {(['pod1', 'pod2'] as const).map((p) => {
+                        const mgr = users.find((u) => u.role === 'manager' && u.pod === p);
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setForm({ ...form, pod: p })}
+                            style={{
+                              flex: 1, padding: '10px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                              border: form.pod === p ? '2px solid var(--brand)' : '2px solid var(--border)',
+                              background: form.pod === p ? 'var(--brand-light,#eff6ff)' : 'transparent',
+                              color: form.pod === p ? 'var(--brand)' : 'var(--ink-muted)',
+                            }}
+                          >
+                            <div>{p === 'pod1' ? 'Pod 1' : 'Pod 2'}</div>
+                            {mgr && <div style={{ fontSize: 11, fontWeight: 500, marginTop: 2, opacity: 0.75 }}>{mgr.name}</div>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                   {(['briefing', 'drive'] as const).map((kind) => {
