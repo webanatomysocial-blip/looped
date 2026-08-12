@@ -57,6 +57,7 @@ export interface User {
 export interface ClientCompany {
   id: number;
   name: string;
+  pod?: string | null;
 }
 
 export interface Project {

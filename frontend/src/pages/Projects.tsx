@@ -597,7 +597,15 @@ export default function Projects() {
               <div>
                 <label className="form-label">Client</label>
                 <select className="form-input" value={form.client_company_id}
-                  onChange={(e) => setForm({ ...form, client_company_id: e.target.value })}>
+                  onChange={(e) => {
+                    const cid = e.target.value;
+                    const client = companies.find((c) => String(c.id) === cid);
+                    setForm((f) => ({
+                      ...f,
+                      client_company_id: cid,
+                      ...(client?.pod ? { pod: client.pod as 'pod1' | 'pod2' } : {}),
+                    }));
+                  }}>
                   <option value="">No client</option>
                   {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>

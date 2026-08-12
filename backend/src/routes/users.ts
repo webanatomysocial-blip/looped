@@ -55,10 +55,17 @@ router.get('/by-role/:role', requireRoles('admin', 'manager'), async (req: AuthR
   }
 });
 
-// GET client companies
+// GET client companies (with pod from linked client user)
 router.get('/companies', requireRoles('admin', 'manager'), async (_req: AuthRequest, res: Response) => {
   try {
-    res.json(await getDB()('client_companies').select('*'));
+    const db = getDB();
+    const companies = await db('client_companies as cc')
+      .leftJoin('users as u', function (this: any) {
+        this.on('u.client_company_id', 'cc.id').andOnVal('u.role', 'client');
+      })
+      .select('cc.*', 'u.pod')
+      .orderBy('cc.name');
+    res.json(companies);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
