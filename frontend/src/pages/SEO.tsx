@@ -839,6 +839,14 @@ export default function SEO() {
   const [shareTokens, setShareTokens] = useState<{ token: string; range: string | null; start_date: string | null; end_date: string | null }[]>([]);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [shareCopied, setShareCopied] = useState<string | null>(null);
+
+  // Saved reports
+  const [savedReports, setSavedReports] = useState<any[]>([]);
+  const [showSavedReports, setShowSavedReports] = useState(false);
+  const [savingReport, setSavingReport] = useState(false);
+  const [saveReportName, setSaveReportName] = useState('');
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [savedCopied, setSavedCopied] = useState<number | null>(null);
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -928,6 +936,10 @@ export default function SEO() {
     seoApi.getShareTokens(selectedClient.id)
       .then((r) => setShareTokens(r.data || []))
       .catch(() => setShareTokens([]));
+
+    seoApi.getSavedReports(selectedClient.id)
+      .then((r) => setSavedReports(r.data || []))
+      .catch(() => setSavedReports([]));
   }, [selectedClient]);
 
   const openManualPanel = (panel: typeof manualPanel) => {
@@ -1059,6 +1071,110 @@ export default function SEO() {
               >
                 <Download size={13} /> Download PDF
               </button>
+            )}
+            {selectedClient && canEdit && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="seo-download-btn"
+                  style={{ background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' }}
+                  onClick={() => { setShowSavedReports((v) => !v); setShowSharePanel(false); }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Saved {savedReports.length > 0 && `(${savedReports.length})`}
+                </button>
+                {showSavedReports && (
+                  <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 50, background: '#fff', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 4px 20px rgba(0,0,0,0.12)', padding: 14, minWidth: 340 }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Saved Reports</p>
+                    {savedReports.length === 0 && !showSaveForm && (
+                      <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>No saved reports yet.</p>
+                    )}
+                    {savedReports.map((r: any) => {
+                      const dateLabel = r.start_date && r.end_date ? `${r.start_date} → ${r.end_date}` : r.range || '28d';
+                      return (
+                        <div key={r.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg-sand, #f9f9f6)', borderRadius: 7, border: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                            <button
+                              style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer' }}
+                              onClick={async () => {
+                                if (!confirm('Delete this saved report?')) return;
+                                await seoApi.deleteSavedReport(r.id);
+                                setSavedReports((prev) => prev.filter((x: any) => x.id !== r.id));
+                              }}
+                            >Delete</button>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{dateLabel} · saved by {r.created_by_name}</div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                            <button
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
+                              onClick={async () => {
+                                const token = await seoApi.createShare(selectedClient.id, { range: r.range, startDate: r.start_date || undefined, endDate: r.end_date || undefined, compareStart: r.compare_start || undefined, compareEnd: r.compare_end || undefined, country: r.country || undefined });
+                                const link = `${window.location.origin}/share/${token.data.token}`;
+                                await navigator.clipboard.writeText(link);
+                                setSavedCopied(r.id);
+                                setTimeout(() => setSavedCopied(null), 2000);
+                              }}
+                            >{savedCopied === r.id ? '✓ Copied' : 'Copy Share Link'}</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {showSaveForm ? (
+                      <div style={{ marginTop: 8 }}>
+                        <input
+                          autoFocus
+                          placeholder="Report name…"
+                          value={saveReportName}
+                          onChange={(e) => setSaveReportName(e.target.value)}
+                          style={{ width: '100%', padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') document.getElementById('seo-save-confirm')?.click();
+                            if (e.key === 'Escape') setShowSaveForm(false);
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            id="seo-save-confirm"
+                            className="seo-inline-save"
+                            style={{ flex: 1 }}
+                            disabled={savingReport || !saveReportName.trim()}
+                            onClick={async () => {
+                              if (!saveReportName.trim()) return;
+                              setSavingReport(true);
+                              try {
+                                const res = await seoApi.saveReport(selectedClient.id, {
+                                  name: saveReportName.trim(),
+                                  range,
+                                  start_date: customStart || undefined,
+                                  end_date: customEnd || undefined,
+                                  compare_start: compareStart || undefined,
+                                  compare_end: compareEnd || undefined,
+                                  country: demoCountry || undefined,
+                                });
+                                setSavedReports((prev) => [res.data, ...prev]);
+                                setSaveReportName('');
+                                setShowSaveForm(false);
+                              } finally {
+                                setSavingReport(false);
+                              }
+                            }}
+                          >{savingReport ? 'Saving…' : 'Save'}</button>
+                          <button
+                            style={{ padding: '4px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--ink-muted)' }}
+                            onClick={() => { setShowSaveForm(false); setSaveReportName(''); }}
+                          >Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="seo-inline-save"
+                        style={{ width: '100%', marginTop: savedReports.length > 0 ? 8 : 0, background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8' }}
+                        onClick={() => setShowSaveForm(true)}
+                      >+ Save current report</button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             {selectedClient && canEdit && (
               <div style={{ position: 'relative' }}>

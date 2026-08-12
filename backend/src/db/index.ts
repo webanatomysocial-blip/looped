@@ -857,6 +857,25 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // SEO saved reports
+  await db.schema.hasTable('seo_saved_reports').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('seo_saved_reports', (t) => {
+        t.increments('id').primary();
+        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.string('name').notNullable();
+        t.string('range').notNullable();
+        t.string('start_date').nullable();
+        t.string('end_date').nullable();
+        t.string('compare_start').nullable();
+        t.string('compare_end').nullable();
+        t.string('country').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
   // Add file_url / file_name to messages table for client chat attachments
   const hasMsgFileUrl = await db.schema.hasColumn('messages', 'file_url');
   if (!hasMsgFileUrl) {

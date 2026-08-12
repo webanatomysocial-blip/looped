@@ -683,3 +683,52 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
     res.json({ client: { id: client.id, name: client.name }, range, customStart, customEnd, manual: manualData, report });
   } catch (e: any) { res.status(500).json({ error: 'Server error' }); }
 });
+
+// ── Saved Reports ────────────────────────────────────────────────────────────
+
+// GET saved reports for a client
+router.get('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const rows = await db('seo_saved_reports as sr')
+      .join('users as u', 'sr.created_by', 'u.id')
+      .where('sr.client_id', req.params.clientId)
+      .select('sr.*', 'u.name as created_by_name')
+      .orderBy('sr.created_at', 'desc');
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST save a report snapshot
+router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
+  const { name, range, start_date, end_date, compare_start, compare_end, country } = req.body;
+  if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
+  try {
+    const db = getDB();
+    const [id] = await db('seo_saved_reports').insert({
+      client_id: req.params.clientId,
+      created_by: req.user!.id,
+      name: name.trim(),
+      range: range || '28d',
+      start_date: start_date || null,
+      end_date: end_date || null,
+      compare_start: compare_start || null,
+      compare_end: compare_end || null,
+      country: country || null,
+    });
+    const row = await db('seo_saved_reports as sr')
+      .join('users as u', 'sr.created_by', 'u.id')
+      .where('sr.id', id)
+      .select('sr.*', 'u.name as created_by_name')
+      .first();
+    res.status(201).json(row);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// DELETE a saved report
+router.delete('/saved-reports/:reportId', async (req: AuthRequest, res: Response) => {
+  try {
+    await getDB()('seo_saved_reports').where({ id: req.params.reportId }).delete();
+    res.status(204).end();
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
