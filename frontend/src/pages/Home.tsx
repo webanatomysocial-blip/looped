@@ -157,9 +157,10 @@ export default function Home() {
   const allTasksRaw = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
   const today = new Date().toISOString().slice(0, 10);
   const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && t.due_date && t.due_date < today);
-  const allTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today);
-  const pendingTasks  = allTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
-  const acceptedTasks = allTasks.filter(t => t.acceptance_status === 'accepted');
+  const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today);
+  const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
+  const pendingTasks  = todayTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
+  const acceptedTasks = todayTasks.filter(t => t.acceptance_status === 'accepted');
 
   const visibleApproved = approvedTasks.filter(a => !dismissedApprovedIds.has(a.id));
   const visibleRejected = allTasksRaw.filter(t => t.has_rejected_approval && !dismissedRejectedIds.has(t.id));
@@ -420,8 +421,8 @@ export default function Home() {
                 </Link>
               </div>
               {(() => {
-                const total = allTasks.length;
-                const completed = allTasks.filter(t => t.status === 'completed').length;
+                const total = allTasksRaw.length;
+                const completed = allTasksRaw.filter(t => t.status === 'completed').length;
                 const pct = total ? Math.round((completed / total) * 100) : 0;
                 const r = 36; const circ = 2 * Math.PI * r;
                 const dash = (pct / 100) * circ * 0.75;
