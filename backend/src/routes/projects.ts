@@ -26,7 +26,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         .where('pm.user_id', userId);
     } else if (role === 'manager') {
       const managerUser = await db('users').where({ id: userId }).select('pod').first();
-      if (managerUser?.pod) query = query.where('p.pod', managerUser.pod);
+      const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
+      query = query.where(function (this: any) {
+        if (managerUser?.pod) this.where('p.pod', managerUser.pod);
+        if (memberProjectIds.length) this.orWhereIn('p.id', memberProjectIds);
+      });
     }
 
     const projects = await query.orderBy('p.created_at', 'desc');
