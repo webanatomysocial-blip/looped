@@ -848,6 +848,7 @@ export default function SEO() {
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [savedCopied, setSavedCopied] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [updatingSnapshotId, setUpdatingSnapshotId] = useState<number | null>(null);
   const [showTiktok, setShowTiktok] = useState(false);
   const [agencyName, setAgencyName] = useState('webanatomy');
   const [manualSaving, setManualSaving] = useState(false);
@@ -1099,7 +1100,7 @@ export default function SEO() {
                             <button
                               title="Load this report's settings into the page"
                               style={{ fontSize: 11, padding: '2px 8px', borderRadius: 5, border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer' }}
-                              onClick={() => {
+                              onClick={async () => {
                                 setRange(r.range || '28d');
                                 setCustomStart(r.start_date || '');
                                 setCustomEnd(r.end_date || '');
@@ -1112,6 +1113,10 @@ export default function SEO() {
                                     setManual({ ...emptyManual(), ...snap });
                                     setManualEdit({ ...emptyManual(), ...snap });
                                   } catch {}
+                                } else {
+                                  // No snapshot yet — save current manual as this report's snapshot so it self-heals
+                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual });
+                                  setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? updated.data : x));
                                 }
                                 setShowSavedReports(false);
                               }}
@@ -1127,6 +1132,18 @@ export default function SEO() {
                           </div>
                           <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{dateLabel} · saved by {r.created_by_name}</div>
                           <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <button
+                              title="Save current page's manual content into this report"
+                              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #86efac', background: updatingSnapshotId === r.id ? '#f0fdf4' : '#f0fdf4', color: '#16a34a', cursor: updatingSnapshotId === r.id ? 'wait' : 'pointer', opacity: updatingSnapshotId === r.id ? 0.6 : 1 }}
+                              disabled={updatingSnapshotId === r.id}
+                              onClick={async () => {
+                                setUpdatingSnapshotId(r.id);
+                                try {
+                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual });
+                                  setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? updated.data : x));
+                                } finally { setUpdatingSnapshotId(null); }
+                              }}
+                            >{updatingSnapshotId === r.id ? 'Saving…' : '✓ Update'}</button>
                             {shareLink && (
                               <button
                                 style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid var(--border)', background: savedCopied === r.id ? '#f0fdf4' : 'var(--surface, #fff)', color: savedCopied === r.id ? '#16a34a' : 'var(--ink)', cursor: 'pointer' }}
