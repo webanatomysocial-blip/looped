@@ -27,7 +27,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     } else if (role === 'manager') {
       const managerUser = await db('users').where({ id: userId }).select('pod').first();
       const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
-      // client company IDs whose user-account pod matches this manager's pod
+      // client company IDs whose linked user account is on this manager's pod
       const podClientCompanyIds: number[] = managerUser?.pod
         ? await db('users').where({ role: 'client', pod: managerUser.pod }).whereNotNull('client_company_id').pluck('client_company_id')
         : [];
