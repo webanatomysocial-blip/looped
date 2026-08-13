@@ -234,7 +234,9 @@ publicContactFormsRouter.post('/forms/:formId/submit', upload.any(), async (req:
     const toEmails = (form.to_emails || process.env.CONTACT_TO_EMAIL || '')
       .split(',').map((e: string) => e.trim()).filter(Boolean);
     if (toEmails.length) {
-      const bodyLines = Object.entries(values).map(([key, value]) => `${key}: ${value}`).join('\n');
+      const labelMap: Record<string, string> = {};
+      fields.forEach((f: any) => { if (f.name) labelMap[f.name] = f.label || f.name; });
+      const bodyLines = Object.entries(values).map(([key, value]) => `${labelMap[key] || key}: ${value}`).join('\n');
       const attachments = uploadedFiles.map((f) => ({
         filename: f.originalname,
         path: f.path,
