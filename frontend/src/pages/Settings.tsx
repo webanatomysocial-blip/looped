@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { User, Bell, Users, Shield, Eye, EyeOff, Check } from 'lucide-react';
+import { RiUserLine, RiNotification3Line, RiTeamLine, RiShieldLine, RiEyeLine, RiEyeOffLine, RiCheckLine } from 'react-icons/ri';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
@@ -142,11 +142,11 @@ export default function Settings() {
     } finally { setPwSaving(false); }
   };
 
-  const navItems: { key: Section; label: string; icon: React.ReactNode }[] = [
-    { key: 'profile',       label: 'Profile',       icon: <User size={15} /> },
-    { key: 'notifications', label: 'Notifications', icon: <Bell size={15} /> },
-    { key: 'team',          label: 'Team & pods',   icon: <Users size={15} /> },
-    { key: 'security',      label: 'Security',      icon: <Shield size={15} /> },
+  const navItems: { key: Section; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+    { key: 'profile',       label: 'Profile',       icon: <RiUserLine size={15} /> },
+    { key: 'notifications', label: 'Notifications', icon: <RiNotification3Line size={15} /> },
+    { key: 'team',          label: 'Team & pods',   icon: <RiTeamLine size={15} /> },
+    { key: 'security',      label: 'Security',      icon: <RiShieldLine size={15} /> },
   ];
 
   const activeClientRow = activeClients.find((c) => c.id === notifClientId) ?? null;
@@ -162,7 +162,7 @@ export default function Settings() {
         <div className="stg-layout">
           {/* Sidebar */}
           <nav className="stg-nav card">
-            {navItems.map((item) => (
+            {navItems.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
               <button
                 key={item.key}
                 className={`stg-nav__item${section === item.key ? ' stg-nav__item--active' : ''}`}
@@ -392,14 +392,14 @@ export default function Settings() {
                           className="stg-pw-eye"
                           onClick={() => setShowPw({ ...showPw, [field.key]: !showPw[field.key] })}
                         >
-                          {showPw[field.key] ? <EyeOff size={14} /> : <Eye size={14} />}
+                          {showPw[field.key] ? <RiEyeOffLine size={14} /> : <RiEyeLine size={14} />}
                         </button>
                       </div>
                     </div>
                   ))}
                   {pwMsg && (
                     <div className={`stg-pw-msg${pwMsg.ok ? ' stg-pw-msg--ok' : ' stg-pw-msg--err'}`}>
-                      {pwMsg.ok && <Check size={13} />} {pwMsg.text}
+                      {pwMsg.ok && <RiCheckLine size={13} />} {pwMsg.text}
                     </div>
                   )}
                   <button className="btn-primary" style={{ marginTop: 4 }} disabled={pwSaving} onClick={submitPassword}>
@@ -408,6 +408,7 @@ export default function Settings() {
                 </div>
               </div>
             )}
+
 
           </div>
         </div>

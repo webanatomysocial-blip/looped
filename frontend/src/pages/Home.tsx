@@ -421,8 +421,8 @@ export default function Home() {
                 </Link>
               </div>
               {(() => {
-                const total = allTasksRaw.length;
-                const completed = allTasksRaw.filter(t => t.status === 'completed').length;
+                const total = todayTasks.length;
+                const completed = todayTasks.filter(t => t.status === 'completed').length;
                 const pct = total ? Math.round((completed / total) * 100) : 0;
                 const r = 36; const circ = 2 * Math.PI * r;
                 const dash = (pct / 100) * circ * 0.75;

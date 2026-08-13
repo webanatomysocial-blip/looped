@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
-import { Send, Clock, CheckCircle, XCircle, Trash2, Plus, X, Search } from 'lucide-react';
+import { RiSendPlaneLine, RiTimeLine, RiCheckboxCircleLine, RiCloseCircleLine, RiDeleteBinLine, RiAddLine, RiCloseLine, RiSearchLine } from 'react-icons/ri';
 import Layout from '../components/Layout/Layout';
 
 import Avatar from '../components/UI/Avatar';
@@ -118,7 +118,7 @@ export default function Mail() {
             <p className="page-subtitle">{filtered.length} email{filtered.length !== 1 ? 's' : ''}</p>
           </div>
           <button className="btn-primary" onClick={() => { setShowCompose(true); setForm(defaultForm); setSearch(''); setError(''); }}>
-            <Plus size={14} /> Compose
+            <RiAddLine size={14} /> Compose
           </button>
           <div className="filter-bar">
             {(['all', 'scheduled', 'sent', 'failed'] as const).map((f) => (
@@ -134,7 +134,7 @@ export default function Mail() {
           <div className="mail-compose-card">
             <div className="mail-compose-header">
               <span className="mail-compose-title">New Email</span>
-              <button className="icon-action" onClick={() => setShowCompose(false)}><X size={14} /></button>
+              <button className="icon-action" onClick={() => setShowCompose(false)}><RiCloseLine size={14} /></button>
             </div>
 
             {error && <div className="modal-error" style={{ marginBottom: 12 }}>{error}</div>}
@@ -146,7 +146,7 @@ export default function Mail() {
                   <span key={u.id} className="mail-pill">
                     <Avatar name={u.name} color={u.avatar_color} size="sm" />
                     {u.name}
-                    <button onClick={() => removeRecipient(u.id)} className="mail-pill__x"><X size={10} /></button>
+                    <button onClick={() => removeRecipient(u.id)} className="mail-pill__x"><RiCloseLine size={10} /></button>
                   </span>
                 ))}
               </div>
@@ -155,7 +155,7 @@ export default function Mail() {
             {/* Recipient search */}
             <div className="mail-recipient-wrap">
               <div className="mail-recipient-search">
-                <Search size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />
+                <RiSearchLine size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />
                 <input
                   className="mail-recipient-input"
                   placeholder="Search users to add…"
@@ -212,7 +212,7 @@ export default function Mail() {
             <div className="mail-compose-actions">
               <button className="btn-secondary" onClick={() => setShowCompose(false)}>Cancel</button>
               <button className="btn-primary" onClick={handleSend} disabled={sending} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {form.use_schedule ? <Clock size={14} /> : <Send size={14} />}
+                {form.use_schedule ? <RiTimeLine size={14} /> : <RiSendPlaneLine size={14} />}
                 {sending ? 'Sending…' : form.use_schedule ? 'Schedule' : 'Send now'}
               </button>
             </div>
@@ -228,9 +228,9 @@ export default function Mail() {
             <div key={email.id} className={`mail-row${expanded === email.id ? ' mail-row--open' : ''}`}>
               <div className="mail-row__main" onClick={() => setExpanded(expanded === email.id ? null : email.id)}>
                 <div className="mail-row__status-icon">
-                  {email.status === 'sent'      && <CheckCircle size={15} style={{ color: 'var(--green)' }} />}
-                  {email.status === 'scheduled' && <Clock size={15} style={{ color: 'var(--yellow)' }} />}
-                  {email.status === 'failed'    && <XCircle size={15} style={{ color: 'var(--red)' }} />}
+                  {email.status === 'sent'      && <RiCheckboxCircleLine size={15} style={{ color: 'var(--green)' }} />}
+                  {email.status === 'scheduled' && <RiTimeLine size={15} style={{ color: 'var(--yellow)' }} />}
+                  {email.status === 'failed'    && <RiCloseCircleLine size={15} style={{ color: 'var(--red)' }} />}
                 </div>
 
                 <div className="mail-row__info">
@@ -259,7 +259,7 @@ export default function Mail() {
                     onClick={(e) => { e.stopPropagation(); handleDelete(email.id, email.status); }}
                     title="Delete"
                   >
-                    <Trash2 size={12} />
+                    <RiDeleteBinLine size={12} />
                   </button>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import { useState, useRef, KeyboardEvent } from 'react';
-import { Sparkles, X, Copy, Check, RefreshCw } from 'lucide-react';
+import { RiSparklingLine, RiCloseLine, RiFileCopyLine, RiCheckLine, RiRefreshLine } from 'react-icons/ri';
 import Layout from '../components/Layout/Layout';
 import { contentApi } from '../services/api';
 import '../css/pages/ContentAutomation.css';
@@ -98,7 +98,7 @@ export default function ContentAutomation() {
                   <span key={kw} className="ca-keyword-pill">
                     {kw}
                     <button type="button" onClick={() => removeKeyword(kw)} className="ca-keyword-pill__remove">
-                      <X size={10} />
+                      <RiCloseLine size={10} />
                     </button>
                   </span>
                 ))}
@@ -169,8 +169,8 @@ export default function ContentAutomation() {
               disabled={loading}
             >
               {loading
-                ? <><RefreshCw size={15} className="ca-spin" /> Generating…</>
-                : <><Sparkles size={15} /> Generate content</>}
+                ? <><RiRefreshLine size={15} className="ca-spin" /> Generating…</>
+                : <><RiSparklingLine size={15} /> Generate content</>}
             </button>
           </div>
 
@@ -184,10 +184,10 @@ export default function ContentAutomation() {
                 {output && (
                   <div className="ca-output-actions">
                     <button className="ca-icon-btn" onClick={generate} title="Regenerate">
-                      <RefreshCw size={14} />
+                      <RiRefreshLine size={14} />
                     </button>
                     <button className="ca-icon-btn" onClick={copyOutput} title="Copy">
-                      {copied ? <Check size={14} style={{ color: 'var(--green)' }} /> : <Copy size={14} />}
+                      {copied ? <RiCheckLine size={14} style={{ color: 'var(--green)' }} /> : <RiFileCopyLine size={14} />}
                     </button>
                   </div>
                 )}
@@ -203,7 +203,7 @@ export default function ContentAutomation() {
                 )}
                 {!loading && !output && (
                   <div className="ca-empty">
-                    <Sparkles size={32} className="ca-empty__icon" />
+                    <RiSparklingLine size={32} className="ca-empty__icon" />
                     <p>Add keywords and click <strong>Generate content</strong></p>
                   </div>
                 )}

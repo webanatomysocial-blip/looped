@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { X } from 'lucide-react';
+import { RiCloseLine } from 'react-icons/ri';
 import '../../css/UI/Modal.css';
 
 interface ModalProps {
@@ -17,7 +17,7 @@ export default function Modal({ title, onClose, children, size = 'md' }: ModalPr
         <div className="modal-header">
           <h2>{title}</h2>
           <button onClick={onClose} className="modal-close-btn">
-            <X size={15} />
+            <RiCloseLine size={15} />
           </button>
         </div>
         <div className="modal-body">{children}</div>

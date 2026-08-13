@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FolderOpen, CheckSquare, ThumbsUp, Package,
-  BarChart2, Bell, MessageCircle, Users, Settings, LogOut, Mail,
-  Sparkles, LayoutGrid, X, SearchCheck, Activity, FileCheck, Megaphone, Zap,
-  MailPlus,
-} from 'lucide-react';
+  RiDashboardLine, RiFolderOpenLine, RiCheckboxLine, RiThumbUpLine,
+  RiArchiveLine, RiBarChart2Line, RiBellLine, RiChat1Line,
+  RiGroupLine, RiSettings4Line, RiLogoutBoxRLine, RiMailLine,
+  RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
+  RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
+  RiMailAddLine, RiMapPin2Line,
+} from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
 import { Role } from '../../types';
@@ -17,73 +19,75 @@ type NavGroup = { top: NavItem[]; more: NavItem[] };
 const NAV: Record<Role, NavGroup> = {
   admin: {
     top: [
-      { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
-      { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
-      { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
-      { to: '/approvals',      icon: ThumbsUp,        label: 'Approvals' },
-      { to: '/approved',       icon: FileCheck,       label: 'Approved' },
-      { to: '/assets',         icon: Package,         label: 'Assets' },
+      { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
+      { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
+      { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
+      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
+      { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
-      { to: '/reports',         icon: BarChart2,      label: 'Reports' },
-      { to: '/project-reports', icon: LayoutGrid,     label: 'Project Costs' },
-      { to: '/xlr8',            icon: Zap,            label: 'XLR8' },
-      { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
-      { to: '/ads',             icon: Megaphone,      label: 'Ads' },
-      { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
-      { to: '/mail',         icon: Mail,           label: 'Mail' },
-      { to: '/content',      icon: Sparkles,       label: 'Content AI' },
-      { to: '/notifications',icon: Bell,           label: 'Notifications' },
-      { to: '/admin/users',  icon: Users,          label: 'Users' },
-      { to: '/contact-forms',icon: MailPlus,       label: 'Contact Forms' },
+      { to: '/reports',            icon: RiBarChart2Line,  label: 'Reports' },
+      { to: '/project-reports',    icon: RiLayoutGridLine, label: 'Project Costs' },
+      { to: '/xlr8',               icon: RiLightbulbFlashLine, label: 'XLR8' },
+      { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
+      { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
+      { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
+      { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
+      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
+      { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
+      { to: '/notifications',      icon: RiBellLine,       label: 'Notifications' },
+      { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
+      { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
     ],
   },
   manager: {
     top: [
-      { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects',       icon: FolderOpen,      label: 'Projects' },
-      { to: '/tasks',          icon: CheckSquare,     label: 'Tasks' },
-      { to: '/team-capacity',  icon: Activity,        label: 'Team Capacity' },
-      { to: '/approvals',      icon: ThumbsUp,        label: 'Approvals' },
-      { to: '/approved',       icon: FileCheck,       label: 'Approved' },
-      { to: '/assets',         icon: Package,         label: 'Assets' },
+      { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
+      { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
+      { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
+      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
+      { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
-      { to: '/seo',             icon: SearchCheck,    label: 'SEO' },
-      { to: '/ads',             icon: Megaphone,      label: 'Ads' },
-      { to: '/messages',        icon: MessageCircle,  label: 'Messages' },
-      { to: '/mail',            icon: Mail,           label: 'Mail' },
-      { to: '/content',         icon: Sparkles,       label: 'Content AI' },
-      { to: '/contact-forms',   icon: MailPlus,       label: 'Contact Forms' },
-      { to: '/notifications',   icon: Bell,           label: 'Notifications' },
+      { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
+      { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
+      { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
+      { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
+      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
+      { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
+      { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
+      { to: '/notifications',      icon: RiBellLine,       label: 'Notifications' },
     ],
   },
   employee: {
     top: [
-      { to: '/dashboard',        icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/tasks',       icon: CheckSquare,     label: 'Tasks' },
-      { to: '/approvals',   icon: ThumbsUp,        label: 'Approvals' },
-      { to: '/approved',    icon: FileCheck,       label: 'Approved' },
-      { to: '/assets',      icon: Package,         label: 'Assets' },
+      { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
+      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
+      { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
-      { to: '/seo',          icon: SearchCheck,    label: 'SEO' },
-      { to: '/ads',          icon: Megaphone,      label: 'Ads' },
-      { to: '/messages',     icon: MessageCircle,  label: 'Messages' },
-      { to: '/mail',         icon: Mail,           label: 'Mail' },
-      { to: '/content',      icon: Sparkles,       label: 'Content AI' },
-      { to: '/contact-forms',icon: MailPlus,       label: 'Contact Forms' },
-      { to: '/notifications',icon: Bell,           label: 'Notifications' },
+      { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
+      { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
+      { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
+      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
+      { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
+      { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
+      { to: '/notifications',      icon: RiBellLine,       label: 'Notifications' },
     ],
   },
   client: {
     top: [
-      { to: '/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/projects',  icon: FolderOpen,    label: 'Projects' },
-      { to: '/approvals', icon: ThumbsUp,      label: 'Reviews' },
-      { to: '/approved',  icon: CheckSquare,   label: 'Approved' },
-      { to: '/messages',  icon: MessageCircle, label: 'Messages' },
+      { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
+      { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
+      { to: '/approvals',          icon: RiThumbUpLine,    label: 'Reviews' },
+      { to: '/approved',           icon: RiCheckboxLine,   label: 'Approved' },
+      { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
     ],
     more: [],
   },
@@ -145,7 +149,7 @@ export default function Sidebar() {
           onClick={() => navigate(to)}
           className={`sidebar__item${isActive ? ' active' : ''}`}
         >
-          <Icon size={18} strokeWidth={isActive ? 2.5 : 2} />
+          <Icon size={18} />
           {hasNotif && <span className="sidebar__notif-dot" />}
         </button>
         {tooltip === label && <div className="sidebar__tooltip">{label}</div>}
@@ -153,7 +157,6 @@ export default function Sidebar() {
     );
   };
 
-  // Check if current page is in the "more" group
   const moreIsActive = more.some(
     ({ to }) => location.pathname === to || (to !== '/' && location.pathname.startsWith(to))
   );
@@ -184,12 +187,11 @@ export default function Sidebar() {
                 className={`sidebar__item${showMore || moreIsActive ? ' active' : ''}`}
                 title="More"
               >
-                {showMore ? <X size={18} strokeWidth={2} /> : <LayoutGrid size={18} strokeWidth={2} />}
+                {showMore ? <RiCloseLine size={18} /> : <RiLayoutGridLine size={18} />}
               </button>
               {tooltip === 'More' && !showMore && <div className="sidebar__tooltip">More</div>}
             </div>
 
-            {/* More panel */}
             {showMore && (
               <div className="sidebar__more-panel">
                 <p className="sidebar__more-title">More apps</p>
@@ -204,7 +206,7 @@ export default function Sidebar() {
                         onClick={() => { navigate(to); setShowMore(false); }}
                       >
                         <div className="sidebar__more-icon">
-                          <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                          <Icon size={20} />
                           {hasNotif && <span className="sidebar__more-notif" />}
                         </div>
                         <span className="sidebar__more-label">{label}</span>
@@ -229,7 +231,7 @@ export default function Sidebar() {
             onClick={() => navigate('/settings')}
             className={`sidebar__item${location.pathname === '/settings' ? ' active' : ''}`}
           >
-            <Settings size={18} strokeWidth={2} />
+            <RiSettings4Line size={18} />
           </button>
           {tooltip === 'Settings' && <div className="sidebar__tooltip">Settings</div>}
         </div>
@@ -240,7 +242,7 @@ export default function Sidebar() {
           onMouseLeave={() => setTooltip(null)}
         >
           <button onClick={logout} className="sidebar__item sidebar__item--logout">
-            <LogOut size={17} strokeWidth={2} />
+            <RiLogoutBoxRLine size={17} />
           </button>
           {tooltip === 'Logout' && <div className="sidebar__tooltip">Logout</div>}
         </div>

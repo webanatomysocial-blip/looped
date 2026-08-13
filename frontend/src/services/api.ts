@@ -169,7 +169,7 @@ export const contactFormsApi = {
   listForms: (projectId: number) => api.get(`/contact-forms/${projectId}/forms`),
   createForm: (projectId: number, name: string) => api.post(`/contact-forms/${projectId}/forms`, { name }),
   getForm: (formId: number) => api.get(`/contact-forms/forms/${formId}`),
-  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string; redirectUrl?: string; otpEnabled?: boolean }) =>
+  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string; redirectUrl?: string; otpEnabled?: boolean; style_config?: string }) =>
     api.patch(`/contact-forms/forms/${formId}`, data),
   deleteForm: (formId: number) => api.delete(`/contact-forms/forms/${formId}`),
   listSubmissions: (projectId: number) => api.get(`/contact-forms/${projectId}/submissions`),
@@ -184,6 +184,21 @@ export const timeLogsApi = {
   create: (data: { task_id: number; user_id: number; log_date: string; hours: number; notes?: string }) =>
     api.post('/time-logs', data),
   delete: (id: number) => api.delete(`/time-logs/${id}`),
+};
+
+export const appSettingsApi = {
+  get: () => api.get('/app-settings'),
+  save: (data: Record<string, string>) => api.put('/app-settings', data),
+};
+
+export const localSeoApi = {
+  getConfig: (clientId: number) => api.get(`/local-seo/config/${clientId}`),
+  saveConfig: (clientId: number, data: any) => api.put(`/local-seo/config/${clientId}`, data),
+  geocode: (address: string) => api.post('/local-seo/geocode', { address }),
+  runGeogrid: (clientId: number, data: { keyword: string; center_lat: number; center_lng: number; radius_km: number; grid_size: number; country_code: string; domain: string }) =>
+    api.post(`/local-seo/geogrid/${clientId}`, data),
+  getGeogrid: (clientId: number, keyword: string) => api.get(`/local-seo/geogrid/${clientId}`, { params: { keyword } }),
+  getKeywords: (clientId: number) => api.get(`/local-seo/keywords/${clientId}`),
 };
 
 export default api;

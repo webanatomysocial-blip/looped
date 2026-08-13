@@ -1,8 +1,25 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 import { visibleCompanyIds } from '../utils/companyAccess';
+
+const uploadDir = path.join(__dirname, '../../uploads/contact-forms');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => {
+      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${Date.now()}_${safe}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
+});
 
 const router = Router();
 router.use(authenticate, requireRoles('admin', 'manager', 'employee'));
@@ -80,7 +97,7 @@ router.get('/forms/:formId', async (req: AuthRequest, res: Response) => {
 });
 
 router.patch('/forms/:formId', async (req: AuthRequest, res: Response) => {
-  const { name, fields, toEmails, template, redirectUrl, otpEnabled } = req.body;
+  const { name, fields, toEmails, template, redirectUrl, otpEnabled, style_config } = req.body;
   const update: Record<string, any> = {};
   if (name?.trim()) update.name = name.trim();
   if (fields) update.fields = JSON.stringify(fields);
@@ -88,6 +105,7 @@ router.patch('/forms/:formId', async (req: AuthRequest, res: Response) => {
   if (template !== undefined) update.template = template;
   if (redirectUrl !== undefined) update.redirect_url = redirectUrl.trim();
   if (otpEnabled !== undefined) update.otp_enabled = otpEnabled ? 1 : 0;
+  if (style_config !== undefined) update.style_config = style_config;
   await getDB()('contact_forms').where({ id: req.params.formId }).update(update);
   const form = await getDB()('contact_forms').where({ id: req.params.formId }).first();
   res.json(parseForm(form));
@@ -169,10 +187,14 @@ publicContactFormsRouter.get('/forms/:formId', async (req: Request, res: Respons
   res.json(parseForm(form));
 });
 
-publicContactFormsRouter.post('/forms/:formId/submit', async (req: Request, res: Response) => {
+publicContactFormsRouter.post('/forms/:formId/submit', upload.any(), async (req: Request, res: Response) => {
   corsHeaders(res);
   const db = getDB();
   const values = req.body || {};
+
+  // Map uploaded files: replace fake path with real filename in values
+  const uploadedFiles: Express.Multer.File[] = (req as any).files || [];
+  uploadedFiles.forEach((f) => { values[f.fieldname] = f.originalname; });
 
   const form = await db('contact_forms').where({ id: req.params.formId }).first();
   if (!form) { res.status(404).json({ error: 'Form not found.' }); return; }
@@ -212,10 +234,16 @@ publicContactFormsRouter.post('/forms/:formId/submit', async (req: Request, res:
     const toEmails = (form.to_emails || process.env.CONTACT_TO_EMAIL || '')
       .split(',').map((e: string) => e.trim()).filter(Boolean);
     if (toEmails.length) {
+      const bodyLines = Object.entries(values).map(([key, value]) => `${key}: ${value}`).join('\n');
+      const attachments = uploadedFiles.map((f) => ({
+        filename: f.originalname,
+        path: f.path,
+      }));
       await sendEmail({
         to: toEmails.map((email: string) => ({ email, name: email })),
         subject: `New submission: ${form.name}`,
-        body: Object.entries(values).map(([key, value]) => `${key}: ${value}`).join('\n'),
+        body: bodyLines,
+        attachments: attachments.length ? attachments : undefined,
       });
     }
   } catch (err) {

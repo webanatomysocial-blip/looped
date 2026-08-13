@@ -1518,6 +1518,7 @@ export default function SEO() {
               </div>
             )}
 
+
             {/* ── Executive Summary ── */}
             {(canEdit || manual.executive_summary) && (
               <div className="seo-section">

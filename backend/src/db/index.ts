@@ -116,6 +116,8 @@ async function createSchema(): Promise<void> {
           t.string('gsc_site_url').nullable();
         });
       }
+      const hasGbp = await db.schema.hasColumn('client_companies', 'gbp_location_id');
+      if (!hasGbp) await db.schema.table('client_companies', (t) => t.string('gbp_location_id').nullable());
       const hasAdsCustId = await db.schema.hasColumn('client_companies', 'ads_customer_id');
       if (!hasAdsCustId) {
         await db.schema.table('client_companies', (t) => {
@@ -806,6 +808,8 @@ async function createSchema(): Promise<void> {
       if (!hasRedirect) await db.schema.table('contact_forms', (t) => { t.text('redirect_url').nullable(); });
       const hasOtp = await db.schema.hasColumn('contact_forms', 'otp_enabled');
       if (!hasOtp) await db.schema.table('contact_forms', (t) => { t.boolean('otp_enabled').notNullable().defaultTo(false); });
+      const hasStyleConfig = await db.schema.hasColumn('contact_forms', 'style_config');
+      if (!hasStyleConfig) await db.schema.table('contact_forms', (t) => { t.text('style_config').nullable(); });
       // Fix non-nullable columns in MySQL from older deployments
       if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_forms', 'contact_project_id');
@@ -880,6 +884,75 @@ async function createSchema(): Promise<void> {
       if (!hasShareToken) await db.schema.table('seo_saved_reports', (t) => t.string('share_token').nullable());
       const hasManualSnapshot = await db.schema.hasColumn('seo_saved_reports', 'manual_snapshot');
       if (!hasManualSnapshot) await db.schema.table('seo_saved_reports', (t) => t.text('manual_snapshot').nullable());
+    }
+  });
+
+  // Local SEO rank tracking
+  await db.schema.hasTable('local_seo_configs').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('local_seo_configs', (t) => {
+        t.increments('id').primary();
+        t.integer('client_company_id').notNullable().unique();
+        t.string('domain').notNullable().defaultTo('');
+        t.string('address').notNullable().defaultTo('');
+        t.text('keywords').notNullable().defaultTo('[]');
+        t.text('locations').notNullable().defaultTo('[]');
+        t.string('country_code', 5).notNullable().defaultTo('in');
+        t.float('radius_km').notNullable().defaultTo(10);
+        t.integer('grid_size').notNullable().defaultTo(7);
+        t.timestamp('updated_at').defaultTo(db.fn.now());
+      });
+    } else {
+      // add new columns to existing table if missing
+      const hasAddress = await db.schema.hasColumn('local_seo_configs', 'address');
+      if (!hasAddress) await db.schema.table('local_seo_configs', (t) => t.string('address').notNullable().defaultTo(''));
+      const hasRadius = await db.schema.hasColumn('local_seo_configs', 'radius_km');
+      if (!hasRadius) await db.schema.table('local_seo_configs', (t) => t.float('radius_km').notNullable().defaultTo(10));
+      const hasGrid = await db.schema.hasColumn('local_seo_configs', 'grid_size');
+      if (!hasGrid) await db.schema.table('local_seo_configs', (t) => t.integer('grid_size').notNullable().defaultTo(7));
+    }
+  });
+
+  await db.schema.hasTable('local_seo_results').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('local_seo_results', (t) => {
+        t.increments('id').primary();
+        t.integer('client_company_id').notNullable();
+        t.string('keyword').notNullable();
+        t.string('location').notNullable();
+        t.integer('position').nullable();
+        t.string('result_url', 1000).nullable();
+        t.string('result_title', 500).nullable();
+        t.string('checked_at').notNullable();
+      });
+    }
+  });
+
+  // Geogrid results (map-based rank tracking)
+  await db.schema.hasTable('geo_grid_results').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('geo_grid_results', (t) => {
+        t.increments('id').primary();
+        t.integer('client_company_id').notNullable();
+        t.string('keyword').notNullable();
+        t.float('center_lat').notNullable();
+        t.float('center_lng').notNullable();
+        t.float('radius_km').notNullable();
+        t.integer('grid_size').notNullable();
+        t.text('results').notNullable(); // JSON array
+        t.string('checked_at').notNullable();
+      });
+    }
+  });
+
+  // App settings key-value store
+  await db.schema.hasTable('app_settings').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('app_settings', (t) => {
+        t.string('key').primary();
+        t.text('value').nullable();
+        t.timestamps(true, true);
+      });
     }
   });
 

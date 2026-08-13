@@ -22,6 +22,7 @@ import ContactFormTest from './pages/admin/ContactFormTest';
 import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
+import LocalSEO from './pages/LocalSEO';
 import ShareReport from './pages/ShareReport';
 import ShareAdsReport from './pages/ShareAdsReport';
 import Ads from './pages/Ads';
@@ -146,6 +147,12 @@ function AppRoutes() {
           guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /seo/i.test(c.name)) ?? false)}
         >
           <SEO />
+        </PrivateRoute>
+      } />
+
+      <Route path="/local-seo" element={
+        <PrivateRoute roles={['admin', 'manager']}>
+          <LocalSEO />
         </PrivateRoute>
       } />
 

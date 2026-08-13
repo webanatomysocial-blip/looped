@@ -25,6 +25,8 @@ import adsRoutes, { publicAdsRouter } from './routes/ads';
 import capacityRoutes from './routes/capacity';
 import timeLogsRoutes from './routes/time-logs';
 import contactFormsRoutes, { publicContactFormsRouter } from './routes/contact-forms';
+import localSeoRoutes from './routes/local-seo';
+import appSettingsRoutes from './routes/app-settings';
 import { startEmailScheduler } from './services/scheduler';
 
 const app = express();
@@ -81,6 +83,8 @@ app.use('/api/public/ads', publicAdsRouter);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
 app.use('/api/contact-forms', contactFormsRoutes);
+app.use('/api/local-seo', localSeoRoutes);
+app.use('/api/app-settings', appSettingsRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

@@ -31,6 +31,7 @@ function getGoogleAuth() {
     scopes: [
       'https://www.googleapis.com/auth/analytics.readonly',
       'https://www.googleapis.com/auth/webmasters.readonly',
+      'https://www.googleapis.com/auth/business.manage',
     ],
   });
 }
@@ -529,6 +530,7 @@ router.get('/share-tokens/:clientId', async (req: AuthRequest, res: Response) =>
     res.json(rows);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
+
 
 export default router;
 

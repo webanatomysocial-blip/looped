@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { RiCloseLine } from 'react-icons/ri';
 
 interface DrawerProps {
   title: string;
@@ -17,7 +17,7 @@ export default function Drawer({ title, label, onClose, children }: DrawerProps)
           <div className="drawer-header__row">
             <span className="drawer-header__title">{title}</span>
             <button type="button" className="drawer-close" onClick={onClose}>
-              <X size={14} />
+              <RiCloseLine size={14} />
             </button>
           </div>
         </div>

@@ -27,13 +27,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     } else if (role === 'manager') {
       const managerUser = await db('users').where({ id: userId }).select('pod').first();
       const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
-      // client company IDs whose linked user account is on this manager's pod
-      const podClientCompanyIds: number[] = managerUser?.pod
-        ? await db('users').where({ role: 'client', pod: managerUser.pod }).whereNotNull('client_company_id').pluck('client_company_id')
-        : [];
       query = query.where(function (this: any) {
         if (managerUser?.pod) this.where('p.pod', managerUser.pod);
-        if (podClientCompanyIds.length) this.orWhereIn('p.client_company_id', podClientCompanyIds);
         if (memberProjectIds.length) this.orWhereIn('p.id', memberProjectIds);
       });
     }

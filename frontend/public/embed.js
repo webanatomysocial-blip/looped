@@ -126,8 +126,31 @@
   function collectValues(formEl) {
     var values = {};
     var inputs = formEl.querySelectorAll('input[name], textarea[name], select[name]');
-    inputs.forEach(function (el) { values[el.name] = el.value; });
+    inputs.forEach(function (el) {
+      if (el.type !== 'file') values[el.name] = el.value;
+    });
     return values;
+  }
+
+  function hasFiles(formEl) {
+    var fileInputs = formEl.querySelectorAll('input[type="file"][name]');
+    for (var i = 0; i < fileInputs.length; i++) {
+      if (fileInputs[i].files && fileInputs[i].files.length > 0) return true;
+    }
+    return false;
+  }
+
+  function buildFormData(formEl) {
+    var fd = new FormData();
+    var inputs = formEl.querySelectorAll('input[name], textarea[name], select[name]');
+    inputs.forEach(function (el) {
+      if (el.type === 'file') {
+        if (el.files && el.files.length > 0) fd.append(el.name, el.files[0]);
+      } else {
+        fd.append(el.name, el.value);
+      }
+    });
+    return fd;
   }
 
   function showSuccess(redirectUrl) {
@@ -153,13 +176,15 @@
       var btn = form.querySelector('button[type="submit"], input[type="submit"]');
       if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
-      var values = collectValues(form);
+      var useFiles = hasFiles(form);
+      var fetchOpts;
+      if (useFiles) {
+        fetchOpts = { method: 'POST', body: buildFormData(form) };
+      } else {
+        fetchOpts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectValues(form)) };
+      }
 
-      fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-      })
+      fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', fetchOpts)
         .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
         .then(function (result) {
           if (result.ok) {

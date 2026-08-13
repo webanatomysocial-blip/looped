@@ -13,6 +13,7 @@ export async function sendEmail(opts: {
   subject: string;
   body: string;
   fromName?: string;
+  attachments?: { filename: string; path: string }[];
 }): Promise<void> {
   const toList = opts.to.map((r) => `"${r.name}" <${r.email}>`).join(', ');
   const fromName = opts.fromName || process.env.MAIL_FROM_NAME || 'Workdeck';
@@ -22,5 +23,6 @@ export async function sendEmail(opts: {
     subject: opts.subject,
     text: opts.body,
     html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${opts.body.replace(/\n/g, '<br>')}</div>`,
+    attachments: opts.attachments,
   });
 }
