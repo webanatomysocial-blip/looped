@@ -109,7 +109,8 @@ if (process.env.NODE_ENV === 'production') {
 initDB()
   .then(() => {
     startEmailScheduler();
-    app.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
+    const server = app.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
+    server.setTimeout(120000); // 120s for long geogrid requests
   })
   .catch((err) => {
     console.error('DB init failed:', err);

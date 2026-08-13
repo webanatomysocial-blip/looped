@@ -145,35 +145,45 @@ router.post('/geogrid/:clientId', async (req: AuthRequest, res: Response) => {
   const gl = country_code || 'in';
 
   const points = generateGrid(parseFloat(center_lat), parseFloat(center_lng), radius, size);
-  const results: any[] = [];
 
-  for (const point of points) {
-    // Small delay to respect Nominatim rate limit
+  // Step 1: reverse-geocode unique locations only (deduplicate by ~1km grid)
+  const locationCache = new Map<string, string>();
+  const uniqueKeys = new Set<string>();
+  const pointsWithKeys = points.map((p) => {
+    const key = `${p.lat.toFixed(2)},${p.lng.toFixed(2)}`;
+    uniqueKeys.add(key);
+    return { ...p, cacheKey: key };
+  });
+
+  // Sequential Nominatim calls only for unique keys (respects 1 req/sec)
+  for (const key of uniqueKeys) {
+    if (locationCache.has(key)) continue;
+    const [lat, lng] = key.split(',').map(Number);
+    const loc = await reverseGeocode(lat, lng);
+    locationCache.set(key, loc);
     await new Promise((r) => setTimeout(r, 1100));
-    const location = await reverseGeocode(point.lat, point.lng);
-
-    try {
-      await new Promise((r) => setTimeout(r, 250));
-      const resp = await fetch('https://google.serper.dev/maps', {
-        method: 'POST',
-        headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: keyword, location, gl, hl: 'en' }),
-      });
-      const data: any = await resp.json();
-      const places: any[] = data.places || [];
-      // Log first point only for debugging
-      if (results.length === 0) {
-        console.log(`[LSEO] location="${location}" places=${places.length}`);
-        places.slice(0, 3).forEach((p: any) =>
-          console.log(`  #${p.position} ${p.title} | website: ${p.website || '(none)'} | address: ${p.address}`)
-        );
-      }
-      const { position, url, title } = findPosition(places, domain);
-      results.push({ ...point, location, position, url, title });
-    } catch {
-      results.push({ ...point, location, position: null, url: null, title: null });
-    }
   }
+
+  // Step 2: run all Serper calls in parallel (no strict rate limit)
+  const serperResults = await Promise.all(
+    pointsWithKeys.map(async (point) => {
+      const location = locationCache.get(point.cacheKey) ?? `${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`;
+      try {
+        const resp = await fetch('https://google.serper.dev/maps', {
+          method: 'POST',
+          headers: { 'X-API-KEY': serperKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: keyword, location, gl, hl: 'en' }),
+        });
+        const data: any = await resp.json();
+        const places: any[] = data.places || [];
+        const { position, url, title } = findPosition(places, domain);
+        return { ...point, location, position, url, title };
+      } catch {
+        return { ...point, location, position: null, url: null, title: null };
+      }
+    })
+  );
+  const results = serperResults;
 
   // Save to DB
   const db = getDB();
