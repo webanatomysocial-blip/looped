@@ -309,18 +309,30 @@ router.post('/tickets/:id/done', async (req: AuthRequest, res: Response) => {
   // Auto-submit to standard Approvals so managers see it there too
   const existingApproval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
   if (!existingApproval) {
-    const managers = await db('users').where({ role: 'manager' }).orWhere({ role: 'admin' }).select('id');
+    const managers = await db('users').where(function () {
+      this.where({ role: 'manager' }).orWhere({ role: 'admin' });
+    }).select('id', 'name');
+
+    // Use custom workflow so the manager query (which filters by task_approval_flow) picks it up
     await db('approvals').insert({
       task_id: ticket.id,
       title: ticket.title,
       project_id: ticket.project_id,
       submitted_by: userId,
-      status: 'pending_manager',
-      workflow_type: 'employee',
+      status: 'pending_custom',
+      workflow_type: 'custom',
+      current_step: 0,
     });
-    for (const m of managers) {
-      if (m.id !== userId) {
-        await createNotification(m.id, `Ticket "${ticket.title}" is ready for your review`, 'approval', ticket.project_id);
+
+    // Insert all managers into the approval flow so each can see and action it
+    if (managers.length) {
+      await db('task_approval_flow').insert(
+        managers.map((m: any, i: number) => ({ task_id: ticket.id, user_id: m.id, position: i }))
+      );
+      for (const m of managers) {
+        if (m.id !== userId) {
+          await createNotification(m.id, `Ticket "${ticket.title}" is ready for your review`, 'approval', ticket.project_id);
+        }
       }
     }
   }
