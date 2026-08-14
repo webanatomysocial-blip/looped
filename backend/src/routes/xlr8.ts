@@ -275,22 +275,56 @@ router.post('/tickets/:id/employee-decline', async (req: AuthRequest, res: Respo
   res.json({ ok: true });
 });
 
-// Assignee: mark work done → back to manager for review
+// Assignee: mark work done → close timer, log time, back to manager for review, submit to Approvals
 router.post('/tickets/:id/done', async (req: AuthRequest, res: Response) => {
   const db = getDB();
-  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'in_progress', xlr8_assignee_id: req.user!.id }).first();
+  const userId = req.user!.id;
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'in_progress', xlr8_assignee_id: userId }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not in progress by you' }); return; }
+
+  // Close open timer session and log time
+  const openSession = await db('task_sessions').where({ task_id: ticket.id, user_id: userId }).whereNull('ended_at').first();
+  if (openSession) {
+    await db('task_sessions').where({ id: openSession.id }).update({ ended_at: now });
+    const hrs = (now.getTime() - new Date(openSession.started_at).getTime()) / 3600000;
+    if (hrs >= 0.001) {
+      const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
+      await db('time_logs').insert({
+        task_id: ticket.id, project_id: ticket.project_id, user_id: userId,
+        task_session_id: openSession.id,
+        log_date: today, hours: Math.round(hrs * 100) / 100,
+        hourly_rate: hourlyRate,
+      });
+    }
+  }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', status: 'in_review' });
   await appendLog(ticket.id, req.user!, 'work_done', 'in_progress', 'pending_manager');
 
-  // Notify all managers
-  const managers = await db('users').where({ role: 'manager' }).orWhere({ role: 'admin' }).select('id');
-  for (const m of managers) {
-    if (m.id !== req.user!.id) {
-      await createNotification(m.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
+  // Auto-submit to standard Approvals so managers see it there too
+  const existingApproval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+  if (!existingApproval) {
+    const managers = await db('users').where({ role: 'manager' }).orWhere({ role: 'admin' }).select('id');
+    await db('approvals').insert({
+      task_id: ticket.id,
+      title: ticket.title,
+      project_id: ticket.project_id,
+      submitted_by: userId,
+      status: 'pending_manager',
+      workflow_type: 'employee',
+    });
+    for (const m of managers) {
+      if (m.id !== userId) {
+        await createNotification(m.id, `Ticket "${ticket.title}" is ready for your review`, 'approval', ticket.project_id);
+      }
     }
   }
+
   res.json({ ok: true });
 });
 

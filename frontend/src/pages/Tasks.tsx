@@ -257,7 +257,12 @@ export default function Tasks() {
 
   const confirmDone = async () => {
     if (!doneConfirmTask) return;
-    await tasksApi.timer(doneConfirmTask.id, 'done');
+    if (doneConfirmTask.ticket_type_id) {
+      // XLR8 ticket: close timer + log time + submit to approvals + advance XLR8 workflow
+      await xlr8Api.markDone(doneConfirmTask.id);
+    } else {
+      await tasksApi.timer(doneConfirmTask.id, 'done');
+    }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
     load();
@@ -574,7 +579,7 @@ export default function Tasks() {
                           )}
                           {task.status === 'in_progress' && (
                             <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }}
-                              onClick={() => task.ticket_type_id ? ticketMarkDone(task.id) : handleTimer(task.id, 'done', task)}>
+                              onClick={() => handleTimer(task.id, 'done', task)}>
                               <Check size={12} />
                             </button>
                           )}
