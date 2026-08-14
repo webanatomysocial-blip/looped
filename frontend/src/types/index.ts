@@ -152,6 +152,11 @@ export interface Task {
   active_runner_ids: number[];
   created_at: string;
   checklist?: ChecklistItem[];
+  // XLR8 ticket fields
+  ticket_type_id?: number | null;
+  xlr8_status?: string | null;
+  xlr8_assignee_id?: number | null;
+  xlr8_stage_idx?: number | null;
 }
 
 export interface CapacityTask {

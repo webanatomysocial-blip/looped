@@ -201,4 +201,27 @@ export const localSeoApi = {
   getKeywords: (clientId: number) => api.get(`/local-seo/keywords/${clientId}`),
 };
 
+export const xlr8Api = {
+  // Ticket types (admin CRUD)
+  getTicketTypes: () => api.get('/xlr8/ticket-types'),
+  createTicketType: (data: any) => api.post('/xlr8/ticket-types', data),
+  updateTicketType: (id: number, data: any) => api.put(`/xlr8/ticket-types/${id}`, data),
+  deleteTicketType: (id: number) => api.delete(`/xlr8/ticket-types/${id}`),
+  // Tickets
+  getTickets: (project_id?: number) => api.get('/xlr8/tickets', { params: project_id ? { project_id } : {} }),
+  createTicket: (data: any) => api.post('/xlr8/tickets', data),
+  getTicket: (id: number) => api.get(`/xlr8/tickets/${id}`),
+  getTicketLog: (id: number) => api.get(`/xlr8/tickets/${id}/log`),
+  // Workflow actions
+  acceptTicket: (id: number) => api.post(`/xlr8/tickets/${id}/accept`),
+  assignTicket: (id: number, assignee_id: number) => api.post(`/xlr8/tickets/${id}/assign`, { assignee_id }),
+  employeeAccept: (id: number) => api.post(`/xlr8/tickets/${id}/employee-accept`),
+  employeeDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/employee-decline`, { comment }),
+  markDone: (id: number) => api.post(`/xlr8/tickets/${id}/done`),
+  reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) =>
+    api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin }),
+  adminApprove: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment }),
+  clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),
+};
+
 export default api;

@@ -18,7 +18,7 @@ import Badge from '../components/UI/Badge';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi } from '../services/api';
+import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api } from '../services/api';
 import { Task, Project, User } from '../types';
 import '../css/pages/Tasks.css';
 
@@ -51,7 +51,15 @@ export default function Tasks() {
     due_date: '', due_time: '',
     checklist: [{ text: '', checked: false }] as { text: string; checked: boolean }[],
     est_hours: '', est_minutes: '0',
+    ticket_type_id: '',
   });
+  const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[] }[]>([]);
+  // XLR8 ticket workflow modal
+  const [ticketActionTask, setTicketActionTask] = useState<any>(null);
+  const [ticketEligible, setTicketEligible] = useState<any[] | null>(null);
+  const [ticketActionLoading, setTicketActionLoading] = useState(false);
+  const [ticketDeclineComment, setTicketDeclineComment] = useState('');
+  const [showTicketDecline, setShowTicketDecline] = useState(false);
   const [doneConfirmTask, setDoneConfirmTask] = useState<Task | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const [capacityWarnings, setCapacityWarnings] = useState<string[]>([]);
@@ -72,6 +80,10 @@ export default function Tasks() {
   };
 
   useEffect(() => { load(podTab); }, [podTab]);
+
+  useEffect(() => {
+    if (canCreate) xlr8Api.getTicketTypes().then((r) => setTicketTypes(r.data)).catch(() => {});
+  }, [canCreate]);
 
   useEffect(() => {
     const refresh = () => load(podTab);
@@ -95,6 +107,25 @@ export default function Tasks() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
+    const isXlr8 = selectedProject?.service_type === 'xlr8';
+
+    if (isXlr8) {
+      if (!form.ticket_type_id) { alert('Please select a Ticket Type.'); return; }
+      try {
+        await xlr8Api.createTicket({
+          title: form.title,
+          description: form.description || null,
+          project_id: Number(form.project_id),
+          ticket_type_id: Number(form.ticket_type_id),
+          due_date: form.due_date || null,
+        });
+        setShowModal(false);
+        load();
+      } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+      return;
+    }
+
     if (approvalFlow.length === 0) {
       alert('Please add at least one approver in the Approvers (Sequential) section.');
       return;
@@ -118,6 +149,52 @@ export default function Tasks() {
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
+
+  // ── XLR8 ticket workflow actions ─────────────────────────────────────────
+  const openTicketAction = (task: any) => {
+    setTicketActionTask(task); setTicketEligible(null); setShowTicketDecline(false); setTicketDeclineComment('');
+  };
+
+  const ticketAccept = async () => {
+    if (!ticketActionTask) return;
+    setTicketActionLoading(true);
+    try {
+      const r = await xlr8Api.acceptTicket(ticketActionTask.id);
+      if (r.data.auto_assigned) { setTicketActionTask(null); load(); }
+      else setTicketEligible(r.data.eligible);
+    } finally { setTicketActionLoading(false); }
+  };
+
+  const ticketAssign = async (assigneeId: number) => {
+    if (!ticketActionTask) return;
+    setTicketActionLoading(true);
+    try { await xlr8Api.assignTicket(ticketActionTask.id, assigneeId); setTicketActionTask(null); load(); }
+    finally { setTicketActionLoading(false); }
+  };
+
+  const ticketReview = async (action: 'approve' | 'decline', comment?: string) => {
+    if (!ticketActionTask) return;
+    setTicketActionLoading(true);
+    try { await xlr8Api.reviewTicket(ticketActionTask.id, action, comment); setTicketActionTask(null); setShowTicketDecline(false); load(); }
+    finally { setTicketActionLoading(false); }
+  };
+
+  const ticketEmployeeAccept = async (taskId: number) => {
+    setTicketActionLoading(true);
+    try { await xlr8Api.employeeAccept(taskId); load(); }
+    finally { setTicketActionLoading(false); }
+  };
+
+  const ticketEmployeeDeclineInline = async (taskId: number) => {
+    try { await xlr8Api.employeeDecline(taskId); load(); }
+    catch {}
+  };
+
+  const ticketMarkDone = async (taskId: number) => {
+    try { await xlr8Api.markDone(taskId); load(); }
+    catch {}
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   const checkCapacity = async () => {
     const estHrs = form.est_hours ? Number(form.est_hours) + Number(form.est_minutes) / 60 : 0;
@@ -348,7 +425,7 @@ export default function Tasks() {
               )}
             </div>
             {canCreate && (
-              <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0' }); setCapacityWarnings([]); setApprovalFlow([]); setShowModal(true); }}>
+              <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setShowModal(true); }}>
                 <Plus size={14} /> New task
               </button>
             )}
@@ -427,8 +504,41 @@ export default function Tasks() {
                   </td>
                   <td>
                     <div className="task-actions" style={{ opacity: 1 }}>
+                      {/* XLR8 ticket workflow buttons */}
+                      {task.ticket_type_id && (() => {
+                        const s = task.xlr8_status;
+                        const isAssignee = task.xlr8_assignee_id === user?.id;
+                        const isManager = user?.role === 'admin' || user?.role === 'manager';
+                        const needsAssign = s === 'pending_manager' && !task.xlr8_assignee_id;
+                        const needsReview = s === 'pending_manager' && !!task.xlr8_assignee_id;
+                        if (needsAssign && isManager) return (
+                          <button className="icon-action" title="Accept & Assign ticket" style={{ background: 'rgba(76,175,125,0.12)', color: 'var(--green)', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8, whiteSpace: 'nowrap', gap: 4 }} onClick={() => openTicketAction(task)}>
+                            Accept & Assign
+                          </button>
+                        );
+                        if (needsReview && isManager) return (
+                          <button className="icon-action" title="Review ticket work" style={{ background: 'rgba(244,115,38,0.12)', color: 'var(--orange)', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8, whiteSpace: 'nowrap' }} onClick={() => openTicketAction(task)}>
+                            Review
+                          </button>
+                        );
+                        if (s === 'pending_assignee' && isAssignee) return (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="icon-action" title="Accept ticket" style={{ background: 'rgba(76,175,125,0.12)', color: 'var(--green)' }} onClick={() => ticketEmployeeAccept(task.id)}><Check size={12} /></button>
+                            <button className="icon-action danger" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={12} /></button>
+                          </div>
+                        );
+                        if (s === 'in_progress' && isAssignee) return (
+                          <button className="icon-action" title="Mark ticket done" style={{ background: 'var(--ink)', color: '#fff' }} onClick={() => ticketMarkDone(task.id)}><Check size={12} /></button>
+                        );
+                        if (s === 'pending_admin' && user?.role === 'admin') return (
+                          <button className="icon-action" title="Final approve" style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8 }} onClick={async () => { await xlr8Api.adminApprove(task.id); load(); }}>
+                            Final Approve
+                          </button>
+                        );
+                        return null;
+                      })()}
                       {/* Accept / Decline for employee assigned tasks */}
-                      {user?.role === 'employee' && task.my_acceptance_status === 'pending' && (
+                      {!task.ticket_type_id && user?.role === 'employee' && task.my_acceptance_status === 'pending' && (
                         <>
                           <button
                             className="icon-action"
@@ -452,8 +562,8 @@ export default function Tasks() {
                           border: '1px solid rgba(155,89,182,0.22)', whiteSpace: 'nowrap',
                         }}>In Review</span>
                       )}
-                      {/* Timer controls for accepted tasks */}
-                      {user?.role === 'employee' && task.my_acceptance_status === 'accepted' && task.status !== 'completed' && task.status !== 'in_review' && (
+                      {/* Timer controls for accepted tasks (non-XLR8 only) */}
+                      {!task.ticket_type_id && user?.role === 'employee' && task.my_acceptance_status === 'accepted' && task.status !== 'completed' && task.status !== 'in_review' && (
                         <>
                           {task.timer_running ? (
                             <button className="icon-action" title="Pause" style={{ background: 'rgba(244,115,38,0.12)', color: 'var(--orange)' }} onClick={() => handleTimer(task.id, 'pause')}>
@@ -543,11 +653,24 @@ export default function Tasks() {
                 <div className="drawer-info-card">
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Project *</div>
-                    <select className="form-input" style={{ fontSize: 12 }} value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} required>
+                    <select className="form-input" style={{ fontSize: 12 }} value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value, ticket_type_id: '' })} required>
                       <option value="">Select…</option>
                       {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
+                  {(() => {
+                    const selProj = projects.find(p => String(p.id) === String(form.project_id));
+                    if (selProj?.service_type !== 'xlr8') return null;
+                    return (
+                      <div className="drawer-info-field">
+                        <div className="drawer-info-label">Ticket Type *</div>
+                        <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => setForm({ ...form, ticket_type_id: e.target.value })} required>
+                          <option value="">Select type…</option>
+                          {ticketTypes.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
+                        </select>
+                      </div>
+                    );
+                  })()}
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={form.due_date} onChange={(e) => { setForm({ ...form, due_date: e.target.value }); setTimeout(checkCapacity, 0); }} />
@@ -578,8 +701,10 @@ export default function Tasks() {
                   />
                 </div>
 
-                {/* Assignment */}
+                {/* Assignment — hidden for XLR8 (manager assigns after ticket is raised) */}
                 {(() => {
+                  const selProjForAssign = projects.find(p => String(p.id) === String(form.project_id));
+                  if (selProjForAssign?.service_type === 'xlr8') return null;
                   const pool = users.filter(u => ['admin','manager','employee'].includes(u.role));
                   const selectedId = form.working_person_id;
                   const selectedUser = pool.find(u => String(u.id) === selectedId);
@@ -706,10 +831,11 @@ export default function Tasks() {
                   );
                 })()}
 
-                {/* Approvers (Sequential) */}
+                {/* Approvers (Sequential) — hidden for XLR8 projects */}
                 {(() => {
                   const FLOW_ROLES = ['employee', 'manager', 'admin', 'client'] as const;
                   const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
+                  if (selectedProject?.service_type === 'xlr8') return null;
                   const projectPod = selectedProject?.members
                     .map(m => users.find(u => u.id === m.user_id && u.role === 'employee')?.pod)
                     .find(pod => !!pod) ?? null;
@@ -1217,6 +1343,71 @@ export default function Tasks() {
               <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
                 Go back
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* XLR8 Ticket Action Modal */}
+      {ticketActionTask && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setTicketActionTask(null); }}>
+          <div className="modal" style={{ width: '100%', maxWidth: 440 }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title">{ticketActionTask.title}</h3>
+                <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>
+                  {ticketActionTask.xlr8_assignee_id ? 'Review completed work' : 'Accept & assign this ticket'}
+                </p>
+              </div>
+            </div>
+            <div style={{ padding: '16px 24px' }}>
+              {!ticketActionTask.xlr8_assignee_id && !ticketEligible && (
+                <p style={{ fontSize: 13, marginBottom: 16, color: 'var(--ink-muted)' }}>
+                  Accepting will find the right employee for this ticket type's current stage and assign them.
+                </p>
+              )}
+              {ticketEligible && (
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Pick an assignee:</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {ticketEligible.map((e: any) => (
+                      <button key={e.id} className="btn-ghost" style={{ justifyContent: 'flex-start', gap: 8 }} onClick={() => ticketAssign(e.id)}>
+                        <span style={{ width: 28, height: 28, borderRadius: '50%', background: e.avatar_color || '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700 }}>
+                          {e.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                        </span>
+                        {e.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ticketActionTask.xlr8_assignee_id && !showTicketDecline && (
+                <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
+                  The assignee has submitted their work. Approve to move forward or decline to send it back.
+                </p>
+              )}
+              {showTicketDecline && (
+                <div>
+                  <label className="form-label">Reason for declining</label>
+                  <textarea className="form-input" rows={3} value={ticketDeclineComment} onChange={(e) => setTicketDeclineComment(e.target.value)} placeholder="What needs to be changed?" />
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn-ghost" onClick={() => { setTicketActionTask(null); setShowTicketDecline(false); }}>Cancel</button>
+              {!ticketActionTask.xlr8_assignee_id && !ticketEligible &&
+                <button className="btn-primary" onClick={ticketAccept} disabled={ticketActionLoading}>{ticketActionLoading ? 'Accepting…' : 'Accept & Assign'}</button>
+              }
+              {ticketActionTask.xlr8_assignee_id && !showTicketDecline && (
+                <>
+                  <button className="btn-ghost" onClick={() => setShowTicketDecline(true)}>Decline</button>
+                  <button className="btn-primary" onClick={() => ticketReview('approve')} disabled={ticketActionLoading}>{ticketActionLoading ? '…' : 'Approve'}</button>
+                </>
+              )}
+              {showTicketDecline &&
+                <button className="btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => ticketReview('decline', ticketDeclineComment)} disabled={ticketActionLoading}>
+                  {ticketActionLoading ? '…' : 'Decline'}
+                </button>
+              }
             </div>
           </div>
         </div>

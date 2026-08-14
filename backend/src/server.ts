@@ -27,6 +27,7 @@ import timeLogsRoutes from './routes/time-logs';
 import contactFormsRoutes, { publicContactFormsRouter } from './routes/contact-forms';
 import localSeoRoutes from './routes/local-seo';
 import appSettingsRoutes from './routes/app-settings';
+import xlr8Routes from './routes/xlr8';
 import { startEmailScheduler } from './services/scheduler';
 
 const app = express();
@@ -85,6 +86,7 @@ app.use('/api/time-logs', timeLogsRoutes);
 app.use('/api/contact-forms', contactFormsRoutes);
 app.use('/api/local-seo', localSeoRoutes);
 app.use('/api/app-settings', appSettingsRoutes);
+app.use('/api/xlr8', xlr8Routes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

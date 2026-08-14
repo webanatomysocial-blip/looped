@@ -956,6 +956,52 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // ── XLR8 Ticket Workflow ────────────────────────────────────────────────────
+
+  // Ticket types — admin-managed, each has a JSON stage chain
+  await db.schema.hasTable('xlr8_ticket_types').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('xlr8_ticket_types', (t) => {
+        t.increments('id').primary();
+        t.string('name').notNullable();
+        // stages: JSON array of { category_id, category_name }
+        t.text('stages').defaultTo('[]');
+        // final_approval: JSON { adminRequired, adminSkippable, clientOptional }
+        t.text('final_approval').defaultTo('{"adminRequired":true,"adminSkippable":true,"clientOptional":true}');
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
+  // Ticket audit log — append-only, one row per state transition
+  await db.schema.hasTable('xlr8_ticket_log').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('xlr8_ticket_log', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('actor_id').nullable().references('id').inTable('users');
+        t.string('actor_name').nullable();
+        t.string('action').notNullable();       // 'created' | 'sent_to_manager' | 'manager_accepted' | 'manager_declined' | 'assigned' | 'work_done' | 'manager_approved' | 'sent_to_admin' | 'admin_skipped' | 'admin_approved' | 'sent_to_client' | 'client_approved' | 'completed'
+        t.string('from_state').nullable();
+        t.string('to_state').nullable();
+        t.text('comment').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
+  // Migrate tasks: add XLR8 ticket columns
+  const hasTicketTypeId  = await db.schema.hasColumn('tasks', 'ticket_type_id');
+  const hasXlr8StageIdx  = await db.schema.hasColumn('tasks', 'xlr8_stage_idx');
+  const hasXlr8Status    = await db.schema.hasColumn('tasks', 'xlr8_status');
+  const hasXlr8AssigneeId = await db.schema.hasColumn('tasks', 'xlr8_assignee_id');
+  await db.schema.table('tasks', (t) => {
+    if (!hasTicketTypeId)   t.integer('ticket_type_id').nullable();
+    if (!hasXlr8StageIdx)   t.integer('xlr8_stage_idx').nullable();   // which stage we're on (0-based)
+    if (!hasXlr8Status)     t.string('xlr8_status').nullable();       // pending_manager | pending_assignee | pending_admin | pending_client | completed
+    if (!hasXlr8AssigneeId) t.integer('xlr8_assignee_id').nullable(); // current stage assignee
+  });
+
   // Add file_url / file_name to messages table for client chat attachments
   const hasMsgFileUrl = await db.schema.hasColumn('messages', 'file_url');
   if (!hasMsgFileUrl) {

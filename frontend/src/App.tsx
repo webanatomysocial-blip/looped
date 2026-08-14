@@ -29,6 +29,8 @@ import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
 import XLR8Page from './pages/XLR8Page';
+import XLR8Tickets from './pages/XLR8Tickets';
+import TicketTypes from './pages/admin/TicketTypes';
 import LandingPage from './pages/LandingPage';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
@@ -109,6 +111,20 @@ function AppRoutes() {
       <Route path="/xlr8" element={
         <PrivateRoute roles={['admin']}>
           <XLR8Page />
+        </PrivateRoute>
+      } />
+
+      {/* XLR8 Tickets — all internal roles */}
+      <Route path="/xlr8-tickets" element={
+        <PrivateRoute roles={['admin', 'manager', 'employee', 'client']}>
+          <XLR8Tickets />
+        </PrivateRoute>
+      } />
+
+      {/* Admin: Ticket Types */}
+      <Route path="/admin/ticket-types" element={
+        <PrivateRoute roles={['admin']}>
+          <TicketTypes />
         </PrivateRoute>
       } />
 

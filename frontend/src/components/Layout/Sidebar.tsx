@@ -6,7 +6,7 @@ import {
   RiGroupLine, RiSettings4Line, RiLogoutBoxRLine, RiMailLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
-  RiMailAddLine, RiMapPin2Line,
+  RiMailAddLine, RiMapPin2Line, RiTicket2Line,
 } from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -31,6 +31,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/reports',            icon: RiBarChart2Line,  label: 'Reports' },
       { to: '/project-reports',    icon: RiLayoutGridLine, label: 'Project Costs' },
       { to: '/xlr8',               icon: RiLightbulbFlashLine, label: 'XLR8' },
+      { to: '/admin/ticket-types', icon: RiTicket2Line,    label: 'Ticket Types' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
