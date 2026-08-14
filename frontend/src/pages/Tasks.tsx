@@ -527,9 +527,6 @@ export default function Tasks() {
                             <button className="icon-action danger" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={12} /></button>
                           </div>
                         );
-                        if (s === 'in_progress' && isAssignee) return (
-                          <button className="icon-action" title="Mark ticket done" style={{ background: 'var(--ink)', color: '#fff' }} onClick={() => ticketMarkDone(task.id)}><Check size={12} /></button>
-                        );
                         if (s === 'pending_admin' && user?.role === 'admin') return (
                           <button className="icon-action" title="Final approve" style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8 }} onClick={async () => { await xlr8Api.adminApprove(task.id); load(); }}>
                             Final Approve
@@ -562,8 +559,9 @@ export default function Tasks() {
                           border: '1px solid rgba(155,89,182,0.22)', whiteSpace: 'nowrap',
                         }}>In Review</span>
                       )}
-                      {/* Timer controls for accepted tasks (non-XLR8 only) */}
-                      {!task.ticket_type_id && user?.role === 'employee' && task.my_acceptance_status === 'accepted' && task.status !== 'completed' && task.status !== 'in_review' && (
+                      {/* Timer controls — regular accepted tasks OR XLR8 in_progress tickets */}
+                      {user?.role === 'employee' && task.status !== 'completed' && task.status !== 'in_review' &&
+                        (task.ticket_type_id ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id : task.my_acceptance_status === 'accepted') && (
                         <>
                           {task.timer_running ? (
                             <button className="icon-action" title="Pause" style={{ background: 'rgba(244,115,38,0.12)', color: 'var(--orange)' }} onClick={() => handleTimer(task.id, 'pause')}>
@@ -575,7 +573,8 @@ export default function Tasks() {
                             </button>
                           )}
                           {task.status === 'in_progress' && (
-                            <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }} onClick={() => handleTimer(task.id, 'done', task)}>
+                            <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }}
+                              onClick={() => task.ticket_type_id ? ticketMarkDone(task.id) : handleTimer(task.id, 'done', task)}>
                               <Check size={12} />
                             </button>
                           )}
