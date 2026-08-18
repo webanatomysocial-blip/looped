@@ -4,6 +4,7 @@ import Layout from '../../components/Layout/Layout';
 import Breadcrumb from '../../components/ContactForms/Breadcrumb';
 import CopyButton from '../../components/ContactForms/CopyButton';
 import { contactFormsApi, appSettingsApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import '../../css/pages/ContactForms.css';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -217,6 +218,8 @@ function savedFieldsToBuilder(raw: any[]): BuilderField[] {
 export default function ContactFormEdit() {
   const { id, formId } = useParams<{ id: string; formId: string }>();
   const projectId = Number(id);
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const [form, setForm] = useState<any>(null);
   const [project, setProject] = useState<{ id: number; name: string } | null>(null);
@@ -245,7 +248,9 @@ export default function ContactFormEdit() {
   // drag state
   const dragIdx = useRef<number | null>(null);
   const dragOverIdx = useRef<number | null>(null);
+  const dragInsertAfter = useRef<boolean>(false);
   const paletteType = useRef<FieldType | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{ idx: number; after: boolean } | null>(null);
 
   useEffect(() => {
     contactFormsApi.getForm(Number(formId)).then((res) => {
@@ -272,7 +277,7 @@ export default function ContactFormEdit() {
       }
     });
     contactFormsApi.getProject(projectId).then((res) => setProject(res.data));
-    appSettingsApi.get().then((r) => setRecaptchaKeys((prev) => ({ ...prev, ...r.data }))).catch(() => {});
+    if (isAdmin) appSettingsApi.get().then((r) => setRecaptchaKeys((prev) => ({ ...prev, ...r.data }))).catch(() => {});
   }, [projectId, formId]);
 
   const selectedField = fields.find(f => f.id === selectedId) ?? null;
@@ -305,27 +310,37 @@ export default function ContactFormEdit() {
   // ── drag handlers (palette → canvas) ──
   function onPaletteDragStart(type: FieldType) { paletteType.current = type; dragIdx.current = null; }
   function onCanvasDragStart(i: number) { dragIdx.current = i; paletteType.current = null; }
-  function onDragOver(e: React.DragEvent, i: number) { e.preventDefault(); dragOverIdx.current = i; }
+  function onDragOver(e: React.DragEvent, i: number) {
+    e.preventDefault();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    dragInsertAfter.current = after;
+    dragOverIdx.current = i;
+    setDropIndicator({ idx: i, after });
+  }
 
   function onDrop(e: React.DragEvent, dropIdx: number) {
     e.preventDefault();
+    const insertIdx = dragInsertAfter.current ? dropIdx + 1 : dropIdx;
     if (paletteType.current) {
-      // new field from palette
       const label = FIELD_PALETTE.find(p => p.type === paletteType.current!)?.label ?? String(paletteType.current);
       const newField: BuilderField = { id: uid(), type: paletteType.current!, label, placeholder: label, required: false, width: 100 };
-      setFields(prev => { const next = [...prev]; next.splice(dropIdx, 0, newField); return next; });
+      setFields(prev => { const next = [...prev]; next.splice(insertIdx, 0, newField); return next; });
       setSelectedId(newField.id);
       paletteType.current = null;
     } else if (dragIdx.current !== null && dragIdx.current !== dropIdx) {
       setFields(prev => {
         const next = [...prev];
         const [moved] = next.splice(dragIdx.current!, 1);
-        next.splice(dropIdx, 0, moved);
+        // adjust index after removal
+        const adj = dragInsertAfter.current && dragIdx.current! < dropIdx ? insertIdx - 1 : insertIdx;
+        next.splice(adj, 0, moved);
         return next;
       });
       dragIdx.current = null;
     }
     dragOverIdx.current = null;
+    setDropIndicator(null);
   }
 
   function onDropCanvas(e: React.DragEvent) {
@@ -419,6 +434,7 @@ export default function ContactFormEdit() {
                     className="cfb-palette-item"
                     draggable
                     onDragStart={() => onPaletteDragStart(type)}
+                    onDragEnd={() => setDropIndicator(null)}
                     onClick={() => addFromPalette(type)}
                   >
                     <span className="cfb-palette-icon">{icon}</span>
@@ -444,12 +460,19 @@ export default function ContactFormEdit() {
                   {fields.map((f, i) => (
                     <div
                       key={f.id}
-                      style={{ width: `${f.width}%`, padding: '4px', boxSizing: 'border-box' }}
+                      style={{ width: `${f.width}%`, padding: '4px', boxSizing: 'border-box', position: 'relative' }}
                       draggable
                       onDragStart={() => onCanvasDragStart(i)}
                       onDragOver={(e) => onDragOver(e, i)}
                       onDrop={(e) => onDrop(e, i)}
+                      onDragEnd={() => setDropIndicator(null)}
                     >
+                      {dropIndicator?.idx === i && !dropIndicator.after && (
+                        <div style={{ position: 'absolute', top: 4, left: 4, right: 4, height: 3, background: 'var(--blue, #2563eb)', borderRadius: 2, zIndex: 10, pointerEvents: 'none' }} />
+                      )}
+                      {dropIndicator?.idx === i && dropIndicator.after && (
+                        <div style={{ position: 'absolute', bottom: 4, left: 4, right: 4, height: 3, background: 'var(--blue, #2563eb)', borderRadius: 2, zIndex: 10, pointerEvents: 'none' }} />
+                      )}
                       <div
                         className={`cfb-field-card${selectedId === f.id ? ' cfb-field-card--selected' : ''}`}
                         onClick={() => setSelectedId(f.id)}
@@ -808,6 +831,7 @@ export default function ContactFormEdit() {
               + Add Condition
             </button>
 
+            {isAdmin && (<>
             <h2 className="cf-section-title" style={{ marginTop: 28 }}>reCAPTCHA Keys</h2>
             <p className="cf-hint">Required when using reCAPTCHA fields in your forms. Keys are shared across all forms.</p>
             {([
@@ -846,6 +870,7 @@ export default function ContactFormEdit() {
             >
               {savedRecaptcha ? '✓ Saved' : savingRecaptcha ? 'Saving…' : 'Save reCAPTCHA Keys'}
             </button>
+            </>)}
           </div>
         )}
 
