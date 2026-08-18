@@ -17,6 +17,25 @@
   color: var(--ink);
 }
 
+.cf-name-input {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  outline: none;
+  padding: 0;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+.cf-name-input:hover {
+  border-bottom-color: var(--border, #ddd);
+}
+.cf-name-input:focus {
+  border-bottom-color: var(--blue, #2563eb);
+}
+
 .cf-btn-link {
   display: inline-block;
   font-weight: 600;

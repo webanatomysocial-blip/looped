@@ -810,6 +810,16 @@ async function createSchema(): Promise<void> {
       if (!hasOtp) await db.schema.table('contact_forms', (t) => { t.boolean('otp_enabled').notNullable().defaultTo(false); });
       const hasStyleConfig = await db.schema.hasColumn('contact_forms', 'style_config');
       if (!hasStyleConfig) await db.schema.table('contact_forms', (t) => { t.text('style_config').nullable(); });
+      const hasWebhook = await db.schema.hasColumn('contact_forms', 'webhook_url');
+      if (!hasWebhook) await db.schema.table('contact_forms', (t) => { t.text('webhook_url').nullable(); });
+      const hasConfirmField = await db.schema.hasColumn('contact_forms', 'confirmation_email_field');
+      if (!hasConfirmField) await db.schema.table('contact_forms', (t) => { t.string('confirmation_email_field').nullable(); });
+      const hasConfirmMsg = await db.schema.hasColumn('contact_forms', 'confirmation_message');
+      if (!hasConfirmMsg) await db.schema.table('contact_forms', (t) => { t.text('confirmation_message').nullable(); });
+      const hasConfirmAttach = await db.schema.hasColumn('contact_forms', 'confirmation_attachment');
+      if (!hasConfirmAttach) await db.schema.table('contact_forms', (t) => { t.string('confirmation_attachment').nullable(); });
+      const hasConditions = await db.schema.hasColumn('contact_forms', 'conditions');
+      if (!hasConditions) await db.schema.table('contact_forms', (t) => { t.text('conditions').nullable(); });
       // Fix non-nullable columns in MySQL from older deployments
       if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_forms', 'contact_project_id');
@@ -835,6 +845,10 @@ async function createSchema(): Promise<void> {
     } else {
       const hasCid = await db.schema.hasColumn('contact_submissions', 'client_id');
       if (!hasCid) await db.schema.table('contact_submissions', (t) => { t.integer('client_id').nullable(); });
+      const hasRead = await db.schema.hasColumn('contact_submissions', 'read');
+      if (!hasRead) await db.schema.table('contact_submissions', (t) => { t.boolean('read').notNullable().defaultTo(false); });
+      const hasFiles = await db.schema.hasColumn('contact_submissions', 'files');
+      if (!hasFiles) await db.schema.table('contact_submissions', (t) => { t.text('files').nullable(); });
       if (process.env.NODE_ENV === 'production') {
         const hasContactProjCol = await db.schema.hasColumn('contact_submissions', 'contact_project_id');
         if (hasContactProjCol) await db.raw('ALTER TABLE `contact_submissions` MODIFY `contact_project_id` INT NULL');

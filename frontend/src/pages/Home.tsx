@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import { useAuth } from '../contexts/AuthContext';
-import { capacityApi, tasksApi, projectsApi, approvalsApi } from '../services/api';
+import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 
@@ -106,8 +106,13 @@ export default function Home() {
     return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, [data?.active_task_id]);
 
-  const handleAccept = async (taskId: number, action: 'accept' | 'decline') => {
-    await tasksApi.accept(taskId, action);
+  const handleAccept = async (task: CapacityTask, action: 'accept' | 'decline') => {
+    if (task.ticket_type_id) {
+      if (action === 'accept') await xlr8Api.employeeAccept(task.id);
+      // XLR8 decline: goes back to pending_assignee for others — no separate API call needed for now
+    } else {
+      await tasksApi.accept(task.id, action);
+    }
     load();
   };
 
@@ -135,7 +140,11 @@ export default function Home() {
 
   const confirmDone = async () => {
     if (!doneConfirmTask) return;
-    await tasksApi.timer(doneConfirmTask.id, 'done');
+    if (doneConfirmTask.ticket_type_id) {
+      await xlr8Api.markDone(doneConfirmTask.id);
+    } else {
+      await tasksApi.timer(doneConfirmTask.id, 'done');
+    }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
     load();
@@ -332,10 +341,10 @@ export default function Home() {
 
                     {task.acceptance_status === 'pending' && (
                       <div className="cap-task-row__accept-btns">
-                        <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task.id, 'accept')}>
+                        <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')}>
                           Accept
                         </button>
-                        <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task.id, 'decline')}>
+                        <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task, 'decline')}>
                           Decline
                         </button>
                       </div>

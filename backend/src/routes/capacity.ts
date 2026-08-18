@@ -21,11 +21,13 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .update({ ended_at: db.raw('started_at') });
 
     // Close open sessions for tasks that are in_review or completed — timer must not run during review
+    // Exclude XLR8 tickets (ticket_type_id IS NOT NULL) — they manage their own status lifecycle
     const inReviewTaskIds = await db('task_sessions as ts')
       .join('tasks as t', 'ts.task_id', 't.id')
       .where('ts.user_id', userId)
       .whereNull('ts.ended_at')
       .whereIn('t.status', ['in_review', 'completed'])
+      .whereNull('t.ticket_type_id')
       .pluck('ts.task_id');
     if (inReviewTaskIds.length) {
       await db('task_sessions')
@@ -69,11 +71,28 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name',
-        'ta.acceptance_status', 'ta.assignee_role'
+        'ta.acceptance_status', 'ta.assignee_role', 't.ticket_type_id'
       );
 
+    // XLR8 tickets assigned to this user via xlr8_assignee_id
+    const xlr8Tasks = await db('tasks as t')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('t.xlr8_assignee_id', userId)
+      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
+      .whereNotIn('t.status', ['completed'])
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name', 't.ticket_type_id',
+        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
+        db.raw("'employee' as assignee_role")
+      );
+
+    // Merge XLR8 tickets (avoid duplicates if somehow in both)
+    const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
+    const mergedAssigned = [...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id)), ...xlr8Tasks];
+
     // Also include tasks this user reviewed today (session exists but not assigned)
-    const assignedTaskIds = assignedTasks.map((t: any) => t.id);
+    const assignedTaskIds = mergedAssigned.map((t: any) => t.id);
     const reviewSessions = await db('task_sessions as ts')
       .join('tasks as t', 'ts.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
@@ -89,7 +108,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       )
       .groupBy('t.id');
 
-    const allTasks = [...assignedTasks, ...reviewSessions];
+    const allTasks = [...mergedAssigned, ...reviewSessions];
     const taskIds = allTasks.map((t: any) => t.id);
 
     const taskSessions = taskIds.length
@@ -213,14 +232,59 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
       taskQuery = taskQuery.where('t.due_date', today);
     }
 
-    const allAssignedTasks = await taskQuery.select(
+    const regularTasks = await taskQuery.select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name',
         'ta.user_id as assignee_user_id',
         'ta.acceptance_status', 'ta.assignee_role'
       );
 
-    const allTaskIds = [...new Set(allAssignedTasks.map((t: any) => t.id))];
+    // XLR8 tickets assigned via xlr8_assignee_id — always show regardless of due date
+    const xlr8TeamTasks = await db('tasks as t')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .whereIn('t.xlr8_assignee_id', employeeIds)
+      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name',
+        't.xlr8_assignee_id as assignee_user_id',
+        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
+        db.raw("'employee' as assignee_role")
+      );
+
+    // Merge, avoiding duplicates
+    const regularIds = new Set(regularTasks.map((t: any) => `${t.id}-${t.assignee_user_id}`));
+    const allAssignedTasks = [
+      ...regularTasks,
+      ...xlr8TeamTasks.filter((t: any) => !regularIds.has(`${t.id}-${t.assignee_user_id}`)),
+    ];
+
+    // Also include tasks that managers/employees timed today but aren't formally assigned to
+    // (e.g. a manager reviewing a pending_manager XLR8 ticket)
+    const sessionTaskIds = [...new Set(allSessions.map((s: any) => s.task_id))];
+    const assignedTaskIds = new Set(allAssignedTasks.map((t: any) => `${t.id}-${t.assignee_user_id ?? 0}`));
+    const extraSessionTasks = sessionTaskIds.length
+      ? await db('tasks as t')
+          .leftJoin('projects as p', 't.project_id', 'p.id')
+          .whereIn('t.id', sessionTaskIds)
+          .whereNotIn('t.status', ['completed'])
+          .select('t.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 'p.name as project_name')
+      : [];
+
+    // For each session, attach the task to the user who timed it (if not already in their task list)
+    const extraTasks: any[] = [];
+    for (const s of allSessions) {
+      const task = extraSessionTasks.find((t: any) => t.id === s.task_id);
+      if (!task) continue;
+      const key = `${task.id}-${s.user_id}`;
+      if (!assignedTaskIds.has(key)) {
+        assignedTaskIds.add(key);
+        extraTasks.push({ ...task, assignee_user_id: s.user_id, acceptance_status: 'accepted', assignee_role: 'manager' });
+      }
+    }
+    const mergedTasks = [...allAssignedTasks, ...extraTasks];
+
+    const allTaskIds = [...new Set(mergedTasks.map((t: any) => t.id))];
     const allTaskSessions = allTaskIds.length
       ? await db('task_sessions')
           .whereIn('task_id', allTaskIds)
@@ -240,7 +304,7 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
         if (!s.ended_at) activeTaskId = s.task_id;
       }
 
-      const userTasks = allAssignedTasks.filter((t: any) => t.assignee_user_id === emp.id);
+      const userTasks = mergedTasks.filter((t: any) => t.assignee_user_id === emp.id);
       const activeTask = activeTaskId ? userTasks.find((t: any) => t.id === activeTaskId) : null;
 
       const tasks = userTasks.map((task: any) => {

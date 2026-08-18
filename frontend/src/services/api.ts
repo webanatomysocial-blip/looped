@@ -168,11 +168,20 @@ export const contactFormsApi = {
   getProject: (id: number) => api.get(`/contact-forms/${id}`),
   listForms: (projectId: number) => api.get(`/contact-forms/${projectId}/forms`),
   createForm: (projectId: number, name: string) => api.post(`/contact-forms/${projectId}/forms`, { name }),
+  cloneForm: (projectId: number, formId: number) => api.post(`/contact-forms/${projectId}/forms/${formId}/clone`),
   getForm: (formId: number) => api.get(`/contact-forms/forms/${formId}`),
-  updateForm: (formId: number, data: { name?: string; fields?: any[]; toEmails?: string; template?: string; redirectUrl?: string; otpEnabled?: boolean; style_config?: string }) =>
-    api.patch(`/contact-forms/forms/${formId}`, data),
+  updateForm: (formId: number, data: Record<string, any>) => api.patch(`/contact-forms/forms/${formId}`, data),
   deleteForm: (formId: number) => api.delete(`/contact-forms/forms/${formId}`),
-  listSubmissions: (projectId: number) => api.get(`/contact-forms/${projectId}/submissions`),
+  listSubmissions: (projectId: number, params?: { page?: number; per_page?: number; form_id?: number; unread_only?: boolean }) =>
+    api.get(`/contact-forms/${projectId}/submissions`, { params }),
+  getSubmission: (submissionId: number) => api.get(`/contact-forms/submissions/${submissionId}`),
+  markRead: (submissionId: number, read = true) => api.patch(`/contact-forms/submissions/${submissionId}/read`, { read }),
+  fileDownloadUrl: (submissionId: number, filename: string) => `/api/contact-forms/submissions/${submissionId}/files/${encodeURIComponent(filename)}`,
+  uploadConfirmAttachment: (formId: number, file: File) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post(`/contact-forms/forms/${formId}/confirmation-attachment`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  deleteConfirmAttachment: (formId: number) => api.delete(`/contact-forms/forms/${formId}/confirmation-attachment`),
 };
 
 export const timeLogsApi = {
@@ -221,6 +230,7 @@ export const xlr8Api = {
   reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) =>
     api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin }),
   adminApprove: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment }),
+  adminSendClient: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-send-client`, { comment }),
   clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),
 };
 

@@ -29,12 +29,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (project_id) query = query.where('t.project_id', project_id);
 
     if (pod && (role === 'admin' || role === 'manager')) {
-      query = query.whereIn('t.id', function (this: any) {
-        this.select('ta.task_id')
-          .from('task_assignees as ta')
-          .join('users as u', 'ta.user_id', 'u.id')
-          .where('u.pod', pod as string)
-          .whereIn('ta.assignee_role', ['employee']);
+      query = query.where(function (this: any) {
+        // XLR8 tickets use their own workflow — always visible regardless of pod
+        this.whereNotNull('t.ticket_type_id')
+          .orWhereIn('t.id', function (this: any) {
+            this.select('ta.task_id')
+              .from('task_assignees as ta')
+              .join('users as u', 'ta.user_id', 'u.id')
+              .where('u.pod', pod as string)
+              .whereIn('ta.assignee_role', ['employee']);
+          });
       });
     }
 
@@ -519,9 +523,12 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
         }
       }
 
-      await db('tasks').where({ id: taskId }).update({ status: 'in_review' });
-
       const task = await db('tasks').where({ id: taskId }).first();
+
+      // XLR8 tickets manage their own status and approval via /api/xlr8/tickets/:id/done
+      if (task?.ticket_type_id) { res.json({ message: 'Session closed' }); return; }
+
+      await db('tasks').where({ id: taskId }).update({ status: 'in_review' });
 
       // Auto-submit for approval if no active approval exists
       const existingApproval = await db('approvals')

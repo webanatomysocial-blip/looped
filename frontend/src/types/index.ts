@@ -11,9 +11,10 @@ export type ApprovalStatus =
   | 'rejected'
   | 'work_in_progress'
   | 'pending_review'
-  | 'revision_requested';
+  | 'revision_requested'
+  | (string & {});
 
-export type WorkflowType = 'employee' | 'manager' | 'admin_with_client' | 'admin_no_client' | 'custom' | null;
+export type WorkflowType = 'employee' | 'manager' | 'admin_with_client' | 'admin_no_client' | 'custom' | 'xlr8' | null;
 
 export interface FlowStep {
   position: number;
@@ -172,6 +173,7 @@ export interface CapacityTask {
   tracked_seconds_today: number;
   timer_running: boolean;
   has_rejected_approval?: boolean;
+  ticket_type_id?: number | null;
 }
 
 export interface CapacityData {
@@ -240,6 +242,12 @@ export interface Approval {
   rejected_at: string | null;
   rejection_notes: string | null;
   created_at: string;
+  // XLR8 ticket fields (populated when workflow_type === 'xlr8')
+  xlr8_stages?: { category_name: string }[] | null;
+  xlr8_stage_idx?: number | null;
+  xlr8_status?: string | null;
+  xlr8_final_approval?: { adminRequired?: boolean; clientOptional?: boolean } | null;
+  xlr8_ticket_type_name?: string | null;
 }
 
 export interface Asset {

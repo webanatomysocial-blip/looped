@@ -8,7 +8,7 @@ import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { approvalsApi, tasksApi } from '../services/api';
+import { approvalsApi, tasksApi, xlr8Api } from '../services/api';
 import { Approval, ApprovalStatus, ApprovalStep, WorkflowType, ChecklistItem } from '../types';
 import '../css/pages/Approvals.css';
 
@@ -21,6 +21,11 @@ interface WFStage {
 }
 
 const WORKFLOWS: Record<string, WFStage[]> = {
+  xlr8: [
+    { status: 'pending_manager', role: 'manager', label: 'Manager Review' },
+    { status: 'pending_admin',   role: 'admin',   label: 'Admin Approval' },
+    { status: 'pending_client',  role: 'client',  label: 'Client Review' },
+  ],
   employee: [
     { status: 'pending_manager',       role: 'manager', label: 'Manager Review' },
     { status: 'pending_admin',         role: 'admin',   label: 'Admin Review' },
@@ -128,6 +133,8 @@ export default function Approvals() {
   const [action, setAction]             = useState<'approve' | 'reject' | 'request_revision'>('approve');
   const [notes, setNotes]               = useState('');
   const [submitting, setSubmitting]     = useState(false);
+  // Next-stage assignment after approval
+  const [assignStage, setAssignStage]   = useState<{ taskId: number; stageName: string; eligible: any[] } | null>(null);
 
   const [podTab, setPodTab] = useState<'pod1' | 'pod2'>('pod1');
   const [page, setPage]     = useState(1);
@@ -238,6 +245,7 @@ export default function Approvals() {
 
   const canMarkComplete = (a: Approval) =>
     a.status === 'work_in_progress' &&
+    a.workflow_type !== 'xlr8' &&
     (user?.role === 'employee' || user?.role === 'manager' || user?.role === 'admin');
 
   const markComplete = async (a: Approval) => {
@@ -253,15 +261,41 @@ export default function Approvals() {
     setNotes('');
   };
 
-  const submitReview = async () => {
+  const submitReview = async (skipType?: 'skip_admin' | 'send_client') => {
     if (!reviewModal) return;
     if (action !== 'approve' && !notes.trim()) { alert('Please add a reason'); return; }
     setSubmitting(true);
     try {
-      await approvalsApi.review(reviewModal.id, action, notes);
-      setReviewModal(null);
-      // Refresh steps cache for this approval
-      setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
+      if (reviewModal.workflow_type === 'xlr8') {
+        const tid = reviewModal.task_id;
+        const st = (reviewModal as any).xlr8_status ?? reviewModal.status;
+        let res: any = null;
+        if (st === 'pending_admin') {
+          if (skipType === 'send_client') {
+            await xlr8Api.adminSendClient(tid, notes || undefined);
+          } else {
+            await xlr8Api.adminApprove(tid, notes || undefined);
+          }
+        } else if (st === 'pending_client') {
+          await xlr8Api.clientApprove(tid);
+        } else {
+          // pending_manager — manager review; skip_admin=true bypasses admin stage
+          res = await xlr8Api.reviewTicket(tid, action as 'approve' | 'decline', notes, skipType === 'skip_admin');
+        }
+        setReviewModal(null);
+        setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
+        // If more stages remain, fetch eligible workers and show assignment picker
+        if (action === 'approve' && res?.data?.next === 'pending_manager' && res?.data?.stage) {
+          const eligible = await xlr8Api.acceptTicket(tid);
+          if (!eligible.data.auto_assigned) {
+            setAssignStage({ taskId: tid, stageName: res.data.stage.category_name, eligible: eligible.data.eligible });
+          }
+        }
+      } else {
+        await approvalsApi.review(reviewModal.id, action, notes);
+        setReviewModal(null);
+        setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
+      }
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
     finally { setSubmitting(false); }
@@ -440,7 +474,7 @@ export default function Approvals() {
                     {isNewWorkflow(a) && (
                       <div style={{ marginBottom: 16 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>
-                          {a.workflow_type === 'custom' ? 'Approvers (Sequential)' : `Approval Path · ${a.workflow_type?.replace(/_/g, ' ')} workflow`}
+                          {a.workflow_type === 'custom' ? 'Approvers (Sequential)' : a.workflow_type === 'xlr8' ? `XLR8 Ticket · ${a.xlr8_ticket_type_name ?? 'Ticket'} Workflow` : `Approval Path · ${a.workflow_type?.replace(/_/g, ' ')} workflow`}
                         </div>
 
                         {/* Custom flow: named approver chips with current-step indicator */}
@@ -498,8 +532,59 @@ export default function Approvals() {
                           </div>
                         )}
 
+                        {/* XLR8 ticket workflow path */}
+                        {a.workflow_type === 'xlr8' && (() => {
+                          const stages: { category_name: string }[] = a.xlr8_stages ?? [];
+                          const currentIdx = a.xlr8_stage_idx ?? 0;
+                          const xlr8Status = a.xlr8_status ?? '';
+                          const fa = a.xlr8_final_approval ?? {};
+                          // Build steps: each stage = "Work" + "Manager Review", then admin/client
+                          const steps: { label: string; key: string }[] = [];
+                          stages.forEach((s, i) => {
+                            steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
+                            steps.push({ label: 'Manager Review', key: `mgr_${i}` });
+                          });
+                          if (fa.adminRequired) steps.push({ label: 'Admin Approval', key: 'admin' });
+                          if (fa.clientOptional) steps.push({ label: 'Client Review', key: 'client' });
+                          steps.push({ label: 'Done', key: 'done' });
+
+                          // Determine which step is active
+                          const getState = (key: string) => {
+                            if (a.status === 'approved') return 'done';
+                            if (key === 'done') return a.status === 'approved' ? 'done' : 'pending';
+                            if (key === 'admin') return a.status === 'approved' || a.status === 'pending_client' ? 'done' : a.status === 'pending_admin' ? 'active' : 'pending';
+                            if (key === 'client') return a.status === 'approved' ? 'done' : a.status === 'pending_client' ? 'active' : 'pending';
+                            const m = key.match(/^(work|mgr)_(\d+)$/);
+                            if (!m) return 'pending';
+                            const idx = Number(m[2]);
+                            if (idx < currentIdx) return 'done';
+                            if (idx > currentIdx) return 'pending';
+                            // current stage
+                            if (m[1] === 'work') return ['in_progress', 'pending_assignee', 'pending_manager'].includes(xlr8Status) ? (xlr8Status === 'in_progress' ? 'active' : 'pending') : 'done';
+                            if (m[1] === 'mgr') return xlr8Status === 'pending_manager' && a.status === 'pending_manager' ? 'active' : 'pending';
+                            return 'pending';
+                          };
+
+                          return (
+                            <div className="approval-timeline" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                              {[{ label: 'Submitted', key: 'submitted' }, ...steps].map((step, i, arr) => {
+                                const state = step.key === 'submitted' ? 'done' : getState(step.key);
+                                return (
+                                  <div key={step.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                    <div className={`timeline-chip ${state === 'done' ? 'timeline-chip--done' : state === 'active' ? 'timeline-chip--active' : 'timeline-chip--pending'}`}>
+                                      <div className="timeline-chip-dot" style={{ background: state === 'done' ? 'var(--green)' : state === 'active' ? 'var(--yellow)' : 'var(--sand-border)' }} />
+                                      {step.label}
+                                    </div>
+                                    {i < arr.length - 1 && <div className="timeline-line" style={{ marginTop: 12 }} />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+
                         {/* Legacy step timeline */}
-                        {a.workflow_type !== 'custom' && (
+                        {a.workflow_type !== 'custom' && a.workflow_type !== 'xlr8' && (
                           <div className="approval-timeline" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
                             {[{ key: 'submitted', label: 'Submitted' }, ...(WORKFLOWS[a.workflow_type!] ?? []).map(s => ({ key: s.status, label: s.label })), { key: 'approved', label: 'Done' }].map((step, i, arr) => {
                               const dotState = getDotState(step.key, a, timeline);
@@ -716,17 +801,66 @@ export default function Approvals() {
 
           <div className="drawer-footer">
             <button
-              onClick={submitReview}
+              onClick={() => submitReview()}
               disabled={submitting || (action !== 'approve' && !notes.trim())}
               className={`drawer-submit${action !== 'approve' ? ' drawer-submit--danger' : ''}`}
             >
               {submitting ? 'Saving…' : action === 'approve' ? 'Approve' : action === 'reject' ? 'Reject' : 'Request Revision'}
             </button>
+            {reviewModal?.workflow_type === 'xlr8' && action === 'approve' && (() => {
+              const st = (reviewModal as any).xlr8_status ?? reviewModal.status;
+              if (st === 'pending_admin') return (
+                <button key="send-client" className="drawer-cancel" style={{ color: 'var(--blue)', borderColor: 'var(--blue)' }}
+                  disabled={submitting} onClick={() => submitReview('send_client')}>
+                  Send to Client
+                </button>
+              );
+              if (st === 'pending_manager') return (
+                <button key="skip-admin" className="drawer-cancel" style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }}
+                  disabled={submitting} onClick={() => submitReview('skip_admin')}>
+                  Skip Admin
+                </button>
+              );
+              return null;
+            })()}
             <button className="drawer-cancel" onClick={() => setReviewModal(null)} disabled={submitting}>
               Cancel
             </button>
           </div>
         </Drawer>
+      )}
+
+      {/* Assign next stage worker modal */}
+      {assignStage && (
+        <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setAssignStage(null); }}>
+          <div className="modal" style={{ width: '100%', maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">Assign {assignStage.stageName}</h3>
+              <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Stage approved — pick who does the {assignStage.stageName} work</p>
+            </div>
+            <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {assignStage.eligible.map((e: any) => (
+                <button key={e.id} className="btn-ghost" style={{ justifyContent: 'flex-start', gap: 10 }}
+                  onClick={async () => {
+                    await xlr8Api.assignTicket(assignStage.taskId, e.id);
+                    setAssignStage(null);
+                    load();
+                  }}>
+                  <span style={{ width: 30, height: 30, borderRadius: '50%', background: e.avatar_color || '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700 }}>
+                    {e.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                  </span>
+                  {e.name}
+                </button>
+              ))}
+              {assignStage.eligible.length === 0 && (
+                <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>No {assignStage.stageName} employees found in your pod.</p>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn-ghost" onClick={() => setAssignStage(null)}>Skip for now</button>
+            </div>
+          </div>
+        </div>
       )}
     </Layout>
   );

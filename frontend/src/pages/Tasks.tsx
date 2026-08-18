@@ -151,8 +151,16 @@ export default function Tasks() {
   };
 
   // ── XLR8 ticket workflow actions ─────────────────────────────────────────
-  const openTicketAction = (task: any) => {
+  const openTicketAction = async (task: any) => {
     setTicketActionTask(task); setTicketEligible(null); setShowTicketDecline(false); setTicketDeclineComment('');
+    // For assignment (no assignee yet), immediately fetch eligible employees
+    if (!task.xlr8_assignee_id) {
+      try {
+        const r = await xlr8Api.acceptTicket(task.id);
+        if (r.data.auto_assigned) { load(); return; }
+        setTicketEligible(r.data.eligible);
+      } catch { /* show modal anyway */ }
+    }
   };
 
   const ticketAccept = async () => {
@@ -172,10 +180,10 @@ export default function Tasks() {
     finally { setTicketActionLoading(false); }
   };
 
-  const ticketReview = async (action: 'approve' | 'decline', comment?: string) => {
+  const ticketReview = async (action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) => {
     if (!ticketActionTask) return;
     setTicketActionLoading(true);
-    try { await xlr8Api.reviewTicket(ticketActionTask.id, action, comment); setTicketActionTask(null); setShowTicketDecline(false); load(); }
+    try { await xlr8Api.reviewTicket(ticketActionTask.id, action, comment, skip_admin); setTicketActionTask(null); setShowTicketDecline(false); load(); }
     finally { setTicketActionLoading(false); }
   };
 
@@ -517,25 +525,34 @@ export default function Tasks() {
                         const needsAssign = s === 'pending_manager' && !task.xlr8_assignee_id;
                         const needsReview = s === 'pending_manager' && !!task.xlr8_assignee_id;
                         if (needsAssign && isManager) return (
-                          <button className="icon-action" title="Accept & Assign ticket" style={{ background: 'rgba(76,175,125,0.12)', color: 'var(--green)', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8, whiteSpace: 'nowrap', gap: 4 }} onClick={() => openTicketAction(task)}>
-                            Accept & Assign
+                          <button className="ticket-pill ticket-pill--green" onClick={() => openTicketAction(task)}>
+                            ＋ Accept &amp; Assign
                           </button>
                         );
                         if (needsReview && isManager) return (
-                          <button className="icon-action" title="Review ticket work" style={{ background: 'rgba(244,115,38,0.12)', color: 'var(--orange)', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8, whiteSpace: 'nowrap' }} onClick={() => openTicketAction(task)}>
-                            Review
+                          <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
+                            ✓ Review
                           </button>
                         );
-                        if (s === 'pending_assignee' && isAssignee) return (
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button className="icon-action" title="Accept ticket" style={{ background: 'rgba(76,175,125,0.12)', color: 'var(--green)' }} onClick={() => ticketEmployeeAccept(task.id)}><Check size={12} /></button>
-                            <button className="icon-action danger" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={12} /></button>
+                        if (s === 'pending_assignee' && user?.role === 'employee' && (isAssignee || !task.xlr8_assignee_id)) return (
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            <button className="ticket-icon-btn ticket-icon-btn--green" title="Accept ticket" onClick={() => ticketEmployeeAccept(task.id)}><Check size={11} /></button>
+                            {task.xlr8_assignee_id && <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={11} /></button>}
                           </div>
                         );
+                        if (s === 'pending_assignee' && isManager) return (
+                          <span className="ticket-pill ticket-pill--muted">Awaiting acceptance</span>
+                        );
                         if (s === 'pending_admin' && user?.role === 'admin') return (
-                          <button className="icon-action" title="Final approve" style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed', padding: '3px 8px', fontSize: 11, fontWeight: 700, borderRadius: 8 }} onClick={async () => { await xlr8Api.adminApprove(task.id); load(); }}>
-                            Final Approve
+                          <button className="ticket-pill ticket-pill--purple" onClick={async () => { await xlr8Api.adminApprove(task.id); load(); }}>
+                            ✓ Final Approve
                           </button>
+                        );
+                        if (s === 'pending_client') return (
+                          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                            <span className="ticket-pill ticket-pill--muted">Awaiting client</span>
+                            {isManager && <button className="ticket-pill ticket-pill--green" onClick={async () => { if (confirm('Close without client sign-off?')) { await xlr8Api.clientApprove(task.id); load(); } }}>Close</button>}
+                          </div>
                         );
                         return null;
                       })()}
@@ -565,8 +582,10 @@ export default function Tasks() {
                         }}>In Review</span>
                       )}
                       {/* Timer controls — regular accepted tasks OR XLR8 in_progress tickets */}
-                      {user?.role === 'employee' && task.status !== 'completed' && task.status !== 'in_review' &&
-                        (task.ticket_type_id ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id : task.my_acceptance_status === 'accepted') && (
+                      {user?.role === 'employee' && task.status !== 'completed' &&
+                        (task.ticket_type_id
+                          ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id
+                          : task.status !== 'in_review' && task.my_acceptance_status === 'accepted') && (
                         <>
                           {task.timer_running ? (
                             <button className="icon-action" title="Pause" style={{ background: 'rgba(244,115,38,0.12)', color: 'var(--orange)' }} onClick={() => handleTimer(task.id, 'pause')}>
@@ -1401,12 +1420,27 @@ export default function Tasks() {
               {!ticketActionTask.xlr8_assignee_id && !ticketEligible &&
                 <button className="btn-primary" onClick={ticketAccept} disabled={ticketActionLoading}>{ticketActionLoading ? 'Accepting…' : 'Accept & Assign'}</button>
               }
-              {ticketActionTask.xlr8_assignee_id && !showTicketDecline && (
-                <>
-                  <button className="btn-ghost" onClick={() => setShowTicketDecline(true)}>Decline</button>
-                  <button className="btn-primary" onClick={() => ticketReview('approve')} disabled={ticketActionLoading}>{ticketActionLoading ? '…' : 'Approve'}</button>
-                </>
-              )}
+              {ticketActionTask.xlr8_assignee_id && !showTicketDecline && (() => {
+                const tt = ticketTypes.find((t) => t.id === ticketActionTask.ticket_type_id);
+                const isFinal = tt ? (ticketActionTask.xlr8_stage_idx ?? 0) + 1 >= tt.stages.length : true;
+                return (
+                  <>
+                    <button className="btn-ghost" onClick={() => setShowTicketDecline(true)}>Decline</button>
+                    {isFinal ? (
+                      <>
+                        <button className="btn-ghost" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }} onClick={() => ticketReview('approve', undefined, true)} disabled={ticketActionLoading}>
+                          {ticketActionLoading ? '…' : 'Approve → Client'}
+                        </button>
+                        <button className="btn-primary" onClick={() => ticketReview('approve')} disabled={ticketActionLoading}>
+                          {ticketActionLoading ? '…' : 'Approve → Admin'}
+                        </button>
+                      </>
+                    ) : (
+                      <button className="btn-primary" onClick={() => ticketReview('approve')} disabled={ticketActionLoading}>{ticketActionLoading ? '…' : 'Approve'}</button>
+                    )}
+                  </>
+                );
+              })()}
               {showTicketDecline &&
                 <button className="btn-primary" style={{ background: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => ticketReview('decline', ticketDeclineComment)} disabled={ticketActionLoading}>
                   {ticketActionLoading ? '…' : 'Decline'}

@@ -147,26 +147,34 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         'emp_ta.task_id', 'ap.task_id'
       )
       .leftJoin('users as worker', 'worker.id', 'emp_ta.user_id')
+      .leftJoin('xlr8_ticket_types as xtt', 'xtt.id', 't.ticket_type_id')
       .select(
         'ap.*',
         't.title as task_title',
+        't.xlr8_stage_idx', 't.xlr8_status',
         'p.name as project_name',
         'c.name as client_name',
         'sub.name as submitted_by_name',
         'sub.avatar_color as submitted_by_color',
         'worker.name as worker_name',
-        'worker.avatar_color as worker_avatar_color'
+        'worker.avatar_color as worker_avatar_color',
+        'xtt.stages as xlr8_stages_raw',
+        'xtt.final_approval as xlr8_final_approval_raw',
+        'xtt.name as xlr8_ticket_type_name'
       );
 
     if (role === 'admin') {
       if (req.query.pod) {
-        // Filter by the pod of the employee assigned to the task (same as tasks route)
-        query = query.whereIn('ap.task_id', function (this: any) {
-          this.select('ta.task_id')
-            .from('task_assignees as ta')
-            .join('users as u', 'ta.user_id', 'u.id')
-            .where('u.pod', req.query.pod as string)
-            .whereIn('ta.assignee_role', ['employee']);
+        // Filter by pod — XLR8 tickets always pass through (no task_assignees)
+        query = query.where(function () {
+          this.whereNotNull('t.ticket_type_id')
+            .orWhereIn('ap.task_id', function (this: any) {
+              this.select('ta.task_id')
+                .from('task_assignees as ta')
+                .join('users as u', 'ta.user_id', 'u.id')
+                .where('u.pod', req.query.pod as string)
+                .whereIn('ta.assignee_role', ['employee']);
+            });
         });
       }
     } else if (role === 'manager') {
@@ -184,7 +192,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
             SELECT 1 FROM task_approval_flow taf
             WHERE taf.task_id = ap.task_id AND taf.user_id = ?
-          ))`, [userId]);
+          ))`, [userId])
+          // Also show XLR8 ticket approvals (no task_assignees, pending_manager status)
+          .orWhereRaw(`EXISTS (SELECT 1 FROM tasks t2 WHERE t2.id = ap.task_id AND t2.ticket_type_id IS NOT NULL)`);
         });
       }
     } else if (role === 'client') {
@@ -223,10 +233,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         flowMap[r.task_id].push(r);
       }
     }
-    const baseResult = approvals.map((a: any) => ({
-      ...a,
-      flow_chain: flowMap[a.task_id] ?? null,
-    }));
+    const baseResult = approvals.map((a: any) => {
+      const { xlr8_stages_raw, xlr8_final_approval_raw, ...rest } = a;
+      return {
+        ...rest,
+        flow_chain: flowMap[a.task_id] ?? null,
+        xlr8_stages: xlr8_stages_raw ? JSON.parse(xlr8_stages_raw) : null,
+        xlr8_final_approval: xlr8_final_approval_raw ? JSON.parse(xlr8_final_approval_raw) : null,
+      };
+    });
 
     // Close any stale open sessions from previous days for this user
     const today = new Date().toISOString().slice(0, 10);
@@ -369,6 +384,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const approval = await db('approvals').where({ id: req.params.id }).first();
     if (!approval) { res.status(404).json({ error: 'Not found' }); return; }
+
+    // XLR8 approvals are managed exclusively via /api/xlr8/tickets/:id/* routes
+    if (approval.workflow_type === 'xlr8') {
+      res.status(400).json({ error: 'XLR8 approvals must be actioned via the Tasks page workflow buttons' });
+      return;
+    }
 
     // Route legacy approvals through the old handler
     const isLegacy = !approval.workflow_type ||

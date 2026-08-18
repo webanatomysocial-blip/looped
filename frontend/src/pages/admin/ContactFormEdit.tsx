@@ -34,7 +34,9 @@ interface FormStyle {
   inputText: string;
   inputRadius: number;
   inputFocusBorder: string;
+  placeholderColor: string;
   buttonBg: string;
+  buttonHoverBg: string;
   buttonText: string;
   buttonRadius: number;
   formBg: string;
@@ -50,7 +52,9 @@ const DEFAULT_STYLE: FormStyle = {
   inputText: '#111111',
   inputRadius: 14,
   inputFocusBorder: '#111111',
+  placeholderColor: '#aaaaaa',
   buttonBg: '#111111',
+  buttonHoverBg: '#333333',
   buttonText: '#ffffff',
   buttonRadius: 99,
   formBg: '#EAEAEC',
@@ -166,10 +170,10 @@ function buildPreviewHtml(fields: BuilderField[], style: FormStyle): string {
   body{font-family:${style.fontFamily};background:${style.formBg};padding:24px;-webkit-font-smoothing:antialiased;}
   form{display:flex;flex-wrap:wrap;margin:-4px -6px;max-width:640px;}
   .cf-submit-row{width:100%;padding:8px 6px 0;}
-  button[type="submit"]{display:inline-flex;align-items:center;background:${style.buttonBg};color:${style.buttonText};border:none;border-radius:${style.buttonRadius}px;padding:11px 26px;font-size:13px;font-weight:600;font-family:${style.fontFamily};cursor:pointer;}
-  button[type="submit"]:hover{opacity:0.85;}
+  button[type="submit"]{display:inline-flex;align-items:center;background:${style.buttonBg};color:${style.buttonText};border:none;border-radius:${style.buttonRadius}px;padding:11px 26px;font-size:13px;font-weight:600;font-family:${style.fontFamily};cursor:pointer;transition:background 0.15s;}
+  button[type="submit"]:hover{background:${style.buttonHoverBg};}
   input:focus,textarea:focus,select:focus{border-color:${style.inputFocusBorder}!important;box-shadow:0 0 0 3px ${style.inputFocusBorder}22!important;}
-  input::placeholder,textarea::placeholder{color:#aaa;}
+  input::placeholder,textarea::placeholder{color:${style.placeholderColor};}
 </style></head><body>
 <form onsubmit="event.preventDefault()">
 ${fieldHtml}
@@ -221,10 +225,18 @@ export default function ContactFormEdit() {
   const [toEmails, setToEmails] = useState('');
   const [redirectUrl, setRedirectUrl] = useState('');
   const [otpEnabled, setOtpEnabled] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [confirmEmailField, setConfirmEmailField] = useState('');
+  const [confirmMessage, setConfirmMessage] = useState('');
+  const [confirmAttachment, setConfirmAttachment] = useState<{ stored: string; original: string } | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [recaptchaKeys, setRecaptchaKeys] = useState({ recaptcha_site_key: '', recaptcha_secret_key: '', recaptcha_v3_site_key: '', recaptcha_v3_secret_key: '' });
   const [savingRecaptcha, setSavingRecaptcha] = useState(false);
   const [savedRecaptcha, setSavedRecaptcha] = useState(false);
   const [showRecaptchaSecrets, setShowRecaptchaSecrets] = useState<Record<string, boolean>>({});
+  const [cloning, setCloning] = useState(false);
+  const [formName, setFormName] = useState('');
+  const [conditions, setConditions] = useState<Array<{ fieldId: string; operator: string; value: string; action: string; targetId: string }>>([]);
   const [tab, setTab] = useState<'builder' | 'style' | 'settings'>('builder');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -239,9 +251,15 @@ export default function ContactFormEdit() {
     contactFormsApi.getForm(Number(formId)).then((res) => {
       const data = res.data;
       setForm(data);
+      setFormName(data.name || '');
       setToEmails(data.toEmails ?? data.to_emails ?? '');
       setRedirectUrl(data.redirect_url || '');
       setOtpEnabled(!!data.otp_enabled);
+      setWebhookUrl(data.webhook_url || '');
+      setConfirmEmailField(data.confirmation_email_field || '');
+      setConfirmMessage(data.confirmation_message || '');
+      setConditions(data.conditions || []);
+      try { setConfirmAttachment(data.confirmation_attachment ? JSON.parse(data.confirmation_attachment) : null); } catch { setConfirmAttachment(null); }
       // load builder fields; fall back to parsing legacy template
       if (data.fields && data.fields.length > 0 && data.fields[0].width != null) {
         setFields(savedFieldsToBuilder(data.fields));
@@ -331,6 +349,10 @@ export default function ContactFormEdit() {
       redirectUrl,
       otpEnabled,
       style_config: styleJson,
+      webhook_url: webhookUrl,
+      confirmation_email_field: confirmEmailField,
+      confirmation_message: confirmMessage,
+      conditions: conditions.length ? conditions : null,
     });
     setSaving(false);
     setSaved(true);
@@ -348,13 +370,31 @@ export default function ContactFormEdit() {
           items={[
             { label: 'Contact Forms', href: '/contact-forms' },
             { label: project?.name || '...', href: `/contact-forms/${projectId}` },
-            { label: form.name },
+            { label: formName || form.name },
           ]}
         />
         <div className="cf-header">
-          <h1>{form.name}</h1>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="cf-name-input"
+            value={formName}
+            onChange={(e) => setFormName(e.target.value)}
+            onBlur={async () => {
+              const trimmed = formName.trim();
+              if (!trimmed || trimmed === form.name) return;
+              await contactFormsApi.updateForm(Number(formId), { name: trimmed });
+              setForm((f: any) => ({ ...f, name: trimmed }));
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <a href={`/contact-forms/${projectId}/forms/${formId}/test`} className="btn-secondary">Test Form</a>
+            <button className="btn-secondary" disabled={cloning} onClick={async () => {
+              setCloning(true);
+              try {
+                const res = await contactFormsApi.cloneForm(projectId, Number(formId));
+                window.location.href = `/contact-forms/${projectId}/forms/${res.data.id}`;
+              } finally { setCloning(false); }
+            }}>{cloning ? 'Cloning…' : 'Clone Form'}</button>
             <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
             {saved && <span className="cf-saved" style={{ alignSelf: 'center' }}>Saved.</span>}
           </div>
@@ -579,8 +619,13 @@ export default function ContactFormEdit() {
                 </StyleField>
 
                 <StyleField label="Input Text Color">
-                  <input type="color" className="cfb-color-swatch" value={style.inputText} onChange={e => setStyle(s => ({ ...s, inputText: e.target.value }))} />
+                  <input type="color" className="cfb-color-swatch" value={rgbToHex(style.inputText)} onChange={e => setStyle(s => ({ ...s, inputText: e.target.value }))} />
                   <input className="cfb-prop-input cfb-color-text" value={style.inputText} onChange={e => setStyle(s => ({ ...s, inputText: e.target.value }))} />
+                </StyleField>
+
+                <StyleField label="Placeholder Color">
+                  <input type="color" className="cfb-color-swatch" value={rgbToHex(style.placeholderColor)} onChange={e => setStyle(s => ({ ...s, placeholderColor: e.target.value }))} />
+                  <input className="cfb-prop-input cfb-color-text" value={style.placeholderColor} onChange={e => setStyle(s => ({ ...s, placeholderColor: e.target.value }))} />
                 </StyleField>
 
                 <StyleField label={`Input Border Radius (${style.inputRadius}px)`}>
@@ -588,8 +633,13 @@ export default function ContactFormEdit() {
                 </StyleField>
 
                 <StyleField label="Button Background">
-                  <input type="color" className="cfb-color-swatch" value={style.buttonBg} onChange={e => setStyle(s => ({ ...s, buttonBg: e.target.value }))} />
+                  <input type="color" className="cfb-color-swatch" value={rgbToHex(style.buttonBg)} onChange={e => setStyle(s => ({ ...s, buttonBg: e.target.value }))} />
                   <input className="cfb-prop-input cfb-color-text" value={style.buttonBg} onChange={e => setStyle(s => ({ ...s, buttonBg: e.target.value }))} />
+                </StyleField>
+
+                <StyleField label="Button Hover Color">
+                  <input type="color" className="cfb-color-swatch" value={rgbToHex(style.buttonHoverBg)} onChange={e => setStyle(s => ({ ...s, buttonHoverBg: e.target.value }))} />
+                  <input className="cfb-prop-input cfb-color-text" value={style.buttonHoverBg} onChange={e => setStyle(s => ({ ...s, buttonHoverBg: e.target.value }))} />
                 </StyleField>
 
                 <StyleField label="Button Text Color">
@@ -645,6 +695,118 @@ export default function ContactFormEdit() {
               value={redirectUrl}
               onChange={(e) => setRedirectUrl(e.target.value)}
             />
+
+            <h2 className="cf-section-title" style={{ marginTop: 28 }}>Confirmation Email to Submitter</h2>
+            <p className="cf-hint">Automatically send a thank-you reply to the person who submitted the form.</p>
+            <label className="cf-label" style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600, marginTop: 10 }}>Email field name</label>
+            <select
+              className="cf-recipients"
+              value={confirmEmailField}
+              onChange={(e) => setConfirmEmailField(e.target.value)}
+              style={{ marginBottom: 8 }}
+            >
+              <option value="">— Disabled —</option>
+              {fields.filter((f) => f.type === 'email').map((f) => (
+                <option key={f.id} value={f.id}>{f.label} ({f.id})</option>
+              ))}
+            </select>
+            <label className="cf-label" style={{ display: 'block', marginBottom: 4, fontSize: 12, fontWeight: 600 }}>Message body</label>
+            <textarea
+              className="cf-recipients"
+              rows={4}
+              placeholder="Thank you for reaching out! We'll get back to you shortly."
+              value={confirmMessage}
+              onChange={(e) => setConfirmMessage(e.target.value)}
+              style={{ resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            <label className="cf-label" style={{ display: 'block', marginBottom: 6, fontSize: 12, fontWeight: 600, marginTop: 10 }}>Attachment (optional)</label>
+            <p className="cf-hint" style={{ marginBottom: 8 }}>A file attached to every confirmation email — e.g. a brochure, welcome guide, or price list.</p>
+            {confirmAttachment ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-raised)', borderRadius: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 13 }}>📎 {confirmAttachment.original}</span>
+                <button
+                  type="button"
+                  style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                  onClick={async () => {
+                    await contactFormsApi.deleteConfirmAttachment(Number(formId));
+                    setConfirmAttachment(null);
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: uploadingAttachment ? 'not-allowed' : 'pointer', opacity: uploadingAttachment ? 0.6 : 1 }}>
+                <input
+                  type="file"
+                  style={{ display: 'none' }}
+                  disabled={uploadingAttachment}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploadingAttachment(true);
+                    try {
+                      const res = await contactFormsApi.uploadConfirmAttachment(Number(formId), file);
+                      setConfirmAttachment(res.data);
+                    } finally { setUploadingAttachment(false); }
+                    e.target.value = '';
+                  }}
+                />
+                <span className="btn-secondary" style={{ pointerEvents: 'none' }}>
+                  {uploadingAttachment ? 'Uploading…' : '↑ Upload File'}
+                </span>
+              </label>
+            )}
+
+            <h2 className="cf-section-title" style={{ marginTop: 28 }}>Webhook</h2>
+            <p className="cf-hint">Send a POST request with submission data to this URL on every submission (Zapier, Make, etc.).</p>
+            <input
+              className="cf-recipients"
+              type="url"
+              autoComplete="off"
+              placeholder="https://hooks.zapier.com/hooks/catch/..."
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+            />
+
+            <h2 className="cf-section-title" style={{ marginTop: 28 }}>Conditional Logic</h2>
+            <p className="cf-hint">Show or hide fields based on other field values. Rules are applied in the embedded form in real-time.</p>
+            {conditions.map((cond, i) => {
+              const update = (patch: Partial<typeof cond>) => setConditions(prev => prev.map((c, j) => j === i ? { ...c, ...patch } : c));
+              const allFields = fields.filter(f => !['step', 'html', 'hidden', 'recaptcha', 'recaptchav3'].includes(f.type));
+              return (
+                <div key={i} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '10px 12px', background: 'var(--surface-raised)', borderRadius: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-muted)', minWidth: 24 }}>If</span>
+                  <select className="cf-recipients" style={{ flex: 1, minWidth: 100, marginBottom: 0 }} value={cond.fieldId} onChange={e => update({ fieldId: e.target.value })}>
+                    <option value="">— Field —</option>
+                    {allFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                  </select>
+                  <select className="cf-recipients" style={{ flex: 1, minWidth: 100, marginBottom: 0 }} value={cond.operator} onChange={e => update({ operator: e.target.value })}>
+                    <option value="equals">equals</option>
+                    <option value="not_equals">not equals</option>
+                    <option value="contains">contains</option>
+                    <option value="not_empty">is not empty</option>
+                    <option value="empty">is empty</option>
+                  </select>
+                  {!['not_empty', 'empty'].includes(cond.operator) && (
+                    <input className="cf-recipients" style={{ flex: 1, minWidth: 80, marginBottom: 0 }} placeholder="value" value={cond.value} onChange={e => update({ value: e.target.value })} />
+                  )}
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-muted)' }}>then</span>
+                  <select className="cf-recipients" style={{ minWidth: 70, marginBottom: 0 }} value={cond.action} onChange={e => update({ action: e.target.value })}>
+                    <option value="show">show</option>
+                    <option value="hide">hide</option>
+                  </select>
+                  <select className="cf-recipients" style={{ flex: 1, minWidth: 100, marginBottom: 0 }} value={cond.targetId} onChange={e => update({ targetId: e.target.value })}>
+                    <option value="">— Field —</option>
+                    {allFields.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                  </select>
+                  <button type="button" style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 16, padding: '0 4px' }} onClick={() => setConditions(prev => prev.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              );
+            })}
+            <button type="button" className="btn-secondary" style={{ marginTop: 4 }} onClick={() => setConditions(prev => [...prev, { fieldId: '', operator: 'equals', value: '', action: 'show', targetId: '' }])}>
+              + Add Condition
+            </button>
 
             <h2 className="cf-section-title" style={{ marginTop: 28 }}>reCAPTCHA Keys</h2>
             <p className="cf-hint">Required when using reCAPTCHA fields in your forms. Keys are shared across all forms.</p>
