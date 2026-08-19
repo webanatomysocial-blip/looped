@@ -418,13 +418,41 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
   res.json({ ok: true, next: 'completed' });
 });
 
-// Admin: approve final
+// Admin: approve and send to client for review
 router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response) => {
   if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
   const db = getDB();
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
-  await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', 'completed', req.body.comment);
+  const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
+  const finalApproval = ticketType?.final_approval ? JSON.parse(ticketType.final_approval) : {};
+  const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
+  if (finalApproval.clientOptional) {
+    // Send to client for review
+    await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', 'pending_client', req.body.comment);
+    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client' });
+    if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8', admin_approved_by: req.user!.id, admin_approved_at: new Date() });
+    const clientUsers = await db('users').where({ role: 'client' }).select('id');
+    for (const c of clientUsers) {
+      await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
+    }
+    res.json({ ok: true, next: 'pending_client' });
+  } else {
+    // No client step — complete directly
+    await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', 'completed', req.body.comment);
+    await completeTicket(db, ticket, req.user!);
+    if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date(), admin_approved_by: req.user!.id, admin_approved_at: new Date() });
+    res.json({ ok: true, next: 'completed' });
+  }
+});
+
+// Admin: skip client and complete directly
+router.post('/tickets/:id/admin-send-client', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const db = getDB();
+  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
+  if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
+  await appendLog(ticket.id, req.user!, 'admin_skip_client', 'pending_admin', 'completed', req.body.comment);
   await completeTicket(db, ticket, req.user!);
   const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
   if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date(), admin_approved_by: req.user!.id, admin_approved_at: new Date() });
