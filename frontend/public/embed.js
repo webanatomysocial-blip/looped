@@ -34,7 +34,7 @@
       '.wa-cf-form { display: flex; flex-wrap: wrap; gap: 14px; }',
       '.wa-cf-field { display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; }',
       '.wa-cf-field-error { font-size: 11px; font-weight: 600; color: #E8424A; letter-spacing: 0.02em; }',
-      '.wa-cf-success { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; background: rgba(76,175,125,0.08); border: 1px solid rgba(76,175,125,0.25); border-radius: 16px; color: #1f6b43; font-size: 14px; font-weight: 600; line-height: 1.5; }',
+      '.wa-cf-success { display: flex; align-items: flex-start; gap: 12px; padding: 16px 20px; background: rgba(76,175,125,0.08); border: 1px solid rgba(76,175,125,0.25); border-radius: 16px; color: #1f6b43; font-size: 14px; font-weight: 600; line-height: 1.5; margin-top: 14px; width: 100%; box-sizing: border-box; }',
       '.wa-cf-success-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }',
       '.wa-cf-error-msg { padding: 12px 16px; background: rgba(232,66,74,0.06); border: 1px solid rgba(232,66,74,0.2); border-radius: 12px; color: #b0282e; font-size: 13px; font-weight: 500; margin-bottom: 4px; width: 100%; box-sizing: border-box; }',
       '.wa-cf-step-bar { display: flex; gap: 6px; margin-bottom: 18px; width: 100%; }',
@@ -198,8 +198,10 @@
     }
 
     if (f.type === 'recaptcha' || f.type === 'recaptchav3') {
+      var rcId = 'wa-rc-' + formId + '-' + (f.name || f.id);
       wrap.setAttribute('data-recaptcha', f.type);
       wrap.setAttribute('data-recaptcha-field', f.name || f.id);
+      wrap.id = rcId;
       // placeholder — real widget mounted after render
       return wrap;
     }
@@ -274,15 +276,16 @@
         var type = w.getAttribute('data-recaptcha');
         if (type === 'recaptcha' && siteKeys.v2 && window.grecaptcha && window.grecaptcha.render) {
           try {
-            window.grecaptcha.render(w, {
+            var target = w.id ? w.id : w;
+            window.grecaptcha.render(target, {
               sitekey: siteKeys.v2,
               callback: function (token) {
-                var hi = formEl.querySelector('input[name="g-recaptcha-response"]') || document.createElement('input');
-                hi.type = 'hidden'; hi.name = 'g-recaptcha-response'; hi.value = token;
-                formEl.appendChild(hi);
+                var hi = formEl.querySelector('input[name="g-recaptcha-response"]');
+                if (!hi) { hi = document.createElement('input'); hi.type = 'hidden'; hi.name = 'g-recaptcha-response'; formEl.appendChild(hi); }
+                hi.value = token;
               },
             });
-          } catch (e) {}
+          } catch (e) { console.warn('reCAPTCHA render error:', e); }
         } else if (type === 'recaptchav3' && siteKeys.v3 && window.grecaptcha && window.grecaptcha.ready) {
           window.grecaptcha.ready(function () {
             // Execute on submit — attach listener
@@ -344,9 +347,19 @@
     return fd;
   }
 
-  function showSuccess(redirectUrl) {
+  function showSuccess(redirectUrl, submitBtn) {
     if (!noRedirect && redirectUrl && redirectUrl.trim()) { window.location.href = redirectUrl.trim(); return; }
-    container.innerHTML = '<div class="wa-cf-success"><div class="wa-cf-success-icon">✓</div><div>Your message was sent successfully.<br>We\'ll be in touch soon.</div></div>';
+    var existing = container.querySelector('.wa-cf-success');
+    if (existing) existing.remove();
+    var msg = document.createElement('div');
+    msg.className = 'wa-cf-success';
+    msg.innerHTML = '<div class="wa-cf-success-icon">✓</div><div>Your message was sent successfully.<br>We\'ll be in touch soon.</div>';
+    // Insert after the submit button
+    if (submitBtn && submitBtn.parentElement) {
+      submitBtn.parentElement.insertAdjacentElement('afterend', msg);
+    } else {
+      container.appendChild(msg);
+    }
   }
 
   function showError(msg) {
@@ -456,7 +469,7 @@
       fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', fetchOpts)
         .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
         .then(function (r) {
-          if (r.ok) { showSuccess(redirectUrl); }
+          if (r.ok) { showSuccess(redirectUrl, submitBtn); }
           else { submitBtn.disabled = false; submitBtn.textContent = s.submitLabel || 'Send'; showError(r.data.error || 'Submission failed.'); }
         })
         .catch(function () { submitBtn.disabled = false; submitBtn.textContent = s.submitLabel || 'Send'; showError('Network error. Please try again.'); });
@@ -503,7 +516,7 @@
       fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', fetchOpts)
         .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
         .then(function (r) {
-          if (r.ok) { showSuccess(redirectUrl); }
+          if (r.ok) { showSuccess(redirectUrl, btn); }
           else { btn.disabled = false; btn.textContent = s.submitLabel || 'Send'; showError(r.data.error || 'Submission failed.'); }
         })
         .catch(function () { btn.disabled = false; btn.textContent = s.submitLabel || 'Send'; showError('Network error. Please try again.'); });
