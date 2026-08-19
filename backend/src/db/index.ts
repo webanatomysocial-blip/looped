@@ -1062,7 +1062,7 @@ async function seedAdmin(): Promise<void> {
   // Seed default employee categories (always, in all environments)
   const defaultCategories = [
     'Web Developer', 'UI/UX Designer', 'Social Media Manager',
-    'Ads Specialist', 'Sales Executive', 'SEO Specialist',
+    'Ads Specialist', 'Sales Executive', 'SEO Specialist', 'Designer',
   ];
   for (const name of defaultCategories) {
     const exists = await db('employee_categories').where({ name }).first();
