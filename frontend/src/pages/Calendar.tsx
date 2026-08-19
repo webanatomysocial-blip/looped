@@ -328,19 +328,6 @@ export default function CalendarPage() {
                   <label className="cal-label">End Date <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional — leave blank for no end)</span></label>
                   <input className="cal-input" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
                 </div>
-
-                <div className="cal-form-2col">
-                  <div className="cal-form-row">
-                    <label className="cal-label">Est. Hours</label>
-                    <input className="cal-input" type="number" min={0.25} step={0.25} value={form.estimated_hours} onChange={e => setForm(f => ({ ...f, estimated_hours: e.target.value }))} />
-                  </div>
-                  <div className="cal-form-row">
-                    <label className="cal-label">Priority</label>
-                    <select className="cal-input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
-                      {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                    </select>
-                  </div>
-                </div>
               </div>
 
               <div className="cal-modal-footer">
