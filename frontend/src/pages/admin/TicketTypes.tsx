@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import Layout from '../../components/Layout/Layout';
 import { xlr8Api, categoriesApi } from '../../services/api';
-import { RiAddLine, RiDeleteBinLine, RiEditLine, RiArrowUpLine, RiArrowDownLine, RiArrowLeftLine } from 'react-icons/ri';
+import {
+  RiAddLine, RiDeleteBinLine, RiEditLine, RiArrowUpLine, RiArrowDownLine, RiArrowLeftLine,
+  RiSmartphoneLine, RiArticleLine, RiComputerLine, RiToolsLine, RiLayoutLine,
+  RiPenNibLine, RiAwardLine, RiMegaphoneLine, RiGoogleLine, RiFacebookBoxLine,
+  RiBarChartLine, RiLineChartLine, RiMailLine, RiCursorLine,
+} from 'react-icons/ri';
 
 interface Stage { category_id: number; category_name: string }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
@@ -13,21 +18,21 @@ interface Category { id: number; name: string }
 const DEFAULT_FA: FinalApproval = { adminRequired: true, adminSkippable: true, clientOptional: true };
 
 // Template definitions — stage names matched to category names at runtime
-const TEMPLATES: { name: string; stages: string[]; icon: string }[] = [
-  { name: 'SSM Post',              stages: ['Graphic Designer', 'Social Media Manager'],        icon: '📱' },
-  { name: 'Blog Post',             stages: ['Social Media Manager', 'SEO Specialist'],  icon: '✍️' },
-  { name: 'New Website',           stages: ['UI/UX Designer', 'Web Developer'],         icon: '🌐' },
-  { name: 'Website Update',        stages: ['Web Developer'],                            icon: '🔧' },
-  { name: 'Landing Page Design',   stages: ['UI/UX Designer', 'Web Developer'],         icon: '🖥️' },
-  { name: 'Logo Design',           stages: ['Graphic Designer'],                                 icon: '🎨' },
-  { name: 'Brand Identity',        stages: ['UI/UX Designer'],                          icon: '💎' },
-  { name: 'Ad Creative',           stages: ['UI/UX Designer', 'Ads Specialist'],        icon: '📢' },
-  { name: 'Google Ads Campaign',   stages: ['Ads Specialist'],                          icon: '🔍' },
-  { name: 'Meta Ads Campaign',     stages: ['Ads Specialist'],                          icon: '📘' },
-  { name: 'SEO Audit',             stages: ['SEO Specialist'],                          icon: '📊' },
-  { name: 'SEO Report',            stages: ['SEO Specialist'],                          icon: '📈' },
-  { name: 'Email Campaign Design', stages: ['UI/UX Designer', 'Social Media Manager'], icon: '📧' },
-  { name: 'Lead Generation',       stages: ['Ads Specialist', 'Sales Executive'],       icon: '🎯' },
+const TEMPLATES: { name: string; stages: string[]; icon: React.ElementType }[] = [
+  { name: 'SSM Post',              stages: ['Graphic Designer', 'Social Media Manager'], icon: RiSmartphoneLine },
+  { name: 'Blog Post',             stages: ['Social Media Manager', 'SEO Specialist'],   icon: RiArticleLine },
+  { name: 'New Website',           stages: ['UI/UX Designer', 'Web Developer'],          icon: RiComputerLine },
+  { name: 'Website Update',        stages: ['Web Developer'],                             icon: RiToolsLine },
+  { name: 'Landing Page Design',   stages: ['UI/UX Designer', 'Web Developer'],          icon: RiLayoutLine },
+  { name: 'Logo Design',           stages: ['Graphic Designer'],                          icon: RiPenNibLine },
+  { name: 'Brand Identity',        stages: ['UI/UX Designer'],                           icon: RiAwardLine },
+  { name: 'Ad Creative',           stages: ['UI/UX Designer', 'Ads Specialist'],         icon: RiMegaphoneLine },
+  { name: 'Google Ads Campaign',   stages: ['Ads Specialist'],                           icon: RiGoogleLine },
+  { name: 'Meta Ads Campaign',     stages: ['Ads Specialist'],                           icon: RiFacebookBoxLine },
+  { name: 'SEO Audit',             stages: ['SEO Specialist'],                           icon: RiBarChartLine },
+  { name: 'SEO Report',            stages: ['SEO Specialist'],                           icon: RiLineChartLine },
+  { name: 'Email Campaign Design', stages: ['UI/UX Designer', 'Social Media Manager'],  icon: RiMailLine },
+  { name: 'Lead Generation',       stages: ['Ads Specialist', 'Sales Executive'],        icon: RiCursorLine },
 ];
 
 export default function TicketTypes() {
@@ -130,7 +135,7 @@ export default function TicketTypes() {
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--blue, #2563eb)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 3px rgba(37,99,235,0.08)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--sand-border)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
                 >
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>{tpl.icon}</div>
+                  <div style={{ fontSize: 28, marginBottom: 8, color: 'var(--blue, #2563eb)' }}><tpl.icon /></div>
                   <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 8 }}>{tpl.name}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {stages.map((s, i) => (
