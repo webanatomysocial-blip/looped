@@ -10,8 +10,9 @@ import {
 
 interface Stage { category_id: number; category_name: string }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
+interface ChecklistItem { text: string; checked: boolean }
 interface TicketType {
-  id: number; name: string; stages: Stage[]; final_approval: FinalApproval; created_at: string;
+  id: number; name: string; stages: Stage[]; final_approval: FinalApproval; checklist: ChecklistItem[]; created_at: string;
 }
 interface Category { id: number; name: string }
 
@@ -41,7 +42,7 @@ export default function TicketTypes() {
   const [editing, setEditing] = useState<TicketType | null>(null);
   const [view, setView] = useState<'list' | 'pick' | 'form'>('list');
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', stages: [] as Stage[], final_approval: { ...DEFAULT_FA } });
+  const [form, setForm] = useState({ name: '', stages: [] as Stage[], final_approval: { ...DEFAULT_FA }, checklist: [] as ChecklistItem[] });
 
   const load = () => xlr8Api.getTicketTypes().then((r) => setTypes(r.data));
   useEffect(() => {
@@ -57,7 +58,7 @@ export default function TicketTypes() {
   }
 
   function pickTemplate(tpl: typeof TEMPLATES[0]) {
-    setForm({ name: tpl.name, stages: resolveStages(tpl.stages), final_approval: { ...DEFAULT_FA } });
+    setForm({ name: tpl.name, stages: resolveStages(tpl.stages), final_approval: { ...DEFAULT_FA }, checklist: [] });
     setEditing(null);
     setView('form');
   }
@@ -65,7 +66,7 @@ export default function TicketTypes() {
   function openCreate() { setView('pick'); }
 
   function openEdit(t: TicketType) {
-    setForm({ name: t.name, stages: [...t.stages], final_approval: { ...DEFAULT_FA, ...t.final_approval } });
+    setForm({ name: t.name, stages: [...t.stages], final_approval: { ...DEFAULT_FA, ...t.final_approval }, checklist: t.checklist || [] });
     setEditing(t);
     setView('form');
   }
@@ -132,10 +133,10 @@ export default function TicketTypes() {
                   key={tpl.name}
                   onClick={() => pickTemplate(tpl)}
                   style={{ border: '1.5px solid var(--sand-border)', borderRadius: 12, padding: '16px', cursor: 'pointer', background: 'var(--surface)', transition: 'border-color 0.15s, box-shadow 0.15s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--blue, #2563eb)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 3px rgba(37,99,235,0.08)'; }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#000000ff'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 3px rgba(37,99,235,0.08)'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--sand-border)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
                 >
-                  <div style={{ fontSize: 28, marginBottom: 8, color: 'var(--blue, #2563eb)' }}><tpl.icon /></div>
+                  <div style={{ fontSize: 28, marginBottom: 8, color: 'var( #000000ff)' }}><tpl.icon /></div>
                   <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 8 }}>{tpl.name}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {stages.map((s, i) => (
@@ -155,7 +156,7 @@ export default function TicketTypes() {
           </div>
 
           <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => {
-            setForm({ name: '', stages: [], final_approval: { ...DEFAULT_FA } });
+            setForm({ name: '', stages: [], final_approval: { ...DEFAULT_FA }, checklist: [] });
             setEditing(null);
             setView('form');
           }}>
@@ -205,6 +206,32 @@ export default function TicketTypes() {
                     <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0}><RiArrowUpLine /></button>
                     <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1}><RiArrowDownLine /></button>
                     <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => removeStage(i)}><RiDeleteBinLine /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <label className="form-label" style={{ marginBottom: 0 }}>Default Checklist Goals</label>
+                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} type="button"
+                  onClick={() => setForm(f => ({ ...f, checklist: [...f.checklist, { text: '', checked: false }] }))}>
+                  <RiAddLine style={{ marginRight: 4 }} />Add Item
+                </button>
+              </div>
+              {form.checklist.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>No checklist items — tasks of this type start with an empty checklist.</p>}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {form.checklist.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input type="checkbox" checked={item.checked}
+                      onChange={e => setForm(f => { const c = [...f.checklist]; c[i] = { ...c[i], checked: e.target.checked }; return { ...f, checklist: c }; })}
+                      title="Pre-checked by default" />
+                    <input className="form-input" style={{ flex: 1, marginBottom: 0 }} value={item.text} placeholder="Checklist item"
+                      onChange={e => setForm(f => { const c = [...f.checklist]; c[i] = { ...c[i], text: e.target.value }; return { ...f, checklist: c }; })} />
+                    <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} type="button"
+                      onClick={() => setForm(f => ({ ...f, checklist: f.checklist.filter((_, idx) => idx !== i) }))}>
+                      <RiDeleteBinLine />
+                    </button>
                   </div>
                 ))}
               </div>

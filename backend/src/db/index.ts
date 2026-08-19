@@ -984,6 +984,9 @@ async function createSchema(): Promise<void> {
         t.text('final_approval').defaultTo('{"adminRequired":true,"adminSkippable":true,"clientOptional":true}');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasChecklist = await db.schema.hasColumn('xlr8_ticket_types', 'checklist');
+      if (!hasChecklist) await db.schema.table('xlr8_ticket_types', t => { t.text('checklist').defaultTo('[]'); });
     }
   });
 

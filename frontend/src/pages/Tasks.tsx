@@ -53,7 +53,7 @@ export default function Tasks() {
     est_hours: '', est_minutes: '0',
     ticket_type_id: '',
   });
-  const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[] }[]>([]);
+  const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
   // XLR8 ticket workflow modal
   const [ticketActionTask, setTicketActionTask] = useState<any>(null);
   const [ticketEligible, setTicketEligible] = useState<any[] | null>(null);
@@ -687,7 +687,11 @@ export default function Tasks() {
                     return (
                       <div className="drawer-info-field">
                         <div className="drawer-info-label">Ticket Type *</div>
-                        <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => setForm({ ...form, ticket_type_id: e.target.value })} required>
+                        <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => {
+                          const tt = ticketTypes.find(t => String(t.id) === e.target.value);
+                          const checklist = tt?.checklist?.length ? tt.checklist.map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
+                          setForm({ ...form, ticket_type_id: e.target.value, checklist });
+                        }} required>
                           <option value="">Select type…</option>
                           {ticketTypes.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
                         </select>

@@ -16,6 +16,7 @@ function parseTicketType(row: any) {
     ...row,
     stages: JSON.parse(row.stages || '[]'),
     final_approval: JSON.parse(row.final_approval || '{}'),
+    checklist: JSON.parse(row.checklist || '[]'),
   };
 }
 
@@ -41,24 +42,26 @@ router.get('/ticket-types', async (_req: AuthRequest, res: Response) => {
 
 router.post('/ticket-types', async (req: AuthRequest, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  const { name, stages, final_approval } = req.body;
+  const { name, stages, final_approval, checklist } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   const [id] = await getDB()('xlr8_ticket_types').insert({
     name: name.trim(),
     stages: JSON.stringify(stages || []),
     final_approval: JSON.stringify(final_approval || { adminRequired: true, adminSkippable: true, clientOptional: true }),
+    checklist: JSON.stringify(checklist || []),
   });
   res.status(201).json({ id });
 });
 
 router.put('/ticket-types/:id', async (req: AuthRequest, res: Response) => {
   if (!requireAdmin(req, res)) return;
-  const { name, stages, final_approval } = req.body;
+  const { name, stages, final_approval, checklist } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   await getDB()('xlr8_ticket_types').where({ id: req.params.id }).update({
     name: name.trim(),
     stages: JSON.stringify(stages || []),
     final_approval: JSON.stringify(final_approval || {}),
+    checklist: JSON.stringify(checklist || []),
   });
   res.json({ ok: true });
 });
