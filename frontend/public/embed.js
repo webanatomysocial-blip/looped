@@ -306,15 +306,32 @@
       });
     }
 
-    if ((needsV2 && siteKeys.v2) || (needsV3 && siteKeys.v3)) {
-      var scriptSrcV2 = needsV2 ? 'https://www.google.com/recaptcha/api.js' : null;
-      var scriptSrcV3 = needsV3 && siteKeys.v3 ? 'https://www.google.com/recaptcha/api.js?render=' + siteKeys.v3 : null;
-      var rcSrc = scriptSrcV3 || scriptSrcV2;
-      if (rcSrc && !document.querySelector('script[src*="recaptcha"]')) {
+    if (needsV2 && siteKeys.v2) {
+      // v2: use explicit render mode with onload callback so grecaptcha.render is available
+      var cbName = 'waRcLoaded_' + formId;
+      window[cbName] = doMount;
+      if (!document.querySelector('script[src*="recaptcha/api.js"]')) {
         var rcScript = document.createElement('script');
-        rcScript.src = rcSrc; rcScript.async = true; rcScript.defer = true;
-        rcScript.onload = doMount;
+        rcScript.src = 'https://www.google.com/recaptcha/api.js?onload=' + cbName + '&render=explicit';
+        rcScript.async = true; rcScript.defer = true;
         document.head.appendChild(rcScript);
+      } else if (window.grecaptcha && window.grecaptcha.render) {
+        doMount();
+      } else {
+        // script loading but grecaptcha not ready yet — poll briefly
+        var t = 0;
+        var iv = setInterval(function () {
+          if (window.grecaptcha && window.grecaptcha.render) { clearInterval(iv); doMount(); }
+          if (++t > 20) clearInterval(iv);
+        }, 250);
+      }
+    } else if (needsV3 && siteKeys.v3) {
+      if (!document.querySelector('script[src*="recaptcha/api.js"]')) {
+        var rcScript3 = document.createElement('script');
+        rcScript3.src = 'https://www.google.com/recaptcha/api.js?render=' + siteKeys.v3;
+        rcScript3.async = true; rcScript3.defer = true;
+        rcScript3.onload = doMount;
+        document.head.appendChild(rcScript3);
       } else { doMount(); }
     }
   }
@@ -347,14 +364,15 @@
     return fd;
   }
 
-  function showSuccess(redirectUrl, submitBtn) {
+  function showSuccess(redirectUrl, submitBtn, successMessage) {
     if (!noRedirect && redirectUrl && redirectUrl.trim()) { window.location.href = redirectUrl.trim(); return; }
     var existing = container.querySelector('.wa-cf-success');
     if (existing) existing.remove();
+    var text = (successMessage || "Your message was sent successfully.\nWe'll be in touch soon.").replace(/\n/g, '<br>');
     var msg = document.createElement('div');
     msg.className = 'wa-cf-success';
-    msg.innerHTML = '<div class="wa-cf-success-icon">✓</div><div>Your message was sent successfully.<br>We\'ll be in touch soon.</div>';
-    // Insert after the submit button
+    msg.innerHTML = '<div class="wa-cf-success-icon">✓</div><div>' + text + '</div>';
+    // Insert after the submit button row
     if (submitBtn && submitBtn.parentElement) {
       submitBtn.parentElement.insertAdjacentElement('afterend', msg);
     } else {
@@ -469,7 +487,7 @@
       fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', fetchOpts)
         .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
         .then(function (r) {
-          if (r.ok) { showSuccess(redirectUrl, submitBtn); }
+          if (r.ok) { showSuccess(redirectUrl, submitBtn, s.successMessage); }
           else { submitBtn.disabled = false; submitBtn.textContent = s.submitLabel || 'Send'; showError(r.data.error || 'Submission failed.'); }
         })
         .catch(function () { submitBtn.disabled = false; submitBtn.textContent = s.submitLabel || 'Send'; showError('Network error. Please try again.'); });
@@ -516,7 +534,7 @@
       fetch(apiBase + '/api/public/contact-forms/forms/' + formId + '/submit', fetchOpts)
         .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
         .then(function (r) {
-          if (r.ok) { showSuccess(redirectUrl, btn); }
+          if (r.ok) { showSuccess(redirectUrl, btn, s.successMessage); }
           else { btn.disabled = false; btn.textContent = s.submitLabel || 'Send'; showError(r.data.error || 'Submission failed.'); }
         })
         .catch(function () { btn.disabled = false; btn.textContent = s.submitLabel || 'Send'; showError('Network error. Please try again.'); });

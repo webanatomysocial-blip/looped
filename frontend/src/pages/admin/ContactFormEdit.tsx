@@ -43,6 +43,7 @@ interface FormStyle {
   formBg: string;
   fontFamily: string;
   submitLabel: string;
+  successMessage: string;
 }
 
 const DEFAULT_STYLE: FormStyle = {
@@ -61,6 +62,7 @@ const DEFAULT_STYLE: FormStyle = {
   formBg: '#EAEAEC',
   fontFamily: 'Inter, -apple-system, sans-serif',
   submitLabel: 'Send',
+  successMessage: "Your message was sent successfully.\nWe'll be in touch soon.",
 };
 
 const FIELD_PALETTE: { type: FieldType; label: string; icon: string }[] = [
@@ -321,6 +323,7 @@ export default function ContactFormEdit() {
 
   function onDrop(e: React.DragEvent, dropIdx: number) {
     e.preventDefault();
+    e.stopPropagation();
     const insertIdx = dragInsertAfter.current ? dropIdx + 1 : dropIdx;
     if (paletteType.current) {
       const label = FIELD_PALETTE.find(p => p.type === paletteType.current!)?.label ?? String(paletteType.current);
@@ -676,6 +679,10 @@ export default function ContactFormEdit() {
 
                 <StyleField label="Submit Button Label">
                   <input className="cfb-prop-input" value={style.submitLabel} onChange={e => setStyle(s => ({ ...s, submitLabel: e.target.value }))} />
+                </StyleField>
+
+                <StyleField label="Success Message">
+                  <textarea className="cfb-prop-input" rows={3} value={style.successMessage ?? DEFAULT_STYLE.successMessage} onChange={e => setStyle(s => ({ ...s, successMessage: e.target.value }))} style={{ resize: 'vertical' }} />
                 </StyleField>
               </div>
 
