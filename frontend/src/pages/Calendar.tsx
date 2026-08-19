@@ -93,6 +93,7 @@ export default function CalendarPage() {
   async function saveForm() {
     const payload = {
       ...form,
+      start_date: today.toISOString().slice(0, 10),
       assigned_to: form.assigned_to ? Number(form.assigned_to) : undefined,
       project_id: form.project_id ? Number(form.project_id) : null,
       recurrence_days: form.recurrence_type === 'weekly' ? form.recurrence_days : [],
@@ -323,15 +324,9 @@ export default function CalendarPage() {
                   </div>
                 )}
 
-                <div className="cal-form-2col">
-                  <div className="cal-form-row">
-                    <label className="cal-label">Start Date *</label>
-                    <input className="cal-input" type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
-                  </div>
-                  <div className="cal-form-row">
-                    <label className="cal-label">End Date</label>
-                    <input className="cal-input" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
-                  </div>
+                <div className="cal-form-row">
+                  <label className="cal-label">End Date <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional — leave blank for no end)</span></label>
+                  <input className="cal-input" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
                 </div>
 
                 <div className="cal-form-2col">
@@ -350,7 +345,7 @@ export default function CalendarPage() {
 
               <div className="cal-modal-footer">
                 <button className="btn-secondary" onClick={() => setModal(false)}>Cancel</button>
-                <button className="btn-primary" disabled={!form.title || !form.start_date} onClick={saveForm}>
+                <button className="btn-primary" disabled={!form.title} onClick={saveForm}>
                   {editing ? 'Save Changes' : 'Create Recurring Task'}
                 </button>
               </div>
