@@ -812,7 +812,7 @@ export default function Approvals() {
               if (st === 'pending_admin') return (
                 <button key="send-client" className="drawer-cancel" style={{ color: 'var(--blue)', borderColor: 'var(--blue)' }}
                   disabled={submitting} onClick={() => submitReview('send_client')}>
-                  Send to Client
+                  Skip Client
                 </button>
               );
               if (st === 'pending_manager') return (
