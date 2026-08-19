@@ -238,7 +238,7 @@
 }
 
 .cal-modal {
-  background: var(--surface);
+  background: white;
   border-radius: 16px;
   border: 1px solid var(--sand-border);
   width: 500px;
