@@ -14,12 +14,12 @@ const DEFAULT_FA: FinalApproval = { adminRequired: true, adminSkippable: true, c
 
 // Template definitions — stage names matched to category names at runtime
 const TEMPLATES: { name: string; stages: string[]; icon: string }[] = [
-  { name: 'SSM Post',              stages: ['Designer', 'Social Media Manager'],        icon: '📱' },
+  { name: 'SSM Post',              stages: ['Graphic Designer', 'Social Media Manager'],        icon: '📱' },
   { name: 'Blog Post',             stages: ['Social Media Manager', 'SEO Specialist'],  icon: '✍️' },
   { name: 'New Website',           stages: ['UI/UX Designer', 'Web Developer'],         icon: '🌐' },
   { name: 'Website Update',        stages: ['Web Developer'],                            icon: '🔧' },
   { name: 'Landing Page Design',   stages: ['UI/UX Designer', 'Web Developer'],         icon: '🖥️' },
-  { name: 'Logo Design',           stages: ['Designer'],                                 icon: '🎨' },
+  { name: 'Logo Design',           stages: ['Graphic Designer'],                                 icon: '🎨' },
   { name: 'Brand Identity',        stages: ['UI/UX Designer'],                          icon: '💎' },
   { name: 'Ad Creative',           stages: ['UI/UX Designer', 'Ads Specialist'],        icon: '📢' },
   { name: 'Google Ads Campaign',   stages: ['Ads Specialist'],                          icon: '🔍' },
