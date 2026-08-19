@@ -258,93 +258,100 @@ export default function CalendarPage() {
         {modal && (
           <div className="cal-modal-backdrop" onClick={() => setModal(false)}>
             <div className="cal-modal" onClick={e => e.stopPropagation()}>
-              <h2>{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</h2>
-
-              <div className="cal-form-row">
-                <label className="cal-label">Title *</label>
-                <input className="cal-input" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Post blog" autoFocus />
+              <div className="cal-modal-head">
+                <h2>{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</h2>
               </div>
 
-              <div className="cal-form-row">
-                <label className="cal-label">Description</label>
-                <textarea className="cal-input" rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional notes" style={{ resize: 'vertical' }} />
-              </div>
-
-              {isManager && (
+              <div className="cal-modal-body">
                 <div className="cal-form-row">
-                  <label className="cal-label">Assign To</label>
-                  <select className="cal-input" value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}>
-                    <option value={String(user?.id)}>Me ({user?.name})</option>
-                    {users.filter(u => u.id !== user?.id).map(u => (
-                      <option key={u.id} value={String(u.id)}>{u.name} ({u.role})</option>
-                    ))}
-                  </select>
+                  <label className="cal-label">Title *</label>
+                  <input className="cal-input" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Post blog every Monday" autoFocus />
                 </div>
-              )}
 
-              <div className="cal-form-row">
-                <label className="cal-label">Project (optional)</label>
-                <select className="cal-input" value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
-                  <option value="">None</option>
-                  {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                </select>
-              </div>
-
-              <div className="cal-form-row">
-                <label className="cal-label">Recurrence</label>
-                <select className="cal-input" value={form.recurrence_type} onChange={e => setForm(f => ({ ...f, recurrence_type: e.target.value }))}>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </div>
-
-              {form.recurrence_type === 'weekly' && (
                 <div className="cal-form-row">
-                  <label className="cal-label">Repeat on days</label>
-                  <div className="cal-days-picker">
-                    {DAY_NAMES.map((d, i) => (
-                      <button key={i} type="button" className={`cal-day-chip${form.recurrence_days.includes(i) ? ' selected' : ''}`} onClick={() => toggleDay(i)}>{d}</button>
+                  <label className="cal-label">Description</label>
+                  <textarea className="cal-input" rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional notes" style={{ resize: 'vertical' }} />
+                </div>
+
+                <div className="cal-form-2col">
+                  {isManager && (
+                    <div className="cal-form-row">
+                      <label className="cal-label">Assign To</label>
+                      <select className="cal-input" value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))}>
+                        <option value={String(user?.id)}>Me ({user?.name})</option>
+                        {users.filter(u => u.id !== user?.id).map(u => (
+                          <option key={u.id} value={String(u.id)}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="cal-form-row">
+                    <label className="cal-label">Project</label>
+                    <select className="cal-input" value={form.project_id} onChange={e => setForm(f => ({ ...f, project_id: e.target.value }))}>
+                      <option value="">None</option>
+                      {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="cal-form-row">
+                  <label className="cal-label">Recurrence</label>
+                  <div className="cal-recurrence-tabs">
+                    {(['daily','weekly','monthly'] as const).map(t => (
+                      <button key={t} type="button" className={`cal-recurrence-tab${form.recurrence_type === t ? ' active' : ''}`} onClick={() => setForm(f => ({ ...f, recurrence_type: t }))}>
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </button>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {form.recurrence_type === 'monthly' && (
-                <div className="cal-form-row">
-                  <label className="cal-label">Day of month</label>
-                  <input className="cal-input" type="number" min={1} max={31} value={form.day_of_month} onChange={e => setForm(f => ({ ...f, day_of_month: e.target.value }))} />
-                </div>
-              )}
+                {form.recurrence_type === 'weekly' && (
+                  <div className="cal-form-row">
+                    <label className="cal-label">Repeat on</label>
+                    <div className="cal-days-picker">
+                      {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d, i) => (
+                        <button key={i} type="button" className={`cal-day-chip${form.recurrence_days.includes(i) ? ' selected' : ''}`} onClick={() => toggleDay(i)}>{d}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="cal-form-row">
-                  <label className="cal-label">Start Date *</label>
-                  <input className="cal-input" type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
-                </div>
-                <div className="cal-form-row">
-                  <label className="cal-label">End Date (optional)</label>
-                  <input className="cal-input" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
-                </div>
-              </div>
+                {form.recurrence_type === 'monthly' && (
+                  <div className="cal-form-row">
+                    <label className="cal-label">Day of month</label>
+                    <input className="cal-input" type="number" min={1} max={31} value={form.day_of_month} onChange={e => setForm(f => ({ ...f, day_of_month: e.target.value }))} style={{ maxWidth: 100 }} />
+                  </div>
+                )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="cal-form-row">
-                  <label className="cal-label">Estimated Hours</label>
-                  <input className="cal-input" type="number" min={0.25} step={0.25} value={form.estimated_hours} onChange={e => setForm(f => ({ ...f, estimated_hours: e.target.value }))} />
+                <div className="cal-form-2col">
+                  <div className="cal-form-row">
+                    <label className="cal-label">Start Date *</label>
+                    <input className="cal-input" type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
+                  </div>
+                  <div className="cal-form-row">
+                    <label className="cal-label">End Date</label>
+                    <input className="cal-input" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
+                  </div>
                 </div>
-                <div className="cal-form-row">
-                  <label className="cal-label">Priority</label>
-                  <select className="cal-input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
-                    {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-                  </select>
+
+                <div className="cal-form-2col">
+                  <div className="cal-form-row">
+                    <label className="cal-label">Est. Hours</label>
+                    <input className="cal-input" type="number" min={0.25} step={0.25} value={form.estimated_hours} onChange={e => setForm(f => ({ ...f, estimated_hours: e.target.value }))} />
+                  </div>
+                  <div className="cal-form-row">
+                    <label className="cal-label">Priority</label>
+                    <select className="cal-input" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+                      {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
 
               <div className="cal-modal-footer">
                 <button className="btn-secondary" onClick={() => setModal(false)}>Cancel</button>
                 <button className="btn-primary" disabled={!form.title || !form.start_date} onClick={saveForm}>
-                  {editing ? 'Save Changes' : 'Create'}
+                  {editing ? 'Save Changes' : 'Create Recurring Task'}
                 </button>
               </div>
             </div>
