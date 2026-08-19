@@ -210,6 +210,14 @@ export const localSeoApi = {
   getKeywords: (clientId: number) => api.get(`/local-seo/keywords/${clientId}`),
 };
 
+export const calendarApi = {
+  getEvents: (month: string) => api.get('/calendar/events', { params: { month } }),
+  listRecurring: () => api.get('/calendar/recurring'),
+  createRecurring: (data: Record<string, any>) => api.post('/calendar/recurring', data),
+  updateRecurring: (id: number, data: Record<string, any>) => api.put(`/calendar/recurring/${id}`, data),
+  deleteRecurring: (id: number) => api.delete(`/calendar/recurring/${id}`),
+};
+
 export const xlr8Api = {
   // Ticket types (admin CRUD)
   getTicketTypes: () => api.get('/xlr8/ticket-types'),

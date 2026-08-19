@@ -6,7 +6,7 @@ import {
   RiGroupLine, RiSettings4Line, RiLogoutBoxRLine, RiMailLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
-  RiMailAddLine, RiMapPin2Line, RiTicket2Line,
+  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiCalendarLine,
 } from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi } from '../../services/api';
@@ -23,6 +23,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
       { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
+      { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
       { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
@@ -49,6 +50,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
       { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
+      { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
       { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
@@ -68,6 +70,7 @@ const NAV: Record<Role, NavGroup> = {
     top: [
       { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
       { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
       { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },

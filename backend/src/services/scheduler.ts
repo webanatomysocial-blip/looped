@@ -54,3 +54,17 @@ export function startEmailScheduler(): void {
 
   console.log('[scheduler] Email scheduler started (checks every minute)');
 }
+
+export function startRecurringTaskScheduler(): void {
+  // Runs at 00:05 every day — creates task instances for recurring tasks due today
+  cron.schedule('5 0 * * *', async () => {
+    try {
+      const { generateTodayInstances } = await import('../routes/calendar');
+      const count = await generateTodayInstances();
+      console.log(`[scheduler] Generated ${count} recurring task instances`);
+    } catch (err) {
+      console.error('[scheduler] Recurring task error:', err);
+    }
+  });
+  console.log('[scheduler] Recurring task scheduler started (runs daily at 00:05)');
+}

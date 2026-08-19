@@ -28,7 +28,8 @@ import contactFormsRoutes, { publicContactFormsRouter } from './routes/contact-f
 import localSeoRoutes from './routes/local-seo';
 import appSettingsRoutes from './routes/app-settings';
 import xlr8Routes from './routes/xlr8';
-import { startEmailScheduler } from './services/scheduler';
+import calendarRoutes from './routes/calendar';
+import { startEmailScheduler, startRecurringTaskScheduler } from './services/scheduler';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -87,6 +88,7 @@ app.use('/api/contact-forms', contactFormsRoutes);
 app.use('/api/local-seo', localSeoRoutes);
 app.use('/api/app-settings', appSettingsRoutes);
 app.use('/api/xlr8', xlr8Routes);
+app.use('/api/calendar', calendarRoutes);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -111,6 +113,7 @@ if (process.env.NODE_ENV === 'production') {
 initDB()
   .then(() => {
     startEmailScheduler();
+    startRecurringTaskScheduler();
     const server = app.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
     server.setTimeout(120000); // 120s for long geogrid requests
   })

@@ -32,6 +32,7 @@ import XLR8Page from './pages/XLR8Page';
 import XLR8Tickets from './pages/XLR8Tickets';
 import TicketTypes from './pages/admin/TicketTypes';
 import LandingPage from './pages/LandingPage';
+import CalendarPage from './pages/Calendar';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
@@ -186,6 +187,13 @@ function AppRoutes() {
       <Route path="/content" element={
         <PrivateRoute roles={['admin', 'manager', 'employee']}>
           <ContentAutomation />
+        </PrivateRoute>
+      } />
+
+      {/* Calendar — all except client */}
+      <Route path="/calendar" element={
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
+          <CalendarPage />
         </PrivateRoute>
       } />
 

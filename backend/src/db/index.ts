@@ -1024,6 +1024,38 @@ async function createSchema(): Promise<void> {
       t.string('file_name').nullable();
     });
   }
+
+  // recurring_tasks
+  await db.schema.hasTable('recurring_tasks').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('recurring_tasks', (t) => {
+        t.increments('id').primary();
+        t.string('title').notNullable();
+        t.text('description').nullable();
+        t.integer('assigned_to').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('created_by').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('project_id').nullable().references('id').inTable('projects').onDelete('SET NULL');
+        t.string('recurrence_type').notNullable(); // daily | weekly | monthly
+        t.text('recurrence_days').nullable();       // JSON: [1,3,5] for Mon/Wed/Fri (0=Sun)
+        t.integer('day_of_month').nullable();       // for monthly
+        t.string('start_date').notNullable();       // YYYY-MM-DD
+        t.string('end_date').nullable();            // YYYY-MM-DD or null = no end
+        t.float('estimated_hours').defaultTo(1);
+        t.string('priority').defaultTo('medium');
+        t.boolean('active').defaultTo(true);
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
+  // Add recurring_task_id to tasks
+  const hasRecurringTaskId = await db.schema.hasColumn('tasks', 'recurring_task_id');
+  if (!hasRecurringTaskId) {
+    await db.schema.table('tasks', (t) => {
+      t.integer('recurring_task_id').nullable().references('id').inTable('recurring_tasks').onDelete('SET NULL');
+      t.string('recurrence_date').nullable(); // YYYY-MM-DD the instance is for
+    });
+  }
 }
 
 async function seedAdmin(): Promise<void> {
