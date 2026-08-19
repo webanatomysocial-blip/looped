@@ -27,7 +27,8 @@ export default function TicketTypes() {
   }, []);
 
   const openCreate = () => {
-    setForm({ name: '', stages: [], final_approval: { ...DEFAULT_FA } });
+    const autoStages = categories.map((c) => ({ category_id: c.id, category_name: c.name }));
+    setForm({ name: '', stages: autoStages, final_approval: { ...DEFAULT_FA } });
     setIsNew(true); setEditing(null);
   };
 
@@ -146,7 +147,7 @@ export default function TicketTypes() {
                       <RiAddLine style={{ marginRight: 4 }} />Add Stage
                     </button>
                   </div>
-                  {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No stages — ticket will go straight to final approval.</p>}
+                  {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No stages — ticket goes straight to final approval. Use Add Stage to add one back.</p>}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {form.stages.map((s, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
