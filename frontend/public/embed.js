@@ -366,13 +366,14 @@
 
   function showSuccess(redirectUrl, submitBtn, successMessage) {
     if (!noRedirect && redirectUrl && redirectUrl.trim()) { window.location.href = redirectUrl.trim(); return; }
+    // Reset button
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn._origLabel || 'Send'; }
     var existing = container.querySelector('.wa-cf-success');
     if (existing) existing.remove();
     var text = (successMessage || "Your message was sent successfully.\nWe'll be in touch soon.").replace(/\n/g, '<br>');
     var msg = document.createElement('div');
     msg.className = 'wa-cf-success';
     msg.innerHTML = '<div class="wa-cf-success-icon">✓</div><div>' + text + '</div>';
-    // Insert after the submit button row
     if (submitBtn && submitBtn.parentElement) {
       submitBtn.parentElement.insertAdjacentElement('afterend', msg);
     } else {
@@ -479,6 +480,7 @@
     // Final submit
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      submitBtn._origLabel = submitBtn._origLabel || submitBtn.textContent;
       submitBtn.disabled = true; submitBtn.textContent = 'Sending…';
       var useFiles = hasFiles(form);
       var fetchOpts = useFiles
@@ -526,6 +528,7 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
+      btn._origLabel = btn._origLabel || btn.textContent;
       btn.disabled = true; btn.textContent = 'Sending…';
       var useFiles = hasFiles(form);
       var fetchOpts = useFiles
