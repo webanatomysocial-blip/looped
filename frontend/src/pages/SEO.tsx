@@ -1164,7 +1164,7 @@ export default function SEO() {
                                   } catch {}
                                 } else {
                                   // No snapshot yet — save current manual as this report's snapshot so it self-heals
-                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual });
+                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual, agency_name: agencyName || undefined });
                                   setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? updated.data : x));
                                 }
                                 setShowSavedReports(false);
@@ -1188,7 +1188,7 @@ export default function SEO() {
                               onClick={async () => {
                                 setUpdatingSnapshotId(r.id);
                                 try {
-                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual });
+                                  const updated = await seoApi.updateSavedReport(r.id, { name: r.name, range: r.range || '28d', start_date: r.start_date || undefined, end_date: r.end_date || undefined, compare_start: r.compare_start || undefined, compare_end: r.compare_end || undefined, country: r.country || undefined, manual_snapshot: manual, agency_name: agencyName || undefined });
                                   setSavedReports((prev) => prev.map((x: any) => x.id === r.id ? updated.data : x));
                                 } finally { setUpdatingSnapshotId(null); }
                               }}
