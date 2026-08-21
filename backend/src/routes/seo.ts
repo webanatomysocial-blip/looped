@@ -554,21 +554,23 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
     const manual = shareRow.manual_snapshot
       ? JSON.parse(shareRow.manual_snapshot)
       : await db('seo_manual_data').where({ client_id: client.id }).first();
+    // snapshot fields are already parsed objects; DB fields are JSON strings — handle both
+    const jp = (v: any, fallback: any) => { if (!v) return fallback; if (typeof v === 'string') { try { return JSON.parse(v); } catch { return fallback; } } return v; };
     const manualData = manual ? {
-      keyword_rankings:    manual.keyword_rankings      ? JSON.parse(manual.keyword_rankings)      : [],
-      targets:             manual.targets               ? JSON.parse(manual.targets)               : [],
-      key_insights:        manual.key_achievements      || '',
-      organic_form_data:   manual.organic_form_data     ? JSON.parse(manual.organic_form_data)     : [],
-      gmb_locations:       manual.gmb_locations         ? JSON.parse(manual.gmb_locations)         : [],
+      keyword_rankings:    jp(manual.keyword_rankings, []),
+      targets:             jp(manual.targets, []),
+      key_insights:        manual.key_achievements      || manual.key_insights || '',
+      organic_form_data:   jp(manual.organic_form_data, []),
+      gmb_locations:       jp(manual.gmb_locations, []),
       executive_summary:   manual.executive_summary     || '',
-      sig_change_whys:     manual.sig_change_whys       ? JSON.parse(manual.sig_change_whys)       : {},
-      last_period_plan:    manual.last_period_plan      ? JSON.parse(manual.last_period_plan)      : [],
-      best_performing_asset: (() => { try { const v = JSON.parse(manual.best_performing_asset || '[]'); return Array.isArray(v) ? v : [manual.best_performing_asset]; } catch { return manual.best_performing_asset ? [manual.best_performing_asset] : []; } })(),
-      next_period_plan:    manual.next_period_plan      ? JSON.parse(manual.next_period_plan)      : [],
-      period_targets:      manual.period_targets        ? JSON.parse(manual.period_targets)        : {},
-      meta_organic:        manual.meta_organic          ? JSON.parse(manual.meta_organic)          : null,
-      linkedin_organic:    manual.linkedin_organic      ? JSON.parse(manual.linkedin_organic)      : null,
-      performance_marketing: manual.performance_marketing ? JSON.parse(manual.performance_marketing) : null,
+      sig_change_whys:     jp(manual.sig_change_whys, {}),
+      last_period_plan:    jp(manual.last_period_plan, []),
+      best_performing_asset: (() => { const v = jp(manual.best_performing_asset, []); return Array.isArray(v) ? v : (v ? [v] : []); })(),
+      next_period_plan:    jp(manual.next_period_plan, []),
+      period_targets:      jp(manual.period_targets, {}),
+      meta_organic:        jp(manual.meta_organic, null),
+      linkedin_organic:    jp(manual.linkedin_organic, null),
+      performance_marketing: jp(manual.performance_marketing, null),
       health_score:        manual.health_score          ?? 76,
       health_label:        manual.health_label          || '',
       flags_risks:         manual.flags_risks           || '',
