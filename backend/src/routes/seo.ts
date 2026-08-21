@@ -494,7 +494,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name } = req.body;
     const token = randomUUID();
     const manualRow = await getDB()('seo_manual_data').where({ client_id: req.params.clientId }).first();
     await getDB()('seo_share_tokens').insert({
@@ -504,6 +504,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
       demographics: demographics ? JSON.stringify(demographics) : null,
       acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
       country: country || null,
+      agency_name: agency_name || null,
       manual_snapshot: manualRow ? JSON.stringify(manualRow) : null,
     });
     res.json({ token });

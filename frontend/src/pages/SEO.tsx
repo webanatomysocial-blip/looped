@@ -1340,7 +1340,7 @@ export default function SEO() {
                       className="seo-inline-save"
                       style={{ width: '100%', marginTop: 4 }}
                       onClick={async () => {
-                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry });
+                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry, agency_name: agencyName || undefined });
                         const newToken = r.data.token;
                         setShareTokens((prev) => [{ token: newToken, range, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
                         const link = `${window.location.origin}/share/${newToken}`;
