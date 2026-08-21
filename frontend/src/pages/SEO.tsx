@@ -1274,6 +1274,7 @@ export default function SEO() {
                                   compare_end: compareEnd || undefined,
                                   country: demoCountry || undefined,
                                   manual_snapshot: manual,
+                                  agency_name: agencyName || undefined,
                                 });
                                 setSavedReports((prev) => [res.data, ...prev]);
                                 setSaveReportName('');

@@ -196,6 +196,8 @@ async function createSchema(): Promise<void> {
           t.text('manual_snapshot').nullable();
         });
       }
+      const hasAgency = await db.schema.hasColumn('seo_share_tokens', 'agency_name');
+      if (!hasAgency) await db.schema.table('seo_share_tokens', (t) => { t.string('agency_name').nullable(); });
     }
   });
 
@@ -898,6 +900,8 @@ async function createSchema(): Promise<void> {
       if (!hasShareToken) await db.schema.table('seo_saved_reports', (t) => t.string('share_token').nullable());
       const hasManualSnapshot = await db.schema.hasColumn('seo_saved_reports', 'manual_snapshot');
       if (!hasManualSnapshot) await db.schema.table('seo_saved_reports', (t) => t.text('manual_snapshot').nullable());
+      const hasAgencyName = await db.schema.hasColumn('seo_saved_reports', 'agency_name');
+      if (!hasAgencyName) await db.schema.table('seo_saved_reports', (t) => t.string('agency_name').nullable());
     }
   });
 
