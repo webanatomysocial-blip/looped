@@ -1156,6 +1156,7 @@ export default function SEO() {
                                 setCompareStart(r.compare_start || '');
                                 setCompareEnd(r.compare_end || '');
                                 if (r.country) setDemoCountry(r.country);
+                                if (r.agency_name) setAgencyName(r.agency_name);
                                 if (r.manual_snapshot) {
                                   try {
                                     const snap = typeof r.manual_snapshot === 'string' ? JSON.parse(r.manual_snapshot) : r.manual_snapshot;
