@@ -1233,7 +1233,7 @@ export default function SEO() {
                                   if (r.manual_snapshot) {
                                     try { snapManual = { ...emptyManual(), ...(typeof r.manual_snapshot === 'string' ? JSON.parse(r.manual_snapshot) : r.manual_snapshot) }; } catch {}
                                   }
-                                  downloadPDF(rpt, selectedClient.name, savedRange, snapManual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
+                                  downloadPDF(rpt, selectedClient.name, savedRange, snapManual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, r.agency_name || agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
                                 } catch (e: any) { alert('Failed to fetch report data: ' + (e?.response?.data?.error || e?.message || 'unknown error')); }
                                 finally { setDownloadingId(null); }
                               }}
