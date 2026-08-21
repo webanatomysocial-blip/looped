@@ -708,7 +708,8 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
   try {
     const db = getDB();
     const token = randomUUID();
-    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null });
+    const snapshotJson = manual_snapshot ? JSON.stringify(manual_snapshot) : null;
+    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, manual_snapshot: snapshotJson });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
       created_by: req.user!.id,
@@ -720,7 +721,7 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
       compare_end: compare_end || null,
       country: country || null,
       share_token: token,
-      manual_snapshot: manual_snapshot ? JSON.stringify(manual_snapshot) : null,
+      manual_snapshot: snapshotJson,
       agency_name: agency_name || null,
     });
     const row = await db('seo_saved_reports as sr')
@@ -734,18 +735,29 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
 
 // PUT update a saved report (name + date fields + manual snapshot)
 router.put('/saved-reports/:reportId', async (req: AuthRequest, res: Response) => {
-  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot } = req.body;
+  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot, agency_name } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
+    const snapshotJson = manual_snapshot ? JSON.stringify(manual_snapshot) : null;
     await db('seo_saved_reports').where({ id: req.params.reportId }).update({
       name: name.trim(), range: range || '28d',
       start_date: start_date || null, end_date: end_date || null,
       compare_start: compare_start || null, compare_end: compare_end || null,
       country: country || null,
-      manual_snapshot: manual_snapshot ? JSON.stringify(manual_snapshot) : null,
+      manual_snapshot: snapshotJson,
+      agency_name: agency_name !== undefined ? (agency_name || null) : undefined,
     });
     const row = await db('seo_saved_reports as sr').join('users as u', 'sr.created_by', 'u.id').where('sr.id', req.params.reportId).select('sr.*', 'u.name as created_by_name').first();
+    // Keep share token in sync
+    if (row?.share_token) {
+      await db('seo_share_tokens').where({ token: row.share_token }).update({
+        range: range || '28d', start_date: start_date || null, end_date: end_date || null,
+        compare_start: compare_start || null, compare_end: compare_end || null,
+        manual_snapshot: snapshotJson,
+        agency_name: agency_name !== undefined ? (agency_name || null) : undefined,
+      });
+    }
     res.json(row);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
