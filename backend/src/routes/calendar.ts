@@ -147,16 +147,17 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
   for (const rt of recurringTemplates) {
     const days = rt.recurrence_days ? JSON.parse(rt.recurrence_days) : [];
     for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(year, mon - 1, d);
-      const dateStr = date.toISOString().slice(0, 10);
+      // Build dateStr from parts to avoid UTC timezone shift from toISOString()
+      const dateStr = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       if (dateStr < rt.start_date) continue;
       if (rt.end_date && dateStr > rt.end_date) continue;
 
+      const dayOfWeek = new Date(year, mon - 1, d).getDay(); // local day, correct since date is constructed from local parts
       let occurs = false;
       if (rt.recurrence_type === 'daily') {
         occurs = true;
       } else if (rt.recurrence_type === 'weekly') {
-        occurs = days.includes(date.getDay());
+        occurs = days.includes(dayOfWeek);
       } else if (rt.recurrence_type === 'monthly') {
         occurs = rt.day_of_month ? d === rt.day_of_month : d === 1;
       }
@@ -200,8 +201,8 @@ router.post('/recurring/generate', async (req: AuthRequest, res: Response) => {
 export async function generateTodayInstances(): Promise<number> {
   const db = getDB();
   const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10);
-  const dayOfWeek = today.getDay(); // 0=Sun
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const dayOfWeek = today.getDay(); // 0=Sun, local time
   const dayOfMonth = today.getDate();
 
   const templates = await db('recurring_tasks').where('active', true)
