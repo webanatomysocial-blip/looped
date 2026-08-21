@@ -1054,7 +1054,7 @@ export default function SEO() {
         <div className="seo-top">
           <div>
             <h2 className="page-title">SEO Analytics</h2>
-            <p className="page-subtitle">Google Analytics + Search Console — per client</p>
+            <p className="page-subtitle">Google Analytics + Search Console — per clients</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
