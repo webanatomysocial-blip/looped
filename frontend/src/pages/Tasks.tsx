@@ -451,7 +451,7 @@ export default function Tasks() {
           <table className="data-table">
             <thead>
               <tr>
-                {['Task', 'Project', 'Assigned to', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
+                {['Task', 'Project', 'Assigned to', 'Created by', 'Pending with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -492,6 +492,27 @@ export default function Tasks() {
                           })}
                         </div>
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
+                  </td>
+                  <td>
+                    <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                      {task.created_by_name || '—'}
+                      {task.created_at && <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-muted)', opacity: 0.7 }}>{String(task.created_at).slice(0, 10)}</span>}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                      {(() => {
+                        const s = task.xlr8_status;
+                        if (s === 'pending_manager') return task.xlr8_assignee_id ? 'Manager (review)' : 'Manager (assign)';
+                        if (s === 'pending_assignee') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
+                        if (s === 'pending_admin') return 'Admin';
+                        if (s === 'pending_client') return task.client_name || 'Client';
+                        if (s === 'completed') return '—';
+                        if (task.status === 'in_review') return 'Manager';
+                        if (task.status === 'in_progress') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
+                        return '—';
+                      })()}
+                    </span>
                   </td>
                   <td>
                     {task.due_date
