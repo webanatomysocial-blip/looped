@@ -130,7 +130,9 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
     });
   }
 
-  const tasks = await taskQuery;
+  const rawTasks = await taskQuery;
+  // Normalize date to YYYY-MM-DD (MySQL can return '2026-08-14 00:00:00')
+  const tasks = rawTasks.map((t: any) => ({ ...t, date: t.date ? String(t.date).slice(0, 10) : t.date }));
 
   // Recurring task instances for this month (generated virtually — no DB row needed for display)
   let rtQuery = db('recurring_tasks as rt')
