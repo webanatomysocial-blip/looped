@@ -56,6 +56,7 @@
   }
 
   function bootstrap(container, formId, noRedirect) {
+  var containerId = container.id;
 
   var DEFAULT_STYLE = {
     labelColor: '#555555', labelBg: 'rgba(255,255,255,0.75)', inputBg: 'rgba(255,255,255,0.70)',
