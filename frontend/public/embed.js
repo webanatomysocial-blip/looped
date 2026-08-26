@@ -1,7 +1,6 @@
 (function () {
   'use strict';
 
-  // document.currentScript is null for async/deferred scripts; fall back to querying by src+attribute
   var script = document.currentScript || (function () {
     var candidates = document.querySelectorAll('script[data-form-id][src*="embed.js"]');
     if (candidates.length) return candidates[candidates.length - 1];
@@ -9,29 +8,54 @@
     return scripts[scripts.length - 1];
   })();
 
-  var formId = script ? script.getAttribute('data-form-id') : null;
-  if (!formId) return;
-  var noRedirect = script.getAttribute('data-no-redirect') === 'true';
-
-  var containerId = 'wa-form-' + formId;
-
-  function init() {
-    var container = document.getElementById(containerId);
-    if (!container) return;
-    bootstrap(container);
-  }
-
-  // If DOM already ready, run now; otherwise wait for it
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-
-  function bootstrap(container) {
-
-  var scriptSrc = script.src || '';
+  var scriptSrc = (script && script.src) ? script.src : '';
   var apiBase = scriptSrc ? scriptSrc.replace(/\/embed\.js.*$/, '') : window.location.origin;
+  var globalNoRedirect = script ? script.getAttribute('data-no-redirect') === 'true' : false;
+
+  // Track already-initialized containers so AJAX navigation doesn't double-init
+  var initialized = {};
+
+  function tryInit(container) {
+    var id = container.id; // e.g. "wa-form-5"
+    if (!id || initialized[id]) return;
+    var formId = id.replace('wa-form-', '');
+    if (!formId || isNaN(Number(formId))) return;
+    initialized[id] = true;
+    bootstrap(container, formId, globalNoRedirect);
+  }
+
+  function scanAndInit() {
+    var containers = document.querySelectorAll('[id^="wa-form-"]');
+    for (var i = 0; i < containers.length; i++) tryInit(containers[i]);
+  }
+
+  // Run on DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', scanAndInit);
+  } else {
+    scanAndInit();
+  }
+
+  // Watch for AJAX navigation injecting containers later
+  if (window.MutationObserver) {
+    var observer = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var nodes = mutations[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          var node = nodes[j];
+          if (node.nodeType !== 1) continue;
+          // Check the node itself
+          if (node.id && node.id.indexOf('wa-form-') === 0) tryInit(node);
+          // Check descendants
+          var children = node.querySelectorAll ? node.querySelectorAll('[id^="wa-form-"]') : [];
+          for (var k = 0; k < children.length; k++) tryInit(children[k]);
+        }
+      }
+    });
+    observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  }
+
+  function bootstrap(container, formId, noRedirect) {
 
   var DEFAULT_STYLE = {
     labelColor: '#555555', labelBg: 'rgba(255,255,255,0.75)', inputBg: 'rgba(255,255,255,0.70)',
