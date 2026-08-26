@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import { calendarApi, usersApi, projectsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { FiUser, FiFolder, FiClock, FiRepeat, FiCheckCircle } from 'react-icons/fi';
 import '../css/pages/Calendar.css';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -237,14 +238,14 @@ export default function CalendarPage() {
                       <span className={`cal-event-dot${ev.event_type === 'recurring' ? ' cal-event-dot--recurring' : ''}`} style={{ flexShrink: 0 }} />
                       <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', flex: 1 }}>{ev.title}</span>
                       {(ev.status === 'completed' || ev.status === 'done') && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#257a50', background: 'rgba(76,175,125,0.14)', borderRadius: 99, padding: '2px 7px' }}>Done</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#257a50', background: 'rgba(76,175,125,0.14)', borderRadius: 99, padding: '2px 7px' }}><FiCheckCircle size={10} />Done</span>
                       )}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', flexWrap: 'wrap', gap: '4px 10px', paddingLeft: 18 }}>
-                      {ev.assigned_to_name && <span>👤 {ev.assigned_to_name}</span>}
-                      {ev.project_name && <span>📁 {ev.project_name}</span>}
-                      {ev.estimated_hours && <span>⏱ {ev.estimated_hours}h</span>}
-                      {ev.event_type === 'recurring' && <span>🔁 Recurring</span>}
+                      {ev.assigned_to_name && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><FiUser size={11} />{ev.assigned_to_name}</span>}
+                      {ev.project_name && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><FiFolder size={11} />{ev.project_name}</span>}
+                      {ev.estimated_hours && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><FiClock size={11} />{ev.estimated_hours}h</span>}
+                      {ev.event_type === 'recurring' && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><FiRepeat size={11} />Recurring</span>}
                       {ev.priority && <span style={{ textTransform: 'capitalize' }}>· {ev.priority}</span>}
                     </div>
                   </div>

@@ -1069,6 +1069,11 @@ async function createSchema(): Promise<void> {
       t.string('recurrence_date').nullable(); // YYYY-MM-DD the instance is for
     });
   }
+
+  const hasPriority = await db.schema.hasColumn('tasks', 'priority');
+  if (!hasPriority) {
+    await db.schema.table('tasks', (t) => { t.string('priority').defaultTo('medium'); });
+  }
 }
 
 async function seedAdmin(): Promise<void> {
