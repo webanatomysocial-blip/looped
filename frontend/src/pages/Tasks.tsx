@@ -51,7 +51,7 @@ export default function Tasks() {
   const [form, setForm] = useState({
     title: '', description: '', project_id: '',
     working_person_id: '', task_manager_id: '',
-    due_date: '', due_time: '',
+    due_date: '', due_time: '18:00',
     checklist: [{ text: '', checked: false }] as { text: string; checked: boolean }[],
     est_hours: '', est_minutes: '0',
     ticket_type_id: '',
@@ -451,7 +451,7 @@ export default function Tasks() {
                 <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
-                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
+                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
                   <Plus size={14} /> New task
                 </button>
               </div>
