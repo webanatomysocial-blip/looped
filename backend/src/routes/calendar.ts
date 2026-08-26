@@ -98,6 +98,7 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
 
 // Calendar events for a month: tasks with due_date + recurring instances
 router.get('/events', async (req: AuthRequest, res: Response) => {
+  try {
   const db = getDB();
   const user = req.user!;
   const { month } = req.query as { month?: string }; // YYYY-MM
@@ -199,6 +200,10 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
   }
 
   res.json({ tasks, recurring: recurringEvents });
+  } catch (err: any) {
+    console.error('Calendar events error:', err?.message || err);
+    res.status(500).json({ error: err?.message || 'Internal server error' });
+  }
 });
 
 // Generate today's recurring task instances (called by scheduler, also callable manually)
