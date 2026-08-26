@@ -106,6 +106,21 @@ export default function Tasks() {
 
     if (isXlr8) {
       if (!form.ticket_type_id) { alert('Please select a Ticket Type.'); return; }
+      if (!form.due_date) { alert('Please set a Due date.'); return; }
+      if (!form.description?.trim()) { alert('Please add a Description.'); return; }
+      // Validate each employee stage has at least one person assigned
+      const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
+      if (tt) {
+        for (let i = 0; i < tt.stages.length; i++) {
+          const stage = tt.stages[i];
+          if (stage.type === 'manager') continue;
+          const sa = stageAssignments[i];
+          if (!sa || sa.user_ids.length === 0) {
+            alert(`Please assign at least one employee to Stage ${i + 1} (${stage.category_name}).`);
+            return;
+          }
+        }
+      }
       try {
         const sa = Object.entries(stageAssignments)
           .map(([idx, v]) => ({ stage_idx: Number(idx), user_ids: v.user_ids, est_hours: v.est_hours ? Number(v.est_hours) : 0 }))
