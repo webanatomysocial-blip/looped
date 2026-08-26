@@ -163,9 +163,27 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     // Set estimated_hours to sum of all stage est_hours
     const totalHours = stage_assignments.reduce((sum: number, sa: any) => sum + (sa.est_hours || 0), 0);
     if (totalHours > 0) await db('tasks').where({ id }).update({ estimated_hours: totalHours });
-  }
 
-  await appendLog(id, req.user!, 'created', null, 'pending_manager');
+    // Auto-advance: if stage 0 is an employee stage with a pre-assigned user, skip pending_manager
+    if (firstStage && stageType(firstStage) === 'employee') {
+      const stage0 = stage_assignments.find((sa: any) => sa.stage_idx === 0);
+      if (stage0 && Array.isArray(stage0.user_ids) && stage0.user_ids.length > 0) {
+        const assigneeId = stage0.user_ids[0];
+        await db('tasks').where({ id }).update({
+          xlr8_status: 'pending_assignee',
+          xlr8_assignee_id: assigneeId,
+          assigned_to: assigneeId,
+        });
+        await appendLog(id, req.user!, 'created', null, 'pending_assignee');
+      } else {
+        await appendLog(id, req.user!, 'created', null, 'pending_manager');
+      }
+    } else {
+      await appendLog(id, req.user!, 'created', null, 'pending_manager');
+    }
+  } else {
+    await appendLog(id, req.user!, 'created', null, 'pending_manager');
+  }
 
   const stageName = firstStage && stageType(firstStage) === 'employee' ? firstStage.category_name : 'worker';
   const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
