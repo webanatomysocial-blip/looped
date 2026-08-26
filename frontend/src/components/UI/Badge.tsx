@@ -8,6 +8,7 @@ const LABELS: Record<string, string> = {
   todo:              'To do',
   in_progress:       'In progress',
   overdue:           'Overdue',
+  stage_done:        'Stage done',
   pending_manager:   'Awaiting manager',
   pending_admin:     'Awaiting admin',
   pending_client:    'Awaiting client',

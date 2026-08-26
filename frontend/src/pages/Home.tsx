@@ -54,6 +54,8 @@ export default function Home() {
   // already-baked tracked_seconds values so nothing is counted twice.
   const [elapsed, setElapsed] = useState(0);
   const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'accepted' | 'overdue'>('all');
+  const [declineModal, setDeclineModal] = useState<{ task: CapacityTask } | null>(null);
+  const [declineComment, setDeclineComment] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [priorityPage, setPriorityPage] = useState(1);
   const PAGE_SIZE = 5;
@@ -107,12 +109,29 @@ export default function Home() {
   }, [data?.active_task_id]);
 
   const handleAccept = async (task: CapacityTask, action: 'accept' | 'decline') => {
+    if (action === 'decline') {
+      setDeclineModal({ task });
+      setDeclineComment('');
+      return;
+    }
     if (task.ticket_type_id) {
-      if (action === 'accept') await xlr8Api.employeeAccept(task.id);
-      // XLR8 decline: goes back to pending_assignee for others — no separate API call needed for now
+      await xlr8Api.employeeAccept(task.id);
     } else {
       await tasksApi.accept(task.id, action);
     }
+    load();
+  };
+
+  const submitDecline = async () => {
+    if (!declineModal) return;
+    const { task } = declineModal;
+    if (task.ticket_type_id) {
+      await xlr8Api.employeeDecline(task.id, declineComment);
+    } else {
+      await tasksApi.accept(task.id, 'decline');
+    }
+    setDeclineModal(null);
+    setDeclineComment('');
     load();
   };
 
@@ -629,6 +648,28 @@ export default function Home() {
               <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
                 Go back
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Decline comment modal */}
+      {declineModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+          <div style={{ background: '#ffffff', borderRadius: 14, padding: 28, width: 380, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Decline Task</h3>
+            <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
+              <strong style={{ color: '#0f172a' }}>{declineModal.task.title}</strong> — please provide a reason for declining.
+            </p>
+            <textarea
+              autoFocus
+              placeholder="Reason for declining…"
+              value={declineComment}
+              onChange={(e) => setDeclineComment(e.target.value)}
+              style={{ width: '100%', minHeight: 90, borderRadius: 8, border: '1.5px solid #e2e8f0', padding: '10px 12px', fontSize: 13, color: '#0f172a', background: '#f8fafc', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b', fontWeight: 500 }} onClick={() => setDeclineModal(null)}>Cancel</button>
+              <button style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={submitDecline}>Decline</button>
             </div>
           </div>
         </div>

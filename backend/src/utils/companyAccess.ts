@@ -10,14 +10,12 @@ export async function employeeCompanyIds(db: Knex, userId: number): Promise<numb
     .pluck('p.client_company_id');
 }
 
-/** Company IDs visible to a manager — projects where any employee shares their pod */
+/** Company IDs visible to a manager — projects assigned to their pod */
 export async function managerCompanyIds(db: Knex, userId: number): Promise<number[]> {
   const user = await db('users').where({ id: userId }).select('pod').first();
   if (!user?.pod) return [];
   return db('projects as p')
-    .join('project_members as pm', 'pm.project_id', 'p.id')
-    .join('users as u', 'u.id', 'pm.user_id')
-    .where('u.pod', user.pod)
+    .where('p.pod', user.pod)
     .whereNotNull('p.client_company_id')
     .distinct('p.client_company_id')
     .pluck('p.client_company_id');

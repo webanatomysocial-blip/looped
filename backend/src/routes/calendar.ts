@@ -20,8 +20,13 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
       'p.name as project_name'
     );
 
-  if (user.role === 'admin' || user.role === 'manager') {
-    // see all
+  if (user.role === 'admin') {
+    // admin sees all
+  } else if (user.role === 'manager') {
+    const mgr = await db('users').where({ id: user.id }).select('pod').first();
+    if (mgr?.pod) {
+      query = query.where('u.pod', mgr.pod);
+    }
   } else {
     query = query.where('rt.assigned_to', user.id);
   }
@@ -100,7 +105,8 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
 
   const [year, mon] = month.split('-').map(Number);
   const start = `${month}-01`;
-  const end = new Date(year, mon, 0).toISOString().slice(0, 10); // last day of month
+  const lastDay = new Date(year, mon, 0).getDate();
+  const end = `${year}-${String(mon).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
   // Regular tasks with due_date in this month
   let taskQuery = db('tasks as t')
@@ -118,7 +124,10 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       db('projects').where('client_id', user.id).select('id')
     );
   } else if (user.role !== 'admin' && user.role !== 'manager') {
-    taskQuery = taskQuery.where('t.assigned_to', user.id);
+    taskQuery = taskQuery.where(function (this: any) {
+      this.where('t.assigned_to', user.id)
+        .orWhereIn('t.id', db('task_assignees').where('user_id', user.id).select('task_id'));
+    });
   }
 
   const tasks = await taskQuery;

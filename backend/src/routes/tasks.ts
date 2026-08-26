@@ -16,6 +16,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .join('projects as p', 't.project_id', 'p.id')
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('users as cr', 't.created_by', 'cr.id')
+      .leftJoin('users as xa', 't.xlr8_assignee_id', 'xa.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
       .select(
         't.*',
@@ -23,15 +24,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         'c.name as client_name',
         'a.name as assigned_name',
         'a.avatar_color as assigned_color',
-        'cr.name as created_by_name'
+        'cr.name as created_by_name',
+        'xa.name as xlr8_assignee_name'
       );
 
     if (project_id) query = query.where('t.project_id', project_id);
 
     if (pod && (role === 'admin' || role === 'manager')) {
+      // Filter tasks to this pod: either the project belongs to this pod, or an employee from this pod is assigned
       query = query.where(function (this: any) {
-        // XLR8 tickets use their own workflow — always visible regardless of pod
-        this.whereNotNull('t.ticket_type_id')
+        this.where('p.pod', pod as string)
           .orWhereIn('t.id', function (this: any) {
             this.select('ta.task_id')
               .from('task_assignees as ta')
@@ -44,8 +46,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (role === 'employee') {
       query = query.whereRaw(
-        '(t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?))',
-        [userId, userId, userId]
+        '(t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?) OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))',
+        [userId, userId, userId, userId]
       );
     } else if (role === 'client') {
       query = query

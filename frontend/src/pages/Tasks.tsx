@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
@@ -18,7 +18,7 @@ import Badge from '../components/UI/Badge';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api } from '../services/api';
+import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi } from '../services/api';
 import { Task, Project, User } from '../types';
 import '../css/pages/Tasks.css';
 
@@ -40,6 +40,9 @@ export default function Tasks() {
   const [approvalTitle, setApprovalTitle]       = useState('');
   const [filterStatus, setFilterStatus]         = useState('all');
   const [editTask, setEditTask]                 = useState<Task | null>(null);
+  const [taskLog, setTaskLog]                   = useState<any[]>([]);
+  const [expandedTaskId, setExpandedTaskId]     = useState<number | null>(null);
+  const [expandedLog, setExpandedLog]           = useState<Record<number, any[]>>({});
   const [editForm, setEditForm]                 = useState({ title: '', description: '', due_date: '', due_time: '', est_hours: '', est_minutes: '0', working_person_id: '', task_manager_id: '' });
   const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean }[]>([]);
 
@@ -54,6 +57,8 @@ export default function Tasks() {
     ticket_type_id: '',
   });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
+  // stageAssignments[stage_idx] = { user_ids: number[], est_hours: number }
+  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string }>>({});
   // XLR8 ticket workflow modal
   const [ticketActionTask, setTicketActionTask] = useState<any>(null);
   const [ticketEligible, setTicketEligible] = useState<any[] | null>(null);
@@ -65,11 +70,13 @@ export default function Tasks() {
   const [capacityWarnings, setCapacityWarnings] = useState<string[]>([]);
 
   const canCreate = user?.role !== 'client';
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [recurringForm, setRecurringForm] = useState({ title: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: '', end_date: '' });
   const [podTab, setPodTab] = useState<'pod1' | 'pod2'>('pod1');
 
   const load = async (pod?: string) => {
     setLoading(true);
-    const podParam = user?.role === 'admin' ? pod : undefined;
+    const podParam = user?.role === 'admin' ? pod : user?.role === 'manager' ? (user?.pod ?? undefined) : undefined;
     const [t, p] = await Promise.allSettled([tasksApi.list(undefined, podParam), projectsApi.list()]);
     if (t.status === 'fulfilled') setTasks(t.value.data);
     if (p.status === 'fulfilled') setProjects(p.value.data);
@@ -91,19 +98,6 @@ export default function Tasks() {
     return () => window.removeEventListener('wd:new-notification', refresh);
   }, [podTab]);
 
-  // Auto-fill: actual hours remaining for same-day tasks; 7h per working day for multi-day
-  useEffect(() => {
-    if (!form.due_date) return;
-    const due = new Date(`${form.due_date}T${form.due_time || '23:59'}`);
-    const diffMs = due.getTime() - Date.now();
-    if (diffMs <= 0) return;
-    const diffDays = diffMs / 86400000;
-    // Under 1 day → use real time remaining; over 1 day → 7 working hours per day
-    const workingMins = diffDays < 1
-      ? Math.round(diffMs / 60000)
-      : Math.round(diffDays * 7 * 60);
-    setForm(f => ({ ...f, est_hours: String(Math.floor(workingMins / 60)), est_minutes: String(workingMins % 60) }));
-  }, [form.due_date, form.due_time]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,12 +107,16 @@ export default function Tasks() {
     if (isXlr8) {
       if (!form.ticket_type_id) { alert('Please select a Ticket Type.'); return; }
       try {
+        const sa = Object.entries(stageAssignments)
+          .map(([idx, v]) => ({ stage_idx: Number(idx), user_ids: v.user_ids, est_hours: v.est_hours ? Number(v.est_hours) : 0 }))
+          .filter(s => s.user_ids.length > 0 || s.est_hours > 0);
         await xlr8Api.createTicket({
           title: form.title,
           description: form.description || null,
           project_id: Number(form.project_id),
           ticket_type_id: Number(form.ticket_type_id),
           due_date: form.due_date || null,
+          stage_assignments: sa,
         });
         setShowModal(false);
         load();
@@ -157,9 +155,12 @@ export default function Tasks() {
     if (!task.xlr8_assignee_id) {
       try {
         const r = await xlr8Api.acceptTicket(task.id);
-        if (r.data.auto_assigned) { load(); return; }
+        if (r.data.auto_assigned) { setTicketActionTask(null); load(); return; }
         setTicketEligible(r.data.eligible);
-      } catch { /* show modal anyway */ }
+      } catch (err: any) {
+        setTicketActionTask(null);
+        load(); // Reload to get fresh state — ticket may have been assigned already
+      }
     }
   };
 
@@ -170,6 +171,9 @@ export default function Tasks() {
       const r = await xlr8Api.acceptTicket(ticketActionTask.id);
       if (r.data.auto_assigned) { setTicketActionTask(null); load(); }
       else setTicketEligible(r.data.eligible);
+    } catch (err: any) {
+      setTicketActionTask(null);
+      load();
     } finally { setTicketActionLoading(false); }
   };
 
@@ -304,6 +308,11 @@ export default function Tasks() {
       const res = await tasksApi.get(task.id);
       setEditChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
     } catch { setEditChecklist([]); }
+    // Load workflow history for ticket tasks
+    setTaskLog([]);
+    if (task.ticket_type_id) {
+      try { const r = await xlr8Api.getTicketLog(task.id); setTaskLog(r.data); } catch { /* ignore */ }
+    }
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -438,9 +447,14 @@ export default function Tasks() {
               )}
             </div>
             {canCreate && (
-              <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setShowModal(true); }}>
-                <Plus size={14} /> New task
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
+                  🔁 Recurring Task
+                </button>
+                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
+                  <Plus size={14} /> New task
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -458,9 +472,16 @@ export default function Tasks() {
             </thead>
             <tbody>
               {paginated.map((task) => (
-                <tr key={task.id}>
+                <React.Fragment key={task.id}>
+                <tr>
                   <td>
-                    <div className="task-cell-main">
+                    <div className="task-cell-main" style={{ cursor: 'pointer' }} onClick={async () => {
+                      const isOpen = expandedTaskId === task.id;
+                      setExpandedTaskId(isOpen ? null : task.id);
+                      if (!isOpen && task.ticket_type_id && !expandedLog[task.id]) {
+                        try { const r = await xlr8Api.getTicketLog(task.id); setExpandedLog(prev => ({ ...prev, [task.id]: r.data })); } catch { /* ignore */ }
+                      }
+                    }}>
                       <div className={`task-status-dot task-status-dot--${task.status}`} />
                       <div>
                         <p className="task-cell-title">{task.title}</p>
@@ -503,12 +524,13 @@ export default function Tasks() {
                     <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
                       {(() => {
                         const s = task.xlr8_status;
-                        if (s === 'pending_manager') return task.xlr8_assignee_id ? 'Manager (review)' : 'Manager (assign)';
-                        if (s === 'pending_assignee') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
+                        const managerName = task.assignees?.find((a: any) => a.assignee_role === 'manager')?.name;
+                        if (s === 'pending_manager') return task.xlr8_assignee_id ? `${managerName ? managerName + ' · ' : ''}Manager (review)` : `${managerName ? managerName + ' · ' : ''}Manager (assign)`;
+                        if (task.status === 'in_review') return `${managerName ? managerName + ' · ' : ''}Manager`;
+                        if (s === 'pending_assignee') return task.xlr8_assignee_name || task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
                         if (s === 'pending_admin') return 'Admin';
                         if (s === 'pending_client') return task.client_name || 'Client';
                         if (s === 'completed') return '—';
-                        if (task.status === 'in_review') return 'Manager';
                         if (task.status === 'in_progress') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
                         return '—';
                       })()}
@@ -529,7 +551,9 @@ export default function Tasks() {
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
                   </td>
                   <td>
-                    <Badge status={task.status} />
+                    {task.ticket_type_id && user?.role === 'employee' && task.xlr8_assignee_id !== user?.id && task.xlr8_status !== 'completed'
+                      ? <Badge status="stage_done" />
+                      : <Badge status={task.status} />}
                   </td>
                   <td>
                     {task.checklist_total > 0
@@ -543,6 +567,7 @@ export default function Tasks() {
                         const s = task.xlr8_status;
                         const isAssignee = task.xlr8_assignee_id === user?.id;
                         const isManager = user?.role === 'admin' || user?.role === 'manager';
+                        const isManagerOnly = user?.role === 'manager';
                         const needsAssign = s === 'pending_manager' && !task.xlr8_assignee_id;
                         const needsReview = s === 'pending_manager' && !!task.xlr8_assignee_id;
                         if (needsAssign && isManager) return (
@@ -550,7 +575,7 @@ export default function Tasks() {
                             ＋ Accept &amp; Assign
                           </button>
                         );
-                        if (needsReview && isManager) return (
+                        if (needsReview && isManagerOnly) return (
                           <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
                             ✓ Review
                           </button>
@@ -658,9 +683,44 @@ export default function Tasks() {
                     </div>
                   </td>
                 </tr>
+                {expandedTaskId === task.id && (
+                  <tr>
+                    <td colSpan={10} style={{ background: 'var(--surface)', padding: '12px 20px 16px', borderBottom: '1px solid var(--border)' }}>
+                      {task.ticket_type_id ? (
+                        (expandedLog[task.id]?.length ?? 0) > 0 ? (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>Workflow History</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {(expandedLog[task.id] || []).map((entry: any, i: number) => {
+                                const actionLabels: Record<string, string> = {
+                                  created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted', employee_declined: 'Declined',
+                                  work_done: 'Marked done', manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
+                                  next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin', admin_approved: 'Admin approved',
+                                  admin_skip_client: 'Completed (client skipped)', admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
+                                };
+                                const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
+                                return (
+                                  <div key={i} style={{ fontSize: 12, padding: '7px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                                    <span style={{ fontWeight: 600 }}>{entry.actor_name}</span>
+                                    <span style={{ color: 'var(--ink-muted)' }}>· {actionLabels[entry.action] || entry.action}</span>
+                                    {entry.comment && <span style={{ color: 'var(--ink-muted)' }}>— {entry.comment}</span>}
+                                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No workflow history yet.</span>
+                      ) : (
+                        <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>Workflow history is only available for XLR8 ticket tasks.</span>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
               ))}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={8} className="empty-state">No tasks found</td></tr>
+                <tr><td colSpan={10} className="empty-state">No tasks found</td></tr>
               )}
             </tbody>
           </table>
@@ -711,6 +771,7 @@ export default function Tasks() {
                         <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => {
                           const tt = ticketTypes.find(t => String(t.id) === e.target.value);
                           const checklist = tt?.checklist?.length ? tt.checklist.map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
+                          setStageAssignments({});
                           setForm({ ...form, ticket_type_id: e.target.value, checklist });
                         }} required>
                           <option value="">Select type…</option>
@@ -727,13 +788,13 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
-                  <div className="drawer-info-field">
+                  {!form.ticket_type_id && <div className="drawer-info-field">
                     <div className="drawer-info-label">Est. time *</div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} required onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
                       <input type="number" min="0" max="59" placeholder="0m" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_minutes} onChange={(e) => setForm({ ...form, est_minutes: e.target.value })} onBlur={checkCapacity} />
                     </div>
-                  </div>
+                  </div>}
                 </div>
 
                 {/* Description */}
@@ -748,6 +809,83 @@ export default function Tasks() {
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
                   />
                 </div>
+
+                {/* XLR8 Stages panel — shown when a ticket type is selected */}
+                {(() => {
+                  const selProj = projects.find(p => String(p.id) === String(form.project_id));
+                  if (selProj?.service_type !== 'xlr8' || !form.ticket_type_id) return null;
+                  const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
+                  if (!tt || tt.stages.length === 0) return null;
+                  const employees = users.filter(u => u.role === 'employee');
+                  return (
+                    <div className="drawer-section">
+                      <div className="drawer-section-title">Stages</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {tt.stages.map((s: any, idx: number) => {
+                          const sa = stageAssignments[idx] || { user_ids: [], est_hours: s.est_hours ? String(s.est_hours) : '' };
+                          const isManager = s.type === 'manager';
+                          const catEmployees = isManager ? [] : employees.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
+                          const selectedUsers = catEmployees.filter(u => sa.user_ids.includes(u.id));
+                          const unselectedUsers = catEmployees.filter(u => !sa.user_ids.includes(u.id));
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string }>) =>
+                            setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: s.est_hours ? String(s.est_hours) : '' }), ...patch } }));
+                          return (
+                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isManager ? 0 : 8 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)' }}>
+                                  {isManager ? 'Manager Review' : s.category_name}
+                                </span>
+                                <input
+                                  type="number" min="0" step="0.5" placeholder="Est h"
+                                  value={sa.est_hours}
+                                  onChange={e => updateSa({ est_hours: e.target.value })}
+                                  className="form-input"
+                                  style={{ width: 64, marginBottom: 0, fontSize: 12, textAlign: 'center' }}
+                                  disabled={isManager}
+                                />
+                              </div>
+                              {!isManager && (
+                                <div style={{ paddingLeft: 26 }}>
+                                  {/* Selected employees chips */}
+                                  {selectedUsers.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                      {selectedUsers.map(u => (
+                                        <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
+                                          <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                            {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                          </span>
+                                          <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
+                                          <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {/* Unselected employees to pick */}
+                                  {unselectedUsers.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                      {unselectedUsers.map(u => (
+                                        <button key={u.id} type="button"
+                                          onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
+                                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                                          <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                            {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                          </span>
+                                          <span>{u.name.split(' ')[0]}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {catEmployees.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Assignment — hidden for XLR8 (manager assigns after ticket is raised) */}
                 {(() => {
@@ -1299,6 +1437,34 @@ export default function Tasks() {
 
               </div>
 
+              {/* Workflow history for ticket tasks */}
+              {taskLog.length > 0 && (
+                <div style={{ padding: '0 20px 16px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>
+                    Workflow History
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {taskLog.map((entry: any, i: number) => {
+                      const actionLabels: Record<string, string> = {
+                        created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted', employee_declined: 'Declined',
+                        work_done: 'Marked done', manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
+                        next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin', admin_approved: 'Admin approved',
+                        admin_skip_client: 'Skipped client, completed', admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
+                      };
+                      const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
+                      return (
+                        <div key={i} style={{ fontSize: 12, padding: '7px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)' }}>
+                          <span style={{ fontWeight: 600 }}>{entry.actor_name}</span>
+                          <span style={{ color: 'var(--ink-muted)' }}> · {actionLabels[entry.action] || entry.action}</span>
+                          {entry.comment && <span style={{ color: 'var(--ink-muted)' }}> — {entry.comment}</span>}
+                          <span style={{ display: 'block', fontSize: 10, color: 'var(--ink-muted)', marginTop: 2, opacity: 0.7 }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="drawer-footer">
                 <button type="submit" className="drawer-submit">
                   <Check size={15} /> Save Changes
@@ -1471,6 +1637,96 @@ export default function Tasks() {
                   {ticketActionLoading ? '…' : 'Decline'}
                 </button>
               }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recurring Task Modal */}
+      {showRecurringModal && (
+        <div className="drawer-backdrop" onClick={() => setShowRecurringModal(false)} style={{ zIndex: 1200 }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'var(--surface)', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', width: 420, maxWidth: '95vw', padding: 28, zIndex: 1201 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>New Recurring Task</h2>
+              <button type="button" onClick={() => setShowRecurringModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--ink-muted)' }}>×</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label className="form-label">Title *</label>
+                <input className="form-input" value={recurringForm.title} onChange={e => setRecurringForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Weekly report every Monday" autoFocus />
+              </div>
+              <div>
+                <label className="form-label">Project</label>
+                <select className="form-input" value={recurringForm.project_id} onChange={e => setRecurringForm(f => ({ ...f, project_id: e.target.value }))}>
+                  <option value="">None</option>
+                  {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                </select>
+              </div>
+              {(user?.role === 'admin' || user?.role === 'manager') && (
+                <div>
+                  <label className="form-label">Assign To</label>
+                  <select className="form-input" value={recurringForm.assigned_to} onChange={e => setRecurringForm(f => ({ ...f, assigned_to: e.target.value }))}>
+                    <option value={String(user?.id)}>Me ({user?.name})</option>
+                    {users.filter(u => u.id !== user?.id && u.role !== 'client').map(u => (
+                      <option key={u.id} value={String(u.id)}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="form-label">Recurrence</label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {(['daily','weekly','monthly'] as const).map(t => (
+                    <button key={t} type="button" onClick={() => setRecurringForm(f => ({ ...f, recurrence_type: t }))}
+                      style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `2px solid ${recurringForm.recurrence_type === t ? 'var(--brand)' : 'var(--sand-border)'}`, background: recurringForm.recurrence_type === t ? 'var(--brand-light,#eff6ff)' : 'transparent', fontWeight: 600, fontSize: 12, cursor: 'pointer', color: recurringForm.recurrence_type === t ? 'var(--brand)' : 'var(--ink-muted)' }}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {recurringForm.recurrence_type === 'weekly' && (
+                <div>
+                  <label className="form-label">Repeat on</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d, i) => (
+                      <button key={i} type="button"
+                        onClick={() => setRecurringForm(f => ({ ...f, recurrence_days: f.recurrence_days.includes(i) ? f.recurrence_days.filter(x => x !== i) : [...f.recurrence_days, i] }))}
+                        style={{ width: 34, height: 34, borderRadius: 8, border: `2px solid ${recurringForm.recurrence_days.includes(i) ? 'var(--brand)' : 'var(--sand-border)'}`, background: recurringForm.recurrence_days.includes(i) ? 'var(--brand)' : 'transparent', color: recurringForm.recurrence_days.includes(i) ? '#fff' : 'var(--ink-muted)', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Est. hours</label>
+                  <input type="number" min="0.5" step="0.5" className="form-input" value={recurringForm.estimated_hours} onChange={e => setRecurringForm(f => ({ ...f, estimated_hours: e.target.value }))} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">End date</label>
+                  <input type="date" className="form-input" value={recurringForm.end_date} onChange={e => setRecurringForm(f => ({ ...f, end_date: e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                <button className="btn-secondary" onClick={() => setShowRecurringModal(false)}>Cancel</button>
+                <button className="btn-primary" onClick={async () => {
+                  if (!recurringForm.title.trim()) { alert('Title is required'); return; }
+                  try {
+                    await calendarApi.createRecurring({
+                      ...recurringForm,
+                      assigned_to: recurringForm.assigned_to ? Number(recurringForm.assigned_to) : undefined,
+                      project_id: recurringForm.project_id ? Number(recurringForm.project_id) : null,
+                      recurrence_days: recurringForm.recurrence_type === 'weekly' ? recurringForm.recurrence_days : [],
+                      day_of_month: recurringForm.recurrence_type === 'monthly' ? Number(recurringForm.day_of_month) : null,
+                      end_date: recurringForm.end_date || null,
+                      estimated_hours: Number(recurringForm.estimated_hours) || 1,
+                      start_date: new Date().toISOString().slice(0, 10),
+                    });
+                    setShowRecurringModal(false);
+                  } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+                }}>Create</button>
+              </div>
             </div>
           </div>
         </div>

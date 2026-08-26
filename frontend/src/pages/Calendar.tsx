@@ -31,6 +31,7 @@ export default function CalendarPage() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [popup, setPopup] = useState<{ event: any; x: number; y: number } | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -175,7 +176,8 @@ export default function CalendarPage() {
 
         {loading && <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginBottom: 12 }}>Loading…</p>}
 
-        <div className="cal-grid" onClick={() => setPopup(null)}>
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div className="cal-grid" style={{ flex: 1, minWidth: 0 }} onClick={() => setPopup(null)}>
           <div className="cal-weekdays">
             {WEEKDAYS.map(d => <div key={d} className="cal-weekday">{d}</div>)}
           </div>
@@ -185,10 +187,13 @@ export default function CalendarPage() {
               const allEvents = [...dayTasks, ...dayRecurring];
               const visible = allEvents.slice(0, 3);
               const hidden = allEvents.length - 3;
+              const isSelected = selectedDate === cell.date;
               return (
                 <div
                   key={cell.date}
-                  className={`cal-day${!cell.thisMonth ? ' cal-day--other-month' : ''}${cell.date === todayStr ? ' cal-day--today' : ''}`}
+                  className={`cal-day${!cell.thisMonth ? ' cal-day--other-month' : ''}${cell.date === todayStr ? ' cal-day--today' : ''}${isSelected ? ' cal-day--selected' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setPopup(null); setSelectedDate(prev => prev === cell.date ? null : cell.date); }}
+                  style={{ cursor: 'pointer' }}
                 >
                   <div className="cal-day-num">{cell.day}</div>
                   {visible.map((ev, i) => (
@@ -207,6 +212,47 @@ export default function CalendarPage() {
               );
             })}
           </div>
+        </div>
+
+        {/* Day detail drawer */}
+        {selectedDate && (() => {
+          const { tasks: dayTasks, recurring: dayRecurring } = eventsForDate(selectedDate);
+          const allEvents = [...dayTasks, ...dayRecurring];
+          const [dy, dm, dd] = selectedDate.split('-');
+          const label = `${parseInt(dd)} ${MONTH_NAMES[parseInt(dm) - 1]} ${dy}`;
+          return (
+            <div className="cal-day-drawer">
+              <div className="cal-day-drawer-head">
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{allEvents.length} event{allEvents.length !== 1 ? 's' : ''}</div>
+                </div>
+                <button onClick={() => setSelectedDate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--ink-muted)', lineHeight: 1 }}>×</button>
+              </div>
+              <div className="cal-day-drawer-body">
+                {allEvents.length === 0 && <p style={{ fontSize: 13, color: 'var(--ink-muted)', padding: '12px 0' }}>No tasks on this day.</p>}
+                {allEvents.map((ev, i) => (
+                  <div key={i} className="cal-day-drawer-item">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span className={`cal-event-dot${ev.event_type === 'recurring' ? ' cal-event-dot--recurring' : ''}`} style={{ flexShrink: 0 }} />
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', flex: 1 }}>{ev.title}</span>
+                      {(ev.status === 'completed' || ev.status === 'done') && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#257a50', background: 'rgba(76,175,125,0.14)', borderRadius: 99, padding: '2px 7px' }}>Done</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', flexWrap: 'wrap', gap: '4px 10px', paddingLeft: 18 }}>
+                      {ev.assigned_to_name && <span>👤 {ev.assigned_to_name}</span>}
+                      {ev.project_name && <span>📁 {ev.project_name}</span>}
+                      {ev.estimated_hours && <span>⏱ {ev.estimated_hours}h</span>}
+                      {ev.event_type === 'recurring' && <span>🔁 Recurring</span>}
+                      {ev.priority && <span style={{ textTransform: 'capitalize' }}>· {ev.priority}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         </div>
 
         {/* Recurring task list */}

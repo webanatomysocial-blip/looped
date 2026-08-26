@@ -143,6 +143,8 @@ export default function Projects() {
     setDriveFileName('');
     setMemberTab('admins');
     setEmpSubTab('all');
+    // Refresh companies so newly created clients (with pod) show up
+    if (canEdit) usersApi.companies().then(r => setCompanies(r.data)).catch(() => {});
     setShowModal(true);
   };
 
@@ -264,13 +266,16 @@ export default function Projects() {
   const visibleUsers = (): User[] => {
     if (memberTab === 'admins')   return users.filter((u) => u.role === 'admin');
     if (memberTab === 'managers') return users.filter((u) => u.role === 'manager');
-    const emps = users.filter((u) => u.role === 'employee');
+    // Manager sees only their pod's employees; admin sees all
+    const emps = users.filter((u) => u.role === 'employee' && (user?.role !== 'manager' || !user?.pod || u.pod === user.pod));
     if (empSubTab === 'all') return emps;
     return emps.filter((u) => u.categories?.some((c) => String(c.id) === empSubTab));
   };
 
   const empCategories = categories.filter((cat) =>
-    users.some((u) => u.role === 'employee' && u.categories?.some((c) => c.id === cat.id))
+    users.some((u) => u.role === 'employee'
+      && (user?.role !== 'manager' || !user?.pod || u.pod === user.pod)
+      && u.categories?.some((c) => c.id === cat.id))
   );
 
   const countSelected = (tab: MemberTab) =>
@@ -931,7 +936,9 @@ export default function Projects() {
             {/* Employee list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px' }}>
               {users
-                .filter((u) => u.role === 'employee' && (acceptEmpSubTab === 'all' || u.categories?.some((c) => String(c.id) === acceptEmpSubTab)))
+                .filter((u) => u.role === 'employee'
+                  && (!user?.pod || u.pod === user.pod)
+                  && (acceptEmpSubTab === 'all' || u.categories?.some((c) => String(c.id) === acceptEmpSubTab)))
                 .map((u) => {
                   const selected = acceptMemberIds.includes(u.id);
                   return (

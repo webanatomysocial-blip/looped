@@ -157,6 +157,7 @@ export interface Task {
   ticket_type_id?: number | null;
   xlr8_status?: string | null;
   xlr8_assignee_id?: number | null;
+  xlr8_assignee_name?: string | null;
   xlr8_stage_idx?: number | null;
 }
 

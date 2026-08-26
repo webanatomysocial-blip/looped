@@ -285,7 +285,7 @@ export default function Approvals() {
         setReviewModal(null);
         setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
         // If more stages remain, fetch eligible workers and show assignment picker
-        if (action === 'approve' && res?.data?.next === 'pending_manager' && res?.data?.stage) {
+        if (action === 'approve' && res?.data?.next === 'pending_manager' && res?.data?.stage && res?.data?.stage?.type !== 'manager') {
           const eligible = await xlr8Api.acceptTicket(tid);
           if (!eligible.data.auto_assigned) {
             setAssignStage({ taskId: tid, stageName: res.data.stage.category_name, eligible: eligible.data.eligible });

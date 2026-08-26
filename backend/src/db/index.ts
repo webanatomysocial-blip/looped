@@ -431,6 +431,12 @@ async function createSchema(): Promise<void> {
     await db.schema.table('task_assignees', (t) => { t.string('assignee_role').defaultTo('worker'); });
   }
 
+  // Migrate task_assignees: add stage_idx for XLR8 pre-assignments
+  const hasStageIdx = await db.schema.hasColumn('task_assignees', 'stage_idx');
+  if (!hasStageIdx) {
+    await db.schema.table('task_assignees', (t) => { t.integer('stage_idx').nullable(); });
+  }
+
   // task_sessions — tracks timer start/pause/stop per task per user per day
   await db.schema.hasTable('task_sessions').then(async (exists) => {
     if (!exists) {

@@ -165,36 +165,19 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (role === 'admin') {
       if (req.query.pod) {
-        // Filter by pod — XLR8 tickets always pass through (no task_assignees)
-        query = query.where(function () {
-          this.whereNotNull('t.ticket_type_id')
-            .orWhereIn('ap.task_id', function (this: any) {
-              this.select('ta.task_id')
-                .from('task_assignees as ta')
-                .join('users as u', 'ta.user_id', 'u.id')
-                .where('u.pod', req.query.pod as string)
-                .whereIn('ta.assignee_role', ['employee']);
-            });
-        });
+        // Filter by project pod
+        query = query.where('p.pod', req.query.pod as string);
       }
     } else if (role === 'manager') {
       const mgr = await db('users').where({ id: userId }).select('pod').first();
       if (mgr?.pod) {
-        // Show same-pod task approvals OR any custom flow where this manager is an approver (cross-pod)
+        // Show approvals for this pod's projects OR custom flows where this manager is an approver
         query = query.where(function () {
-          this.whereIn('ap.task_id', function (this: any) {
-            this.select('ta.task_id')
-              .from('task_assignees as ta')
-              .join('users as u', 'ta.user_id', 'u.id')
-              .where('u.pod', mgr.pod)
-              .whereIn('ta.assignee_role', ['employee']);
-          })
+          this.where('p.pod', mgr.pod)
           .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
             SELECT 1 FROM task_approval_flow taf
             WHERE taf.task_id = ap.task_id AND taf.user_id = ?
-          ))`, [userId])
-          // Also show XLR8 ticket approvals (no task_assignees, pending_manager status)
-          .orWhereRaw(`EXISTS (SELECT 1 FROM tasks t2 WHERE t2.id = ap.task_id AND t2.ticket_type_id IS NOT NULL)`);
+          ))`, [userId]);
         });
       }
     } else if (role === 'client') {
@@ -207,12 +190,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .where('pm.user_id', userId);
       }
     } else if (role === 'employee') {
-      // Employee sees: own submissions + any custom-flow approval they appear in (any step, any stage)
+      // Employee sees: own submissions + custom-flow + XLR8 tickets they ever acted on (log history)
       query = query.where(function () {
         this.where('ap.submitted_by', userId)
           .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
             SELECT 1 FROM task_approval_flow taf
             WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+          ))`, [userId])
+          .orWhereRaw(`(ap.workflow_type = 'xlr8' AND EXISTS (
+            SELECT 1 FROM xlr8_ticket_log log WHERE log.task_id = ap.task_id AND log.actor_id = ?
           ))`, [userId]);
       });
     }

@@ -1,18 +1,34 @@
 (function () {
   'use strict';
 
+  // document.currentScript is null for async/deferred scripts; fall back to querying by src+attribute
   var script = document.currentScript || (function () {
+    var candidates = document.querySelectorAll('script[data-form-id][src*="embed.js"]');
+    if (candidates.length) return candidates[candidates.length - 1];
     var scripts = document.getElementsByTagName('script');
     return scripts[scripts.length - 1];
   })();
 
-  var formId = script.getAttribute('data-form-id');
+  var formId = script ? script.getAttribute('data-form-id') : null;
   if (!formId) return;
   var noRedirect = script.getAttribute('data-no-redirect') === 'true';
 
   var containerId = 'wa-form-' + formId;
-  var container = document.getElementById(containerId);
-  if (!container) return;
+
+  function init() {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    bootstrap(container);
+  }
+
+  // If DOM already ready, run now; otherwise wait for it
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  function bootstrap(container) {
 
   var scriptSrc = script.src || '';
   var apiBase = scriptSrc ? scriptSrc.replace(/\/embed\.js.*$/, '') : window.location.origin;
@@ -642,4 +658,5 @@
     .catch(function () {
       container.innerHTML = '<div class="wa-cf-error-msg">Form could not be loaded.</div>';
     });
+  } // end bootstrap
 })();

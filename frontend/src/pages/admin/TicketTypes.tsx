@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Layout from '../../components/Layout/Layout';
 import { xlr8Api, categoriesApi } from '../../services/api';
 import {
@@ -8,7 +8,7 @@ import {
   RiBarChartLine, RiLineChartLine, RiMailLine, RiCursorLine,
 } from 'react-icons/ri';
 
-interface Stage { category_id: number; category_name: string }
+interface Stage { type?: 'employee' | 'manager'; category_id?: number; category_name?: string; est_hours?: number }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
 interface ChecklistItem { text: string; checked: boolean }
 interface TicketType {
@@ -43,6 +43,7 @@ export default function TicketTypes() {
   const [view, setView] = useState<'list' | 'pick' | 'form'>('list');
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', stages: [] as Stage[], final_approval: { ...DEFAULT_FA }, checklist: [] as ChecklistItem[] });
+  const checklistRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const load = () => xlr8Api.getTicketTypes().then((r) => setTypes(r.data));
   useEffect(() => {
@@ -54,7 +55,7 @@ export default function TicketTypes() {
     return names
       .map(name => categories.find(c => c.name === name))
       .filter(Boolean)
-      .map(c => ({ category_id: c!.id, category_name: c!.name }));
+      .map(c => ({ type: 'employee' as const, category_id: c!.id, category_name: c!.name }));
   }
 
   function pickTemplate(tpl: typeof TEMPLATES[0]) {
@@ -77,7 +78,11 @@ export default function TicketTypes() {
     const unused = categories.find(c => !form.stages.find(s => s.category_id === c.id));
     const cat = unused || categories[0];
     if (!cat) return;
-    setForm(f => ({ ...f, stages: [...f.stages, { category_id: cat.id, category_name: cat.name }] }));
+    setForm(f => ({ ...f, stages: [...f.stages, { type: 'employee' as const, category_id: cat.id, category_name: cat.name }] }));
+  };
+
+  const addManagerStage = () => {
+    setForm(f => ({ ...f, stages: [...f.stages, { type: 'manager' as const }] }));
   };
 
   const removeStage = (i: number) => setForm(f => ({ ...f, stages: f.stages.filter((_, idx) => idx !== i) }));
@@ -92,7 +97,7 @@ export default function TicketTypes() {
 
   const setStageCategory = (i: number, catId: number) => {
     const cat = categories.find(c => c.id === catId)!;
-    setForm(f => { const s = [...f.stages]; s[i] = { category_id: cat.id, category_name: cat.name }; return { ...f, stages: s }; });
+    setForm(f => { const s = [...f.stages]; s[i] = { type: 'employee' as const, category_id: cat.id, category_name: cat.name }; return { ...f, stages: s }; });
   };
 
   const save = async () => {
@@ -184,30 +189,45 @@ export default function TicketTypes() {
             </div>
 
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <label className="form-label" style={{ marginBottom: 0 }}>Stages</label>
-                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={addStage}>
-                  <RiAddLine style={{ marginRight: 4 }} />Add Stage
-                </button>
-              </div>
+              <label className="form-label" style={{ marginBottom: 10 }}>Stages</label>
               {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>No stages — ticket goes straight to final approval.</p>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {form.stages.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'var(--surface-raised, #f8f8f8)', borderRadius: 8, border: '1px solid var(--sand-border)' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : 'var(--surface-raised, #f8f8f8)', borderRadius: 8, border: '1px solid var(--sand-border)' }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 20, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
-                    <select
+                    {s.type === 'manager' ? (
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Manager Review</span>
+                    ) : (
+                      <select
+                        className="form-input"
+                        value={s.category_id}
+                        onChange={e => setStageCategory(i, Number(e.target.value))}
+                        style={{ flex: 1, marginBottom: 0 }}
+                      >
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    )}
+                    <input
+                      type="number" min="0" step="0.5" placeholder="Est h"
+                      title="Estimated hours for this stage"
+                      value={s.est_hours ?? ''}
+                      onChange={e => setForm(f => { const stages = [...f.stages]; stages[i] = { ...stages[i], est_hours: e.target.value ? Number(e.target.value) : undefined }; return { ...f, stages }; })}
+                      style={{ width: 64, marginBottom: 0, fontSize: 12, textAlign: 'center' }}
                       className="form-input"
-                      value={s.category_id}
-                      onChange={e => setStageCategory(i, Number(e.target.value))}
-                      style={{ flex: 1, marginBottom: 0 }}
-                    >
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    />
                     <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0}><RiArrowUpLine /></button>
                     <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1}><RiArrowDownLine /></button>
                     <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => removeStage(i)}><RiDeleteBinLine /></button>
                   </div>
                 ))}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={addStage}>
+                  <RiAddLine style={{ marginRight: 4 }} />Add Stage
+                </button>
+                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={addManagerStage}>
+                  <RiAddLine style={{ marginRight: 4 }} />Add Manager Review
+                </button>
               </div>
             </div>
 
@@ -215,7 +235,7 @@ export default function TicketTypes() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <label className="form-label" style={{ marginBottom: 0 }}>Default Checklist Goals</label>
                 <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} type="button"
-                  onClick={() => setForm(f => ({ ...f, checklist: [...f.checklist, { text: '', checked: false }] }))}>
+                  onClick={() => setForm(f => ({ ...f, checklist: [...f.checklist, { text: '', checked: true }] }))}>
                   <RiAddLine style={{ marginRight: 4 }} />Add Item
                 </button>
               </div>
@@ -226,8 +246,26 @@ export default function TicketTypes() {
                     <input type="checkbox" checked={item.checked}
                       onChange={e => setForm(f => { const c = [...f.checklist]; c[i] = { ...c[i], checked: e.target.checked }; return { ...f, checklist: c }; })}
                       title="Pre-checked by default" />
-                    <input className="form-input" style={{ flex: 1, marginBottom: 0 }} value={item.text} placeholder="Checklist item"
-                      onChange={e => setForm(f => { const c = [...f.checklist]; c[i] = { ...c[i], text: e.target.value }; return { ...f, checklist: c }; })} />
+                    <input
+                      ref={el => { checklistRefs.current[i] = el; }}
+                      className="form-input" style={{ flex: 1, marginBottom: 0 }} value={item.text} placeholder="Checklist item"
+                      onChange={e => setForm(f => {
+                        const c = [...f.checklist];
+                        c[i] = { ...c[i], text: e.target.value };
+                        if (i === c.length - 1 && e.target.value.length === 1) c.push({ text: '', checked: true });
+                        return { ...f, checklist: c };
+                      })}
+                      onKeyDown={e => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        setForm(f => {
+                          const c = [...f.checklist];
+                          if (i === c.length - 1) c.push({ text: '', checked: true });
+                          return { ...f, checklist: c };
+                        });
+                        setTimeout(() => checklistRefs.current[i + 1]?.focus(), 0);
+                      }}
+                    />
                     <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} type="button"
                       onClick={() => setForm(f => ({ ...f, checklist: f.checklist.filter((_, idx) => idx !== i) }))}>
                       <RiDeleteBinLine />
