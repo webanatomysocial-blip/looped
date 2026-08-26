@@ -114,7 +114,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
     .leftJoin('projects as p', 't.project_id', 'p.id')
     .whereNotNull('t.due_date')
     .whereBetween('t.due_date', [start, end])
-    .select('t.id', 't.title', 't.due_date as date', 't.status', 't.priority', 't.estimated_hours',
+    .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
       't.recurring_task_id', 't.recurrence_date',
       'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
       db.raw("'task' as event_type"));
@@ -131,8 +131,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
   }
 
   const rawTasks = await taskQuery;
-  // Normalize date to YYYY-MM-DD (MySQL can return '2026-08-14 00:00:00')
-  const tasks = rawTasks.map((t: any) => ({ ...t, date: t.date ? String(t.date).slice(0, 10) : t.date }));
+  const tasks = rawTasks.map((t: any) => ({ ...t, date: t.event_date || null }));
 
   // Recurring task instances for this month (generated virtually — no DB row needed for display)
   let rtQuery = db('recurring_tasks as rt')
