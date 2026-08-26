@@ -12,15 +12,13 @@
   var apiBase = scriptSrc ? scriptSrc.replace(/\/embed\.js.*$/, '') : window.location.origin;
   var globalNoRedirect = script ? script.getAttribute('data-no-redirect') === 'true' : false;
 
-  // Track already-initialized containers so AJAX navigation doesn't double-init
-  var initialized = {};
-
   function tryInit(container) {
     var id = container.id; // e.g. "wa-form-5"
-    if (!id || initialized[id]) return;
+    if (!id) return;
     var formId = id.replace('wa-form-', '');
     if (!formId || isNaN(Number(formId))) return;
-    initialized[id] = true;
+    // Skip if already rendered (check for our wrapper, not a stale ID map)
+    if (container.querySelector('.wa-cf-wrap')) return;
     bootstrap(container, formId, globalNoRedirect);
   }
 
