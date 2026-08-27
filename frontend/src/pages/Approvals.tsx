@@ -534,34 +534,39 @@ export default function Approvals() {
 
                         {/* XLR8 ticket workflow path */}
                         {a.workflow_type === 'xlr8' && (() => {
-                          const stages: { category_name: string }[] = a.xlr8_stages ?? [];
+                          const stages: { category_name?: string; type?: string }[] = a.xlr8_stages ?? [];
                           const currentIdx = a.xlr8_stage_idx ?? 0;
                           const xlr8Status = a.xlr8_status ?? '';
                           const fa = a.xlr8_final_approval ?? {};
-                          // Build steps: each stage = "Work" + "Manager Review", then admin/client
+                          // Build steps from actual stage definitions
                           const steps: { label: string; key: string }[] = [];
                           stages.forEach((s, i) => {
-                            steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
-                            steps.push({ label: 'Manager Review', key: `mgr_${i}` });
+                            if (s.type === 'manager') {
+                              steps.push({ label: 'Manager Review', key: `mgr_${i}` });
+                            } else if (s.type === 'admin') {
+                              steps.push({ label: 'Admin Review', key: `adm_${i}` });
+                            } else {
+                              steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
+                            }
                           });
                           if (fa.adminRequired) steps.push({ label: 'Admin Approval', key: 'admin' });
                           if (fa.clientOptional) steps.push({ label: 'Client Review', key: 'client' });
                           steps.push({ label: 'Done', key: 'done' });
 
-                          // Determine which step is active
                           const getState = (key: string) => {
                             if (a.status === 'approved') return 'done';
-                            if (key === 'done') return a.status === 'approved' ? 'done' : 'pending';
-                            if (key === 'admin') return a.status === 'approved' || a.status === 'pending_client' ? 'done' : a.status === 'pending_admin' ? 'active' : 'pending';
+                            if (key === 'done') return 'pending';
+                            if (key === 'admin') return a.status === 'approved' || a.status === 'pending_client' ? 'done' : a.status === 'pending_admin' && !stages[currentIdx] ? 'active' : 'pending';
                             if (key === 'client') return a.status === 'approved' ? 'done' : a.status === 'pending_client' ? 'active' : 'pending';
-                            const m = key.match(/^(work|mgr)_(\d+)$/);
+                            const m = key.match(/^(work|mgr|adm)_(\d+)$/);
                             if (!m) return 'pending';
                             const idx = Number(m[2]);
                             if (idx < currentIdx) return 'done';
                             if (idx > currentIdx) return 'pending';
                             // current stage
-                            if (m[1] === 'work') return ['in_progress', 'pending_assignee', 'pending_manager'].includes(xlr8Status) ? (xlr8Status === 'in_progress' ? 'active' : 'pending') : 'done';
-                            if (m[1] === 'mgr') return xlr8Status === 'pending_manager' && a.status === 'pending_manager' ? 'active' : 'pending';
+                            if (m[1] === 'work') return xlr8Status === 'in_progress' ? 'active' : xlr8Status === 'pending_assignee' ? 'pending' : 'done';
+                            if (m[1] === 'mgr') return xlr8Status === 'pending_manager' ? 'active' : 'pending';
+                            if (m[1] === 'adm') return xlr8Status === 'pending_admin' ? 'active' : 'pending';
                             return 'pending';
                           };
 

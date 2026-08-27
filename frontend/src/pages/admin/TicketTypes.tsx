@@ -8,7 +8,7 @@ import {
   RiBarChartLine, RiLineChartLine, RiMailLine, RiCursorLine,
 } from 'react-icons/ri';
 
-interface Stage { type?: 'employee' | 'manager'; category_id?: number; category_name?: string; est_hours?: number }
+interface Stage { type?: 'employee' | 'manager' | 'admin'; category_id?: number; category_name?: string; est_hours?: number }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
 interface ChecklistItem { text: string; checked: boolean }
 interface TicketType {
@@ -79,10 +79,6 @@ export default function TicketTypes() {
     const cat = unused || categories[0];
     if (!cat) return;
     setForm(f => ({ ...f, stages: [...f.stages, { type: 'employee' as const, category_id: cat.id, category_name: cat.name }] }));
-  };
-
-  const addManagerStage = () => {
-    setForm(f => ({ ...f, stages: [...f.stages, { type: 'manager' as const }] }));
   };
 
   const removeStage = (i: number) => setForm(f => ({ ...f, stages: f.stages.filter((_, idx) => idx !== i) }));
@@ -192,41 +188,39 @@ export default function TicketTypes() {
               <label className="form-label" style={{ marginBottom: 10 }}>Stages</label>
               {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>No stages — ticket goes straight to final approval.</p>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {form.stages.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : 'var(--surface-raised, #f8f8f8)', borderRadius: 8, border: '1px solid var(--sand-border)' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 20, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
-                    {s.type === 'manager' ? (
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Manager Review</span>
-                    ) : (
+                {form.stages.map((s, i) => {
+                  const isReviewer = s.type === 'manager' || s.type === 'admin';
+                  const bg = s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : s.type === 'admin' ? 'var(--surface-raised, #fff4f0)' : 'var(--surface-raised, #f8f8f8)';
+                  // Single dropdown value: "manager", "admin", or category_id as string
+                  const dropVal = isReviewer ? s.type! : String(s.category_id ?? '');
+                  const handleDrop = (val: string) => {
+                    if (val === 'manager') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'manager' }; return { ...f, stages }; });
+                    else if (val === 'admin') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'admin' }; return { ...f, stages }; });
+                    else setStageCategory(i, Number(val));
+                  };
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: bg, borderRadius: 8, border: '1px solid var(--sand-border)' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 20, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
                       <select
                         className="form-input"
-                        value={s.category_id}
-                        onChange={e => setStageCategory(i, Number(e.target.value))}
+                        value={dropVal}
+                        onChange={e => handleDrop(e.target.value)}
                         style={{ flex: 1, marginBottom: 0 }}
                       >
-                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {categories.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+                        <option value="manager">Manager Review</option>
+                        <option value="admin">Admin Review</option>
                       </select>
-                    )}
-                    <input
-                      type="number" min="0" step="0.5" placeholder="Est h"
-                      title="Estimated hours for this stage"
-                      value={s.est_hours ?? ''}
-                      onChange={e => setForm(f => { const stages = [...f.stages]; stages[i] = { ...stages[i], est_hours: e.target.value ? Number(e.target.value) : undefined }; return { ...f, stages }; })}
-                      style={{ width: 64, marginBottom: 0, fontSize: 12, textAlign: 'center' }}
-                      className="form-input"
-                    />
-                    <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0}><RiArrowUpLine /></button>
-                    <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1}><RiArrowDownLine /></button>
-                    <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => removeStage(i)}><RiDeleteBinLine /></button>
-                  </div>
-                ))}
+                      <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0}><RiArrowUpLine /></button>
+                      <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1}><RiArrowDownLine /></button>
+                      <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => removeStage(i)}><RiDeleteBinLine /></button>
+                    </div>
+                  );
+                })}
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <div style={{ marginTop: 10 }}>
                 <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={addStage}>
                   <RiAddLine style={{ marginRight: 4 }} />Add Stage
-                </button>
-                <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={addManagerStage}>
-                  <RiAddLine style={{ marginRight: 4 }} />Add Manager Review
                 </button>
               </div>
             </div>
@@ -333,7 +327,7 @@ export default function TicketTypes() {
                     {t.stages.map((s, i) => (
                       <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 11 }}>
-                          {i + 1}. {s.category_name}
+                          {i + 1}. {s.type === 'manager' ? 'Manager Review' : s.type === 'admin' ? 'Admin Review' : s.category_name}
                         </span>
                         {i < t.stages.length - 1 && <span style={{ color: 'var(--ink-muted)', fontSize: 12 }}>→</span>}
                       </span>

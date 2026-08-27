@@ -5,6 +5,7 @@ const LABELS: Record<string, string> = {
   in_review:         'In review',
   on_hold:           'On hold',
   completed:         'Completed',
+  draft:             'Draft',
   todo:              'To do',
   in_progress:       'In progress',
   overdue:           'Overdue',

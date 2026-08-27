@@ -251,7 +251,8 @@ export default function TeamCapacityPage() {
                   {isExpanded && (
                     <div className="tc-tasks-expanded">
                       {member.tasks.map((task, ti) => {
-                        const estSec = (task.estimated_hours ?? 0) * 3600;
+                        const displayEstHours = task.ticket_type_id ? (task.stage_est_hours ?? null) : task.estimated_hours;
+                        const estSec = (displayEstHours ?? 0) * 3600;
                         const tp = estSec > 0 ? Math.min(100, (task.tracked_seconds_today / estSec) * 100) : 0;
                         const isTaskLast = ti === member.tasks.length - 1;
                         return (
@@ -273,7 +274,7 @@ export default function TeamCapacityPage() {
                             </div>
                             <div className="tc-task-meta">
                               <div style={{ fontWeight: 700, color: 'var(--ink)', fontSize: 12 }}>{fmtSeconds(task.tracked_seconds_today)}</div>
-                              {task.estimated_hours && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{Math.floor(task.estimated_hours)}h {Math.round((task.estimated_hours % 1) * 60)}m est.</div>}
+                              {displayEstHours && <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{Math.floor(displayEstHours)}h {Math.round((displayEstHours % 1) * 60)}m est.</div>}
                               <div className={`tc-task-status tc-task-status--${task.acceptance_status}`}>
                                 {task.acceptance_status}
                               </div>

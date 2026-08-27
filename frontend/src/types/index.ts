@@ -126,6 +126,8 @@ export interface TaskAssignee {
   role?: Role;
   assignee_role?: 'employee' | 'manager';
   acceptance_status?: 'pending' | 'accepted' | 'declined';
+  stage_idx?: number;
+  est_hours?: number | null;
 }
 
 export interface Task {
@@ -168,6 +170,7 @@ export interface CapacityTask {
   due_date: string | null;
   due_time: string | null;
   estimated_hours: number | null;
+  stage_est_hours?: number | null;
   project_name: string;
   acceptance_status: 'pending' | 'accepted' | 'declined';
   assignee_role: 'employee' | 'manager' | 'review' | null;

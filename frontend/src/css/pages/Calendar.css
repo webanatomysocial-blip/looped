@@ -373,7 +373,7 @@
 .cal-popup {
   position: absolute;
   z-index: 200;
-  background: var(--surface);
+  background: white;
   border: 1px solid var(--sand-border);
   border-radius: var(--r-lg);
   padding: 14px 16px;

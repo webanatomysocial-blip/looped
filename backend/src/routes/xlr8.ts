@@ -21,8 +21,10 @@ function parseTicketType(row: any) {
 }
 
 // Stages without an explicit type are backward-compat employee stages
-function stageType(stage: any): 'employee' | 'manager' {
-  return stage?.type === 'manager' ? 'manager' : 'employee';
+function stageType(stage: any): 'employee' | 'manager' | 'admin' {
+  if (stage?.type === 'manager') return 'manager';
+  if (stage?.type === 'admin') return 'admin';
+  return 'employee';
 }
 
 async function appendLog(task_id: number, actor: { id: number; name: string } | null, action: string, from_state: string | null, to_state: string | null, comment?: string) {
@@ -111,14 +113,31 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/tickets', async (req: AuthRequest, res: Response) => {
-  const { title, description, project_id, ticket_type_id, due_date, stage_assignments } = req.body;
+  const { title, description, project_id, ticket_type_id, due_date, stage_assignments, draft } = req.body;
   // stage_assignments: [{ stage_idx, user_ids: number[], est_hours?: number }]
-  if (!title?.trim() || !project_id || !ticket_type_id) {
-    res.status(400).json({ error: 'title, project_id, ticket_type_id required' }); return;
+  if (!title?.trim() || !project_id) {
+    res.status(400).json({ error: 'title and project_id required' }); return;
   }
+  if (!draft && !ticket_type_id) {
+    res.status(400).json({ error: 'ticket_type_id required' }); return;
+  }
+  const isDraft = !!draft;
   const db = getDB();
   const project = await db('projects').where({ id: project_id, service_type: 'xlr8' }).first();
   if (!project) { res.status(400).json({ error: 'Project is not an XLR8 project' }); return; }
+
+  // For drafts, just save and return
+  if (isDraft) {
+    const [id] = await db('tasks').insert({
+      title: title.trim(), description: description || null,
+      project_id, created_by: req.user!.id,
+      due_date: due_date || null, status: 'draft',
+      ticket_type_id: ticket_type_id || null,
+      xlr8_stage_idx: 0, xlr8_status: 'draft',
+    });
+    await appendLog(id, req.user!, 'created', null, 'draft');
+    res.status(201).json({ id }); return;
+  }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket_type_id }).first();
   if (!ticketType) { res.status(400).json({ error: 'Ticket type not found' }); return; }
@@ -149,13 +168,21 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     })));
   }
 
-  // Store pre-assigned employees per stage
+  // Store pre-assigned users per stage (employee, manager, or admin)
   if (Array.isArray(stage_assignments) && stage_assignments.length > 0) {
     const rows: any[] = [];
     for (const sa of stage_assignments) {
       if (!Array.isArray(sa.user_ids)) continue;
-      for (const uid of sa.user_ids) {
-        rows.push({ task_id: id, user_id: uid, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: sa.stage_idx });
+      const stg = stages[sa.stage_idx];
+      const sType = stg ? stageType(stg) : 'employee';
+      const estH = sa.est_hours || null;
+      if (sa.user_ids.length > 0) {
+        for (const uid of sa.user_ids) {
+          rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+        }
+      } else if (estH) {
+        // No user yet (review stage with no pre-assignment) — store est_hours with a placeholder row
+        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
       }
     }
     if (rows.length > 0) await db('task_assignees').insert(rows);
@@ -163,33 +190,34 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     // Set estimated_hours to sum of all stage est_hours
     const totalHours = stage_assignments.reduce((sum: number, sa: any) => sum + (sa.est_hours || 0), 0);
     if (totalHours > 0) await db('tasks').where({ id }).update({ estimated_hours: totalHours });
+  }
 
-    // Auto-advance: if stage 0 is an employee stage with a pre-assigned user, skip pending_manager
-    if (firstStage && stageType(firstStage) === 'employee') {
-      const stage0 = stage_assignments.find((sa: any) => sa.stage_idx === 0);
-      if (stage0 && Array.isArray(stage0.user_ids) && stage0.user_ids.length > 0) {
-        const assigneeId = stage0.user_ids[0];
-        await db('tasks').where({ id }).update({
-          xlr8_status: 'pending_assignee',
-          xlr8_assignee_id: assigneeId,
-          assigned_to: assigneeId,
-        });
-        await appendLog(id, req.user!, 'created', null, 'pending_assignee');
-      } else {
-        await appendLog(id, req.user!, 'created', null, 'pending_manager');
-      }
-    } else {
-      await appendLog(id, req.user!, 'created', null, 'pending_manager');
-    }
+  // Auto-advance based on first stage type and pre-assignments
+  const fType = firstStage ? stageType(firstStage) : null;
+  const stage0sa = Array.isArray(stage_assignments) ? stage_assignments.find((sa: any) => sa.stage_idx === 0) : null;
+  const preId0 = stage0sa?.user_ids?.[0] ?? null;
+
+  const task0 = await db('tasks').where({ id }).first();
+  if (fType === 'employee' && preId0) {
+    await db('tasks').where({ id }).update({ xlr8_status: 'pending_assignee', xlr8_assignee_id: preId0, assigned_to: preId0 });
+    await appendLog(id, req.user!, 'created', null, 'pending_assignee');
+  } else if (fType === 'manager') {
+    await db('tasks').where({ id }).update({ xlr8_status: 'pending_manager', xlr8_assignee_id: preId0, status: 'in_review' });
+    await appendLog(id, req.user!, 'created', null, 'pending_manager');
+    await db('approvals').insert({ task_id: id, title, project_id, submitted_by: req.user!.id, status: 'pending_manager', workflow_type: 'xlr8' });
+  } else if (fType === 'admin') {
+    await db('tasks').where({ id }).update({ xlr8_status: 'pending_admin', xlr8_assignee_id: preId0, status: 'in_review' });
+    await appendLog(id, req.user!, 'created', null, 'pending_admin');
+    await db('approvals').insert({ task_id: id, title, project_id, submitted_by: req.user!.id, status: 'pending_admin', workflow_type: 'xlr8' });
   } else {
     await appendLog(id, req.user!, 'created', null, 'pending_manager');
   }
 
-  const stageName = firstStage && stageType(firstStage) === 'employee' ? firstStage.category_name : 'worker';
+  const stageName = fType === 'employee' ? (firstStage?.category_name || 'worker') : fType === 'manager' ? 'Manager Review' : fType === 'admin' ? 'Admin Review' : 'worker';
   const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
   for (const m of managers) {
     if (m.id !== req.user!.id) {
-      await createNotification(m.id, `New ticket "${title}" needs a ${stageName} assigned`, 'task', project_id);
+      await createNotification(m.id, `New ticket "${title}" created — ${stageName}`, 'task', project_id);
     }
   }
 
@@ -219,6 +247,39 @@ router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
     final_approval: JSON.parse(ticket.final_approval || '{}'),
     log,
   });
+});
+
+// Update stage assignments for a ticket (admin/manager only)
+router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Response) => {
+  if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Manager only' }); return; }
+  const { stage_assignments } = req.body; // [{ stage_idx, user_ids, est_hours }]
+  if (!Array.isArray(stage_assignments)) { res.status(400).json({ error: 'stage_assignments required' }); return; }
+  const db = getDB();
+  const ticket = await db('tasks').where({ id: req.params.id }).first();
+  if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+  const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
+  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
+
+  // Replace all assignees
+  await db('task_assignees').where({ task_id: ticket.id }).delete();
+  const rows: any[] = [];
+  for (const sa of stage_assignments) {
+    if (!Array.isArray(sa.user_ids)) continue;
+    const stg = stages[sa.stage_idx];
+    const sType = stg ? stageType(stg) : 'employee';
+    const estH = sa.est_hours || null;
+    if (sa.user_ids.length > 0) {
+      for (const uid of sa.user_ids) {
+        rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+      }
+    } else if (estH) {
+      rows.push({ task_id: ticket.id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+    }
+  }
+  if (rows.length > 0) await db('task_assignees').insert(rows);
+  const totalHours = stage_assignments.reduce((sum: number, sa: any) => sum + (sa.est_hours || 0), 0);
+  if (totalHours > 0) await db('tasks').where({ id: ticket.id }).update({ estimated_hours: totalHours });
+  res.json({ ok: true });
 });
 
 // Manager: start assignment — only valid when current stage is employee type
@@ -380,64 +441,16 @@ router.post('/tickets/:id/done', async (req: AuthRequest, res: Response) => {
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
   const stages: any[] = JSON.parse(ticketType?.stages || '[]');
+  const finalApproval = JSON.parse(ticketType?.final_approval || '{}');
   const currentIdx = ticket.xlr8_stage_idx ?? 0;
-  const nextIdx = currentIdx + 1;
-  const nextStage = stages[nextIdx];
 
-  await appendLog(ticket.id, req.user!, 'work_done', 'in_progress', 'pending_manager');
-
-  if (nextStage && stageType(nextStage) === 'employee') {
-    // Next is an employee stage — skip manager review, go straight to assign mode
-    await db('tasks').where({ id: ticket.id }).update({
-      xlr8_status: 'pending_manager',
-      xlr8_stage_idx: nextIdx,
-      xlr8_assignee_id: null,
-      assigned_to: null,
-      status: 'todo',
-    });
-    // Create/update approval as work_in_progress so employee can see it but manager doesn't get a review action
-    const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
-    if (!approval) {
-      await db('approvals').insert({
-        task_id: ticket.id, title: ticket.title, project_id: ticket.project_id,
-        submitted_by: userId, status: 'work_in_progress', workflow_type: 'xlr8',
-      });
-    } else {
-      await db('approvals').where({ id: approval.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
-    }
-    const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
-    for (const m of managers) {
-      await createNotification(m.id, `Ticket "${ticket.title}" stage done — assign a ${nextStage.category_name} for the next stage`, 'task', ticket.project_id);
-    }
-  } else {
-    // Next is a manager stage OR no more stages — pending_manager for review
-    const newIdx = (nextStage && stageType(nextStage) === 'manager') ? nextIdx : currentIdx;
-    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_stage_idx: newIdx, status: 'in_review' });
-
-    // Create/update approval record for Approvals page
-    const existingApproval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
-    if (!existingApproval) {
-      await db('approvals').insert({
-        task_id: ticket.id, title: ticket.title, project_id: ticket.project_id,
-        submitted_by: userId, status: 'pending_manager', workflow_type: 'xlr8',
-      });
-    } else {
-      await db('approvals').where({ id: existingApproval.id }).update({ status: 'pending_manager', workflow_type: 'xlr8' });
-    }
-    const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
-    for (const m of managers) {
-      if (m.id !== userId) {
-        await createNotification(m.id, `Ticket "${ticket.title}" is ready for your review`, 'approval', ticket.project_id);
-      }
-    }
-  }
-
-  res.json({ ok: true });
+  await appendLog(ticket.id, req.user!, 'work_done', 'in_progress', null);
+  await advanceToStage(db, ticket, stages, finalApproval, currentIdx + 1, req.user!, 'in_progress', res);
 });
 
 // Manager: approve or decline after work done (or at an explicit manager stage)
 router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
-  const { action, comment, skip_admin } = req.body;
+  const { action, comment } = req.body;
   if (!['approve', 'decline'].includes(action)) { res.status(400).json({ error: 'action must be approve or decline' }); return; }
   if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Manager only' }); return; }
 
@@ -470,63 +483,8 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
 
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
 
-  const nextStageIdx = currentStageIdx + 1;
-  const nextStage = stages[nextStageIdx];
-
   await appendLog(ticket.id, req.user!, 'manager_approved', 'pending_manager', null, comment);
-
-  if (nextStage) {
-    // More stages remain — advance to next stage
-    await db('tasks').where({ id: ticket.id }).update({
-      xlr8_status: 'pending_manager',
-      xlr8_stage_idx: nextStageIdx,
-      xlr8_assignee_id: null,
-      assigned_to: null,
-      status: 'todo',
-    });
-    const interApproval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
-    if (interApproval) await db('approvals').where({ id: interApproval.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
-
-    const stageName = stageType(nextStage) === 'employee' ? nextStage.category_name : 'Manager Review';
-    await appendLog(ticket.id, req.user!, 'next_stage', 'pending_manager', 'pending_manager', `Stage ${nextStageIdx + 1}: ${stageName}`);
-    const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
-    for (const m of managers) {
-      const msg = stageType(nextStage) === 'employee'
-        ? `Ticket "${ticket.title}" approved — assign a ${nextStage.category_name} for stage ${nextStageIdx + 1}`
-        : `Ticket "${ticket.title}" approved — manager review required for stage ${nextStageIdx + 1}`;
-      await createNotification(m.id, msg, 'task', ticket.project_id);
-    }
-    res.json({ ok: true, next: 'pending_manager', stage: nextStage }); return;
-  }
-
-  // All stages done — final approval
-  const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
-
-  if (finalApproval.adminRequired && !skip_admin) {
-    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_admin' });
-    if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_admin', workflow_type: 'xlr8' });
-    await appendLog(ticket.id, req.user!, 'sent_to_admin', 'pending_manager', 'pending_admin');
-    const admins = await db('users').where({ role: 'admin' }).select('id');
-    for (const a of admins) {
-      await createNotification(a.id, `Ticket "${ticket.title}" needs your final approval`, 'task', ticket.project_id);
-    }
-    res.json({ ok: true, next: 'pending_admin' }); return;
-  }
-
-  if (finalApproval.clientOptional && (skip_admin || !finalApproval.adminRequired)) {
-    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client' });
-    if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8' });
-    await appendLog(ticket.id, req.user!, 'admin_skipped', 'pending_manager', 'pending_client', 'Admin skipped by manager');
-    const clientUsers = await db('users').where({ role: 'client' }).select('id');
-    for (const c of clientUsers) {
-      await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
-    }
-    res.json({ ok: true, next: 'pending_client' }); return;
-  }
-
-  await completeTicket(db, ticket, req.user!);
-  if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date() });
-  res.json({ ok: true, next: 'completed' });
+  await advanceToStage(db, ticket, stages, finalApproval, currentStageIdx + 1, req.user!, 'pending_manager', res);
 });
 
 router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response) => {
@@ -535,10 +493,22 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
+  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
   const finalApproval = ticketType?.final_approval ? JSON.parse(ticketType.final_approval) : {};
+  const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
+  const currentStage = stages[currentStageIdx];
+
+  await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', null, req.body.comment);
+
+  // If we're at an explicit admin stage (mid-flow), advance to next stage
+  if (currentStage && stageType(currentStage) === 'admin') {
+    await advanceToStage(db, ticket, stages, finalApproval, currentStageIdx + 1, req.user!, 'pending_admin', res);
+    return;
+  }
+
+  // Final admin approval
   const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
   if (finalApproval.clientOptional) {
-    await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', 'pending_client', req.body.comment);
     await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client' });
     if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8', admin_approved_by: req.user!.id, admin_approved_at: new Date() });
     const clientUsers = await db('users').where({ role: 'client' }).select('id');
@@ -547,7 +517,6 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
     }
     res.json({ ok: true, next: 'pending_client' });
   } else {
-    await appendLog(ticket.id, req.user!, 'admin_approved', 'pending_admin', 'completed', req.body.comment);
     await completeTicket(db, ticket, req.user!);
     if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date(), admin_approved_by: req.user!.id, admin_approved_at: new Date() });
     res.json({ ok: true, next: 'completed' });
@@ -583,6 +552,95 @@ router.get('/tickets/:id/log', async (req: AuthRequest, res: Response) => {
     .orderBy('created_at', 'asc');
   res.json(log);
 });
+
+// Routes ticket to the stage at targetIdx, or to final approval if past all stages
+async function advanceToStage(
+  db: any, ticket: any, stages: any[], finalApproval: any,
+  targetIdx: number, actor: any, fromState: string, res: Response
+) {
+  if (targetIdx >= stages.length) {
+    // All stages done — run final approval
+    const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+    if (finalApproval.adminRequired) {
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_admin', xlr8_stage_idx: targetIdx, xlr8_assignee_id: null, assigned_to: null, status: 'in_review' });
+      if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_admin', workflow_type: 'xlr8' });
+      else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: actor.id, status: 'pending_admin', workflow_type: 'xlr8' });
+      await appendLog(ticket.id, actor, 'sent_to_admin', fromState, 'pending_admin');
+      const admins = await db('users').where({ role: 'admin' }).select('id');
+      for (const a of admins) await createNotification(a.id, `Ticket "${ticket.title}" needs your final approval`, 'task', ticket.project_id);
+      res.json({ ok: true, next: 'pending_admin' }); return;
+    }
+    if (finalApproval.clientOptional) {
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client', xlr8_stage_idx: targetIdx, xlr8_assignee_id: null, assigned_to: null });
+      if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8' });
+      else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: actor.id, status: 'pending_client', workflow_type: 'xlr8' });
+      await appendLog(ticket.id, actor, 'sent_to_client', fromState, 'pending_client');
+      const clients = await db('users').where({ role: 'client' }).select('id');
+      for (const c of clients) await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
+      res.json({ ok: true, next: 'pending_client' }); return;
+    }
+    const approval2 = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+    await completeTicket(db, ticket, actor);
+    if (approval2) await db('approvals').where({ id: approval2.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date() });
+    res.json({ ok: true, next: 'completed' }); return;
+  }
+
+  const nextStage = stages[targetIdx];
+  const nType = stageType(nextStage);
+
+  if (nType === 'employee') {
+    const pre = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).first();
+    // Clear the approval record — work is in progress, not in review
+    const empAp = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+    if (empAp) await db('approvals').where({ id: empAp.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
+    if (pre) {
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: 'todo' });
+      await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_assignee', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
+      await createNotification(pre.user_id, `Ticket "${ticket.title}" has been assigned to you`, 'task', ticket.project_id);
+      res.json({ ok: true, next: 'pending_assignee' });
+    } else {
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_stage_idx: targetIdx, xlr8_assignee_id: null, assigned_to: null, status: 'todo' });
+      await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_manager', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
+      const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
+      for (const m of managers) await createNotification(m.id, `Ticket "${ticket.title}" — assign a ${nextStage.category_name} for stage ${targetIdx + 1}`, 'task', ticket.project_id);
+      res.json({ ok: true, next: 'pending_manager' });
+    }
+    return;
+  }
+
+  if (nType === 'manager') {
+    const pre = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx }).first();
+    const mgr = pre?.user_id || null;
+    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_stage_idx: targetIdx, xlr8_assignee_id: mgr, assigned_to: mgr, status: 'in_review' });
+    await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_manager', `Stage ${targetIdx + 1}: Manager Review`);
+    const existingMgr = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+    if (existingMgr) await db('approvals').where({ id: existingMgr.id }).update({ status: 'pending_manager', workflow_type: 'xlr8' });
+    else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: actor.id, status: 'pending_manager', workflow_type: 'xlr8' });
+    if (mgr) {
+      await createNotification(mgr, `Ticket "${ticket.title}" is ready for your review`, 'approval', ticket.project_id);
+    } else {
+      const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
+      for (const m of managers) await createNotification(m.id, `Ticket "${ticket.title}" ready for manager review`, 'approval', ticket.project_id);
+    }
+    res.json({ ok: true, next: 'pending_manager' }); return;
+  }
+
+  // admin stage
+  const pre = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx }).first();
+  const adm = pre?.user_id || null;
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_admin', xlr8_stage_idx: targetIdx, xlr8_assignee_id: adm, assigned_to: adm, status: 'in_review' });
+  await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_admin', `Stage ${targetIdx + 1}: Admin Review`);
+  const existingAdm = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
+  if (existingAdm) await db('approvals').where({ id: existingAdm.id }).update({ status: 'pending_admin', workflow_type: 'xlr8' });
+  else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: actor.id, status: 'pending_admin', workflow_type: 'xlr8' });
+  if (adm) {
+    await createNotification(adm, `Ticket "${ticket.title}" is ready for your admin review`, 'approval', ticket.project_id);
+  } else {
+    const admins = await db('users').where({ role: 'admin' }).select('id');
+    for (const a of admins) await createNotification(a.id, `Ticket "${ticket.title}" ready for admin review`, 'approval', ticket.project_id);
+  }
+  res.json({ ok: true, next: 'pending_admin' });
+}
 
 async function completeTicket(db: any, ticket: any, actor: any) {
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'completed', status: 'completed' });

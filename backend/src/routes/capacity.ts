@@ -78,15 +78,20 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
     // XLR8 tickets assigned to this user via xlr8_assignee_id
     const xlr8Tasks = await db('tasks as t')
       .leftJoin('projects as p', 't.project_id', 'p.id')
+      .leftJoin('task_assignees as ta_est', function () {
+        this.on('ta_est.task_id', 't.id').on('ta_est.stage_idx', 't.xlr8_stage_idx');
+      })
       .where('t.xlr8_assignee_id', userId)
       .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
-        'p.name as project_name', 't.ticket_type_id',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx',
         db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
-        db.raw("'employee' as assignee_role")
-      );
+        db.raw("'employee' as assignee_role"),
+        db.raw('MIN(ta_est.est_hours) as stage_est_hours')
+      )
+      .groupBy('t.id');
 
     // Merge XLR8 tickets (avoid duplicates if somehow in both)
     const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
@@ -243,15 +248,20 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
     // XLR8 tickets assigned via xlr8_assignee_id — always show regardless of due date
     const xlr8TeamTasks = await db('tasks as t')
       .leftJoin('projects as p', 't.project_id', 'p.id')
+      .leftJoin('task_assignees as ta_est', function () {
+        this.on('ta_est.task_id', 't.id').on('ta_est.stage_idx', 't.xlr8_stage_idx');
+      })
       .whereIn('t.xlr8_assignee_id', employeeIds)
       .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
-        'p.name as project_name',
+        'p.name as project_name', 't.xlr8_stage_idx',
         't.xlr8_assignee_id as assignee_user_id',
         db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
-        db.raw("'employee' as assignee_role")
-      );
+        db.raw("'employee' as assignee_role"),
+        db.raw('MIN(ta_est.est_hours) as stage_est_hours')
+      )
+      .groupBy('t.id');
 
     // Merge, avoiding duplicates
     const regularIds = new Set(regularTasks.map((t: any) => `${t.id}-${t.assignee_user_id}`));

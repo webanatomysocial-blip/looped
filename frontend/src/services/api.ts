@@ -230,6 +230,7 @@ export const xlr8Api = {
   getTicket: (id: number) => api.get(`/xlr8/tickets/${id}`),
   getTicketLog: (id: number) => api.get(`/xlr8/tickets/${id}/log`),
   // Workflow actions
+  updateStageAssignments: (id: number, stage_assignments: any[]) => api.put(`/xlr8/tickets/${id}/stage-assignments`, { stage_assignments }),
   acceptTicket: (id: number) => api.post(`/xlr8/tickets/${id}/accept`),
   assignTicket: (id: number, assignee_id: number) => api.post(`/xlr8/tickets/${id}/assign`, { assignee_id }),
   employeeAccept: (id: number) => api.post(`/xlr8/tickets/${id}/employee-accept`),

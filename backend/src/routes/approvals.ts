@@ -137,13 +137,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const { role, id: userId } = req.user!;
 
+    // Auto-repair: create missing approval records for XLR8 tasks already in a pending state
+    const orphaned = await db('tasks as t')
+      .whereNotNull('t.xlr8_status')
+      .whereIn('t.xlr8_status', ['pending_manager', 'pending_admin', 'pending_client'])
+      .whereNotExists(function () {
+        this.from('approvals as ap').whereRaw('ap.task_id = t.id').whereNotIn('ap.status', ['approved', 'rejected']);
+      })
+      .select('t.id', 't.title', 't.project_id', 't.created_by', 't.xlr8_status');
+    if (orphaned.length > 0) {
+      await db('approvals').insert(orphaned.map((t: any) => ({
+        task_id: t.id, title: t.title, project_id: t.project_id,
+        submitted_by: t.created_by, status: t.xlr8_status, workflow_type: 'xlr8',
+      })));
+    }
+
     let query = db('approvals as ap')
       .join('tasks as t', 'ap.task_id', 't.id')
       .join('projects as p', 'ap.project_id', 'p.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
       .leftJoin('users as sub', 'ap.submitted_by', 'sub.id')
       .leftJoin(
-        db('task_assignees').where('assignee_role', 'employee').as('emp_ta'),
+        db('task_assignees').where('assignee_role', 'employee').groupBy('task_id').select('task_id', db.raw('MIN(user_id) as user_id')).as('emp_ta'),
         'emp_ta.task_id', 'ap.task_id'
       )
       .leftJoin('users as worker', 'worker.id', 'emp_ta.user_id')

@@ -343,9 +343,11 @@ export default function Home() {
                       <div className="cap-task-row__title">{task.title}</div>
                       <div className="cap-task-row__meta">
                         <span>{task.project_name}</span>
-                        {task.estimated_hours != null && (
-                          <span>· <Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} />{fmtEstimated(task.estimated_hours)} est.</span>
-                        )}
+                        {(() => {
+                          const displayEst = task.ticket_type_id ? (task.stage_est_hours ?? null) : task.estimated_hours;
+                          if (!displayEst) return null;
+                          return <span>· <Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} />{fmtEstimated(displayEst)} est.</span>;
+                        })()}
                         {(() => {
                           const dl = getDeadlineInfo(task.due_date, task.due_time);
                           if (!dl) return null;

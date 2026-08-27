@@ -490,6 +490,12 @@ async function createSchema(): Promise<void> {
     }
   } catch (e) { console.error('task_assignees worker→employee migration error:', e); }
 
+  // Migrate task_assignees: add est_hours for per-stage time estimates
+  const hasAssigneeEstHours = await db.schema.hasColumn('task_assignees', 'est_hours');
+  if (!hasAssigneeEstHours) {
+    await db.schema.table('task_assignees', (t) => { t.float('est_hours').nullable(); });
+  }
+
   // Backfill time_logs from completed task_sessions that have no time_log yet.
   // Uses orphan-linking: if an unlinked time_log already matches (same task/user/date/hours),
   // update it to link the session rather than inserting a duplicate.

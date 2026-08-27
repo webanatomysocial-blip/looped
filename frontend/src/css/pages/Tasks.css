@@ -110,6 +110,7 @@
   flex-shrink: 0;
   display: inline-block;
 }
+.task-status-dot--draft       { background: #94a3b8; }
 .task-status-dot--todo        { background: var(--sand-border); }
 .task-status-dot--in_progress { background: var(--orange); }
 .task-status-dot--in_review   { background: var(--blue); }

@@ -64,7 +64,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ? await db('task_assignees as ta')
           .join('users as u', 'ta.user_id', 'u.id')
           .whereIn('ta.task_id', taskIds)
-          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.role', 'ta.acceptance_status', 'ta.assignee_role')
+          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours')
       : [];
 
     // Timer state: active sessions for current user today + all active runners per task
@@ -142,7 +142,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     if (!task) { res.status(404).json({ error: 'Not found' }); return; }
 
     const checklist = await db('task_checklist').where({ task_id: req.params.id });
-    res.json({ ...task, checklist });
+    const stageAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('stage_idx', 'user_id', 'assignee_role', 'est_hours');
+    res.json({ ...task, checklist, stage_assignees: stageAssignees });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
@@ -150,8 +151,9 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // POST create task (admin, manager, employee)
 router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  const { title, description, project_id, working_person_id, task_manager_id, due_date, due_time, checklist, estimated_hours, approval_flow } = req.body;
+  const { title, description, project_id, working_person_id, task_manager_id, due_date, due_time, checklist, estimated_hours, approval_flow, draft } = req.body;
   if (!title || !project_id) { res.status(400).json({ error: 'Title and project required' }); return; }
+  const isDraft = !!draft;
   try {
     const db = getDB();
     // Accept either string[] (legacy) or {text,checked}[] (new)
@@ -170,7 +172,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       created_by: req.user!.id,
       due_date: due_date ? String(due_date).slice(0, 10) : null,
       due_time: due_time || null,
-      status: 'todo',
+      status: isDraft ? 'draft' : 'todo',
       checklist_total: checklistItems.filter(i => i.text).length,
       checklist_done: 0,
       estimated_hours: estimated_hours ? Number(estimated_hours) : null,
@@ -197,8 +199,9 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       );
     }
 
-    // Notify assigned employee + check capacity warnings
+    // Notify assigned employee + check capacity warnings (skip for drafts)
     const warnings: string[] = [];
+    if (isDraft) { res.status(201).json({ id, warnings }); return; }
     const project = await db('projects').where({ id: project_id }).first();
     if (workerId && workerId !== req.user!.id) {
       await createNotification(workerId, `You have been assigned task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
@@ -241,7 +244,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (due_time !== undefined) updates.due_time = due_time;
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
-    const VALID_STATUSES = ['todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+    const VALID_STATUSES = ['draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
     if (status !== undefined) {
       if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
       updates.status = status;

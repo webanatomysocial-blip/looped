@@ -45,8 +45,14 @@ export default function Tasks() {
   const [expandedLog, setExpandedLog]           = useState<Record<number, any[]>>({});
   const [editForm, setEditForm]                 = useState({ title: '', description: '', due_date: '', due_time: '', est_hours: '', est_minutes: '0', working_person_id: '', task_manager_id: '' });
   const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean }[]>([]);
+  const [editStageAssignments, setEditStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }>>({});
+  const [editStageSearchOpen, setEditStageSearchOpen] = useState<Record<number, boolean>>({});
+  const [editStageSearchTerm, setEditStageSearchTerm] = useState<Record<number, string>>({});
 
   const [editRoleTab, setEditRoleTab]           = useState<'admin'|'manager'|'employee'>('employee');
+  const [viewTask, setViewTask]                 = useState<Task | null>(null);
+  const [viewTab, setViewTab]                   = useState<'info' | 'activity'>('info');
+  const [viewLog, setViewLog]                   = useState<any[]>([]);
 
   const [form, setForm] = useState({
     title: '', description: '', project_id: '',
@@ -57,8 +63,10 @@ export default function Tasks() {
     ticket_type_id: '',
   });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
-  // stageAssignments[stage_idx] = { user_ids: number[], est_hours: number }
-  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string }>>({});
+  // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes }
+  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }>>({});
+  const [stageSearchOpen, setStageSearchOpen] = useState<Record<number, boolean>>({});
+  const [stageSearchTerm, setStageSearchTerm] = useState<Record<number, string>>({});
   // XLR8 ticket workflow modal
   const [ticketActionTask, setTicketActionTask] = useState<any>(null);
   const [ticketEligible, setTicketEligible] = useState<any[] | null>(null);
@@ -113,7 +121,7 @@ export default function Tasks() {
       if (tt) {
         for (let i = 0; i < tt.stages.length; i++) {
           const stage = tt.stages[i];
-          if (stage.type === 'manager') continue;
+          if (stage.type === 'manager' || stage.type === 'admin') continue;
           const sa = stageAssignments[i];
           if (!sa || sa.user_ids.length === 0) {
             alert(`Please assign at least one employee to Stage ${i + 1} (${stage.category_name}).`);
@@ -123,7 +131,10 @@ export default function Tasks() {
       }
       try {
         const sa = Object.entries(stageAssignments)
-          .map(([idx, v]) => ({ stage_idx: Number(idx), user_ids: v.user_ids, est_hours: v.est_hours ? Number(v.est_hours) : 0 }))
+          .map(([idx, v]) => {
+            const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
+            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec };
+          })
           .filter(s => s.user_ids.length > 0 || s.est_hours > 0);
         await xlr8Api.createTicket({
           title: form.title,
@@ -158,6 +169,35 @@ export default function Tasks() {
         approval_flow: approvalFlow.map(u => u.id),
       });
       if (res.data.warnings?.length) setCapacityWarnings(res.data.warnings);
+      setShowModal(false);
+      load();
+    } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+  };
+
+  const handleDraft = async () => {
+    if (!form.title.trim()) { alert('Please enter a title.'); return; }
+    if (!form.project_id) { alert('Please select a project.'); return; }
+    const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
+    const isXlr8 = selectedProject?.service_type === 'xlr8';
+    try {
+      if (isXlr8) {
+        await xlr8Api.createTicket({
+          title: form.title, description: form.description || null,
+          project_id: Number(form.project_id),
+          ticket_type_id: form.ticket_type_id ? Number(form.ticket_type_id) : undefined,
+          due_date: form.due_date || null,
+          draft: true,
+        } as any);
+      } else {
+        await tasksApi.create({
+          title: form.title, description: form.description || null,
+          project_id: Number(form.project_id),
+          due_date: form.due_date || null,
+          due_time: form.due_time || null,
+          checklist: form.checklist.filter(i => i.text),
+          draft: true,
+        } as any);
+      }
       setShowModal(false);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
@@ -318,10 +358,23 @@ export default function Tasks() {
       working_person_id: employeeAssignee ? String(employeeAssignee.user_id) : '',
       task_manager_id:   managerAssignee  ? String(managerAssignee.user_id)  : '',
     });
-    // Load existing checklist items
+    // Load existing checklist items and stage assignments
+    setEditStageAssignments({});
     try {
       const res = await tasksApi.get(task.id);
       setEditChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+      // Build editStageAssignments from task_assignees grouped by stage_idx
+      const saMap: Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }> = {};
+      for (const sa of (res.data.stage_assignees || [])) {
+        const idx = sa.stage_idx ?? 0;
+        if (!saMap[idx]) {
+          const h = sa.est_hours ? Math.floor(Number(sa.est_hours)) : 0;
+          const m = sa.est_hours ? Math.round((Number(sa.est_hours) % 1) * 60) : 0;
+          saMap[idx] = { user_ids: [], est_hours: h > 0 ? String(h) : '', est_minutes: m > 0 ? String(m) : '0' };
+        }
+        saMap[idx].user_ids.push(sa.user_id);
+      }
+      setEditStageAssignments(saMap);
     } catch { setEditChecklist([]); }
     // Load workflow history for ticket tasks
     setTaskLog([]);
@@ -337,6 +390,15 @@ export default function Tasks() {
       ? Number(editForm.est_hours) + Number(editForm.est_minutes) / 60
       : null;
     try {
+      // Save stage assignments for XLR8 tickets
+      if (editTask.ticket_type_id && Object.keys(editStageAssignments).length > 0) {
+        const sa = Object.entries(editStageAssignments)
+          .map(([idx, v]) => {
+            const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
+            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec };
+          });
+        await xlr8Api.updateStageAssignments(editTask.id, sa);
+      }
       await tasksApi.update(editTask.id, {
         title:               editForm.title,
         description:         editForm.description || null,
@@ -393,7 +455,7 @@ export default function Tasks() {
   const [page, setPage] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
 
-  const statuses = ['all', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+  const statuses = ['all', 'draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
   const filtered = tasks.filter((t) => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
     if (dateFilter) {
@@ -491,10 +553,11 @@ export default function Tasks() {
                 <tr>
                   <td>
                     <div className="task-cell-main" style={{ cursor: 'pointer' }} onClick={async () => {
-                      const isOpen = expandedTaskId === task.id;
-                      setExpandedTaskId(isOpen ? null : task.id);
-                      if (!isOpen && task.ticket_type_id && !expandedLog[task.id]) {
-                        try { const r = await xlr8Api.getTicketLog(task.id); setExpandedLog(prev => ({ ...prev, [task.id]: r.data })); } catch { /* ignore */ }
+                      setViewTask(task);
+                      setViewTab('info');
+                      setViewLog([]);
+                      if (task.ticket_type_id) {
+                        try { const r = await xlr8Api.getTicketLog(task.id); setViewLog(r.data); } catch { /* ignore */ }
                       }
                     }}>
                       <div className={`task-status-dot task-status-dot--${task.status}`} />
@@ -541,9 +604,8 @@ export default function Tasks() {
                         const s = task.xlr8_status;
                         const managerName = task.assignees?.find((a: any) => a.assignee_role === 'manager')?.name;
                         if (s === 'pending_manager') return task.xlr8_assignee_id ? `${managerName ? managerName + ' · ' : ''}Manager (review)` : `${managerName ? managerName + ' · ' : ''}Manager (assign)`;
-                        if (task.status === 'in_review') return `${managerName ? managerName + ' · ' : ''}Manager`;
                         if (s === 'pending_assignee') return task.xlr8_assignee_name || task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
-                        if (s === 'pending_admin') return 'Admin';
+                        if (s === 'pending_admin') return task.xlr8_assignee_name || 'Admin';
                         if (s === 'pending_client') return task.client_name || 'Client';
                         if (s === 'completed') return '—';
                         if (task.status === 'in_progress') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
@@ -559,11 +621,20 @@ export default function Tasks() {
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
                   </td>
                   <td>
-                    {task.estimated_hours
-                      ? <span style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <Clock size={11} />{fmtHours(Number(task.estimated_hours))}
-                        </span>
-                      : <span style={{ color: 'var(--sand-border)' }}>—</span>}
+                    {(() => {
+                      // For XLR8 tickets show the current stage's est_hours, not the whole-task total
+                      if (task.ticket_type_id) {
+                        const currentIdx = (task as any).xlr8_stage_idx ?? 0;
+                        const stageAssignee = task.assignees?.find((a: any) => a.stage_idx === currentIdx && a.est_hours > 0);
+                        const h = stageAssignee?.est_hours ?? null;
+                        return h
+                          ? <span style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={11} />{fmtHours(Number(h))}</span>
+                          : <span style={{ color: 'var(--sand-border)' }}>—</span>;
+                      }
+                      return task.estimated_hours
+                        ? <span style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={11} />{fmtHours(Number(task.estimated_hours))}</span>
+                        : <span style={{ color: 'var(--sand-border)' }}>—</span>;
+                    })()}
                   </td>
                   <td>
                     {task.ticket_type_id && user?.role === 'employee' && task.xlr8_assignee_id !== user?.id && task.xlr8_status !== 'completed'
@@ -685,7 +756,7 @@ export default function Tasks() {
                           <Send size={10} /> Send Again
                         </button>
                       )}
-                      {(user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && task.status !== 'completed' && (
+                      {(user?.role === 'admin' || user?.role === 'manager') && task.status !== 'completed' && (
                         <button className="icon-action" title="Edit task" onClick={() => openEdit(task)}>
                           <Pencil size={11} />
                         </button>
@@ -698,40 +769,6 @@ export default function Tasks() {
                     </div>
                   </td>
                 </tr>
-                {expandedTaskId === task.id && (
-                  <tr>
-                    <td colSpan={10} style={{ background: 'var(--surface)', padding: '12px 20px 16px', borderBottom: '1px solid var(--border)' }}>
-                      {task.ticket_type_id ? (
-                        (expandedLog[task.id]?.length ?? 0) > 0 ? (
-                          <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>Workflow History</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                              {(expandedLog[task.id] || []).map((entry: any, i: number) => {
-                                const actionLabels: Record<string, string> = {
-                                  created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted', employee_declined: 'Declined',
-                                  work_done: 'Marked done', manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
-                                  next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin', admin_approved: 'Admin approved',
-                                  admin_skip_client: 'Completed (client skipped)', admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
-                                };
-                                const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
-                                return (
-                                  <div key={i} style={{ fontSize: 12, padding: '7px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                                    <span style={{ fontWeight: 600 }}>{entry.actor_name}</span>
-                                    <span style={{ color: 'var(--ink-muted)' }}>· {actionLabels[entry.action] || entry.action}</span>
-                                    {entry.comment && <span style={{ color: 'var(--ink-muted)' }}>— {entry.comment}</span>}
-                                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No workflow history yet.</span>
-                      ) : (
-                        <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>Workflow history is only available for XLR8 ticket tasks.</span>
-                      )}
-                    </td>
-                  </tr>
-                )}
               </React.Fragment>
               ))}
               {filtered.length === 0 && !loading && (
@@ -742,6 +779,113 @@ export default function Tasks() {
         </div>
         <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
       </div>
+
+      {/* ── Task View Canvas ── */}
+      {viewTask && (
+        <div className="drawer-overlay">
+          <div className="drawer-backdrop" onClick={() => setViewTask(null)} />
+          <div className="drawer-panel">
+            {/* Header */}
+            <div className="drawer-header">
+              <div className="drawer-header__label">
+                {viewTask.project_name}{viewTask.client_name ? ` · ${viewTask.client_name}` : ''}
+              </div>
+              <div className="drawer-header__row">
+                <span className="drawer-header__title">{viewTask.title}</span>
+                <button type="button" className="drawer-close" onClick={() => setViewTask(null)}>×</button>
+              </div>
+              {/* Tabs */}
+              <div style={{ display: 'flex', marginTop: 14, gap: 0, borderBottom: '1.5px solid var(--bg-sand)', marginBottom: -18 }}>
+                {(['info', 'activity'] as const).map(tab => (
+                  <button key={tab} type="button" onClick={() => setViewTab(tab)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: '6px 16px 10px',
+                    fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    color: viewTab === tab ? 'var(--ink)' : 'var(--ink-muted)',
+                    borderBottom: viewTab === tab ? '2px solid var(--ink)' : '2px solid transparent',
+                    marginBottom: -1.5,
+                  }}>
+                    {tab === 'info' ? 'Info' : 'Activity Log'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="drawer-body" style={{ overflowY: 'auto' }}>
+              {viewTab === 'info' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    {[
+                      { label: 'Task Key', value: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>#{viewTask.id}</span> },
+                      { label: 'Status', value: <span className={`badge badge--${viewTask.status}`}>{viewTask.status.replace(/_/g, ' ')}</span> },
+                      { label: 'Assigned to', value: viewTask.assignees?.length > 0 ? viewTask.assignees.map((a: any) => a.name).join(', ') : viewTask.assigned_name || '—' },
+                      { label: 'Due Date', value: viewTask.due_date ? format(new Date(viewTask.due_date), 'MMM d, yyyy') : '—' },
+                      { label: 'Est. Time', value: (() => {
+                        if (viewTask.ticket_type_id) {
+                          const idx = (viewTask as any).xlr8_stage_idx ?? 0;
+                          const h = viewTask.assignees?.find((a: any) => a.stage_idx === idx && a.est_hours > 0)?.est_hours ?? null;
+                          return h ? fmtHours(Number(h)) : '—';
+                        }
+                        return viewTask.estimated_hours ? fmtHours(Number(viewTask.estimated_hours)) : '—';
+                      })() },
+                      { label: 'Created by', value: viewTask.created_by_name || '—' },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <div className="drawer-info-label">{label}</div>
+                        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <div className="drawer-info-label">Description</div>
+                    {viewTask.description
+                      ? <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.03)', borderRadius: 8, padding: '12px 14px', marginTop: 6 }}>{viewTask.description}</div>
+                      : <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 4 }}>No description provided.</div>
+                    }
+                  </div>
+                </div>
+              )}
+
+              {viewTab === 'activity' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {viewLog.length > 0 ? viewLog.map((entry: any, i: number) => {
+                    const actionLabels: Record<string, string> = {
+                      created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted',
+                      employee_declined: 'Declined', work_done: 'Marked done',
+                      manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
+                      next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin',
+                      admin_approved: 'Admin approved', admin_skip_client: 'Completed (client skipped)',
+                      admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
+                    };
+                    const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
+                    return (
+                      <div key={i} style={{
+                        fontSize: 12, padding: '10px 12px', borderRadius: 8,
+                        background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)',
+                        border: `1px solid ${isDanger ? 'rgba(239,68,68,0.18)' : 'rgba(76,175,125,0.18)'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{actionLabels[entry.action] || entry.action}</span></span>
+                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
+                            {format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}
+                          </span>
+                        </div>
+                        {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}
+                      </div>
+                    );
+                  }) : (
+                    <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+                      {viewTask.ticket_type_id ? 'No workflow history yet.' : 'Activity log is available for XLR8 tickets only.'}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="drawer-overlay">
@@ -803,13 +947,13 @@ export default function Tasks() {
                     <div className="drawer-info-label">Due time</div>
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
-                  {!form.ticket_type_id && <div className="drawer-info-field">
+                  <div className="drawer-info-field">
                     <div className="drawer-info-label">Est. time *</div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} required onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
                       <input type="number" min="0" max="59" placeholder="0m" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_minutes} onChange={(e) => setForm({ ...form, est_minutes: e.target.value })} onBlur={checkCapacity} />
                     </div>
-                  </div>}
+                  </div>
                 </div>
 
                 {/* Description */}
@@ -831,69 +975,163 @@ export default function Tasks() {
                   if (selProj?.service_type !== 'xlr8' || !form.ticket_type_id) return null;
                   const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
                   if (!tt || tt.stages.length === 0) return null;
-                  const employees = users.filter(u => u.role === 'employee');
+                  const projPod = selProj?.pod;
+                  const employees = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
+
+                  // Allocation tracker
+                  const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
+                  const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+                  const remMin = totalMin - allocMin;
+                  const fmtMin = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
+
+                  const autoSplit = () => {
+                    const count = tt.stages.length;
+                    if (!totalMin || !count) return;
+                    const perStageMin = Math.floor(totalMin / count);
+                    const rem = totalMin % count;
+                    setStageAssignments(prev => {
+                      const next = { ...prev };
+                      tt.stages.forEach((_: any, i: number) => {
+                        const m = perStageMin + (i === 0 ? rem : 0);
+                        next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
+                      });
+                      return next;
+                    });
+                  };
+
                   return (
                     <div className="drawer-section">
-                      <div className="drawer-section-title">Stages</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div className="drawer-section-title" style={{ marginBottom: 0 }}>Stages</div>
+                        {totalMin > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, color: remMin < 0 ? 'var(--red)' : 'var(--ink-muted)' }}>
+                              {fmtMin(allocMin)} / {fmtMin(totalMin)}{remMin !== 0 && ` · ${remMin > 0 ? fmtMin(remMin) + ' left' : fmtMin(remMin) + ' over'}`}
+                            </span>
+                            <button type="button" onClick={autoSplit} style={{ fontSize: 11, padding: '2px 8px', background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                              Split equally
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {tt.stages.map((s: any, idx: number) => {
-                          const sa = stageAssignments[idx] || { user_ids: [], est_hours: s.est_hours ? String(s.est_hours) : '' };
+                          const sa = stageAssignments[idx] || { user_ids: [], est_hours: '', est_minutes: '0' };
                           const isManager = s.type === 'manager';
-                          const catEmployees = isManager ? [] : employees.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
-                          const selectedUsers = catEmployees.filter(u => sa.user_ids.includes(u.id));
-                          const unselectedUsers = catEmployees.filter(u => !sa.user_ids.includes(u.id));
-                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string }>) =>
-                            setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: s.est_hours ? String(s.est_hours) : '' }), ...patch } }));
+                          const isAdmin = s.type === 'admin';
+                          const isReviewer = isManager || isAdmin;
+                          const catEmployees = isReviewer ? [] : employees.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
+                          const reviewPool = isAdmin
+                            ? users.filter(u => u.role === 'admin')
+                            : isManager
+                              ? users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod))
+                              : [];
+                          const pool = isReviewer ? reviewPool : catEmployees;
+                          const selectedUsers = users.filter(u => sa.user_ids.includes(u.id));
+                          const unselectedUsers = pool.filter(u => !sa.user_ids.includes(u.id));
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string }>) =>
+                            setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
+                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)';
+                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)';
+                          const label = isAdmin ? 'Admin Review' : isManager ? 'Manager Review' : s.category_name;
                           return (
-                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isManager ? 0 : 8 }}>
+                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: bgColor }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)' }}>
-                                  {isManager ? 'Manager Review' : s.category_name}
-                                </span>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor }}>{label}</span>
                                 <input
-                                  type="number" min="0" step="0.5" placeholder="Est h"
+                                  type="number" min="0" max="99" placeholder="0h"
                                   value={sa.est_hours}
                                   onChange={e => updateSa({ est_hours: e.target.value })}
                                   className="form-input"
-                                  style={{ width: 64, marginBottom: 0, fontSize: 12, textAlign: 'center' }}
-                                  disabled={isManager}
+                                  style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
+                                  title="Hours"
+                                />
+                                <input
+                                  type="number" min="0" max="59" placeholder="0m"
+                                  value={sa.est_minutes === '0' ? '' : sa.est_minutes}
+                                  onChange={e => updateSa({ est_minutes: e.target.value || '0' })}
+                                  className="form-input"
+                                  style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
+                                  title="Minutes"
                                 />
                               </div>
-                              {!isManager && (
-                                <div style={{ paddingLeft: 26 }}>
-                                  {/* Selected employees chips */}
-                                  {selectedUsers.length > 0 && (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
-                                      {selectedUsers.map(u => (
-                                        <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
-                                          <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                            {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                          </span>
-                                          <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
-                                          <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
+                              <div style={{ paddingLeft: 26 }}>
+                                {selectedUsers.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                    {selectedUsers.map(u => (
+                                      <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
+                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                                         </span>
-                                      ))}
+                                        <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
+                                        <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {unselectedUsers.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {unselectedUsers.map(u => (
+                                      <button key={u.id} type="button"
+                                        onClick={() => updateSa({ user_ids: [u.id] })}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                        </span>
+                                        <span>{u.name.split(' ')[0]}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {pool.length === 0 && !isReviewer && !stageSearchOpen[idx] && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, background: 'var(--surface)', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer' }}
+                                    >
+                                      Search Project Employees
+                                    </button>
+                                  </div>
+                                )}
+                                {pool.length === 0 && !isReviewer && stageSearchOpen[idx] && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                      <input
+                                        type="text"
+                                        placeholder="Search employees..."
+                                        value={stageSearchTerm[idx] || ''}
+                                        onChange={e => setStageSearchTerm(prev => ({ ...prev, [idx]: e.target.value }))}
+                                        className="form-input"
+                                        style={{ fontSize: 12, padding: '4px 8px', width: '100%', maxWidth: 200, marginBottom: 0 }}
+                                        autoFocus
+                                      />
+                                      <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
-                                  )}
-                                  {/* Unselected employees to pick */}
-                                  {unselectedUsers.length > 0 && (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {unselectedUsers.map(u => (
-                                        <button key={u.id} type="button"
-                                          onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
-                                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
-                                          <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                            {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                          </span>
-                                          <span>{u.name.split(' ')[0]}</span>
-                                        </button>
+                                      {employees
+                                        .filter(u => (stageSearchTerm[idx] ? u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()) : true))
+                                        .filter(u => !sa.user_ids.includes(u.id))
+                                        .map(u => (
+                                          <button key={u.id} type="button"
+                                            onClick={() => updateSa({ user_ids: [u.id] })}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                              {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                            </span>
+                                            <span>{u.name.split(' ')[0]}</span>
+                                          </button>
                                       ))}
+                                      {employees.length === 0 && (
+                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this project.</span>
+                                      )}
                                     </div>
-                                  )}
-                                  {catEmployees.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
-                                </div>
-                              )}
+                                  </div>
+                                )}
+                                {pool.length === 0 && isReviewer && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Any {isAdmin ? 'admin' : 'manager'} can review</span>}
+                              </div>
                             </div>
                           );
                         })}
@@ -1207,6 +1445,7 @@ export default function Tasks() {
                 <button type="submit" className="drawer-submit">
                   <Plus size={15} /> Create Task
                 </button>
+                <button type="button" className="drawer-cancel" onClick={handleDraft} style={{ color: 'var(--ink-muted)' }}>Save Draft</button>
                 <button type="button" className="drawer-cancel" onClick={() => setShowModal(false)}>Cancel</button>
               </div>
 
@@ -1307,18 +1546,23 @@ export default function Tasks() {
                 </div>
 
                 {/* Current stats */}
-                {(editTask.estimated_hours || editTask.due_date) && (
+                {(editTask.estimated_hours || editTask.due_date || editTask.ticket_type_id) && (
                   <div style={{ background: 'var(--bg-sand)', borderRadius: 12, padding: '12px 16px', display: 'flex', gap: 20 }}>
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Project</div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{editTask.project_name}</div>
                     </div>
-                    {editTask.estimated_hours && (
+                    {(() => {
+                      const dispH = editTask.ticket_type_id
+                        ? (editTask.assignees?.find((a: any) => a.stage_idx === ((editTask as any).xlr8_stage_idx ?? 0) && a.est_hours > 0)?.est_hours ?? null)
+                        : editTask.estimated_hours;
+                      return dispH ? (
                       <div>
                         <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Current Est.</div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtHours(Number(editTask.estimated_hours))}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtHours(Number(dispH))}</div>
                       </div>
-                    )}
+                      ) : null;
+                    })()}
                     <div>
                       <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Status</div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{editTask.status.replace('_', ' ')}</div>
@@ -1373,6 +1617,176 @@ export default function Tasks() {
                     </div>
                   </div>
                 )}
+
+                {/* XLR8 Stages panel in Edit */}
+                {(() => {
+                  if (!editTask?.ticket_type_id) return null;
+                  const tt = ticketTypes.find(t => String(t.id) === String(editTask.ticket_type_id));
+                  if (!tt || tt.stages.length === 0) return null;
+                  const proj = projects.find(p => String(p.id) === String(editTask.project_id));
+                  const projPod = proj?.pod;
+                  const empPool = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
+
+                  const totalMinE = (Number(editForm.est_hours) || 0) * 60 + (Number(editForm.est_minutes) || 0);
+                  const allocMinE = Object.values(editStageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+                  const remMinE = totalMinE - allocMinE;
+                  const fmtMinE = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
+
+                  const autoSplitE = () => {
+                    const count = tt.stages.length;
+                    if (!totalMinE || !count) return;
+                    const perStageMin = Math.floor(totalMinE / count);
+                    const rem = totalMinE % count;
+                    setEditStageAssignments(prev => {
+                      const next = { ...prev };
+                      tt.stages.forEach((_: any, i: number) => {
+                        const m = perStageMin + (i === 0 ? rem : 0);
+                        next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
+                      });
+                      return next;
+                    });
+                  };
+
+                  return (
+                    <div className="drawer-section">
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div className="drawer-section-title" style={{ marginBottom: 0 }}>Stages</div>
+                        {totalMinE > 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, color: remMinE < 0 ? 'var(--red)' : 'var(--ink-muted)' }}>
+                              {fmtMinE(allocMinE)} / {fmtMinE(totalMinE)}{remMinE !== 0 && ` · ${remMinE > 0 ? fmtMinE(remMinE) + ' left' : fmtMinE(remMinE) + ' over'}`}
+                            </span>
+                            <button type="button" onClick={autoSplitE} style={{ fontSize: 11, padding: '2px 8px', background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                              Split equally
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {tt.stages.map((s: any, idx: number) => {
+                          const sa = editStageAssignments[idx] || { user_ids: [], est_hours: '', est_minutes: '0' };
+                          const isManager = s.type === 'manager';
+                          const isAdmin = s.type === 'admin';
+                          const isReviewer = isManager || isAdmin;
+                          const catEmployees = isReviewer ? [] : empPool.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
+                          const reviewPool = isAdmin
+                            ? users.filter(u => u.role === 'admin')
+                            : isManager
+                              ? users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod))
+                              : [];
+                          const pool2 = isReviewer ? reviewPool : catEmployees;
+                          const selectedUsers = users.filter(u => sa.user_ids.includes(u.id));
+                          const unselectedUsers = pool2.filter(u => !sa.user_ids.includes(u.id));
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string }>) =>
+                            setEditStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
+                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)';
+                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)';
+                          const label = isAdmin ? 'Admin Review' : isManager ? 'Manager Review' : s.category_name;
+                          return (
+                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: bgColor }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor }}>{label}</span>
+                                <input
+                                  type="number" min="0" max="99" placeholder="0h"
+                                  value={sa.est_hours}
+                                  onChange={e => updateSa({ est_hours: e.target.value })}
+                                  className="form-input"
+                                  style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
+                                  title="Hours"
+                                />
+                                <input
+                                  type="number" min="0" max="59" placeholder="0m"
+                                  value={sa.est_minutes === '0' ? '' : sa.est_minutes}
+                                  onChange={e => updateSa({ est_minutes: e.target.value || '0' })}
+                                  className="form-input"
+                                  style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
+                                  title="Minutes"
+                                />
+                              </div>
+                              <div style={{ paddingLeft: 26 }}>
+                                {selectedUsers.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+                                    {selectedUsers.map(u => (
+                                      <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
+                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                        </span>
+                                        <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
+                                        <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                                {unselectedUsers.length > 0 && (
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {unselectedUsers.map(u => (
+                                      <button key={u.id} type="button"
+                                        onClick={() => updateSa({ user_ids: [u.id] })}
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                        </span>
+                                        <span>{u.name.split(' ')[0]}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                {pool2.length === 0 && !isReviewer && !editStageSearchOpen[idx] && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, background: 'var(--surface)', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer' }}
+                                    >
+                                      Search Project Employees
+                                    </button>
+                                  </div>
+                                )}
+                                {pool2.length === 0 && !isReviewer && editStageSearchOpen[idx] && (
+                                  <div style={{ marginTop: 8 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                                      <input
+                                        type="text"
+                                        placeholder="Search employees..."
+                                        value={editStageSearchTerm[idx] || ''}
+                                        onChange={e => setEditStageSearchTerm(prev => ({ ...prev, [idx]: e.target.value }))}
+                                        className="form-input"
+                                        style={{ fontSize: 12, padding: '4px 8px', width: '100%', maxWidth: 200, marginBottom: 0 }}
+                                        autoFocus
+                                      />
+                                      <button type="button" onClick={() => { setEditStageSearchOpen(prev => ({ ...prev, [idx]: false })); setEditStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                      {empPool
+                                        .filter(u => (editStageSearchTerm[idx] ? u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()) : true))
+                                        .filter(u => !sa.user_ids.includes(u.id))
+                                        .map(u => (
+                                          <button key={u.id} type="button"
+                                            onClick={() => updateSa({ user_ids: [u.id] })}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                                            <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                              {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                            </span>
+                                            <span>{u.name.split(' ')[0]}</span>
+                                          </button>
+                                      ))}
+                                      {empPool.length === 0 && (
+                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this project.</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                                {pool2.length === 0 && isReviewer && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Any {isAdmin ? 'admin' : 'manager'} can review</span>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Assignment */}
                 {(() => {
