@@ -129,6 +129,13 @@ export default function Tasks() {
           }
         }
       }
+      // Block if stage est hours exceed total est hours
+      const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
+      const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+      if (totalMin > 0 && allocMin > totalMin) {
+        alert('Stage estimated hours exceed the total estimated time. Please reduce stage hours or increase the total.');
+        return;
+      }
       try {
         const sa = Object.entries(stageAssignments)
           .map(([idx, v]) => {
@@ -372,7 +379,7 @@ export default function Tasks() {
           const m = sa.est_hours ? Math.round((Number(sa.est_hours) % 1) * 60) : 0;
           saMap[idx] = { user_ids: [], est_hours: h > 0 ? String(h) : '', est_minutes: m > 0 ? String(m) : '0' };
         }
-        saMap[idx].user_ids.push(sa.user_id);
+        if (sa.user_id != null) saMap[idx].user_ids.push(sa.user_id);
       }
       setEditStageAssignments(saMap);
     } catch { setEditChecklist([]); }
@@ -389,6 +396,7 @@ export default function Tasks() {
     const estHrs = editForm.est_hours
       ? Number(editForm.est_hours) + Number(editForm.est_minutes) / 60
       : null;
+    // For XLR8 tickets, total est is derived from stages — skip the top-level total vs stages check
     try {
       // Save stage assignments for XLR8 tickets
       if (editTask.ticket_type_id && Object.keys(editStageAssignments).length > 0) {
@@ -815,20 +823,16 @@ export default function Tasks() {
             <div className="drawer-body" style={{ overflowY: 'auto' }}>
               {viewTab === 'info' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {/* Meta row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                     {[
-                      { label: 'Task Key', value: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>#{viewTask.id}</span> },
-                      { label: 'Status', value: <span className={`badge badge--${viewTask.status}`}>{viewTask.status.replace(/_/g, ' ')}</span> },
-                      { label: 'Assigned to', value: viewTask.assignees?.length > 0 ? viewTask.assignees.map((a: any) => a.name).join(', ') : viewTask.assigned_name || '—' },
-                      { label: 'Due Date', value: viewTask.due_date ? format(new Date(viewTask.due_date), 'MMM d, yyyy') : '—' },
-                      { label: 'Est. Time', value: (() => {
-                        if (viewTask.ticket_type_id) {
-                          const idx = (viewTask as any).xlr8_stage_idx ?? 0;
-                          const h = viewTask.assignees?.find((a: any) => a.stage_idx === idx && a.est_hours > 0)?.est_hours ?? null;
-                          return h ? fmtHours(Number(h)) : '—';
-                        }
-                        return viewTask.estimated_hours ? fmtHours(Number(viewTask.estimated_hours)) : '—';
+                      { label: 'Task Key', value: (() => {
+                        const mon = new Date(viewTask.created_at).toLocaleString('en-US', { month: 'short' }).toUpperCase();
+                        const proj = (viewTask.project_name || '').replace(/\s+/g, '').toUpperCase().slice(0, 8);
+                        return <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{proj}-{viewTask.id}-{mon}</span>;
                       })() },
+                      { label: 'Status', value: <span className={`badge badge--${viewTask.status}`}>{viewTask.status.replace(/_/g, ' ')}</span> },
+                      { label: 'Due Date', value: viewTask.due_date ? format(new Date(viewTask.due_date), 'MMM d, yyyy') : '—' },
                       { label: 'Created by', value: viewTask.created_by_name || '—' },
                     ].map(({ label, value }) => (
                       <div key={label}>
@@ -838,6 +842,7 @@ export default function Tasks() {
                     ))}
                   </div>
 
+                  {/* Description */}
                   <div>
                     <div className="drawer-info-label">Description</div>
                     {viewTask.description
@@ -845,6 +850,140 @@ export default function Tasks() {
                       : <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 4 }}>No description provided.</div>
                     }
                   </div>
+
+                  {/* XLR8 Stage Tracker */}
+                  {viewTask.ticket_type_id && (viewTask as any).xlr8_stages?.length > 0 && (() => {
+                    const stages: any[] = (viewTask as any).xlr8_stages;
+                    const stageAssignees: any[] = (viewTask as any).stage_assignees || [];
+                    const currentIdx: number = (viewTask as any).xlr8_stage_idx ?? 0;
+                    const xlr8Status: string = (viewTask as any).xlr8_status || '';
+                    const isCompleted = viewTask.status === 'completed' || xlr8Status === 'completed';
+                    // Check if last activity log was a rejection (to show red back arrow on current stage)
+                    const lastLogEntry = viewLog[viewLog.length - 1];
+                    const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
+
+                    return (
+                      <div>
+                        <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+                          {stages.map((stage: any, i: number) => {
+                            const isReview = stage.type === 'manager' || stage.type === 'admin';
+                            const isDone = isCompleted || i < currentIdx;
+                            const isCurrent = !isCompleted && i === currentIdx;
+                            const isPending = !isCompleted && i > currentIdx;
+                            const stageAssignee = stageAssignees.filter(a => a.stage_idx === i && a.user_id);
+                            const estH = stageAssignees.find(a => a.stage_idx === i && a.est_hours)?.est_hours ?? null;
+                            const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
+
+                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected && i === currentIdx ? '#ef4444' : '#3b82f6') : '#e2e8f0';
+                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : 'var(--surface)';
+                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : '#cbd5e1';
+
+                            // Arrow between stages
+                            const showArrow = i < stages.length - 1;
+                            const isRejectedArrow = lastWasRejected && isCurrent && i < stages.length - 1;
+                            // If this stage was rejected and sent back, show red upward arrow from the stage below
+                            const rejectedFromBelow = lastWasRejected && i === currentIdx + 1;
+
+                            return (
+                              <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                {/* Card */}
+                                <div style={{
+                                  width: '100%',
+                                  border: `2px solid ${borderColor}`,
+                                  borderRadius: 12,
+                                  padding: '12px 16px',
+                                  background: bgColor,
+                                  position: 'relative',
+                                  transition: 'all 0.2s',
+                                }}>
+                                  {/* Stage number badge */}
+                                  <div style={{ position: 'absolute', top: -10, left: 16, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 800, padding: '1px 8px', letterSpacing: '0.05em' }}>
+                                    Stage {i + 1}
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+                                    <div style={{ flex: 1 }}>
+                                      {/* Stage name */}
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', marginBottom: 6 }}>
+                                        {label}
+                                        {isReview && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : 'var(--blue, #1a5fa0)', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 5px' }}>Review</span>}
+                                      </div>
+
+                                      {/* Assignees */}
+                                      {stageAssignee.length > 0 ? (
+                                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                                          {stageAssignee.map((a: any) => (
+                                            <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: isPending ? 'var(--ink-muted)' : 'var(--ink)' }}>
+                                              <span style={{ width: 18, height: 18, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                                                {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                              </span>
+                                              {a.user_name?.split(' ')[0]}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic' }}>Not assigned</span>
+                                      )}
+                                    </div>
+
+                                    {/* Right side: est + status icon */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                                      {estH && (
+                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)', fontWeight: 600 }}>
+                                          {Math.floor(estH)}h {Math.round((estH % 1) * 60)}m
+                                        </span>
+                                      )}
+                                      <span style={{ fontSize: 18 }}>
+                                        {isDone ? '✅' : isCurrent && lastWasRejected ? '🔴' : isCurrent ? '🔵' : '⬜'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Connector arrow */}
+                                {showArrow && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', height: 36 }}>
+                                    {/* Green down arrow (normal progress) */}
+                                    <svg width="24" height="36" viewBox="0 0 24 36" style={{ position: 'absolute' }}>
+                                      <line x1="12" y1="0" x2="12" y2="28" stroke={isDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={isPending ? '4 3' : 'none'} />
+                                      {(isDone || isCurrent) && !isRejectedArrow && (
+                                        <polygon points="12,36 6,24 18,24" fill={isDone ? '#22c55e' : '#e2e8f0'} />
+                                      )}
+                                    </svg>
+                                    {/* Red back arrow if this was a rejection point */}
+                                    {rejectedFromBelow && (
+                                      <div style={{ position: 'absolute', right: -52, top: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                        <svg width="48" height="28" viewBox="0 0 48 28">
+                                          <path d="M8,14 C8,4 40,4 40,14" stroke="#ef4444" strokeWidth="2" fill="none" markerEnd="url(#arrowRed)" />
+                                          <defs>
+                                            <marker id="arrowRed" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                                              <path d="M0,0 L6,3 L0,6 Z" fill="#ef4444" />
+                                            </marker>
+                                          </defs>
+                                        </svg>
+                                        <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 700, whiteSpace: 'nowrap' }}>Rejected</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* For non-XLR8: show assigned to */}
+                  {!viewTask.ticket_type_id && (
+                    <div>
+                      <div className="drawer-info-label">Assigned to</div>
+                      <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>
+                        {viewTask.assignees?.length > 0 ? viewTask.assignees.map((a: any) => a.name).join(', ') : viewTask.assigned_name || '—'}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -985,14 +1124,21 @@ export default function Tasks() {
                   const fmtMin = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
 
                   const autoSplit = () => {
-                    const count = tt.stages.length;
-                    if (!totalMin || !count) return;
-                    const perStageMin = Math.floor(totalMin / count);
-                    const rem = totalMin % count;
+                    if (!totalMin) return;
+                    const REVIEW_MIN = 2;
+                    const reviewCount = tt.stages.filter((s: any) => s.type === 'manager' || s.type === 'admin').length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => {
+                      const s = tt.stages[i]; return s.type !== 'manager' && s.type !== 'admin';
+                    });
+                    const empTotal = totalMin - reviewCount * REVIEW_MIN;
+                    const empCount = empIndices.length;
+                    const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
+                    const empRem = empCount > 0 ? empTotal % empCount : 0;
                     setStageAssignments(prev => {
                       const next = { ...prev };
-                      tt.stages.forEach((_: any, i: number) => {
-                        const m = perStageMin + (i === 0 ? rem : 0);
+                      tt.stages.forEach((s: any, i: number) => {
+                        const isReview = s.type === 'manager' || s.type === 'admin';
+                        const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
                       return next;
@@ -1084,9 +1230,9 @@ export default function Tasks() {
                                     ))}
                                   </div>
                                 )}
-                                {pool.length === 0 && !isReviewer && !stageSearchOpen[idx] && (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>
+                                {!isReviewer && !stageSearchOpen[idx] && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: pool.length > 0 ? 6 : 0 }}>
+                                    {pool.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
                                     <button
                                       type="button"
                                       onClick={() => setStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
@@ -1096,7 +1242,7 @@ export default function Tasks() {
                                     </button>
                                   </div>
                                 )}
-                                {pool.length === 0 && !isReviewer && stageSearchOpen[idx] && (
+                                {!isReviewer && stageSearchOpen[idx] && (
                                   <div style={{ marginTop: 8 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                       <input
@@ -1111,8 +1257,8 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {employees
-                                        .filter(u => (stageSearchTerm[idx] ? u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()) : true))
+                                      {stageSearchTerm[idx] && employees
+                                        .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
@@ -1124,6 +1270,7 @@ export default function Tasks() {
                                             <span>{u.name.split(' ')[0]}</span>
                                           </button>
                                       ))}
+                                      {!stageSearchTerm[idx] && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Type a name to search...</span>}
                                       {employees.length === 0 && (
                                         <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this project.</span>
                                       )}
@@ -1633,14 +1780,21 @@ export default function Tasks() {
                   const fmtMinE = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
 
                   const autoSplitE = () => {
-                    const count = tt.stages.length;
-                    if (!totalMinE || !count) return;
-                    const perStageMin = Math.floor(totalMinE / count);
-                    const rem = totalMinE % count;
+                    if (!totalMinE) return;
+                    const REVIEW_MIN = 2;
+                    const reviewCount = tt.stages.filter((s: any) => s.type === 'manager' || s.type === 'admin').length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => {
+                      const s = tt.stages[i]; return s.type !== 'manager' && s.type !== 'admin';
+                    });
+                    const empTotal = totalMinE - reviewCount * REVIEW_MIN;
+                    const empCount = empIndices.length;
+                    const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
+                    const empRem = empCount > 0 ? empTotal % empCount : 0;
                     setEditStageAssignments(prev => {
                       const next = { ...prev };
-                      tt.stages.forEach((_: any, i: number) => {
-                        const m = perStageMin + (i === 0 ? rem : 0);
+                      tt.stages.forEach((s: any, i: number) => {
+                        const isReview = s.type === 'manager' || s.type === 'admin';
+                        const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
                       return next;
@@ -1732,9 +1886,9 @@ export default function Tasks() {
                                     ))}
                                   </div>
                                 )}
-                                {pool2.length === 0 && !isReviewer && !editStageSearchOpen[idx] && (
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>
+                                {!isReviewer && !editStageSearchOpen[idx] && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: pool2.length > 0 ? 6 : 0 }}>
+                                    {pool2.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
                                     <button
                                       type="button"
                                       onClick={() => setEditStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
@@ -1744,7 +1898,7 @@ export default function Tasks() {
                                     </button>
                                   </div>
                                 )}
-                                {pool2.length === 0 && !isReviewer && editStageSearchOpen[idx] && (
+                                {!isReviewer && editStageSearchOpen[idx] && (
                                   <div style={{ marginTop: 8 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                       <input
@@ -1759,8 +1913,8 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setEditStageSearchOpen(prev => ({ ...prev, [idx]: false })); setEditStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {empPool
-                                        .filter(u => (editStageSearchTerm[idx] ? u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()) : true))
+                                      {editStageSearchTerm[idx] && empPool
+                                        .filter(u => u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
@@ -1772,6 +1926,7 @@ export default function Tasks() {
                                             <span>{u.name.split(' ')[0]}</span>
                                           </button>
                                       ))}
+                                      {!editStageSearchTerm[idx] && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Type a name to search...</span>}
                                       {empPool.length === 0 && (
                                         <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this project.</span>
                                       )}

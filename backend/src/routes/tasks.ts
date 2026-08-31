@@ -142,8 +142,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     if (!task) { res.status(404).json({ error: 'Not found' }); return; }
 
     const checklist = await db('task_checklist').where({ task_id: req.params.id });
-    const stageAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('stage_idx', 'user_id', 'assignee_role', 'est_hours');
-    res.json({ ...task, checklist, stage_assignees: stageAssignees });
+    const stageAssignees = await db('task_assignees as ta')
+      .leftJoin('users as u', 'u.id', 'ta.user_id')
+      .where({ 'ta.task_id': req.params.id })
+      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color');
+    let xlr8_stages = null;
+    if (task.ticket_type_id) {
+      const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
+      if (tt) xlr8_stages = JSON.parse(tt.stages || '[]');
+    }
+    res.json({ ...task, checklist, stage_assignees: stageAssignees, xlr8_stages });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
