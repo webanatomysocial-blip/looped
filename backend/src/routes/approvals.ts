@@ -239,8 +239,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return {
         ...rest,
         flow_chain: flowMap[a.task_id] ?? null,
-        xlr8_stages: xlr8_stages_raw ? JSON.parse(xlr8_stages_raw) : null,
-        xlr8_final_approval: xlr8_final_approval_raw ? JSON.parse(xlr8_final_approval_raw) : null,
+        xlr8_stages: xlr8_stages_raw ? (typeof xlr8_stages_raw === 'string' ? JSON.parse(xlr8_stages_raw) : xlr8_stages_raw) : null,
+        xlr8_final_approval: xlr8_final_approval_raw ? (typeof xlr8_final_approval_raw === 'string' ? JSON.parse(xlr8_final_approval_raw) : xlr8_final_approval_raw) : null,
       };
     });
 

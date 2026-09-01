@@ -32,7 +32,7 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
   }
 
   const rows = await query.orderBy('rt.created_at', 'desc');
-  res.json(rows.map(r => ({ ...r, recurrence_days: r.recurrence_days ? JSON.parse(r.recurrence_days) : [] })));
+  res.json(rows.map(r => ({ ...r, recurrence_days: r.recurrence_days ? (typeof r.recurrence_days === 'string' ? JSON.parse(r.recurrence_days) : r.recurrence_days) : [] })));
 });
 
 router.post('/recurring', async (req: AuthRequest, res: Response) => {
@@ -184,7 +184,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
   const daysInMonth = new Date(year, mon, 0).getDate();
 
   for (const rt of recurringTemplates) {
-    const days = rt.recurrence_days ? JSON.parse(rt.recurrence_days) : [];
+    const days = rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [];
     for (let d = 1; d <= daysInMonth; d++) {
       // Build dateStr from parts to avoid UTC timezone shift from toISOString()
       const dateStr = `${year}-${String(mon).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -256,7 +256,7 @@ export async function generateTodayInstances(): Promise<number> {
 
   let count = 0;
   for (const rt of templates) {
-    const days = rt.recurrence_days ? JSON.parse(rt.recurrence_days) : [];
+    const days = rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [];
     let occurs = false;
     if (rt.recurrence_type === 'daily') occurs = true;
     else if (rt.recurrence_type === 'weekly') occurs = days.includes(dayOfWeek);
@@ -339,7 +339,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
 
     const recurring: any[] = [];
     for (const rt of recurringTemplates) {
-      const rdaysList = rt.recurrence_days ? JSON.parse(rt.recurrence_days) : [];
+      const rdaysList = rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [];
       for (const dateStr of days) {
         const dow = new Date(dateStr + 'T00:00:00').getDay();
         let occurs = false;

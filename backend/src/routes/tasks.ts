@@ -163,7 +163,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     let xlr8_stages = null;
     if (task.ticket_type_id) {
       const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
-      if (tt) xlr8_stages = JSON.parse(tt.stages || '[]');
+      if (tt) xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
     }
     res.json({ ...task, checklist, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages });
   } catch (e: any) {

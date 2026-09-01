@@ -11,12 +11,15 @@ function requireAdmin(req: AuthRequest, res: Response): boolean {
   return true;
 }
 
+// MySQL returns JSON columns as already-parsed objects; SQLite returns strings
+function pj(v: any, fallback: any) { if (!v) return fallback; if (typeof v === 'string') return JSON.parse(v); return v; }
+
 function parseTicketType(row: any) {
   return {
     ...row,
-    stages: JSON.parse(row.stages || '[]'),
-    final_approval: JSON.parse(row.final_approval || '{}'),
-    checklist: JSON.parse(row.checklist || '[]'),
+    stages: pj(row.stages, []),
+    final_approval: pj(row.final_approval, {}),
+    checklist: pj(row.checklist, []),
   };
 }
 
@@ -107,8 +110,8 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
   const rows = await q.orderBy('t.created_at', 'desc');
   res.json(rows.map((r: any) => ({
     ...r,
-    stages: JSON.parse(r.stages || '[]'),
-    final_approval: JSON.parse(r.final_approval || '{}'),
+    stages: pj(r.stages, []),
+    final_approval: pj(r.final_approval, {}),
   })));
 });
 
@@ -143,10 +146,10 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket_type_id }).first();
   if (!ticketType) { res.status(400).json({ error: 'Ticket type not found' }); return; }
 
-  const stages: any[] = JSON.parse(ticketType.stages || '[]');
+  const stages: any[] = pj(ticketType.stages, []);
   const firstStage = stages[0];
 
-  const defaultChecklist: any[] = JSON.parse(ticketType.checklist || '[]').filter((i: any) => i.text);
+  const defaultChecklist: any[] = pj(ticketType.checklist, []).filter((i: any) => i.text);
   const checklistDone = defaultChecklist.filter((i: any) => i.checked).length;
 
   const [id] = await db('tasks').insert({
@@ -246,8 +249,8 @@ router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
   const log = await db('xlr8_ticket_log').where({ task_id: req.params.id }).orderBy('created_at', 'asc');
   res.json({
     ...ticket,
-    stages: JSON.parse(ticket.stages || '[]'),
-    final_approval: JSON.parse(ticket.final_approval || '{}'),
+    stages: pj(ticket.stages, []),
+    final_approval: pj(ticket.final_approval, {}),
     log,
   });
 });
@@ -261,7 +264,7 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
   const ticket = await db('tasks').where({ id: req.params.id }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
+  const stages: any[] = pj(ticketType?.stages, []);
 
   // Replace all assignees
   await db('task_assignees').where({ task_id: ticket.id }).delete();
@@ -294,7 +297,7 @@ router.post('/tickets/:id/accept', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Manager only' }); return; }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
+  const stages: any[] = pj(ticketType?.stages, []);
   const currentStage = stages[ticket.xlr8_stage_idx ?? 0];
 
   // Reject if current stage is a manager-review stage (not assignment mode)
@@ -359,7 +362,7 @@ router.post('/tickets/:id/assign', async (req: AuthRequest, res: Response) => {
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not pending assignment' }); return; }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
+  const stages: any[] = pj(ticketType?.stages, []);
   const stage = stages[ticket.xlr8_stage_idx ?? 0];
 
   const assignee = await db('users').where({ id: assignee_id }).first();
@@ -444,8 +447,8 @@ router.post('/tickets/:id/done', async (req: AuthRequest, res: Response) => {
   }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
-  const finalApproval = JSON.parse(ticketType?.final_approval || '{}');
+  const stages: any[] = pj(ticketType?.stages, []);
+  const finalApproval = pj(ticketType?.final_approval, {});
   const currentIdx = ticket.xlr8_stage_idx ?? 0;
 
   await appendLog(ticket.id, req.user!, 'work_done', 'in_progress', null);
@@ -464,8 +467,8 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not pending manager review' }); return; }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
-  const finalApproval = JSON.parse(ticketType?.final_approval || '{}');
+  const stages: any[] = pj(ticketType?.stages, []);
+  const finalApproval = pj(ticketType?.final_approval, {});
   const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
   const currentStage = stages[currentStageIdx];
 
@@ -498,8 +501,8 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  const stages: any[] = JSON.parse(ticketType?.stages || '[]');
-  const finalApproval = ticketType?.final_approval ? JSON.parse(ticketType.final_approval) : {};
+  const stages: any[] = pj(ticketType?.stages, []);
+  const finalApproval = pj(ticketType?.final_approval, {});
   const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
   const currentStage = stages[currentStageIdx];
 
