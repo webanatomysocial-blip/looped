@@ -125,7 +125,25 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
         'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
         's.slot_date as event_date',
         db.raw("'task' as event_type"));
-    tasks = slotRows.map((t: any) => ({ ...t, date: t.event_date }));
+    const scheduledIds = new Set(slotRows.map((r: any) => r.id));
+    const futureRows = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .leftJoin('users as a', 't.assigned_to', 'a.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ta.user_id', user.id)
+      .whereNotNull('ta.stage_idx')
+      .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
+      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotNull('t.due_date')
+      .whereBetween('t.due_date', [start, end])
+      .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
+        't.recurring_task_id', 't.recurrence_date',
+        'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
+        db.raw("'task' as event_type"), db.raw('1 as is_placeholder'));
+    tasks = [
+      ...slotRows.map((t: any) => ({ ...t, date: t.event_date })),
+      ...futureRows.filter((t: any) => !scheduledIds.has(t.id)).map((t: any) => ({ ...t, date: t.event_date })),
+    ];
   } else {
     // Admins/managers: show all tasks by due_date
     let taskQuery = db('tasks as t')
@@ -333,10 +351,33 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Future-stage placeholder: tasks assigned to this user at a stage not yet active,
+    // shown on their due_date so the user can see upcoming work before it's their turn.
+    const scheduledTaskIds = new Set(slotRows.map((r: any) => r.id));
+    const futureStageRows = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ta.user_id', user.id)
+      .whereNotNull('ta.stage_idx')
+      .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
+      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotNull('t.due_date')
+      .whereBetween('t.due_date', [weekStart, weekEnd])
+      .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
+        't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+        'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
+        db.raw('0 as tracked_seconds'));
+
     const byDay: Record<string, any[]> = {};
     for (const d of days) byDay[d] = [];
     for (const t of slotRows) byDay[t.slot_date]?.push({ ...t, event_type: 'task' });
     for (const r of recurring) byDay[r.slot_date]?.push(r);
+    // Add future-stage placeholders on due_date (skip if already has a slot this week)
+    for (const t of futureStageRows) {
+      if (scheduledTaskIds.has(t.id)) continue;
+      const hrs = Number(t.user_est_hours) || 1;
+      byDay[t.due_date]?.push({ ...t, slot_date: t.due_date, slot_hours: hrs, event_type: 'task', is_placeholder: true });
+    }
 
     res.json({ days, byDay });
   } catch (e: any) {

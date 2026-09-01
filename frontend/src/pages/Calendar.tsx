@@ -80,13 +80,16 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
   const isSplit = slotHrs < hrs && slotHrs > 0.01;
   const tracked = Number(task.tracked_seconds) || 0;
 
+  const isPlaceholder = !!task.is_placeholder;
+
   return (
     <div
       onClick={onClick}
       style={{
         background: isDone ? '#f0fdf4' : isRecurring ? 'rgba(99,102,241,0.06)' : cfg.bg,
-        border: `1.5px solid ${isDone ? '#bbf7d0' : isRecurring ? '#c7d2fe' : cfg.border}`,
-        borderLeft: `3px solid ${isDone ? '#22c55e' : isRecurring ? '#818cf8' : cfg.color}`,
+        border: isPlaceholder ? `1.5px dashed ${cfg.border}` : `1.5px solid ${isDone ? '#bbf7d0' : isRecurring ? '#c7d2fe' : cfg.border}`,
+        borderLeft: `3px ${isPlaceholder ? 'dashed' : 'solid'} ${isDone ? '#22c55e' : isRecurring ? '#818cf8' : cfg.color}`,
+        opacity: isPlaceholder ? 0.65 : 1,
         borderRadius: 8,
         padding: '7px 9px',
         cursor: 'pointer',
