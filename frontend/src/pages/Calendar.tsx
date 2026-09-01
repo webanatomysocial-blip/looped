@@ -135,6 +135,9 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
             {isSplit ? `${fmtHrs(slotHrs)} today / ${fmtHrs(hrs)} total` : fmtHrs(slotHrs > 0 ? slotHrs : hrs)}
           </span>
         )}
+        {task.due_date && !isRecurring && (
+          <span style={{ fontSize: 9, color: 'var(--ink-muted)', fontWeight: 600 }}>Due {fmtDate(task.due_date)}</span>
+        )}
         {tracked > 0 && (
           <span style={{ fontSize: 9, color: '#22c55e', fontWeight: 700 }}>· {fmtSec(tracked)}</span>
         )}
