@@ -135,9 +135,10 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const task = await db('tasks as t')
       .join('projects as p', 't.project_id', 'p.id')
       .leftJoin('users as a', 't.assigned_to', 'a.id')
+      .leftJoin('users as cr', 't.created_by', 'cr.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
       .where('t.id', req.params.id)
-      .select('t.*', 'p.name as project_name', 'c.name as client_name', 'a.name as assigned_name', 'a.avatar_color as assigned_color')
+      .select('t.*', 'p.name as project_name', 'c.name as client_name', 'a.name as assigned_name', 'a.avatar_color as assigned_color', 'cr.name as created_by_name')
       .first();
     if (!task) { res.status(404).json({ error: 'Not found' }); return; }
 
@@ -146,20 +147,34 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       .leftJoin('users as u', 'u.id', 'ta.user_id')
       .where({ 'ta.task_id': req.params.id })
       .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color');
+    // Tracked seconds per stage (derived from started_at/ended_at in task_sessions)
+    const isProd = process.env.NODE_ENV === 'production';
+    const secSQL = isProd
+      ? "COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) as tracked_seconds"
+      : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";
+    const stageTracked = await db('task_assignees as ta')
+      .leftJoin('task_sessions as ts', function () {
+        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id');
+      })
+      .where({ 'ta.task_id': req.params.id })
+      .whereNotNull('ta.stage_idx')
+      .groupBy('ta.stage_idx')
+      .select('ta.stage_idx', db.raw(secSQL));
     let xlr8_stages = null;
     if (task.ticket_type_id) {
       const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
       if (tt) xlr8_stages = JSON.parse(tt.stages || '[]');
     }
-    res.json({ ...task, checklist, stage_assignees: stageAssignees, xlr8_stages });
-  } catch {
+    res.json({ ...task, checklist, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages });
+  } catch (e: any) {
+    console.error('GET /tasks/:id error:', e?.message, e?.stack);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // POST create task (admin, manager, employee)
 router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  const { title, description, project_id, working_person_id, task_manager_id, due_date, due_time, checklist, estimated_hours, approval_flow, draft } = req.body;
+  const { title, description, project_id, working_person_id, task_manager_id, due_date, due_time, checklist, estimated_hours, priority, approval_flow, draft } = req.body;
   if (!title || !project_id) { res.status(400).json({ error: 'Title and project required' }); return; }
   const isDraft = !!draft;
   try {
@@ -184,6 +199,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       checklist_total: checklistItems.filter(i => i.text).length,
       checklist_done: 0,
       estimated_hours: estimated_hours ? Number(estimated_hours) : null,
+      priority: priority || 'medium',
     });
 
     // Insert assignees (no alternate role — only employee + manager)
@@ -235,6 +251,9 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     }
 
     res.status(201).json({ id, warnings });
+
+    // Trigger scheduler async (don't block response)
+    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(id, db)).catch(() => {});
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -353,6 +372,10 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     }
 
     res.json({ message: 'Updated' });
+
+    // Reschedule async (due_date, estimated_hours, priority, or assignee changed)
+    const tid = Number(req.params.id);
+    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(tid, db)).catch(() => {});
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -383,6 +406,13 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
   try {
     const db = getDB();
     const tid = req.params.id;
+    // Collect affected users before deletion so we can reschedule them after
+    const task = await db('tasks').where({ id: tid }).select('assigned_to').first();
+    const assignees = await db('task_assignees').where({ task_id: tid }).select('user_id');
+    const affectedUsers = new Set<number>();
+    if (task?.assigned_to) affectedUsers.add(task.assigned_to);
+    for (const a of assignees) if (a.user_id) affectedUsers.add(a.user_id);
+
     await db('approval_steps').whereIn('approval_id', db('approvals').where({ task_id: tid }).select('id')).delete();
     await db('approvals').where({ task_id: tid }).delete();
     await db('time_logs').where({ task_id: tid }).delete();
@@ -391,6 +421,10 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
     await db('task_checklist').where({ task_id: tid }).delete();
     await db('tasks').where({ id: tid }).delete();
     res.json({ message: 'Deleted' });
+
+    // Reschedule affected users so freed capacity gets filled by remaining tasks
+    const { scheduleUser } = await import('../services/scheduler');
+    for (const uid of affectedUsers) await scheduleUser(uid, db);
   } catch (err) {
     console.error('Delete task error:', err);
     res.status(500).json({ error: 'Server error' });

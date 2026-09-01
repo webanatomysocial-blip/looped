@@ -222,6 +222,14 @@ export default function Approvals() {
   const canReview = (a: Approval): boolean => {
     if (!user) return false;
     if (a.status === 'approved' || a.status === 'rejected') return false;
+    // XLR8: use the live xlr8_status from the task, not the potentially stale approval status
+    if (a.workflow_type === 'xlr8') {
+      const live = (a as any).xlr8_status ?? a.status;
+      if (user.role === 'manager') return live === 'pending_manager';
+      if (user.role === 'admin')   return live === 'pending_admin';
+      if (user.role === 'client')  return live === 'pending_client';
+      return false;
+    }
     // Custom sequential flow
     if (a.workflow_type === 'custom') {
       const step = a.current_step ?? 0;
@@ -280,7 +288,8 @@ export default function Approvals() {
           await xlr8Api.clientApprove(tid);
         } else {
           // pending_manager — manager review; skip_admin=true bypasses admin stage
-          res = await xlr8Api.reviewTicket(tid, action as 'approve' | 'decline', notes, skipType === 'skip_admin');
+          const xlr8Action = action === 'approve' ? 'approve' : 'decline';
+          res = await xlr8Api.reviewTicket(tid, xlr8Action, notes, skipType === 'skip_admin');
         }
         setReviewModal(null);
         setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
@@ -419,7 +428,7 @@ export default function Approvals() {
                     )}
 
                     {canReview(a) && (() => {
-                      const needsTimer = user?.role !== 'admin' && user?.role !== 'client';
+                      const needsTimer = user?.role !== 'admin' && user?.role !== 'client' && a.workflow_type !== 'xlr8';
                       const t = timers[a.task_id] ?? { seconds: 0, running: false };
                       const hasTime = t.seconds > 0;
                       if (!needsTimer) {

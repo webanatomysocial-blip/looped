@@ -1,5 +1,9 @@
 .cal-page {
-  padding: 28px 32px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
 }
 
 .cal-header {

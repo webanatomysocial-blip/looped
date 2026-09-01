@@ -334,7 +334,7 @@ textarea.form-input { resize: none; }
 .drawer-panel {
   position: relative;
   width: 100%;
-  max-width: 480px;
+  max-width: 1250px;
   height: 100%;
   display: flex;
   flex-direction: column;

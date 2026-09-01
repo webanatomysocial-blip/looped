@@ -113,7 +113,7 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/tickets', async (req: AuthRequest, res: Response) => {
-  const { title, description, project_id, ticket_type_id, due_date, stage_assignments, draft } = req.body;
+  const { title, description, project_id, ticket_type_id, due_date, stage_assignments, draft, priority } = req.body;
   // stage_assignments: [{ stage_idx, user_ids: number[], est_hours?: number }]
   if (!title?.trim() || !project_id) {
     res.status(400).json({ error: 'title and project_id required' }); return;
@@ -134,6 +134,7 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
       due_date: due_date || null, status: 'draft',
       ticket_type_id: ticket_type_id || null,
       xlr8_stage_idx: 0, xlr8_status: 'draft',
+      priority: priority || 'medium',
     });
     await appendLog(id, req.user!, 'created', null, 'draft');
     res.status(201).json({ id }); return;
@@ -160,6 +161,7 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     xlr8_status: 'pending_manager',
     checklist_total: defaultChecklist.length,
     checklist_done: checklistDone,
+    priority: priority || 'medium',
   });
 
   if (defaultChecklist.length > 0) {
@@ -222,6 +224,7 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
   }
 
   res.status(201).json({ id });
+  import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(id, db)).catch(() => {});
 });
 
 router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
@@ -280,6 +283,7 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
   const totalHours = stage_assignments.reduce((sum: number, sa: any) => sum + (sa.est_hours || 0), 0);
   if (totalHours > 0) await db('tasks').where({ id: ticket.id }).update({ estimated_hours: totalHours });
   res.json({ ok: true });
+  import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
 });
 
 // Manager: start assignment — only valid when current stage is employee type
@@ -474,6 +478,7 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
   if (action === 'decline') {
     await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
     await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', status: 'in_progress' });
+    await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
     await appendLog(ticket.id, req.user!, 'manager_declined', 'pending_manager', 'pending_assignee', comment);
     if (ticket.xlr8_assignee_id) {
       await createNotification(ticket.xlr8_assignee_id, `Ticket "${ticket.title}" was declined: ${comment || 'No reason given'}`, 'task', ticket.project_id);
@@ -597,6 +602,8 @@ async function advanceToStage(
       await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: 'todo' });
       await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_assignee', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
       await createNotification(pre.user_id, `Ticket "${ticket.title}" has been assigned to you`, 'task', ticket.project_id);
+      // Reschedule the new stage assignee
+      import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(pre.user_id, db)).catch(() => {});
       res.json({ ok: true, next: 'pending_assignee' });
     } else {
       await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_stage_idx: targetIdx, xlr8_assignee_id: null, assigned_to: null, status: 'todo' });

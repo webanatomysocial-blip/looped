@@ -109,30 +109,40 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
   const lastDay = new Date(year, mon, 0).getDate();
   const end = `${year}-${String(mon).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-  // Regular tasks with due_date in this month
-  let taskQuery = db('tasks as t')
-    .leftJoin('users as a', 't.assigned_to', 'a.id')
-    .leftJoin('projects as p', 't.project_id', 'p.id')
-    .whereNotNull('t.due_date')
-    .whereBetween('t.due_date', [start, end])
-    .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
-      't.recurring_task_id', 't.recurrence_date',
-      'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
-      db.raw("'task' as event_type"));
+  let tasks: any[];
 
-  if (user.role === 'client') {
-    taskQuery = taskQuery.whereIn('t.project_id',
-      db('projects').where('client_id', user.id).select('id')
-    );
-  } else if (user.role !== 'admin' && user.role !== 'manager') {
-    taskQuery = taskQuery.where(function (this: any) {
-      this.where('t.assigned_to', user.id)
-        .orWhereIn('t.id', db('task_assignees').where('user_id', user.id).select('task_id'));
-    });
+  // For employees: use task_schedule_slots so monthly view is consistent with weekly view
+  if (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'client') {
+    const slotRows = await db('task_schedule_slots as s')
+      .join('tasks as t', 's.task_id', 't.id')
+      .leftJoin('users as a', 't.assigned_to', 'a.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('s.user_id', user.id)
+      .whereBetween('s.slot_date', [start, end])
+      .whereNot('t.status', 'completed')
+      .select('t.id', 't.title', 't.due_date', 't.status', 't.priority', 't.estimated_hours',
+        't.recurring_task_id', 't.recurrence_date',
+        'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
+        's.slot_date as event_date',
+        db.raw("'task' as event_type"));
+    tasks = slotRows.map((t: any) => ({ ...t, date: t.event_date }));
+  } else {
+    // Admins/managers: show all tasks by due_date
+    let taskQuery = db('tasks as t')
+      .leftJoin('users as a', 't.assigned_to', 'a.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .whereNotNull('t.due_date')
+      .whereBetween('t.due_date', [start, end])
+      .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
+        't.recurring_task_id', 't.recurrence_date',
+        'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
+        db.raw("'task' as event_type"));
+    if (user.role === 'client') {
+      taskQuery = taskQuery.whereIn('t.project_id', db('projects').where('client_id', user.id).select('id'));
+    }
+    const rawTasks = await taskQuery;
+    tasks = rawTasks.map((t: any) => ({ ...t, date: t.event_date || null }));
   }
-
-  const rawTasks = await taskQuery;
-  const tasks = rawTasks.map((t: any) => ({ ...t, date: t.event_date || null }));
 
   // Recurring task instances for this month (generated virtually — no DB row needed for display)
   let rtQuery = db('recurring_tasks as rt')
@@ -256,5 +266,103 @@ export async function generateTodayInstances(): Promise<number> {
   }
   return count;
 }
+
+// Weekly view — uses scheduled slots (Phase 2)
+router.get('/week', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const user = req.user!;
+    const { start } = req.query as { start?: string };
+    if (!start) { res.status(400).json({ error: 'start required (YYYY-MM-DD)' }); return; }
+
+    const localDate = (d: Date) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const monday = new Date(start + 'T00:00:00');
+    const days: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(monday); d.setDate(monday.getDate() + i); days.push(localDate(d));
+    }
+    const [weekStart, weekEnd] = [days[0], days[4]];
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const trackedSubSQL = isProd
+      ? `(SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`
+      : `(SELECT COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`;
+
+    // Phase 2: pull from schedule slots
+    const slotRows = await db('task_schedule_slots as s')
+      .join('tasks as t', 's.task_id', 't.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('s.user_id', user.id)
+      .whereBetween('s.slot_date', [weekStart, weekEnd])
+      .whereNot('t.status', 'completed')
+      .select(
+        't.id', 't.title', 't.due_date', 't.status', 't.priority',
+        't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+        'p.name as project_name',
+        's.slot_date', 's.hours as slot_hours', 's.stage_idx as scheduled_stage',
+        db.raw(`${trackedSubSQL} as tracked_seconds`),
+        db.raw(`(SELECT est_hours FROM task_assignees WHERE task_id = s.task_id AND user_id = ? AND stage_idx = s.stage_idx LIMIT 1) as user_est_hours`, [user.id])
+      )
+      .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
+
+    // Recurring instances for the week (always due_date based — no scheduling needed)
+    const recurringTemplates = await db('recurring_tasks as rt')
+      .leftJoin('projects as p', 'rt.project_id', 'p.id')
+      .where('rt.active', true)
+      .where('rt.assigned_to', user.id)
+      .where('rt.start_date', '<=', weekEnd)
+      .where(function () { this.whereNull('rt.end_date').orWhere('rt.end_date', '>=', weekStart); })
+      .select('rt.*', 'p.name as project_name');
+
+    const recurring: any[] = [];
+    for (const rt of recurringTemplates) {
+      const rdaysList = rt.recurrence_days ? JSON.parse(rt.recurrence_days) : [];
+      for (const dateStr of days) {
+        const dow = new Date(dateStr + 'T00:00:00').getDay();
+        let occurs = false;
+        if (rt.recurrence_type === 'daily') occurs = true;
+        else if (rt.recurrence_type === 'weekly') occurs = rdaysList.includes(dow);
+        else if (rt.recurrence_type === 'monthly') { const d = parseInt(dateStr.slice(8)); occurs = rt.day_of_month ? d === rt.day_of_month : d === 1; }
+        if (!occurs || dateStr < rt.start_date || (rt.end_date && dateStr > rt.end_date)) continue;
+        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, event_type: 'recurring', tracked_seconds: 0 });
+      }
+    }
+
+    const byDay: Record<string, any[]> = {};
+    for (const d of days) byDay[d] = [];
+    for (const t of slotRows) byDay[t.slot_date]?.push({ ...t, event_type: 'task' });
+    for (const r of recurring) byDay[r.slot_date]?.push(r);
+
+    res.json({ days, byDay });
+  } catch (e: any) {
+    console.error('week error:', e?.message);
+    res.status(500).json({ error: e?.message || 'Server error' });
+  }
+});
+
+// Trigger scheduler for the current user (or all if admin)
+router.post('/schedule', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const { scheduleUser, scheduleTaskUsers } = await import('../services/scheduler');
+    const { all } = req.body || {};
+    if (all && req.user!.role === 'admin') {
+      const users = await db('users').whereIn('role', ['admin', 'manager', 'employee']).select('id');
+      for (const u of users) await scheduleUser(u.id, db);
+      res.json({ ok: true, users: users.length });
+    } else {
+      await scheduleUser(req.user!.id, db);
+      res.json({ ok: true });
+    }
+  } catch (e: any) {
+    console.error('schedule error:', e?.message);
+    res.status(500).json({ error: e?.message || 'Server error' });
+  }
+});
 
 export default router;

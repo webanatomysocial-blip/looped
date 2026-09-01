@@ -146,6 +146,7 @@ export interface Task {
   due_date: string | null;
   due_time: string | null;
   status: 'todo' | 'in_progress' | 'in_review' | 'overdue' | 'completed';
+  priority: 'urgent' | 'high' | 'medium' | 'low';
   checklist_total: number;
   checklist_done: number;
   has_rejected_approval?: boolean;

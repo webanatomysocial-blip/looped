@@ -1080,6 +1080,21 @@ async function createSchema(): Promise<void> {
   if (!hasPriority) {
     await db.schema.table('tasks', (t) => { t.string('priority').defaultTo('medium'); });
   }
+
+  // Phase 2: Scheduling slots — one row per (task, user, day) chunk
+  await db.schema.hasTable('task_schedule_slots').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_schedule_slots', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('stage_idx').nullable();
+        t.string('slot_date', 10).notNullable(); // YYYY-MM-DD
+        t.float('hours').notNullable();
+        t.index(['user_id', 'slot_date']);
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {

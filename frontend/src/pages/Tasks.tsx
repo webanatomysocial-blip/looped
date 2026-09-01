@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil } from 'lucide-react';
+import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
@@ -60,7 +60,7 @@ export default function Tasks() {
     due_date: '', due_time: '18:00',
     checklist: [{ text: '', checked: false }] as { text: string; checked: boolean }[],
     est_hours: '', est_minutes: '0',
-    ticket_type_id: '',
+    ticket_type_id: '', priority: 'medium',
   });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
   // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes }
@@ -129,6 +129,18 @@ export default function Tasks() {
           }
         }
       }
+      // Require est_hours for every stage
+      const tt2 = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
+      if (tt2) {
+        for (let i = 0; i < tt2.stages.length; i++) {
+          const sa = stageAssignments[i];
+          const stageMin = (Number(sa?.est_hours) || 0) * 60 + (Number(sa?.est_minutes) || 0);
+          if (stageMin === 0) {
+            alert(`Please set an estimated time for Stage ${i + 1} (${tt2.stages[i].category_name || tt2.stages[i].type}).`);
+            return;
+          }
+        }
+      }
       // Block if stage est hours exceed total est hours
       const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
       const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
@@ -150,6 +162,7 @@ export default function Tasks() {
           ticket_type_id: Number(form.ticket_type_id),
           due_date: form.due_date || null,
           stage_assignments: sa,
+          priority: form.priority || 'medium',
         });
         setShowModal(false);
         load();
@@ -173,6 +186,7 @@ export default function Tasks() {
         due_time: form.due_time || null,
         checklist: form.checklist.filter(i => i.text),
         estimated_hours: estHrs,
+        priority: form.priority || 'medium',
         approval_flow: approvalFlow.map(u => u.id),
       });
       if (res.data.warnings?.length) setCapacityWarnings(res.data.warnings);
@@ -536,7 +550,7 @@ export default function Tasks() {
                 <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
-                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
+                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
                   <Plus size={14} /> New task
                 </button>
               </div>
@@ -550,7 +564,7 @@ export default function Tasks() {
           <table className="data-table">
             <thead>
               <tr>
-                {['Task', 'Project', 'Assigned to', 'Created by', 'Pending with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
+                {['Task', 'Priority', 'Project', 'Assigned to', 'Created by', 'Pending with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -561,9 +575,12 @@ export default function Tasks() {
                 <tr>
                   <td>
                     <div className="task-cell-main" style={{ cursor: 'pointer' }} onClick={async () => {
-                      setViewTask(task);
                       setViewTab('info');
                       setViewLog([]);
+                      try {
+                        const full = await tasksApi.get(task.id);
+                        setViewTask(full.data);
+                      } catch { setViewTask(task); }
                       if (task.ticket_type_id) {
                         try { const r = await xlr8Api.getTicketLog(task.id); setViewLog(r.data); } catch { /* ignore */ }
                       }
@@ -574,6 +591,19 @@ export default function Tasks() {
                         {task.client_name && <p className="task-cell-sub">{task.client_name}</p>}
                       </div>
                     </div>
+                  </td>
+                  <td>
+                    {(() => {
+                      const p = task.priority || 'medium';
+                      const colors: Record<string, { color: string; bg: string }> = {
+                        urgent: { color: '#dc2626', bg: '#fef2f2' },
+                        high:   { color: '#ea580c', bg: '#fff7ed' },
+                        medium: { color: '#2563eb', bg: '#eff6ff' },
+                        low:    { color: '#6b7280', bg: '#f9fafb' },
+                      };
+                      const c = colors[p] || colors.medium;
+                      return <span style={{ fontSize: 10, fontWeight: 700, color: c.color, background: c.bg, borderRadius: 99, padding: '2px 8px', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>{p}</span>;
+                    })()}
                   </td>
                   <td className="task-cell-sub">{task.project_name}</td>
                   <td>
@@ -855,122 +885,186 @@ export default function Tasks() {
                   {viewTask.ticket_type_id && (viewTask as any).xlr8_stages?.length > 0 && (() => {
                     const stages: any[] = (viewTask as any).xlr8_stages;
                     const stageAssignees: any[] = (viewTask as any).stage_assignees || [];
+                    const stageTracked: any[] = (viewTask as any).stage_tracked || [];
                     const currentIdx: number = (viewTask as any).xlr8_stage_idx ?? 0;
                     const xlr8Status: string = (viewTask as any).xlr8_status || '';
                     const isCompleted = viewTask.status === 'completed' || xlr8Status === 'completed';
-                    // Check if last activity log was a rejection (to show red back arrow on current stage)
                     const lastLogEntry = viewLog[viewLog.length - 1];
                     const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
+                    const rejectedAt = lastWasRejected && lastLogEntry?.created_at
+                      ? format(new Date(Number(lastLogEntry.created_at) || lastLogEntry.created_at), 'MMM d, h:mm a')
+                      : null;
+                    const fmtSec = (s: number) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
 
                     return (
                       <div>
                         <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0 }}>
+                        <div style={{ overflowX: 'auto', paddingBottom: lastWasRejected ? 52 : 4, position: 'relative' }}>
+                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px', width: 'max-content' }}>
                           {stages.map((stage: any, i: number) => {
                             const isReview = stage.type === 'manager' || stage.type === 'admin';
-                            const isDone = isCompleted || i < currentIdx;
+                            // When rejected, the previous stage is being redone — don't mark it as done
+                            const isRedoTarget = lastWasRejected && i === currentIdx - 1;
+                            const isDone = !isRedoTarget && (isCompleted || i < currentIdx);
                             const isCurrent = !isCompleted && i === currentIdx;
                             const isPending = !isCompleted && i > currentIdx;
                             const stageAssignee = stageAssignees.filter(a => a.stage_idx === i && a.user_id);
-                            const estH = stageAssignees.find(a => a.stage_idx === i && a.est_hours)?.est_hours ?? null;
+                            const trackedSec = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
                             const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
-
-                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected && i === currentIdx ? '#ef4444' : '#3b82f6') : '#e2e8f0';
-                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : 'var(--surface)';
-                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : '#cbd5e1';
-
-                            // Arrow between stages
+                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#e2e8f0';
+                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
+                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#cbd5e1';
                             const showArrow = i < stages.length - 1;
-                            const isRejectedArrow = lastWasRejected && isCurrent && i < stages.length - 1;
-                            // If this stage was rejected and sent back, show red upward arrow from the stage below
-                            const rejectedFromBelow = lastWasRejected && i === currentIdx + 1;
+                            const isRejected = lastWasRejected && isCurrent;
 
                             return (
-                              <div key={i} style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
                                 {/* Card */}
                                 <div style={{
-                                  width: '100%',
+                                  width: 180,
+                                  minHeight: 130,
                                   border: `2px solid ${borderColor}`,
                                   borderRadius: 12,
-                                  padding: '12px 16px',
+                                  padding: '14px 12px 12px',
                                   background: bgColor,
                                   position: 'relative',
-                                  transition: 'all 0.2s',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 8,
                                 }}>
-                                  {/* Stage number badge */}
-                                  <div style={{ position: 'absolute', top: -10, left: 16, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 800, padding: '1px 8px', letterSpacing: '0.05em' }}>
+                                  {/* Stage badge */}
+                                  <div style={{ position: 'absolute', top: -10, left: 10, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
                                     Stage {i + 1}
                                   </div>
 
-                                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
-                                    <div style={{ flex: 1 }}>
-                                      {/* Stage name */}
-                                      <div style={{ fontSize: 13, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', marginBottom: 6 }}>
-                                        {label}
-                                        {isReview && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : 'var(--blue, #1a5fa0)', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 5px' }}>Review</span>}
-                                      </div>
-
-                                      {/* Assignees */}
-                                      {stageAssignee.length > 0 ? (
-                                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                                          {stageAssignee.map((a: any) => (
-                                            <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: isPending ? 'var(--ink-muted)' : 'var(--ink)' }}>
-                                              <span style={{ width: 18, height: 18, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                                {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                              </span>
-                                              {a.user_name?.split(' ')[0]}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic' }}>Not assigned</span>
-                                      )}
-                                    </div>
-
-                                    {/* Right side: est + status icon */}
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                                      {estH && (
-                                        <span style={{ fontSize: 11, color: 'var(--ink-muted)', fontWeight: 600 }}>
-                                          {Math.floor(estH)}h {Math.round((estH % 1) * 60)}m
-                                        </span>
-                                      )}
-                                      <span style={{ fontSize: 18 }}>
-                                        {isDone ? '✅' : isCurrent && lastWasRejected ? '🔴' : isCurrent ? '🔵' : '⬜'}
-                                      </span>
-                                    </div>
+                                  {/* Status icon */}
+                                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    {isDone      && <CheckCircle2 size={22} color="#22c55e" />}
+                                    {isRejected  && <XCircle      size={22} color="#ef4444" />}
+                                    {isRedoTarget && <RefreshCw   size={22} color="#f59e0b" />}
+                                    {isCurrent && !isRejected && <Circle size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
+                                    {isPending   && <MinusCircle  size={22} color="#cbd5e1" />}
                                   </div>
+
+                                  {/* Label */}
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
+                                    {label}
+                                    {isReview && (
+                                      <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : '#3b82f6', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>
+                                    )}
+                                  </div>
+
+                                  {/* Assignees */}
+                                  <div style={{ flex: 1 }}>
+                                    {stageAssignee.length > 0 ? (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                        {stageAssignee.map((a: any) => (
+                                          <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)' }}>
+                                            <span style={{ width: 16, height: 16, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                                              {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                            </span>
+                                            {a.user_name?.split(' ')[0]}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontStyle: 'italic' }}>TBD</span>
+                                    )}
+                                  </div>
+
+                                  {/* Tracked time */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1' }}>
+                                    <Clock size={10} color={trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1'} />
+                                    {trackedSec > 0 ? fmtSec(Number(trackedSec)) : '—'} logged
+                                  </div>
+
+                                  {/* Rejection reason */}
+                                  {isRejected && lastLogEntry?.comment && (
+                                    <div style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 6, padding: '4px 6px', fontStyle: 'italic', lineHeight: 1.4 }}>
+                                      ✕ "{lastLogEntry.comment}"
+                                    </div>
+                                  )}
+                                  {isRejected && !lastLogEntry?.comment && (
+                                    <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>✕ Rejected</div>
+                                  )}
                                 </div>
 
-                                {/* Connector arrow */}
+                                {/* Horizontal connector arrow */}
                                 {showArrow && (
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', height: 36 }}>
-                                    {/* Green down arrow (normal progress) */}
-                                    <svg width="24" height="36" viewBox="0 0 24 36" style={{ position: 'absolute' }}>
-                                      <line x1="12" y1="0" x2="12" y2="28" stroke={isDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={isPending ? '4 3' : 'none'} />
-                                      {(isDone || isCurrent) && !isRejectedArrow && (
-                                        <polygon points="12,36 6,24 18,24" fill={isDone ? '#22c55e' : '#e2e8f0'} />
-                                      )}
+                                  <div style={{ width: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <svg width="40" height="20" viewBox="0 0 40 20">
+                                      <line x1="0" y1="10" x2="30" y2="10" stroke={isDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={isPending ? '4 3' : 'none'} />
+                                      <polygon points="40,10 28,4 28,16" fill={isDone ? '#22c55e' : '#e2e8f0'} />
                                     </svg>
-                                    {/* Red back arrow if this was a rejection point */}
-                                    {rejectedFromBelow && (
-                                      <div style={{ position: 'absolute', right: -52, top: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                        <svg width="48" height="28" viewBox="0 0 48 28">
-                                          <path d="M8,14 C8,4 40,4 40,14" stroke="#ef4444" strokeWidth="2" fill="none" markerEnd="url(#arrowRed)" />
-                                          <defs>
-                                            <marker id="arrowRed" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-                                              <path d="M0,0 L6,3 L0,6 Z" fill="#ef4444" />
-                                            </marker>
-                                          </defs>
-                                        </svg>
-                                        <span style={{ fontSize: 9, color: '#ef4444', fontWeight: 700, whiteSpace: 'nowrap' }}>Rejected</span>
-                                      </div>
-                                    )}
                                   </div>
                                 )}
                               </div>
                             );
                           })}
                         </div>
+
+                        {/* Red rejection back-arrow row */}
+                        {lastWasRejected && currentIdx > 0 && (() => {
+                          const cardW = 180;
+                          const arrowW = 40;
+                          const unitW = cardW + arrowW;
+                          const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
+                          const fromX = currentIdx * unitW + cardW / 2;
+                          const toX = (currentIdx - 1) * unitW + cardW / 2;
+                          const midX = (fromX + toX) / 2;
+                          const arcH = 44;
+                          const comment = lastLogEntry?.comment;
+                          return (
+                            <div style={{ marginTop: 6, position: 'relative', minWidth: totalW }}>
+                              {/* Arc SVG */}
+                              <svg width={totalW} height={arcH} viewBox={`0 0 ${totalW} ${arcH}`} style={{ display: 'block', overflow: 'visible' }}>
+                                <defs>
+                                  <marker id="rejArrowHead" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse">
+                                    <polygon points="8,4 0,0 0,8" fill="#ef4444" />
+                                  </marker>
+                                </defs>
+                                <path
+                                  d={`M ${fromX} 4 C ${fromX} ${arcH}, ${toX} ${arcH}, ${toX} 4`}
+                                  stroke="#ef4444" strokeWidth="2" fill="none"
+                                  markerEnd="url(#rejArrowHead)"
+                                  strokeDasharray="5 3"
+                                />
+                              </svg>
+                              {/* Info pill centered under arc */}
+                              <div style={{
+                                position: 'absolute',
+                                bottom: -28,
+                                left: midX,
+                                transform: 'translateX(-50%)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                                pointerEvents: 'none',
+                              }}>
+                                <div style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                                  background: '#fef2f2', border: '1px solid #fecaca',
+                                  borderRadius: 99, padding: '3px 10px',
+                                  fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap',
+                                }}>
+                                  <XCircle size={11} color="#ef4444" />
+                                  Rejected{rejectedAt ? ` · ${rejectedAt}` : ''}
+                                </div>
+                                {comment && (
+                                  <div style={{
+                                    fontSize: 10, color: '#b91c1c', fontStyle: 'italic',
+                                    background: '#fff5f5', borderRadius: 6, padding: '2px 8px',
+                                    border: '1px solid #fecaca', maxWidth: 220, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                  }}>
+                                    "{comment}"
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        </div>{/* end scroll wrapper */}
                       </div>
                     );
                   })()}
@@ -1087,11 +1181,21 @@ export default function Tasks() {
                     <input type="time" className="form-input" style={{ fontSize: 12 }} value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
                   </div>
                   <div className="drawer-info-field">
-                    <div className="drawer-info-label">Est. time *</div>
+                    <div className="drawer-info-label">Est. time</div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} required onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
+                      <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
                       <input type="number" min="0" max="59" placeholder="0m" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_minutes} onChange={(e) => setForm({ ...form, est_minutes: e.target.value })} onBlur={checkCapacity} />
                     </div>
+                  </div>
+                  
+                  <div className="drawer-info-field">
+                    <div className="drawer-info-label">Priority</div>
+                    <select className="form-input" style={{ fontSize: 12 }} value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
                   </div>
                 </div>
 
