@@ -97,37 +97,31 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
   for (const t of taskRows) {
     const isXlr8 = !!t.ticket_type_id;
     if (isXlr8) {
-      // Schedule ALL stages where this user is assigned (current + future)
-      // Find this user's stage entries for this task
-      const userStages = stageRows.filter((r: any) => r.task_id === t.task_id);
-      for (const sr of userStages) {
-        const stageIdx = sr.stage_idx;
-        const hrs = Number(sr.est_hours) || 1; // default 1h if no stage estimate
-        const key = `${t.task_id}-${stageIdx}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+      // Only schedule the CURRENT active stage for this user.
+      // Future stages are scheduled when the ticket advances to that stage.
+      const currentStageIdx = t.xlr8_stage_idx ?? 0;
+      const sr = stageRows.find((r: any) => r.task_id === t.task_id && r.stage_idx === currentStageIdx);
+      if (!sr) continue; // this user is not on the current active stage
 
-        // If stage is already completed (stage_idx < xlr8_stage_idx), skip
-        if (stageIdx < (t.xlr8_stage_idx ?? 0)) continue;
+      const hrs = Number(sr.est_hours) || 1;
+      const key = `${t.task_id}-${currentStageIdx}`;
+      if (seen.has(key)) { continue; }
+      seen.add(key);
 
-        // Earliest start: only enforce prev-stage dependency when this IS the current active stage.
-        // For future stages (pre-scheduled), start from today so capacity is filled greedily.
-        let earliest = today;
-        const isCurrentStage = stageIdx === (t.xlr8_stage_idx ?? 0);
-        if (isCurrentStage && stageIdx > 0) {
-          const prev = await db('task_schedule_slots')
-            .where({ task_id: t.task_id })
-            .where('stage_idx', stageIdx - 1)
-            .max('slot_date as last_date')
-            .first() as any;
-          if (prev?.last_date) {
-            const after = nextDay(String(prev.last_date));
-            if (after > earliest) earliest = after;
-          }
+      let earliest = today;
+      if (currentStageIdx > 0) {
+        const prev = await db('task_schedule_slots')
+          .where({ task_id: t.task_id })
+          .where('stage_idx', currentStageIdx - 1)
+          .max('slot_date as last_date')
+          .first() as any;
+        if (prev?.last_date) {
+          const after = nextDay(String(prev.last_date));
+          if (after > earliest) earliest = after;
         }
-
-        items.push({ task_id: t.task_id, user_id: userId, stage_idx: stageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest });
       }
+
+      items.push({ task_id: t.task_id, user_id: userId, stage_idx: currentStageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest });
     } else {
       const key = `${t.task_id}-null`;
       if (seen.has(key)) continue;
