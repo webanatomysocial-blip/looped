@@ -131,6 +131,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
+      .where('ta.acceptance_status', 'accepted')
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
       .whereNotIn('t.status', ['completed', 'draft'])
@@ -145,12 +146,18 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       ...futureRows.filter((t: any) => !scheduledIds.has(t.id)).map((t: any) => ({ ...t, date: t.event_date })),
     ];
   } else {
-    // Admins/managers: show all tasks by due_date
+    // Admins/managers: show all tasks by due_date, but only XLR8 tasks where all employee-stage assignees have accepted
     let taskQuery = db('tasks as t')
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .whereNotNull('t.due_date')
       .whereBetween('t.due_date', [start, end])
+      .whereRaw(`(t.ticket_type_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM task_assignees ta2
+        WHERE ta2.task_id = t.id AND ta2.stage_idx IS NOT NULL
+          AND ta2.assignee_role NOT IN ('admin','client')
+          AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
+      ))`)
       .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
         't.recurring_task_id', 't.recurrence_date',
         'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
@@ -358,6 +365,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .join('tasks as t', 'ta.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
+      .where('ta.acceptance_status', 'accepted')
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
       .whereNotIn('t.status', ['completed', 'draft'])

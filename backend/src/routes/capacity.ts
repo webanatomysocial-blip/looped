@@ -95,11 +95,13 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
 
     // XLR8 future-stage assignments waiting for this user's acceptance
     const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
-    const pendingStageRows = await db('task_assignees as ta')
+    // Only show pending-acceptance for employee/manager roles, not admin/client
+    const pendingStageRows = req.user!.role === 'admin' || req.user!.role === 'client' ? [] : await db('task_assignees as ta')
       .join('tasks as t', 't.id', 'ta.task_id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
       .where('ta.acceptance_status', 'pending')
+      .whereNotIn('ta.assignee_role', ['admin', 'client'])
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
       .whereNotIn('t.status', ['completed'])
