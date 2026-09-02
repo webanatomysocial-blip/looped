@@ -86,7 +86,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
-        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
         db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
         db.raw("'employee' as assignee_role"),
         db.raw('MIN(ta_est.est_hours) as stage_est_hours')
@@ -106,7 +106,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('ta.task_id', xlr8Ids.size ? [...xlr8Ids] : [0])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
-        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
         db.raw("'pending' as acceptance_status"),
         db.raw("'employee' as assignee_role"),
         'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'

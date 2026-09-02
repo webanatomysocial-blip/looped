@@ -180,6 +180,7 @@ export interface CapacityTask {
   has_rejected_approval?: boolean;
   ticket_type_id?: number | null;
   xlr8_status?: string | null;
+  xlr8_assignee_id?: number | null;
 }
 
 export interface CapacityData {

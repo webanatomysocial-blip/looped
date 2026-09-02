@@ -130,11 +130,10 @@ export default function Home() {
       setDeclineComment('');
       return;
     }
-    // XLR8 current-stage (pending_assignee): update xlr8_status to in_progress
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee') {
+    // Only use xlr8 employee-accept if THIS user is the current stage assignee
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
       await xlr8Api.employeeAccept(task.id);
     } else {
-      // future stage or non-XLR8: just mark acceptance in task_assignees
       await tasksApi.accept(task.id, action);
     }
     load();
@@ -145,7 +144,7 @@ export default function Home() {
     const { task } = declineModal;
     // XLR8 current-stage: decline via xlr8 endpoint (reverts xlr8_status to pending_manager)
     // Future-stage or non-XLR8: mark declined in task_assignees and notify creator
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee') {
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
       await xlr8Api.employeeDecline(task.id, declineComment);
     } else {
       await tasksApi.accept(task.id, 'decline');
