@@ -57,7 +57,7 @@ function CapacityBar({ tasks }: { tasks: any[] }) {
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: over ? '#dc2626' : 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {used.toFixed(1)}h / {DAY_CAP}h
+          {used < 0.1 && used > 0 ? `${Math.round(used * 60)}m` : used.toFixed(1) + 'h'} / {DAY_CAP}h
         </span>
         {over && <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626' }}>OVER</span>}
       </div>

@@ -158,9 +158,12 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
     let rem = round2(item.hours);
     let date = skipToWorkday(item.earliest);
 
+    // If due date is already past, place on today so the task still shows
+    const effectiveDue = item.due_date < today ? today : item.due_date;
+
     while (rem > 0.01) {
       if (isWeekend(date)) { date = nextDay(date); continue; }
-      if (date > item.due_date) break; // can't push past deadline
+      if (date > effectiveDue) break; // can't push past deadline
 
       const used = dayUsed.get(date) || 0;
       const avail = round2(DAY_CAP - used);
