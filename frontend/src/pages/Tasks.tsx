@@ -1183,7 +1183,7 @@ export default function Tasks() {
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Est. time</div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <input type="number" min="0" max="23" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
+                      <input type="number" min="0" max="999" placeholder="0h" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_hours} onChange={(e) => setForm({ ...form, est_hours: e.target.value })} onBlur={checkCapacity} />
                       <input type="number" min="0" max="59" placeholder="0m" className="form-input" style={{ fontSize: 12, flex: 1 }} value={form.est_minutes} onChange={(e) => setForm({ ...form, est_minutes: e.target.value })} onBlur={checkCapacity} />
                     </div>
                   </div>
@@ -1771,7 +1771,7 @@ export default function Tasks() {
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <div style={{ flex: 1 }}>
                         <input
-                          type="number" min="0" max="23" placeholder="0"
+                          type="number" min="0" max="999" placeholder="0"
                           className="form-input" style={{ fontSize: 12 }}
                           value={editForm.est_hours}
                           onChange={(e) => setEditForm({ ...editForm, est_hours: e.target.value })}
