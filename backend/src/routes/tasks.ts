@@ -450,11 +450,13 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
       .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined' });
 
     const task = await db('tasks').where({ id: req.params.id }).first();
+    const me = await db('users').where({ id: userId }).first();
     if (task && task.created_by !== userId) {
-      const me = await db('users').where({ id: userId }).first();
       await createNotification(
         task.created_by,
-        `${me?.name} ${action === 'accept' ? 'accepted' : 'declined'} the task "${task.title}"`,
+        action === 'accept'
+          ? `${me?.name} accepted the task "${task.title}"`
+          : `${me?.name} declined the task "${task.title}" — please reassign`,
         'task',
         task.project_id
       );

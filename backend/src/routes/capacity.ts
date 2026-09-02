@@ -75,7 +75,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         'ta.acceptance_status', 'ta.assignee_role', 't.ticket_type_id'
       );
 
-    // XLR8 tickets assigned to this user via xlr8_assignee_id
+    // XLR8 tickets assigned to this user via xlr8_assignee_id (current stage)
     const xlr8Tasks = await db('tasks as t')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .leftJoin('task_assignees as ta_est', function () {
@@ -86,16 +86,39 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
-        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
         db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
         db.raw("'employee' as assignee_role"),
         db.raw('MIN(ta_est.est_hours) as stage_est_hours')
       )
       .groupBy('t.id');
 
-    // Merge XLR8 tickets (avoid duplicates if somehow in both)
+    // XLR8 future-stage assignments waiting for this user's acceptance
     const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
-    const mergedAssigned = [...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id)), ...xlr8Tasks];
+    const pendingStageRows = await db('task_assignees as ta')
+      .join('tasks as t', 't.id', 'ta.task_id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ta.user_id', userId)
+      .where('ta.acceptance_status', 'pending')
+      .whereNotNull('ta.stage_idx')
+      .whereNotNull('t.ticket_type_id')
+      .whereNotIn('t.status', ['completed'])
+      .whereNotIn('ta.task_id', xlr8Ids.size ? [...xlr8Ids] : [0])
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+        db.raw("'pending' as acceptance_status"),
+        db.raw("'employee' as assignee_role"),
+        'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'
+      );
+
+    // Merge XLR8 tickets (avoid duplicates)
+    const pendingIds = new Set(pendingStageRows.map((t: any) => t.id));
+    const mergedAssigned = [
+      ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id)),
+      ...xlr8Tasks,
+      ...pendingStageRows,
+    ];
 
     // Also include tasks this user reviewed today (session exists but not assigned)
     const assignedTaskIds = mergedAssigned.map((t: any) => t.id);

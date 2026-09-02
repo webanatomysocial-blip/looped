@@ -179,6 +179,7 @@ export interface CapacityTask {
   timer_running: boolean;
   has_rejected_approval?: boolean;
   ticket_type_id?: number | null;
+  xlr8_status?: string | null;
 }
 
 export interface CapacityData {

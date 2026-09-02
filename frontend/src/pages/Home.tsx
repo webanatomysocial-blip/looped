@@ -130,9 +130,11 @@ export default function Home() {
       setDeclineComment('');
       return;
     }
-    if (task.ticket_type_id) {
+    // XLR8 current-stage (pending_assignee): update xlr8_status to in_progress
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee') {
       await xlr8Api.employeeAccept(task.id);
     } else {
+      // future stage or non-XLR8: just mark acceptance in task_assignees
       await tasksApi.accept(task.id, action);
     }
     load();
@@ -141,7 +143,9 @@ export default function Home() {
   const submitDecline = async () => {
     if (!declineModal) return;
     const { task } = declineModal;
-    if (task.ticket_type_id) {
+    // XLR8 current-stage: decline via xlr8 endpoint (reverts xlr8_status to pending_manager)
+    // Future-stage or non-XLR8: mark declined in task_assignees and notify creator
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee') {
       await xlr8Api.employeeDecline(task.id, declineComment);
     } else {
       await tasksApi.accept(task.id, 'decline');
@@ -329,7 +333,13 @@ export default function Home() {
                   }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title}</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
+                        {task.project_name}
+                        {task.due_date ? ` · Due ${task.due_date}` : ''}
+                        {task.xlr8_status && task.xlr8_status !== 'pending_assignee'
+                          ? <span style={{ marginLeft: 6, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>Future stage</span>
+                          : null}
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                       <button
