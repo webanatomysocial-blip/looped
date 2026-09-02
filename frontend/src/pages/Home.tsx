@@ -298,6 +298,60 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Pending task invitation alert */}
+        {user?.role !== 'admin' && user?.role !== 'client' && (() => {
+          const pending = (data?.tasks ?? []).filter(t => t.acceptance_status === 'pending');
+          if (pending.length === 0) return null;
+          return (
+            <div style={{
+              background: 'rgba(245,158,11,0.08)',
+              border: '1.5px solid rgba(245,158,11,0.4)',
+              borderRadius: 12,
+              padding: '14px 18px',
+              marginBottom: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertTriangle size={16} color="var(--orange, #f59e0b)" />
+                <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
+                  {pending.length} task{pending.length > 1 ? 's' : ''} waiting for your acceptance
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>— accept to start working and see them on your calendar</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {pending.map(task => (
+                  <div key={task.id} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    background: 'var(--surface)', borderRadius: 8, padding: '10px 14px',
+                    border: '1px solid var(--sand-border)',
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>{task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      <button
+                        className="cap-accept-btn cap-accept-btn--yes"
+                        onClick={() => handleAccept(task, 'accept')}
+                      >
+                        <CheckCircle size={12} /> Accept
+                      </button>
+                      <button
+                        className="cap-accept-btn cap-accept-btn--no"
+                        onClick={() => handleAccept(task, 'decline')}
+                      >
+                        <XCircle size={12} /> Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="home-grid">
           {/* Today's Priorities */}
           <div className="home-section card">

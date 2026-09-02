@@ -88,7 +88,16 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
     .where('user_id', userId)
     .whereIn('task_id', taskRows.map((t: any) => t.task_id))
     .whereNotNull('stage_idx')
-    .select('task_id', 'stage_idx', 'est_hours');
+    .select('task_id', 'stage_idx', 'est_hours', 'acceptance_status');
+
+  // For non-XLR8 tasks, only schedule if the user has accepted
+  const nonXlr8AcceptedIds = new Set<number>(
+    (await db('task_assignees')
+      .where({ user_id: userId, acceptance_status: 'accepted' })
+      .whereIn('task_id', taskRows.filter((t: any) => !t.ticket_type_id).map((t: any) => t.task_id))
+      .select('task_id')
+    ).map((r: any) => Number(r.task_id))
+  );
 
   // 4. Build work items (deduplicated)
   const seen = new Set<string>();
@@ -102,6 +111,7 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
       const currentStageIdx = t.xlr8_stage_idx ?? 0;
       const sr = stageRows.find((r: any) => r.task_id === t.task_id && r.stage_idx === currentStageIdx);
       if (!sr) continue; // this user is not on the current active stage
+      if (sr.acceptance_status !== 'accepted') continue; // user hasn't accepted yet
 
       const hrs = Number(sr.est_hours) || 1;
       const key = `${t.task_id}-${currentStageIdx}`;
@@ -123,6 +133,7 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
 
       items.push({ task_id: t.task_id, user_id: userId, stage_idx: currentStageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest });
     } else {
+      if (!nonXlr8AcceptedIds.has(Number(t.task_id))) continue; // user hasn't accepted
       const key = `${t.task_id}-null`;
       if (seen.has(key)) continue;
       seen.add(key);

@@ -396,11 +396,16 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
+  // Mark this stage accepted so scheduler picks it up
+  await db('task_assignees')
+    .where({ task_id: ticket.id, user_id: req.user!.id })
+    .update({ acceptance_status: 'accepted' });
   await appendLog(ticket.id, req.user!, 'employee_accepted', 'pending_assignee', 'in_progress');
   if (ticket.created_by !== req.user!.id) {
     await createNotification(ticket.created_by, `${req.user!.name} accepted your ticket "${ticket.title}" and has started working`, 'task', ticket.project_id);
   }
   res.json({ ok: true });
+  import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(req.user!.id, db)).catch(() => {});
 });
 
 router.post('/tickets/:id/employee-decline', async (req: AuthRequest, res: Response) => {

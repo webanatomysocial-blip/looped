@@ -46,8 +46,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (role === 'employee') {
       query = query.whereRaw(
-        '(t.assigned_to = ? OR t.created_by = ? OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?) OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))',
-        [userId, userId, userId, userId]
+        `(t.created_by = ?
+          OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND acceptance_status = 'accepted')
+          OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))`,
+        [userId, userId, userId]
       );
     } else if (role === 'client') {
       query = query
@@ -458,6 +460,9 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
       );
     }
     res.json({ message: 'Updated' });
+    if (action === 'accept') {
+      import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(userId, db)).catch(() => {});
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
