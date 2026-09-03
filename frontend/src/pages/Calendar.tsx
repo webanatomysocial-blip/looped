@@ -276,12 +276,6 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                         <div key={h} style={{ height: ROW_H, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }} />
                       ))}
 
-                      {/* Current time indicator */}
-                      {isToday && nowHour >= GRID_START && nowHour <= GRID_END && (
-                        <div style={{ position: 'absolute', top: `${nowPct}%`, left: 0, right: 0, height: 2, background: '#2563eb', zIndex: 10, pointerEvents: 'none' }}>
-                          <div style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} />
-                        </div>
-                      )}
 
                       {/* Overview chips (admin/manager — shown at top, not time-positioned) */}
                       {(dayOverview[day] || []).map((task: any, j: number) => {
