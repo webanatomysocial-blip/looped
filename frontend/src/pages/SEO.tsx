@@ -1566,7 +1566,7 @@ export default function SEO() {
                 const check = (key: string, label: string, cur: number, pre: number) => {
                   if (pre === 0) return;
                   const pct = Math.round(((cur - pre) / pre) * 100);
-                  if (Math.abs(pct) >= 25) sigChanges.push({ key, label, from: pre, to: cur, pct });
+                  sigChanges.push({ key, label, from: pre, to: cur, pct });
                 };
                 check('sessions', 'Sessions', eng.sessions, prev.sessions);
                 check('users', 'Users', eng.users, prev.users);
@@ -1578,7 +1578,7 @@ export default function SEO() {
                 const check = (key: string, label: string, cur: number | null, pre: number | null) => {
                   if (cur == null || pre == null || pre === 0) return;
                   const pct = Math.round(((cur - pre) / pre) * 100);
-                  if (Math.abs(pct) >= 25) sigChanges.push({ key: `gmb_${i}_${key}`, label: `GBP ${prefix}${label}`, from: pre, to: cur, pct });
+                  sigChanges.push({ key: `gmb_${i}_${key}`, label: `GBP ${prefix}${label}`, from: pre, to: cur, pct });
                 };
                 check('calls', 'calls', loc.calls, loc.prev_calls);
                 check('website_clicks', 'website clicks', loc.website_clicks, loc.prev_website_clicks);
