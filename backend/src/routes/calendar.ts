@@ -318,8 +318,38 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       ? `(SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`
       : `(SELECT COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`;
 
-    // Phase 2: pull from schedule slots
-    const slotRows = await db('task_schedule_slots as s')
+    // Phase 2: pull from schedule slots (employees) or due_date (admin/manager)
+    let slotRows: any[] = [];
+    if (user.role === 'admin' || user.role === 'manager') {
+      // Admin/manager have no schedule slots — show all accepted tasks by due_date
+      const adminTasks = await db('tasks as t')
+        .leftJoin('projects as p', 't.project_id', 'p.id')
+        .whereNotNull('t.due_date')
+        .whereBetween('t.due_date', [weekStart, weekEnd])
+        .whereNotIn('t.status', ['completed', 'draft'])
+        .whereRaw(`NOT EXISTS (
+          SELECT 1 FROM task_assignees ta2
+          WHERE ta2.task_id = t.id
+            AND (ta2.assignee_role IS NULL OR ta2.assignee_role NOT IN ('admin','client'))
+            AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
+        )`)
+        .select(
+          't.id', 't.title', 't.due_date', 't.status', 't.priority',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+          'p.name as project_name',
+          db.raw(`${trackedSubSQL} as tracked_seconds`)
+        )
+        .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
+      // Map to slot shape: place each task on its due_date
+      slotRows = adminTasks.map((t: any) => ({
+        ...t,
+        slot_date: t.due_date,
+        slot_hours: t.estimated_hours || 0,
+        scheduled_stage: null,
+        user_est_hours: t.estimated_hours || 0,
+      }));
+    } else {
+    const slotRowsRaw = await db('task_schedule_slots as s')
       .join('tasks as t', 's.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('s.user_id', user.id)
@@ -334,6 +364,8 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         db.raw(`(SELECT est_hours FROM task_assignees WHERE task_id = s.task_id AND user_id = ? AND stage_idx = s.stage_idx LIMIT 1) as user_est_hours`, [user.id])
       )
       .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
+    slotRows = slotRowsRaw;
+    }
 
     // Recurring instances for the week (always due_date based — no scheduling needed)
     const recurringTemplates = await db('recurring_tasks as rt')
@@ -361,7 +393,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     // Future-stage placeholder: tasks assigned to this user at a stage not yet active,
     // shown on their due_date so the user can see upcoming work before it's their turn.
     const scheduledTaskIds = new Set(slotRows.map((r: any) => r.id));
-    const futureStageRows = await db('task_assignees as ta')
+    const futureStageRows = (user.role === 'admin' || user.role === 'manager') ? [] : await db('task_assignees as ta')
       .join('tasks as t', 'ta.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)

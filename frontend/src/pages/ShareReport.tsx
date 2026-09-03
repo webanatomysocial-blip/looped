@@ -338,7 +338,7 @@ export default function ShareReport() {
         )}
 
         {/* GMB */}
-        {manual.gmb_locations?.length > 0 && (
+        {manual.gmb_locations?.some((loc: any) => loc.rating != null || loc.reviews != null || loc.calls != null || loc.bookings != null || loc.website_clicks != null || loc.overview || loc.key_insights) && (
           <Section title="Google My Business">
             {manual.gmb_locations.map((loc: any, i: number) => (
               <div key={i} style={{ marginBottom: i < manual.gmb_locations.length - 1 ? 20 : 0 }}>

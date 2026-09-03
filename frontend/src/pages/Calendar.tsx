@@ -49,7 +49,7 @@ function describeRecurrence(rt: any) {
 // ─── Capacity bar ────────────────────────────────────────────────────────────
 function CapacityBar({ tasks }: { tasks: any[] }) {
   // Use slot_hours (scheduled hours for this day) when available, else estimated_hours
-  const used = tasks.reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
+  const used = tasks.filter(t => !t.is_placeholder).reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
   const pct = Math.min(used / DAY_CAP, 1);
   const over = used > DAY_CAP;
   const color = over ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
@@ -169,59 +169,139 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
   if (error) return <div style={{ padding: 40, textAlign: 'center', color: '#dc2626', fontSize: 13 }}>{error}</div>;
   if (!data) return null;
 
+  // Compute warnings: overdue tasks and over-capacity days
+  const warningItems: string[] = [];
+  for (const day of data.days) {
+    const tasks = (data.byDay[day] || []).filter((t: any) => !t.is_placeholder);
+    const used = tasks.reduce((s: number, t: any) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
+    if (used > DAY_CAP) warningItems.push(`${fmtDate(day)} is over capacity (${used.toFixed(1)}h / 7h)`);
+  }
+  const allTasks = Object.values(data.byDay).flat() as any[];
+  const overdue = allTasks.filter(t => !t.is_placeholder && t.due_date < today && t.status !== 'completed' && t.event_type !== 'recurring');
+  const overdueNames = [...new Set(overdue.map((t: any) => t.title))];
+  for (const name of overdueNames) warningItems.push(`"${name}" is overdue`);
+
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
-      {/* Grid — same style as month view */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: 1,
-        background: 'var(--sand-border)',
-        borderRadius: 12,
-        overflow: 'hidden',
-        border: '1px solid var(--sand-border)',
-      }}>
-        {/* Header row */}
-        {data.days.map((day, i) => {
-          const isToday = day === today;
-          return (
-            <div key={`hdr-${day}`} style={{
-              background: isToday ? 'var(--ink)' : 'var(--bg-sand)',
-              padding: '10px 12px 8px',
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 6,
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{DAY_LABELS[i]}</span>
-              <span style={{ fontSize: 11, color: isToday ? 'rgba(255,255,255,0.65)' : 'var(--ink-muted)', fontWeight: 600 }}>{fmtDate(day)}</span>
-            </div>
-          );
-        })}
+      {warningItems.length > 0 && (
+        <div style={{ background: 'rgba(220,38,38,0.06)', border: '1.5px solid rgba(220,38,38,0.3)', borderRadius: 10, padding: '10px 16px', marginBottom: 14, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={15} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {warningItems.map((msg, i) => (
+              <span key={i} style={{ fontSize: 12, fontWeight: 600, color: '#dc2626' }}>{msg}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {/* Time grid — Google Calendar style */}
+      {(() => {
+        const GRID_START = 9;  // 9am
+        const GRID_END   = 19; // 7pm
+        const ROW_H      = 60; // px per hour
+        const TIME_COL_W = 52; // px for time labels
+        const now = new Date();
+        const nowHour = now.getHours() + now.getMinutes() / 60;
+        const nowPct  = ((nowHour - GRID_START) / (GRID_END - GRID_START)) * 100;
+        const hours   = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 
-        {/* Body cells */}
-        {data.days.map((day) => {
-          const tasks = data.byDay[day] || [];
-          const isToday = day === today;
-          return (
-            <div key={`cell-${day}`} style={{
-              background: isToday ? 'color-mix(in srgb, var(--ink) 4%, white)' : 'var(--bg-white)',
-              minHeight: 120,
-              padding: '8px 8px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 5,
-            }}>
-              <CapacityBar tasks={tasks} />
-              {tasks.length === 0 && (
-                <div style={{ textAlign: 'center', color: 'var(--ink-muted)', fontSize: 10, padding: '14px 0', fontStyle: 'italic', opacity: 0.6 }}>No tasks</div>
-              )}
-              {tasks.map((task, j) => (
-                <TaskBlock key={task.id || j} task={task} onClick={() => onTaskClick(task)} />
-              ))}
+        // Compute start times per day by stacking tasks in priority order from 9am
+        const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
+        for (const day of data.days) {
+          let cursor = GRID_START;
+          dayBlocks[day] = [];
+          for (const task of (data.byDay[day] || [])) {
+            const hrs = Number(task.slot_hours ?? task.estimated_hours) || 1;
+            const startH = cursor;
+            const endH   = Math.min(startH + hrs, GRID_END);
+            dayBlocks[day].push({ task, startH, endH });
+            cursor = endH;
+            if (cursor >= GRID_END) break;
+          }
+        }
+
+        return (
+          <div style={{ border: '1px solid var(--sand-border)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-white)' }}>
+            {/* Header row */}
+            <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL_W}px repeat(5, 1fr)`, borderBottom: '1px solid var(--sand-border)' }}>
+              <div style={{ background: 'var(--bg-sand)' }} />
+              {data.days.map((day, i) => {
+                const isToday = day === today;
+                const d = new Date(day + 'T00:00:00');
+                return (
+                  <div key={day} style={{ background: isToday ? 'var(--ink)' : 'var(--bg-sand)', padding: '10px 0 8px', textAlign: 'center', borderLeft: '1px solid var(--sand-border)' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: isToday ? 'rgba(255,255,255,0.7)' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{DAY_LABELS[i]}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink)', lineHeight: 1.2 }}>{d.getDate()}</div>
+                    <CapacityBar tasks={data.byDay[day] || []} />
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
+
+            {/* Scrollable time body */}
+            <div style={{ overflowY: 'auto', maxHeight: 520 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL_W}px repeat(5, 1fr)`, position: 'relative' }}>
+                {/* Time labels + hour grid lines */}
+                <div style={{ position: 'relative' }}>
+                  {hours.map(h => (
+                    <div key={h} style={{ height: ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 4, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }}>
+                      <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h % 12 || 12}{h < 12 ? 'am' : 'pm'}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Day columns */}
+                {data.days.map((day) => {
+                  const isToday = day === today;
+                  const blocks = dayBlocks[day];
+                  return (
+                    <div key={day} style={{ position: 'relative', borderLeft: '1px solid var(--sand-border)', background: isToday ? 'rgba(37,99,235,0.02)' : 'var(--bg-white)' }}>
+                      {/* Hour grid lines */}
+                      {hours.map(h => (
+                        <div key={h} style={{ height: ROW_H, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }} />
+                      ))}
+
+                      {/* Current time indicator */}
+                      {isToday && nowHour >= GRID_START && nowHour <= GRID_END && (
+                        <div style={{ position: 'absolute', top: `${nowPct}%`, left: 0, right: 0, height: 2, background: '#2563eb', zIndex: 10, pointerEvents: 'none' }}>
+                          <div style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} />
+                        </div>
+                      )}
+
+                      {/* Task blocks */}
+                      {blocks.map(({ task, startH, endH }, j) => {
+                        const top    = (startH - GRID_START) * ROW_H;
+                        const height = Math.max((endH - startH) * ROW_H - 3, 22);
+                        const pc     = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+                        const isPlaceholder = task.is_placeholder;
+                        return (
+                          <div key={task.id || j} onClick={() => onTaskClick(task)} style={{
+                            position: 'absolute',
+                            top, left: 3, right: 3, height,
+                            background: isPlaceholder ? 'transparent' : pc.bg,
+                            border: `1.5px ${isPlaceholder ? 'dashed' : 'solid'} ${pc.border}`,
+                            borderRadius: 6,
+                            padding: '3px 6px',
+                            cursor: 'pointer',
+                            overflow: 'hidden',
+                            zIndex: 2,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'flex-start',
+                            boxSizing: 'border-box',
+                          }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</div>
+                            {height > 30 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{startH % 12 || 12}{startH < 12 ? 'am' : 'pm'} – {endH % 12 || 12}{endH < 12 ? 'am' : 'pm'}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

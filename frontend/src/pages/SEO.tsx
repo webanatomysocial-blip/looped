@@ -395,7 +395,11 @@ function downloadPDF(
   })();
 
   // ── Multi GMB ──
-  const gmbMultiHtml = manual.gmb_locations && manual.gmb_locations.length > 0 ? `
+  const hasAnyGmbData = manual.gmb_locations?.some((loc: any) =>
+    loc.rating != null || loc.reviews != null || loc.calls != null ||
+    loc.bookings != null || loc.website_clicks != null || loc.overview || loc.key_insights
+  );
+  const gmbMultiHtml = hasAnyGmbData ? `
 <div class="section-block">
 <h2>Google My Business Locations</h2>
 ${manual.gmb_locations.map((loc) => {
@@ -957,6 +961,9 @@ export default function SEO() {
 
   useEffect(() => {
     if (!selectedClient) return;
+    // Reset manual immediately so stale data from previous client/report never bleeds in
+    setManual(emptyManual());
+    setManualEdit(emptyManual());
     seoApi.getManual(selectedClient.id)
       .then((r) => {
         const data = { ...emptyManual(), ...r.data };
@@ -1578,7 +1585,9 @@ export default function SEO() {
                 check('reviews', 'reviews', loc.reviews, loc.prev_reviews);
                 check('bookings', 'bookings', loc.bookings, loc.prev_bookings);
               });
-              if (sigChanges.length === 0) return null;
+              // Show section if there are computed changes OR already-saved whys
+              const hasSavedWhys = manual.sig_change_whys && Object.values(manual.sig_change_whys).some((v: any) => (v as string)?.trim?.());
+              if (sigChanges.length === 0 && !hasSavedWhys) return null;
               return (
                 <div className="seo-section" style={{ border: '1.5px solid #fde68a', background: 'linear-gradient(135deg,#fffbeb 0%,#fff 100%)', borderRadius: 12, padding: '16px 20px' }}>
                   <h3 className="seo-section__title" style={{ color: '#92400e' }}>

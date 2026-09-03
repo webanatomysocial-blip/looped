@@ -361,6 +361,29 @@ export default function Home() {
           );
         })()}
 
+        {/* Overdue / over-capacity warning — employees only */}
+        {user?.role !== 'admin' && user?.role !== 'client' && (() => {
+          const today = new Date().toISOString().slice(0, 10);
+          const accepted = (data?.tasks ?? []).filter(t => t.acceptance_status === 'accepted');
+          const overdue = accepted.filter(t => t.due_date && t.due_date < today && t.status !== 'completed');
+          const DAY_CAP = 7;
+          // group today's tasks by due_date to check capacity — use estimated_hours as proxy
+          const todayHours = accepted.filter(t => t.due_date === today).reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0);
+          const overCap = todayHours > DAY_CAP;
+          if (overdue.length === 0 && !overCap) return null;
+          return (
+            <div style={{ background: 'rgba(220,38,38,0.06)', border: '1.5px solid rgba(220,38,38,0.3)', borderRadius: 12, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <AlertTriangle size={15} color="#dc2626" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {overCap && <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>Today is over capacity ({todayHours.toFixed(1)}h / {DAY_CAP}h)</span>}
+                {overdue.map(t => (
+                  <span key={t.id} style={{ fontSize: 12, fontWeight: 600, color: '#dc2626' }}>"{t.title}" is overdue — due {t.due_date}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="home-grid">
           {/* Today's Priorities */}
           <div className="home-section card">

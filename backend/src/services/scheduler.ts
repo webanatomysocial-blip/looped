@@ -166,7 +166,8 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
       if (date > effectiveDue) break; // can't push past deadline
 
       const used = dayUsed.get(date) || 0;
-      const avail = round2(DAY_CAP - used);
+      // On the due date, allow overcap so remaining hours are never silently dropped
+      const avail = date === effectiveDue ? rem : round2(DAY_CAP - used);
       if (avail <= 0.01) { date = nextDay(date); continue; }
 
       const hrs = round2(Math.min(rem, avail));
