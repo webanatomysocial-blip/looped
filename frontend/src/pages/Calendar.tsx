@@ -47,19 +47,19 @@ function describeRecurrence(rt: any) {
 }
 
 // ─── Capacity bar ────────────────────────────────────────────────────────────
-function CapacityBar({ tasks }: { tasks: any[] }) {
+function CapacityBar({ tasks, showOver = true }: { tasks: any[]; showOver?: boolean }) {
   // Use slot_hours (scheduled hours for this day) when available, else estimated_hours
   const used = tasks.filter(t => !t.is_placeholder).reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
   const pct = Math.min(used / DAY_CAP, 1);
   const over = used > DAY_CAP;
-  const color = over ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
+  const color = over && showOver ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: over ? '#dc2626' : 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: over && showOver ? '#dc2626' : 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
           {used < 0.1 && used > 0 ? `${Math.round(used * 60)}m` : used.toFixed(1) + 'h'} / {DAY_CAP}h
         </span>
-        {over && <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626' }}>OVER</span>}
+        {over && showOver && <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626' }}>OVER</span>}
       </div>
       <div style={{ height: 4, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct * 100}%`, background: color, borderRadius: 99, transition: 'width 0.3s' }} />
@@ -156,7 +156,16 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nowPct, setNowPct] = useState(() => {
+    const n = new Date(); return ((n.getHours() + n.getMinutes() / 60 - 9) / 10) * 100;
+  });
   const today = dateStr(new Date());
+
+  useEffect(() => {
+    const tick = () => { const n = new Date(); setNowPct(((n.getHours() + n.getMinutes() / 60 - 9) / 10) * 100); };
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -203,9 +212,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
         const GRID_END   = 19; // 7pm
         const ROW_H      = 60; // px per hour
         const TIME_COL_W = 52; // px for time labels
-        const now = new Date();
-        const nowHour = now.getHours() + now.getMinutes() / 60;
-        const nowPct  = ((nowHour - GRID_START) / (GRID_END - GRID_START)) * 100;
+        const nowHour = 9 + nowPct / 10; // derive from live state
         const hours   = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 
         // Compute start times per day by stacking tasks in priority order from 9am
@@ -235,7 +242,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                   <div key={day} style={{ background: isToday ? 'var(--ink)' : 'var(--bg-sand)', padding: '10px 0 8px', textAlign: 'center', borderLeft: '1px solid var(--sand-border)' }}>
                     <div style={{ fontSize: 11, fontWeight: 800, color: isToday ? 'rgba(255,255,255,0.7)' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{DAY_LABELS[i]}</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink)', lineHeight: 1.2 }}>{d.getDate()}</div>
-                    {!isOverview && <CapacityBar tasks={data.byDay[day] || []} />}
+                    <CapacityBar tasks={data.byDay[day] || []} showOver={!isOverview} />
                   </div>
                 );
               })}
