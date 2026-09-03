@@ -48,18 +48,28 @@ function describeRecurrence(rt: any) {
 
 // ─── Capacity bar ────────────────────────────────────────────────────────────
 function CapacityBar({ tasks, showOver = true }: { tasks: any[]; showOver?: boolean }) {
-  // Use slot_hours (scheduled hours for this day) when available, else estimated_hours
   const used = tasks.filter(t => !t.is_placeholder).reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
+  const count = tasks.filter(t => !t.is_placeholder).length;
+  if (!showOver) {
+    // Admin/manager overview: just show task count, no capacity framing
+    return (
+      <div style={{ marginBottom: 4 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          {count} task{count !== 1 ? 's' : ''}
+        </span>
+      </div>
+    );
+  }
   const pct = Math.min(used / DAY_CAP, 1);
   const over = used > DAY_CAP;
-  const color = over && showOver ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
+  const color = over ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: over && showOver ? '#dc2626' : 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: over ? '#dc2626' : 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
           {used < 0.1 && used > 0 ? `${Math.round(used * 60)}m` : used.toFixed(1) + 'h'} / {DAY_CAP}h
         </span>
-        {over && showOver && <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626' }}>OVER</span>}
+        {over && <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626' }}>OVER</span>}
       </div>
       <div style={{ height: 4, background: '#e5e7eb', borderRadius: 99, overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct * 100}%`, background: color, borderRadius: 99, transition: 'width 0.3s' }} />
