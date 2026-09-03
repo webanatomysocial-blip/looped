@@ -1285,6 +1285,8 @@ export default function SEO() {
                                   country: demoCountry || undefined,
                                   manual_snapshot: manual,
                                   agency_name: agencyName || undefined,
+                                  acquisitions: [...selectedAcquisitions],
+                                  demographics: [...selectedDemographics],
                                 });
                                 setSavedReports((prev) => [res.data, ...prev]);
                                 setSaveReportName('');
