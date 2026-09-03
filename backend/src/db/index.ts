@@ -198,6 +198,8 @@ async function createSchema(): Promise<void> {
       }
       const hasAgency = await db.schema.hasColumn('seo_share_tokens', 'agency_name');
       if (!hasAgency) await db.schema.table('seo_share_tokens', (t) => { t.string('agency_name').nullable(); });
+      const hasAcquisitions = await db.schema.hasColumn('seo_share_tokens', 'acquisitions');
+      if (!hasAcquisitions) await db.schema.table('seo_share_tokens', (t) => { t.text('acquisitions').nullable(); t.text('demographics').nullable(); });
     }
   });
 
