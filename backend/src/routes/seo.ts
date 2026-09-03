@@ -665,7 +665,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       traffic: trafficRes.status === 'fulfilled' && trafficRes.value?.rows
         ? trafficRes.value.rows.map((r: any) => ({ date: r.dimensionValues[0].value, users: Number(r.metricValues[0].value), sessions: Number(r.metricValues[1].value), pageviews: Number(r.metricValues[2].value), newUsers: Number(r.metricValues[3].value) }))
         : [],
-      acquisition: selectedChannelsLower.length > 0 ? allAcquisition.filter((r: any) => selectedChannelsLower.includes(r.channel.toLowerCase())) : allAcquisition,
+      acquisition: selectedChannelsLower.length > 0 ? allAcquisition.filter((r: any) => selectedChannelsLower.includes(r.channel.toLowerCase())) : [],
       engagement: eng
         ? { avgDuration: Math.round(Number(eng[0].value)), bounceRate: Math.round(Number(eng[1].value) * 100), pagesPerSession: Number(Number(eng[2].value).toFixed(1)), engagementRate: Math.round(Number(eng[3].value) * 100), sessions: Number(eng[4].value), users: Number(eng[5].value), newUsers: Number(eng[6].value) }
         : { avgDuration: 0, bounceRate: 0, pagesPerSession: 0, engagementRate: 0, sessions: 0, users: 0, newUsers: 0 },

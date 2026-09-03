@@ -247,9 +247,9 @@ export default function ShareReport() {
         )}
 
         {/* Keyword Rankings */}
-        {manual.keyword_rankings?.length > 0 && (
+        {manual.keyword_rankings?.filter((k: any) => k.keyword?.trim()).length > 0 && (
           <Section title="Keyword Rankings">
-            <Table head={['Keyword', 'Previous Rank', 'Current Rank']} rows={manual.keyword_rankings.map((k: any) => [k.keyword, `#${k.rank ?? '—'}`, `#${k.change ?? '—'}`])} />
+            <Table head={['Keyword', 'Previous Rank', 'Current Rank']} rows={manual.keyword_rankings.filter((k: any) => k.keyword?.trim()).map((k: any) => [k.keyword, `#${k.rank ?? '—'}`, `#${k.change ?? '—'}`])} />
           </Section>
         )}
 
@@ -308,10 +308,10 @@ export default function ShareReport() {
         )}
 
         {/* Targets — Achieved vs Set */}
-        {manual.targets?.length > 0 && (
+        {manual.targets?.filter((t: any) => t.name?.trim()).length > 0 && (
           <Section title="Targets — Achieved vs Set">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {manual.targets.map((t: any, i: number) => {
+              {manual.targets.filter((t: any) => t.name?.trim()).map((t: any, i: number) => {
                 const pct = t.target > 0 ? Math.min(100, Math.round((t.achieved / t.target) * 100)) : 0;
                 const done = pct >= 100;
                 return (

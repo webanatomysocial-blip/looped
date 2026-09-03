@@ -529,18 +529,18 @@ ${manual.gmb_locations.map((loc) => {
 </div>` : '';
 
   // ── Manual sections ──
-  const kwRows = manual.keyword_rankings.map((k, i) => `
+  const kwRows = manual.keyword_rankings.filter(k => k.keyword?.trim()).map((k, i) => `
     <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${k.keyword}</td>
       <td style="padding:8px 12px;text-align:left;font-weight:700">#${k.rank ?? '—'}</td>
       <td style="padding:8px 12px;text-align:left;font-weight:700">#${k.change ?? '—'}</td>
     </tr>`).join('');
 
-  const targetProgressHtml = manual.targets.length > 0 ? `
+  const targetProgressHtml = manual.targets.filter(t => t.name?.trim()).length > 0 ? `
 <div class="section-block">
 <h2>Targets — Achieved vs Set</h2>
 <div class="section"><div class="section-inner" style="display:flex;flex-direction:column;gap:10px">
-  ${manual.targets.map((t) => {
+  ${manual.targets.filter((t: any) => t.name?.trim()).map((t) => {
     const pct = Number(t.target) > 0 ? Math.min(100, Math.round((Number(t.achieved) / Number(t.target)) * 100)) : 0;
     const done = pct >= 100;
     return `<div>
@@ -1241,7 +1241,9 @@ export default function SEO() {
                                   if (r.manual_snapshot) {
                                     try { snapManual = { ...emptyManual(), ...(typeof r.manual_snapshot === 'string' ? JSON.parse(r.manual_snapshot) : r.manual_snapshot) }; } catch {}
                                   }
-                                  downloadPDF(rpt, selectedClient.name, savedRange, snapManual, r.country || demoCountry, selectedAcquisitions, selectedDemographics, r.agency_name || agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
+                                  const savedAcq = r.acquisitions ? new Set<string>(typeof r.acquisitions === 'string' ? JSON.parse(r.acquisitions) : r.acquisitions) : selectedAcquisitions;
+                                  const savedDemo = r.demographics ? new Set<string>(typeof r.demographics === 'string' ? JSON.parse(r.demographics) : r.demographics) : selectedDemographics;
+                                  downloadPDF(rpt, selectedClient.name, savedRange, snapManual, r.country || demoCountry, savedAcq, savedDemo, r.agency_name || agencyName, r.start_date || '', r.end_date || '', r.compare_start || '', r.compare_end || '');
                                 } catch (e: any) { alert('Failed to fetch report data: ' + (e?.response?.data?.error || e?.message || 'unknown error')); }
                                 finally { setDownloadingId(null); }
                               }}
