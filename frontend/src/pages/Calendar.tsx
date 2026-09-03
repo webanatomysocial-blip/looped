@@ -151,6 +151,8 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
 
 // ─── Weekly view ─────────────────────────────────────────────────────────────
 function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any) => void }) {
+  const { user } = useAuth();
+  const isOverview = user?.role === 'admin' || user?.role === 'manager';
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -169,17 +171,19 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
   if (error) return <div style={{ padding: 40, textAlign: 'center', color: '#dc2626', fontSize: 13 }}>{error}</div>;
   if (!data) return null;
 
-  // Compute warnings: overdue tasks and over-capacity days
+  // Compute warnings: overdue tasks and over-capacity days (employees only)
   const warningItems: string[] = [];
-  for (const day of data.days) {
+  if (!isOverview) for (const day of data.days) {
     const tasks = (data.byDay[day] || []).filter((t: any) => !t.is_placeholder);
     const used = tasks.reduce((s: number, t: any) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
     if (used > DAY_CAP) warningItems.push(`${fmtDate(day)} is over capacity (${used.toFixed(1)}h / 7h)`);
   }
-  const allTasks = Object.values(data.byDay).flat() as any[];
-  const overdue = allTasks.filter(t => !t.is_placeholder && t.due_date < today && t.status !== 'completed' && t.event_type !== 'recurring');
-  const overdueNames = [...new Set(overdue.map((t: any) => t.title))];
-  for (const name of overdueNames) warningItems.push(`"${name}" is overdue`);
+  if (!isOverview) {
+    const allTasks = Object.values(data.byDay).flat() as any[];
+    const overdue = allTasks.filter(t => !t.is_placeholder && t.due_date < today && t.status !== 'completed' && t.event_type !== 'recurring');
+    const overdueNames = [...new Set(overdue.map((t: any) => t.title))];
+    for (const name of overdueNames) warningItems.push(`"${name}" is overdue`);
+  }
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -231,7 +235,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                   <div key={day} style={{ background: isToday ? 'var(--ink)' : 'var(--bg-sand)', padding: '10px 0 8px', textAlign: 'center', borderLeft: '1px solid var(--sand-border)' }}>
                     <div style={{ fontSize: 11, fontWeight: 800, color: isToday ? 'rgba(255,255,255,0.7)' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{DAY_LABELS[i]}</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink)', lineHeight: 1.2 }}>{d.getDate()}</div>
-                    <CapacityBar tasks={data.byDay[day] || []} />
+                    {!isOverview && <CapacityBar tasks={data.byDay[day] || []} />}
                   </div>
                 );
               })}
