@@ -358,13 +358,16 @@ export default function ShareReport() {
         )}
 
         {/* Social Media Organic */}
-        {(manual.meta_organic || manual.linkedin_organic) && (
+        {(() => {
+          const hasData = (m: any) => m && (m.views || m.clicks || m.reach || m.content_interactions || m.link_clicks || m.key_insights || m.top_post_description || m.channel_plan_action);
+          const organicItems = [
+            { title: 'Instagram Organic', m: manual.meta_organic?.instagram, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
+            { title: 'Facebook Organic', m: manual.meta_organic?.facebook, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
+            { title: 'LinkedIn Organic', m: manual.linkedin_organic, labels: ['Impressions', 'Clicks', 'Relations', 'Total Followers', 'New Followers'], isLinkedIn: true },
+          ].filter(({ m }) => hasData(m));
+          return organicItems.length > 0 && (
           <Section title="Social Media Report (Organic)">
-            {[
-              { title: 'Instagram Organic', m: manual.meta_organic?.instagram, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
-              { title: 'Facebook Organic', m: manual.meta_organic?.facebook, labels: ['Views', 'Reach', 'Content Interactions', 'Link Clicks'] },
-              { title: 'LinkedIn Organic', m: manual.linkedin_organic, labels: ['Impressions', 'Clicks', 'Relations', 'Total Followers', 'New Followers'], isLinkedIn: true },
-            ].filter(({ m }) => m && (m.views || m.clicks || m.reach || m.content_interactions || m.link_clicks || m.key_insights || m.top_post_description || m.channel_plan_action)).map(({ title, m, labels, isLinkedIn }: any) => (
+            {organicItems.map(({ title, m, labels, isLinkedIn }: any) => (
               <div key={title} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginBottom: 12 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: '#6366f1' }}>{title}</h3>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
@@ -388,7 +391,8 @@ export default function ShareReport() {
               </div>
             ))}
           </Section>
-        )}
+          );
+        })()}
 
         {/* Performance Marketing */}
         {manual.performance_marketing && (() => {
