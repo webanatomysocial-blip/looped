@@ -208,6 +208,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
       )}
       {/* Time grid — Google Calendar style */}
       {(() => {
+        const fmtHour = (h: number) => { const hr = Math.floor(h); const min = Math.round((h - hr) * 60); const disp = hr % 12 || 12; const ampm = hr < 12 ? 'am' : 'pm'; return min > 0 ? `${disp}:${String(min).padStart(2,'0')}${ampm}` : `${disp}${ampm}`; };
         const GRID_START = 9;  // 9am
         const GRID_END   = 19; // 7pm
         const ROW_H      = 60; // px per hour
@@ -301,7 +302,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                             boxSizing: 'border-box',
                           }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</div>
-                            {height > 30 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{startH % 12 || 12}{startH < 12 ? 'am' : 'pm'} – {endH % 12 || 12}{endH < 12 ? 'am' : 'pm'}</div>}
+                            {height > 30 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{fmtHour(startH)} – {fmtHour(endH)}</div>}
                           </div>
                         );
                       })}
