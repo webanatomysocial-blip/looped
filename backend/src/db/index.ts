@@ -1030,12 +1030,14 @@ async function createSchema(): Promise<void> {
   const hasXlr8StageIdx  = await db.schema.hasColumn('tasks', 'xlr8_stage_idx');
   const hasXlr8Status    = await db.schema.hasColumn('tasks', 'xlr8_status');
   const hasXlr8AssigneeId = await db.schema.hasColumn('tasks', 'xlr8_assignee_id');
-  await db.schema.table('tasks', (t) => {
-    if (!hasTicketTypeId)   t.integer('ticket_type_id').nullable();
-    if (!hasXlr8StageIdx)   t.integer('xlr8_stage_idx').nullable();   // which stage we're on (0-based)
-    if (!hasXlr8Status)     t.string('xlr8_status').nullable();       // pending_manager | pending_assignee | pending_admin | pending_client | completed
-    if (!hasXlr8AssigneeId) t.integer('xlr8_assignee_id').nullable(); // current stage assignee
-  });
+  if (!hasTicketTypeId || !hasXlr8StageIdx || !hasXlr8Status || !hasXlr8AssigneeId) {
+    await db.schema.table('tasks', (t) => {
+      if (!hasTicketTypeId)   t.integer('ticket_type_id').nullable();
+      if (!hasXlr8StageIdx)   t.integer('xlr8_stage_idx').nullable();
+      if (!hasXlr8Status)     t.string('xlr8_status').nullable();
+      if (!hasXlr8AssigneeId) t.integer('xlr8_assignee_id').nullable();
+    });
+  }
 
   // Add file_url / file_name to messages table for client chat attachments
   const hasMsgFileUrl = await db.schema.hasColumn('messages', 'file_url');

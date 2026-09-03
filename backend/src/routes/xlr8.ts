@@ -116,6 +116,7 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/tickets', async (req: AuthRequest, res: Response) => {
+  try {
   const { title, description, project_id, ticket_type_id, due_date, stage_assignments, draft, priority } = req.body;
   // stage_assignments: [{ stage_idx, user_ids: number[], est_hours?: number }]
   if (!title?.trim() || !project_id) {
@@ -228,6 +229,10 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
 
   res.status(201).json({ id });
   import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(id, db)).catch(() => {});
+  } catch (e: any) {
+    console.error('POST /xlr8/tickets error:', e?.message, e?.stack);
+    res.status(500).json({ error: e?.message || 'Server error' });
+  }
 });
 
 router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
