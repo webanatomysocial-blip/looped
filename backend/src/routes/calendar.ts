@@ -354,20 +354,15 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
           't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
           'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`))
         .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
-      // Fetch tasks personally assigned to this admin/manager (to mark as non-overview)
-      const personalAssignedIds = new Set<number>(
-        (await db('task_assignees').where('user_id', user.id).select('task_id')).map((r: any) => Number(r.task_id))
-      );
-      const assignedToIds = new Set<number>(
-        overviewTasks.filter((t: any) => t.assigned_to === user.id).map((t: any) => Number(t.id))
-      );
+      // All overview tasks are marked is_overview — they show as chips, not counted in personal capacity
       const overviewRows = overviewTasks
         .filter((t: any) => !slottedIds.has(t.id))
-        .map((t: any) => {
-          const isPersonal = personalAssignedIds.has(Number(t.id)) || assignedToIds.has(Number(t.id));
-          return { ...t, slot_date: t.due_date, slot_hours: isPersonal ? (t.estimated_hours || 0) : 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: !isPersonal };
-        });
+        .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
       slotRows = [...slotRowsRaw, ...overviewRows];
+      // Trigger scheduler for admin/manager so their personally assigned tasks get real slots
+      if (slotRowsRaw.length === 0) {
+        import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(user.id, db)).catch(() => {});
+      }
     }
 
     // Recurring instances for the week (always due_date based — no scheduling needed)
