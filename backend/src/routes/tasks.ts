@@ -31,7 +31,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (project_id) query = query.where('t.project_id', project_id);
 
     if (pod && (role === 'admin' || role === 'manager')) {
-      // Filter tasks to this pod: either the project belongs to this pod, or an employee from this pod is assigned
+      // Filter tasks to this pod: project belongs to pod, OR employee from this pod is assigned,
+      // OR the task has no pod assignment at all (visible in all pod tabs to prevent tasks being hidden).
       query = query.where(function (this: any) {
         this.where('p.pod', pod as string)
           .orWhereIn('t.id', function (this: any) {
@@ -40,6 +41,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
               .join('users as u', 'ta.user_id', 'u.id')
               .where('u.pod', pod as string)
               .whereIn('ta.assignee_role', ['employee']);
+          })
+          .orWhere(function (this: any) {
+            this.whereNull('p.pod')
+              .whereNotIn('t.id', function (this: any) {
+                this.select('ta.task_id')
+                  .from('task_assignees as ta')
+                  .join('users as u', 'ta.user_id', 'u.id')
+                  .whereNotNull('u.pod')
+                  .whereIn('ta.assignee_role', ['employee']);
+              });
           });
       });
     }

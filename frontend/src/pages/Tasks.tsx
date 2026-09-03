@@ -80,11 +80,11 @@ export default function Tasks() {
   const canCreate = user?.role !== 'client';
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [recurringForm, setRecurringForm] = useState({ title: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: '', end_date: '' });
-  const [podTab, setPodTab] = useState<'pod1' | 'pod2'>('pod1');
+  const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
 
   const load = async (pod?: string) => {
     setLoading(true);
-    const podParam = user?.role === 'admin' ? pod : user?.role === 'manager' ? (user?.pod ?? undefined) : undefined;
+    const podParam = user?.role === 'admin' ? (pod === 'all' ? undefined : pod) : user?.role === 'manager' ? (user?.pod ?? undefined) : undefined;
     const [t, p] = await Promise.allSettled([tasksApi.list(undefined, podParam), projectsApi.list()]);
     if (t.status === 'fulfilled') setTasks(t.value.data);
     if (p.status === 'fulfilled') setProjects(p.value.data);
@@ -505,14 +505,13 @@ export default function Tasks() {
             {/* Pod tabs — admin only */}
             {user?.role === 'admin' && (
               <div className="filter-bar">
-                {(['pod1', 'pod2'] as const).map((p) => (
+                {(['all', 'pod1', 'pod2'] as const).map((p) => (
                   <button
                     key={p}
                     className={`filter-tab${podTab === p ? ' active' : ''}`}
-                    style={podTab === p ? {} : {}}
                     onClick={() => setPodTab(p)}
                   >
-                    {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                    {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
                   </button>
                 ))}
               </div>
