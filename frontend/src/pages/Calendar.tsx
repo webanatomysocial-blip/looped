@@ -355,7 +355,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
 
                       {/* Task blocks */}
                       {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
-                        const isDragging = dragPos?.slotId === task.slot_id;
+                        const isDragging = dragPos != null && task.slot_id != null && dragPos.slotId === task.slot_id;
                         const startH = isDragging ? dragPos!.startH : baseStartH;
                         const hrs    = baseEndH - baseStartH;
                         const endH   = startH + hrs;
