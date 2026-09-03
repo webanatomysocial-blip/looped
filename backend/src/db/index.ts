@@ -504,7 +504,15 @@ async function createSchema(): Promise<void> {
   if (!hasAssigneeId) {
     const isMySQL = (db.client as any).config?.client === 'mysql2';
     if (isMySQL) {
-      await db.raw('ALTER TABLE task_assignees DROP PRIMARY KEY, ADD COLUMN id INT AUTO_INCREMENT PRIMARY KEY FIRST');
+      // Must add backing indexes on task_id/user_id in the same statement as DROP PRIMARY KEY,
+      // because MySQL requires FK columns to remain indexed — the composite PK was their only index.
+      await db.raw(
+        'ALTER TABLE task_assignees ' +
+        'ADD INDEX idx_ta_task_id (task_id), ' +
+        'ADD INDEX idx_ta_user_id (user_id), ' +
+        'DROP PRIMARY KEY, ' +
+        'ADD COLUMN id INT AUTO_INCREMENT PRIMARY KEY FIRST'
+      );
     } else {
       // SQLite: recreate the table (no ALTER PRIMARY KEY support)
       await db.schema.createTable('task_assignees_new', (t) => {
