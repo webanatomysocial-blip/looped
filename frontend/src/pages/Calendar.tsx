@@ -216,12 +216,16 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
         const nowHour = 9 + nowPct / 10; // derive from live state
         const hours   = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 
-        // Compute start times per day by stacking tasks in priority order from 9am
+        // Compute start times per day by stacking personal tasks in priority order from 9am
+        // Overview tasks (is_overview) are shown as chips, not positioned in the time grid
         const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
+        const dayOverview: Record<string, any[]> = {};
         for (const day of data.days) {
           let cursor = GRID_START;
           dayBlocks[day] = [];
+          dayOverview[day] = [];
           for (const task of (data.byDay[day] || [])) {
+            if (task.is_overview) { dayOverview[day].push(task); continue; }
             const hrs = Number(task.slot_hours ?? task.estimated_hours) || 1;
             const startH = cursor;
             const endH   = Math.min(startH + hrs, GRID_END);
@@ -278,6 +282,21 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                           <div style={{ position: 'absolute', left: -4, top: -3, width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} />
                         </div>
                       )}
+
+                      {/* Overview chips (admin/manager — shown at top, not time-positioned) */}
+                      {(dayOverview[day] || []).map((task: any, j: number) => {
+                        const pc = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+                        return (
+                          <div key={`ov-${task.id || j}`} onClick={() => onTaskClick(task)} style={{
+                            position: 'absolute', top: 3 + j * 22, left: 3, right: 3, height: 20,
+                            background: pc.bg, border: `1px solid ${pc.border}`, borderRadius: 4,
+                            padding: '1px 5px', cursor: 'pointer', zIndex: 3,
+                            display: 'flex', alignItems: 'center', overflow: 'hidden',
+                          }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+                          </div>
+                        );
+                      })}
 
                       {/* Task blocks */}
                       {blocks.map(({ task, startH, endH }, j) => {

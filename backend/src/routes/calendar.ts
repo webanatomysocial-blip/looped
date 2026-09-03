@@ -351,12 +351,22 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
             AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
         )`)
         .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
-          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
           'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`))
         .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
+      // Fetch tasks personally assigned to this admin/manager (to mark as non-overview)
+      const personalAssignedIds = new Set<number>(
+        (await db('task_assignees').where('user_id', user.id).select('task_id')).map((r: any) => Number(r.task_id))
+      );
+      const assignedToIds = new Set<number>(
+        overviewTasks.filter((t: any) => t.assigned_to === user.id).map((t: any) => Number(t.id))
+      );
       const overviewRows = overviewTasks
         .filter((t: any) => !slottedIds.has(t.id))
-        .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: t.estimated_hours || 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
+        .map((t: any) => {
+          const isPersonal = personalAssignedIds.has(Number(t.id)) || assignedToIds.has(Number(t.id));
+          return { ...t, slot_date: t.due_date, slot_hours: isPersonal ? (t.estimated_hours || 0) : 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: !isPersonal };
+        });
       slotRows = [...slotRowsRaw, ...overviewRows];
     }
 
