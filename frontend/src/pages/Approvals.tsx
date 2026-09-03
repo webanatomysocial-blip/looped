@@ -136,7 +136,7 @@ export default function Approvals() {
   // Next-stage assignment after approval
   const [assignStage, setAssignStage]   = useState<{ taskId: number; stageName: string; eligible: any[] } | null>(null);
 
-  const [podTab, setPodTab] = useState<'pod1' | 'pod2'>('pod1');
+  const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
   const [page, setPage]     = useState(1);
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [dateFilter, setDateFilter] = useState('');
@@ -147,7 +147,7 @@ export default function Approvals() {
 
   const load = (pod?: string) => {
     setLoading(true);
-    const podParam = user?.role === 'admin' ? pod : undefined;
+    const podParam = user?.role === 'admin' ? (pod === 'all' ? undefined : pod) : undefined;
     approvalsApi.list(podParam).then((r) => {
       setApprovals(r.data);
       // Seed timer state from server
@@ -334,10 +334,10 @@ export default function Approvals() {
           </div>
           {user?.role === 'admin' && (
             <div className="filter-bar">
-              {(['pod1', 'pod2'] as const).map((p) => (
+              {(['all', 'pod1', 'pod2'] as const).map((p) => (
                 <button key={p} className={`filter-tab${podTab === p ? ' active' : ''}`}
                   onClick={() => { setPodTab(p); setPage(1); }}>
-                  {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                  {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
                 </button>
               ))}
             </div>

@@ -180,19 +180,22 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     if (role === 'admin') {
       if (req.query.pod) {
-        // Filter by project pod
-        query = query.where('p.pod', req.query.pod as string);
+        // Filter by pod but always include projects with no pod set
+        query = query.where(function () {
+          this.where('p.pod', req.query.pod as string).orWhereNull('p.pod');
+        });
       }
     } else if (role === 'manager') {
       const mgr = await db('users').where({ id: userId }).select('pod').first();
       if (mgr?.pod) {
-        // Show approvals for this pod's projects OR custom flows where this manager is an approver
+        // Show approvals for this pod's projects, custom flows, OR projects with no pod assigned
         query = query.where(function () {
           this.where('p.pod', mgr.pod)
-          .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
-            SELECT 1 FROM task_approval_flow taf
-            WHERE taf.task_id = ap.task_id AND taf.user_id = ?
-          ))`, [userId]);
+            .orWhereNull('p.pod')
+            .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
+              SELECT 1 FROM task_approval_flow taf
+              WHERE taf.task_id = ap.task_id AND taf.user_id = ?
+            ))`, [userId]);
         });
       }
     } else if (role === 'client') {
