@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import Layout from '../components/Layout/Layout';
 import { calendarApi, usersApi, projectsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -154,7 +155,7 @@ const GRID_START_H = 9;
 const GRID_END_H   = 19;
 const ROW_PX       = 60;
 
-function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any) => void }) {
+function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: number) => void }) {
   const { user } = useAuth();
   const isOverview = user?.role === 'admin' || user?.role === 'manager';
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]> } | null>(null);
@@ -309,6 +310,23 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                     <div style={{ fontSize: 11, fontWeight: 800, color: isToday ? 'rgba(255,255,255,0.7)' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{DAY_LABELS[i]}</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink)', lineHeight: 1.2 }}>{d.getDate()}</div>
                     <CapacityBar tasks={data.byDay[day] || []} showOver={!isOverview} />
+                    {/* Overview chips in header (admin/manager) — keeps them out of time grid */}
+                    {(dayOverview[day] || []).length > 0 && (
+                      <div style={{ padding: '4px 4px 2px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {(dayOverview[day] || []).map((task: any, j: number) => {
+                          const pc = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
+                          return (
+                            <div key={`ov-${task.id || j}`} onClick={() => task.id && onTaskClick(task.id)} style={{
+                              background: pc.bg, border: `1px solid ${pc.border}`, borderRadius: 4,
+                              padding: '1px 5px', cursor: 'pointer', height: 18,
+                              display: 'flex', alignItems: 'center', overflow: 'hidden',
+                            }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', textAlign: 'left' }}>{task.title}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -338,21 +356,6 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                       ))}
 
 
-                      {/* Overview chips (admin/manager — shown at top, not time-positioned) */}
-                      {(dayOverview[day] || []).map((task: any, j: number) => {
-                        const pc = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
-                        return (
-                          <div key={`ov-${task.id || j}`} onClick={() => onTaskClick(task)} style={{
-                            position: 'absolute', top: 3 + j * 22, left: 3, right: 3, height: 20,
-                            background: pc.bg, border: `1px solid ${pc.border}`, borderRadius: 4,
-                            padding: '1px 5px', cursor: 'pointer', zIndex: 3,
-                            display: 'flex', alignItems: 'center', overflow: 'hidden',
-                          }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
-                          </div>
-                        );
-                      })}
-
                       {/* Task blocks */}
                       {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
                         const isDragging = dragPos != null && task.slot_id != null && dragPos.slotId === task.slot_id;
@@ -378,7 +381,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                               setDragPos({ slotId: task.slot_id, startH: baseStartH });
                               (e.target as HTMLElement).setPointerCapture(e.pointerId);
                             } : undefined}
-                            onClick={() => { if (!dragRef.current) onTaskClick(task); }}
+                            onClick={() => { if (!dragRef.current && task.id) onTaskClick(task.id); }}
                             style={{
                               position: 'absolute',
                               top, left: 3, right: 3, height,
@@ -416,7 +419,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
 }
 
 // ─── Monthly view (existing logic, cleaned up) ───────────────────────────────
-function MonthView({ year, month, onEventClick }: { year: number; month: number; onEventClick: (e: any) => void }) {
+function MonthView({ year, month, onEventClick }: { year: number; month: number; onEventClick: (id: number) => void }) {
   const [events, setEvents] = useState<{ tasks: any[]; recurring: any[] }>({ tasks: [], recurring: [] });
   const [loading, setLoading] = useState(false);
   const today = dateStr(new Date());
@@ -466,7 +469,7 @@ function MonthView({ year, month, onEventClick }: { year: number; month: number;
                 const cfg = PRIORITY_CONFIG[p] || PRIORITY_CONFIG.medium;
                 const isDone = ev.status === 'completed' || ev.status === 'done';
                 return (
-                  <div key={i} onClick={() => onEventClick(ev)} style={{
+                  <div key={i} onClick={() => ev.id && onEventClick(ev.id)} style={{
                     fontSize: 10, fontWeight: 600, padding: '2px 5px', borderRadius: 4, marginBottom: 2,
                     background: isDone ? '#f0fdf4' : ev.event_type === 'recurring' ? 'rgba(99,102,241,0.1)' : cfg.bg,
                     color: isDone ? '#15803d' : ev.event_type === 'recurring' ? '#4f46e5' : cfg.color,
@@ -494,7 +497,7 @@ export default function CalendarPage() {
   const [monday, setMonday] = useState<Date>(() => getMondayOf(today));
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
-  const [selected, setSelected] = useState<any | null>(null);
+  const [selected, setSelected] = useState<number | null>(null); // task ID for drawer
   const [recurringList, setRecurringList] = useState<any[]>([]);
   const [showRecurring, setShowRecurring] = useState(false);
   const [modal, setModal] = useState(false);
@@ -645,40 +648,8 @@ export default function CalendarPage() {
         </div>
 
         {/* ── Task detail panel ── */}
-        {selected && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', justifyContent: 'flex-end' }} onClick={() => setSelected(null)}>
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.18)', backdropFilter: 'blur(2px)' }} />
-            <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: 340, height: '100%', background: 'linear-gradient(160deg,rgba(255,255,255,0.97),rgba(248,246,242,0.97))', borderLeft: '1px solid rgba(255,255,255,0.8)', boxShadow: '-8px 0 32px rgba(0,0,0,0.08)', display: 'flex', flexDirection: 'column', animation: 'drawerIn 0.22s ease' }}>
-              <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid var(--sand-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--ink-muted)', marginBottom: 4 }}>Task Detail</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.3 }}>{selected.title}</div>
-                </div>
-                <button onClick={() => setSelected(null)} style={{ background: 'var(--bg-sand)', border: 'none', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 16 }}>×</button>
-              </div>
-              <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {/* Status */}
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: selected.status === 'completed' ? '#f0fdf4' : selected.event_type === 'recurring' ? 'rgba(99,102,241,0.1)' : (PRIORITY_CONFIG[selected.priority]?.bg || '#f9fafb'), border: `1px solid ${selected.status === 'completed' ? '#bbf7d0' : selected.event_type === 'recurring' ? '#c7d2fe' : (PRIORITY_CONFIG[selected.priority]?.border || '#e5e7eb')}`, borderRadius: 99, padding: '4px 12px', width: 'fit-content' }}>
-                  {selected.event_type === 'recurring' ? <Repeat size={12} color="#818cf8" /> : <CheckCircle size={12} color={PRIORITY_CONFIG[selected.priority]?.color || '#6b7280'} />}
-                  <span style={{ fontSize: 11, fontWeight: 700, color: selected.event_type === 'recurring' ? '#4f46e5' : (PRIORITY_CONFIG[selected.priority]?.color || '#6b7280'), textTransform: 'capitalize' }}>
-                    {selected.event_type === 'recurring' ? 'Recurring' : selected.priority} · {selected.status}
-                  </span>
-                </div>
-
-                {[
-                  { label: 'Due Date',    value: selected.due_date },
-                  { label: 'Project',     value: selected.project_name },
-                  { label: 'Est. Hours',  value: selected.estimated_hours ? `${selected.estimated_hours}h` : null },
-                  { label: 'Logged',      value: selected.tracked_seconds > 0 ? fmtSec(selected.tracked_seconds) : null },
-                ].filter(r => r.value).map(row => (
-                  <div key={row.label}>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 3 }}>{row.label}</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{row.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+        {selected != null && (
+          <TaskViewDrawer taskId={selected} onClose={() => setSelected(null)} />
         )}
 
         {/* ── Recurring task modal ── */}
