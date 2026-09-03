@@ -390,9 +390,9 @@ async function createSchema(): Promise<void> {
   await db.schema.hasTable('task_assignees').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('task_assignees', (t) => {
+        t.increments('id').primary();
         t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
         t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
-        t.primary(['task_id', 'user_id']);
       });
     }
   });
@@ -496,6 +496,30 @@ async function createSchema(): Promise<void> {
   const hasAssigneeEstHours = await db.schema.hasColumn('task_assignees', 'est_hours');
   if (!hasAssigneeEstHours) {
     await db.schema.table('task_assignees', (t) => { t.float('est_hours').nullable(); });
+  }
+
+  // Fix: task_assignees PK was (task_id, user_id) which blocks same user on multiple stages.
+  // Drop composite PK and add autoincrement id as PK so (task_id, user_id, stage_idx) can repeat.
+  const hasAssigneeId = await db.schema.hasColumn('task_assignees', 'id');
+  if (!hasAssigneeId) {
+    const isMySQL = (db.client as any).config?.client === 'mysql2';
+    if (isMySQL) {
+      await db.raw('ALTER TABLE task_assignees DROP PRIMARY KEY, ADD COLUMN id INT AUTO_INCREMENT PRIMARY KEY FIRST');
+    } else {
+      // SQLite: recreate the table (no ALTER PRIMARY KEY support)
+      await db.schema.createTable('task_assignees_new', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('acceptance_status').defaultTo('pending');
+        t.string('assignee_role').defaultTo('worker');
+        t.integer('stage_idx').nullable();
+        t.float('est_hours').nullable();
+      });
+      await db.raw('INSERT INTO task_assignees_new (task_id, user_id, acceptance_status, assignee_role, stage_idx, est_hours) SELECT task_id, user_id, acceptance_status, assignee_role, stage_idx, est_hours FROM task_assignees');
+      await db.schema.dropTable('task_assignees');
+      await db.schema.renameTable('task_assignees_new', 'task_assignees');
+    }
   }
 
   // Backfill time_logs from completed task_sessions that have no time_log yet.
