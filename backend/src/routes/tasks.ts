@@ -55,23 +55,26 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // For XLR8 tasks: only show once all employee-role stage assignees have accepted
-    // Applies to all roles — employees already filtered above, admins/managers see task only after all accept
-    query = query.whereRaw(
-      `(t.ticket_type_id IS NULL OR NOT EXISTS (
-         SELECT 1 FROM task_assignees ta2
-         WHERE ta2.task_id = t.id
-           AND ta2.stage_idx IS NOT NULL
-           AND ta2.assignee_role NOT IN ('admin', 'client')
-           AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
-       ))`,
-      []
-    );
+    // XLR8 acceptance filter: clients only see XLR8 tasks once all employees have accepted.
+    // Admins and managers see all tasks regardless of acceptance state.
+    if (role === 'client') {
+      query = query.whereRaw(
+        `(t.ticket_type_id IS NULL OR NOT EXISTS (
+           SELECT 1 FROM task_assignees ta2
+           WHERE ta2.task_id = t.id
+             AND ta2.stage_idx IS NOT NULL
+             AND ta2.assignee_role NOT IN ('admin', 'client')
+             AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
+         ))`,
+        []
+      );
+    }
 
     if (role === 'employee') {
+      // Include tasks assigned to this employee (pending OR accepted) so they can see and act on pending tasks.
       query = query.whereRaw(
         `(t.created_by = ?
-          OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND acceptance_status = 'accepted')
+          OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?)
           OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))`,
         [userId, userId, userId]
       );
