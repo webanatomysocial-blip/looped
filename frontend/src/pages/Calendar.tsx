@@ -48,21 +48,11 @@ function describeRecurrence(rt: any) {
 
 // ─── Capacity bar ────────────────────────────────────────────────────────────
 function CapacityBar({ tasks, showOver = true }: { tasks: any[]; showOver?: boolean }) {
-  const used = tasks.filter(t => !t.is_placeholder).reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
-  const count = tasks.filter(t => !t.is_placeholder).length;
-  if (!showOver) {
-    // Admin/manager overview: just show task count, no capacity framing
-    return (
-      <div style={{ marginBottom: 4 }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-muted)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {count} task{count !== 1 ? 's' : ''}
-        </span>
-      </div>
-    );
-  }
+  const personalTasks = tasks.filter(t => !t.is_placeholder && !t.is_overview);
+  const used = personalTasks.reduce((s, t) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
   const pct = Math.min(used / DAY_CAP, 1);
   const over = used > DAY_CAP;
-  const color = over ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
+  const color = over && showOver ? '#dc2626' : used >= DAY_CAP * 0.85 ? '#ea580c' : '#22c55e';
   return (
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
@@ -192,8 +182,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
 
   // Compute warnings: overdue tasks and over-capacity days (employees only)
   const warningItems: string[] = [];
-  if (!isOverview) for (const day of data.days) {
-    const tasks = (data.byDay[day] || []).filter((t: any) => !t.is_placeholder);
+  for (const day of data.days) {
+    const tasks = (data.byDay[day] || []).filter((t: any) => !t.is_placeholder && !t.is_overview);
     const used = tasks.reduce((s: number, t: any) => s + (Number(t.slot_hours ?? t.estimated_hours) || 0), 0);
     if (used > DAY_CAP) warningItems.push(`${fmtDate(day)} is over capacity (${used.toFixed(1)}h / 7h)`);
   }
