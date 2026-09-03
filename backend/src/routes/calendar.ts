@@ -329,7 +329,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         't.id', 't.title', 't.due_date', 't.status', 't.priority',
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
         'p.name as project_name',
-        's.slot_date', 's.hours as slot_hours', 's.stage_idx as scheduled_stage',
+        's.id as slot_id', 's.slot_date', 's.hours as slot_hours', 's.stage_idx as scheduled_stage', 's.custom_start_hour',
         db.raw(`${trackedSubSQL} as tracked_seconds`),
         db.raw(`(SELECT est_hours FROM task_assignees WHERE task_id = s.task_id AND user_id = ? AND stage_idx = s.stage_idx LIMIT 1) as user_est_hours`, [user.id])
       )
@@ -442,6 +442,21 @@ router.post('/schedule', async (req: AuthRequest, res: Response) => {
     console.error('schedule error:', e?.message);
     res.status(500).json({ error: e?.message || 'Server error' });
   }
+});
+
+// PATCH /calendar/slot/:slotId/time — pin a slot to a specific start hour (drag-to-reposition)
+router.patch('/slot/:slotId/time', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const slotId = Number(req.params.slotId);
+    const { start_hour } = req.body;
+    if (typeof start_hour !== 'number') { res.status(400).json({ error: 'start_hour required' }); return; }
+    // Verify ownership
+    const slot = await db('task_schedule_slots').where({ id: slotId, user_id: req.user!.id }).first();
+    if (!slot) { res.status(404).json({ error: 'Slot not found' }); return; }
+    await db('task_schedule_slots').where({ id: slotId }).update({ custom_start_hour: start_hour });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'Server error' }); }
 });
 
 export default router;

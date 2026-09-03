@@ -150,6 +150,10 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
 }
 
 // ─── Weekly view ─────────────────────────────────────────────────────────────
+const GRID_START_H = 9;
+const GRID_END_H   = 19;
+const ROW_PX       = 60;
+
 function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any) => void }) {
   const { user } = useAuth();
   const isOverview = user?.role === 'admin' || user?.role === 'manager';
@@ -159,6 +163,13 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
   const [nowPct, setNowPct] = useState(() => {
     const n = new Date(); return ((n.getHours() + n.getMinutes() / 60 - 9) / 10) * 100;
   });
+  // Map slotId → pinned start hour (local overrides after drag)
+  const [pinned, setPinned] = useState<Record<number, number>>({});
+  // Active drag state
+  const dragRef = useRef<{ slotId: number; hrs: number; offsetY: number; colEl: HTMLElement; day: string } | null>(null);
+  const [dragPos, setDragPos] = useState<{ slotId: number; startH: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const colRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const today = dateStr(new Date());
 
   useEffect(() => {
@@ -170,11 +181,48 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setPinned({});
     calendarApi.getWeek(dateStr(monday))
       .then(r => setData(r.data))
       .catch(e => setError(e?.response?.data?.error || 'Failed to load week'))
       .finally(() => setLoading(false));
   }, [dateStr(monday)]);
+
+  // Pointer drag handlers (attached to document when drag active)
+  useEffect(() => {
+    const snap = (h: number) => Math.round(h * 2) / 2; // 30-min snap
+
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const rect = d.colEl.getBoundingClientRect();
+      const scrollTop = scrollRef.current?.scrollTop ?? 0;
+      const relY = e.clientY - rect.top + scrollTop - d.offsetY;
+      const raw = GRID_START_H + relY / ROW_PX;
+      const clamped = Math.max(GRID_START_H, Math.min(GRID_END_H - d.hrs, raw));
+      setDragPos({ slotId: d.slotId, startH: snap(clamped) });
+    };
+
+    const onUp = async () => {
+      const d = dragRef.current;
+      if (!d) return;
+      dragRef.current = null;
+      setDragPos(prev => {
+        if (!prev) return null;
+        const h = prev.startH;
+        setPinned(p => ({ ...p, [d.slotId]: h }));
+        calendarApi.updateSlotTime(d.slotId, h).catch(() => {});
+        return null;
+      });
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+    };
+  }, []);
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-muted)', fontSize: 13 }}>Loading week…</div>;
   if (error) return <div style={{ padding: 40, textAlign: 'center', color: '#dc2626', fontSize: 13 }}>{error}</div>;
@@ -209,23 +257,35 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
       {/* Time grid — Google Calendar style */}
       {(() => {
         const fmtHour = (h: number) => { const hr = Math.floor(h); const min = Math.round((h - hr) * 60); const disp = hr % 12 || 12; const ampm = hr < 12 ? 'am' : 'pm'; return min > 0 ? `${disp}:${String(min).padStart(2,'0')}${ampm}` : `${disp}${ampm}`; };
-        const GRID_START = 9;  // 9am
-        const GRID_END   = 19; // 7pm
-        const ROW_H      = 60; // px per hour
-        const TIME_COL_W = 52; // px for time labels
-        const nowHour = 9 + nowPct / 10; // derive from live state
-        const hours   = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
+        const GRID_START = GRID_START_H;
+        const GRID_END   = GRID_END_H;
+        const ROW_H      = ROW_PX;
+        const TIME_COL_W = 52;
+        const hours = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 
-        // Compute start times per day by stacking personal tasks in priority order from 9am
-        // Overview tasks (is_overview) are shown as chips, not positioned in the time grid
+        // Compute start times. Pinned tasks (custom_start_hour / local overrides) use their pinned time;
+        // unpinned tasks stack from 9am in priority order.
         const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
         const dayOverview: Record<string, any[]> = {};
         for (const day of data.days) {
           let cursor = GRID_START;
           dayBlocks[day] = [];
           dayOverview[day] = [];
+          const pinnedTasks: { task: any; startH: number; endH: number }[] = [];
+          const freeTasks: any[] = [];
           for (const task of (data.byDay[day] || [])) {
             if (task.is_overview) { dayOverview[day].push(task); continue; }
+            const slotId = task.slot_id;
+            const pinnedH = slotId != null ? (pinned[slotId] ?? task.custom_start_hour ?? null) : null;
+            if (pinnedH != null) {
+              const hrs = Number(task.slot_hours ?? task.estimated_hours) || 1;
+              pinnedTasks.push({ task, startH: pinnedH, endH: Math.min(pinnedH + hrs, GRID_END) });
+            } else {
+              freeTasks.push(task);
+            }
+          }
+          // Stack free tasks after all pinned blocks (simple: from cursor, no interleaving)
+          for (const task of freeTasks) {
             const hrs = Number(task.slot_hours ?? task.estimated_hours) || 1;
             const startH = cursor;
             const endH   = Math.min(startH + hrs, GRID_END);
@@ -233,6 +293,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
             cursor = endH;
             if (cursor >= GRID_END) break;
           }
+          dayBlocks[day] = [...pinnedTasks, ...dayBlocks[day]];
         }
 
         return (
@@ -254,7 +315,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
             </div>
 
             {/* Scrollable time body */}
-            <div style={{ overflowY: 'auto', maxHeight: 520 }}>
+            <div ref={scrollRef} style={{ overflowY: 'auto', maxHeight: 520 }}>
               <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL_W}px repeat(5, 1fr)`, position: 'relative' }}>
                 {/* Time labels + hour grid lines */}
                 <div style={{ position: 'relative' }}>
@@ -270,7 +331,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                   const isToday = day === today;
                   const blocks = dayBlocks[day];
                   return (
-                    <div key={day} style={{ position: 'relative', borderLeft: '1px solid var(--sand-border)', background: isToday ? 'rgba(37,99,235,0.02)' : 'var(--bg-white)' }}>
+                    <div key={day} ref={el => { colRefs.current[day] = el; }} style={{ position: 'relative', borderLeft: '1px solid var(--sand-border)', background: isToday ? 'rgba(37,99,235,0.02)' : 'var(--bg-white)' }}>
                       {/* Hour grid lines */}
                       {hours.map(h => (
                         <div key={h} style={{ height: ROW_H, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }} />
@@ -293,27 +354,50 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (t: any)
                       })}
 
                       {/* Task blocks */}
-                      {blocks.map(({ task, startH, endH }, j) => {
+                      {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
+                        const isDragging = dragPos?.slotId === task.slot_id;
+                        const startH = isDragging ? dragPos!.startH : baseStartH;
+                        const hrs    = baseEndH - baseStartH;
+                        const endH   = startH + hrs;
                         const top    = (startH - GRID_START) * ROW_H;
-                        const height = Math.max((endH - startH) * ROW_H - 3, 22);
+                        const height = Math.max(hrs * ROW_H - 3, 22);
                         const pc     = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
                         const isPlaceholder = task.is_placeholder;
+                        const canDrag = !isPlaceholder && task.slot_id != null && !isOverview;
                         return (
-                          <div key={task.id || j} onClick={() => onTaskClick(task)} style={{
-                            position: 'absolute',
-                            top, left: 3, right: 3, height,
-                            background: isPlaceholder ? 'transparent' : pc.bg,
-                            border: `1.5px ${isPlaceholder ? 'dashed' : 'solid'} ${pc.border}`,
-                            borderRadius: 6,
-                            padding: '3px 6px',
-                            cursor: 'pointer',
-                            overflow: 'hidden',
-                            zIndex: 2,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'flex-start',
-                            boxSizing: 'border-box',
-                          }}>
+                          <div
+                            key={task.id || j}
+                            onPointerDown={canDrag ? (e) => {
+                              e.preventDefault();
+                              const colEl = colRefs.current[day];
+                              if (!colEl) return;
+                              const rect = colEl.getBoundingClientRect();
+                              const scrollTop = scrollRef.current?.scrollTop ?? 0;
+                              const clickY = e.clientY - rect.top + scrollTop - top;
+                              dragRef.current = { slotId: task.slot_id, hrs, offsetY: clickY, colEl, day };
+                              setDragPos({ slotId: task.slot_id, startH: baseStartH });
+                              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                            } : undefined}
+                            onClick={() => { if (!dragRef.current) onTaskClick(task); }}
+                            style={{
+                              position: 'absolute',
+                              top, left: 3, right: 3, height,
+                              background: isPlaceholder ? 'transparent' : pc.bg,
+                              border: `1.5px ${isPlaceholder ? 'dashed' : 'solid'} ${pc.border}`,
+                              borderRadius: 6,
+                              padding: '3px 6px',
+                              cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+                              overflow: 'hidden',
+                              zIndex: isDragging ? 10 : 2,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'flex-start',
+                              boxSizing: 'border-box',
+                              boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.18)' : undefined,
+                              opacity: isDragging ? 0.92 : 1,
+                              userSelect: 'none',
+                              touchAction: 'none',
+                            }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</div>
                             {height > 30 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{fmtHour(startH)} – {fmtHour(endH)}</div>}
                           </div>

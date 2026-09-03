@@ -213,6 +213,7 @@ export const localSeoApi = {
 export const calendarApi = {
   getEvents: (month: string) => api.get('/calendar/events', { params: { month } }),
   getWeek: (start: string) => api.get('/calendar/week', { params: { start } }),
+  updateSlotTime: (slotId: number, start_hour: number) => api.patch(`/calendar/slot/${slotId}/time`, { start_hour }),
   schedule: (all?: boolean) => api.post('/calendar/schedule', { all }),
   listRecurring: () => api.get('/calendar/recurring'),
   createRecurring: (data: Record<string, any>) => api.post('/calendar/recurring', data),

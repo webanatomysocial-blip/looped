@@ -1093,8 +1093,12 @@ async function createSchema(): Promise<void> {
         t.integer('stage_idx').nullable();
         t.string('slot_date', 10).notNullable(); // YYYY-MM-DD
         t.float('hours').notNullable();
+        t.float('custom_start_hour').nullable(); // null = auto-stack, float = pinned hour (e.g. 14.5 = 2:30pm)
         t.index(['user_id', 'slot_date']);
       });
+    } else {
+      const hasCustomStart = await db.schema.hasColumn('task_schedule_slots', 'custom_start_hour');
+      if (!hasCustomStart) await db.schema.table('task_schedule_slots', (t) => { t.float('custom_start_hour').nullable(); });
     }
   });
 }
