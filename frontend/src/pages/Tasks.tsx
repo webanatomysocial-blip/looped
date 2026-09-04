@@ -982,11 +982,22 @@ export default function Tasks() {
                                     )}
                                   </div>
 
-                                  {/* Tracked time */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1' }}>
-                                    <Clock size={10} color={trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1'} />
-                                    {trackedSec > 0 ? fmtSec(Number(trackedSec)) : '—'} logged
-                                  </div>
+                                  {/* Tracked time + overtime */}
+                                  {(() => {
+                                    const estSec = stageAssignee.reduce((s: number, a: any) => s + (Number(a.est_hours) || 0) * 3600, 0);
+                                    const overSec = trackedSec > 0 && estSec > 0 ? Math.max(0, trackedSec - estSec) : 0;
+                                    return (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1' }}>
+                                        <Clock size={10} color={trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1'} />
+                                        {trackedSec > 0 ? fmtSec(Number(trackedSec)) : '—'} logged
+                                        {overSec > 0 && (
+                                          <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 99, padding: '1px 5px', marginLeft: 2 }}>
+                                            +{fmtSec(overSec)} over
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
 
                                   {/* Rejection reason */}
                                   {isRejected && lastLogEntry?.comment && (
