@@ -386,10 +386,10 @@ export default function Approvals() {
                     <p className="approval-card__meta">
                       {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(new Date(a.created_at), 'MMM d')}
                     </p>
-                    {a.worker_name && (
+                    {a.submitted_by_name && (
                       <div className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Avatar name={a.worker_name} color={a.worker_avatar_color ?? undefined} size="sm" />
-                        <span>Worked by <strong style={{ color: 'var(--ink)' }}>{a.worker_name}</strong></span>
+                        <Avatar name={a.submitted_by_name} color={a.submitted_by_color ?? undefined} size="sm" />
+                        <span>Created by <strong style={{ color: 'var(--ink)' }}>{a.submitted_by_name}</strong></span>
                       </div>
                     )}
                   </div>
