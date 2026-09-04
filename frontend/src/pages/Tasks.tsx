@@ -269,8 +269,15 @@ export default function Tasks() {
 
   const ticketEmployeeAccept = async (taskId: number) => {
     setTicketActionLoading(true);
-    try { await xlr8Api.employeeAccept(taskId); load(); }
-    finally { setTicketActionLoading(false); }
+    try {
+      await xlr8Api.employeeAccept(taskId);
+      load();
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || 'Could not accept ticket';
+      alert(msg);
+    } finally {
+      setTicketActionLoading(false);
+    }
   };
 
   const ticketEmployeeDeclineInline = async (taskId: number) => {

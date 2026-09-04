@@ -132,7 +132,13 @@ export default function Home() {
     }
     // Only use xlr8 employee-accept if THIS user is the current stage assignee
     if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
-      await xlr8Api.employeeAccept(task.id);
+      try {
+        await xlr8Api.employeeAccept(task.id);
+      } catch (e: any) {
+        const msg = e?.response?.data?.error || 'Could not accept ticket';
+        alert(msg);
+        return;
+      }
     } else {
       await tasksApi.accept(task.id, action);
     }
