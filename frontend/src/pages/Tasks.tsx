@@ -1249,7 +1249,7 @@ export default function Tasks() {
                   // If project has no pod, infer from its manager member
                   const projPod = selProj?.pod || (() => {
                     const mgr = selProj?.members?.find((m: any) => m.role === 'manager');
-                    return mgr ? users.find(u => u.id === mgr.user_id)?.pod : null;
+                    return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
                   const employees = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 
@@ -1911,7 +1911,7 @@ export default function Tasks() {
                   const proj = projects.find(p => String(p.id) === String(editTask.project_id));
                   const projPod = proj?.pod || (() => {
                     const mgr = proj?.members?.find((m: any) => m.role === 'manager');
-                    return mgr ? users.find(u => u.id === mgr.user_id)?.pod : null;
+                    return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
                   const empPool = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 

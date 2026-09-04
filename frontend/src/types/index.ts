@@ -117,6 +117,7 @@ export interface ProjectMember {
   name: string;
   avatar_color: string;
   role: Role;
+  pod?: string | null;
 }
 
 export interface TaskAssignee {
