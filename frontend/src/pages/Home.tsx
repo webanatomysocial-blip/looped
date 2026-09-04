@@ -557,17 +557,18 @@ export default function Home() {
                 const completed = todayTasks.filter(t => t.status === 'completed').length;
                 const pct = total ? Math.round((completed / total) * 100) : 0;
                 const r = 36; const circ = 2 * Math.PI * r;
-                const dash = (pct / 100) * circ * 0.75;
+                const full = pct === 100;
+                const dash = full ? circ : (pct / 100) * circ * 0.75;
                 const gap = circ - dash;
                 const offset = circ * 0.125;
                 return (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
                     <div style={{ position: 'relative', width: 90, height: 90, flexShrink: 0 }}>
-                      <svg width="90" height="90" style={{ transform: 'rotate(-135deg)' }}>
-                        <circle cx="45" cy="45" r={r} fill="none" stroke="#E8E0D0" strokeWidth="7" strokeLinecap="round"
-                          strokeDasharray={`${circ * 0.75} ${circ * 0.25}`} strokeDashoffset={-offset} />
+                      <svg width="90" height="90" style={{ transform: full ? 'none' : 'rotate(-135deg)' }}>
+                        {!full && <circle cx="45" cy="45" r={r} fill="none" stroke="#E8E0D0" strokeWidth="7" strokeLinecap="round"
+                          strokeDasharray={`${circ * 0.75} ${circ * 0.25}`} strokeDashoffset={-offset} />}
                         <circle cx="45" cy="45" r={r} fill="none" stroke="var(--orange)" strokeWidth="7" strokeLinecap="round"
-                          strokeDasharray={`${dash} ${gap + circ * 0.25}`} strokeDashoffset={-offset} />
+                          strokeDasharray={full ? `${circ} 0` : `${dash} ${gap + circ * 0.25}`} strokeDashoffset={full ? 0 : -offset} />
                       </svg>
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{pct}%</span>
