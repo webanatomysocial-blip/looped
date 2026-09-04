@@ -212,8 +212,8 @@ export default function Home() {
   const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && t.due_date && t.due_date < today);
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
-  const pendingTasks  = todayTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
-  const acceptedTasks = todayTasks.filter(t => t.acceptance_status === 'accepted');
+  const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
+  const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && t.acceptance_status === 'accepted');
 
   const visibleApproved = approvedTasks.filter(a => !dismissedApprovedIds.has(a.id));
   const visibleRejected = allTasksRaw.filter(t => t.has_rejected_approval && !dismissedRejectedIds.has(t.id));
