@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X } from 'lucide-react';
+import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
@@ -840,34 +840,47 @@ export default function Home() {
                   {viewTask.ticket_type_id && viewTask.xlr8_stages?.length > 0 && (() => {
                     const stages: any[] = viewTask.xlr8_stages;
                     const stageAssignees: any[] = viewTask.stage_assignees || [];
+                    const stageTracked: any[] = viewTask.stage_tracked || [];
                     const currentIdx: number = viewTask.xlr8_stage_idx ?? 0;
                     const isCompleted = viewTask.status === 'completed' || viewTask.xlr8_status === 'completed';
                     const lastLogEntry = viewLog[viewLog.length - 1];
                     const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
+                    const fmtSec = (s: number) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
                     return (
                       <div>
                         <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px', width: '100%', paddingBottom: 4 }}>
+                        <div style={{ overflowX: 'auto', paddingBottom: lastWasRejected ? 52 : 4, position: 'relative' }}>
+                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px', width: 'max-content' }}>
                           {stages.map((stage: any, i: number) => {
                             const isReview = stage.type === 'manager' || stage.type === 'admin';
-                            const isDone = isCompleted || i < currentIdx;
+                            const isRedoTarget = lastWasRejected && i === currentIdx - 1;
+                            const isDone = !isRedoTarget && (isCompleted || i < currentIdx);
                             const isCurrent = !isCompleted && i === currentIdx;
                             const isPending = !isCompleted && i > currentIdx;
                             const stageAssignee = stageAssignees.filter((a: any) => a.stage_idx === i && a.user_id);
-                            const estH = stageAssignees.find((a: any) => a.stage_idx === i && a.est_hours)?.est_hours ?? null;
+                            const trackedSec = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
                             const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
-                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : '#e2e8f0';
-                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : 'var(--surface)';
-                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : '#cbd5e1';
+                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#e2e8f0';
+                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
+                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#cbd5e1';
                             const showArrow = i < stages.length - 1;
+                            const isRejected = lastWasRejected && isCurrent;
                             return (
                               <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
-                                <div style={{ width: 150, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ width: 180, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                   <div style={{ position: 'absolute', top: -10, left: 10, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', whiteSpace: 'nowrap' }}>Stage {i + 1}</div>
-                                  <div style={{ fontSize: 20, lineHeight: 1 }}>{isDone ? '✅' : isCurrent && lastWasRejected ? '🔴' : isCurrent ? '🔵' : '⬜'}</div>
+                                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                                    {isDone      && <CheckCircle2 size={22} color="#22c55e" />}
+                                    {isRejected  && <XCircle      size={22} color="#ef4444" />}
+                                    {isRedoTarget && <RefreshCw   size={22} color="#f59e0b" />}
+                                    {isCurrent && !isRejected && <Circle size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
+                                    {isPending   && <MinusCircle  size={22} color="#cbd5e1" />}
+                                  </div>
                                   <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
                                     {label}
-                                    {isReview && <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : '#3b82f6', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 4px' }}>Review</span>}
+                                    {isReview && (
+                                      <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : '#3b82f6', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>
+                                    )}
                                   </div>
                                   <div style={{ flex: 1 }}>
                                     {stageAssignee.length > 0 ? (
@@ -883,33 +896,58 @@ export default function Home() {
                                       </div>
                                     ) : <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontStyle: 'italic' }}>TBD</span>}
                                   </div>
-                                  {estH && <div style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600 }}>⏱ {Math.floor(estH)}h {Math.round((estH % 1) * 60)}m</div>}
-                                  {lastWasRejected && isCurrent && lastLogEntry?.comment && (
+                                  {(() => {
+                                    const estSec = stageAssignee.reduce((s: number, a: any) => s + (Number(a.est_hours) || 0) * 3600, 0);
+                                    const overSec = trackedSec > 0 && estSec > 0 ? Math.max(0, trackedSec - estSec) : 0;
+                                    return (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1' }}>
+                                        <Clock size={10} color={trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1'} />
+                                        {trackedSec > 0 ? fmtSec(Number(trackedSec)) : '—'} logged
+                                        {overSec > 0 && (
+                                          <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 99, padding: '1px 5px', marginLeft: 2 }}>
+                                            +{fmtSec(overSec)} over
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                  {isRejected && lastLogEntry?.comment && (
                                     <div style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 6, padding: '4px 6px', fontStyle: 'italic', lineHeight: 1.4 }}>
                                       ✕ "{lastLogEntry.comment}"
                                     </div>
                                   )}
-                                  {lastWasRejected && isCurrent && !lastLogEntry?.comment && (
+                                  {isRejected && !lastLogEntry?.comment && (
                                     <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>✕ Rejected</div>
                                   )}
                                 </div>
                                 {showArrow && (
-                                  <div style={{ width: 40, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                  <div style={{ width: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <svg width="40" height="20" viewBox="0 0 40 20">
                                       <line x1="0" y1="10" x2="30" y2="10" stroke={isDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={isPending ? '4 3' : 'none'} />
                                       <polygon points="40,10 28,4 28,16" fill={isDone ? '#22c55e' : '#e2e8f0'} />
                                     </svg>
-                                    {lastWasRejected && i === currentIdx && (
-                                      <svg width="40" height="16" viewBox="0 0 40 16">
-                                        <line x1="40" y1="8" x2="10" y2="8" stroke="#ef4444" strokeWidth="2" />
-                                        <polygon points="0,8 12,2 12,14" fill="#ef4444" />
-                                      </svg>
-                                    )}
                                   </div>
                                 )}
                               </div>
                             );
                           })}
+                        </div>
+                        {lastWasRejected && currentIdx > 0 && (() => {
+                          const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
+                          const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
+                          const fromX = currentIdx * unitW + cardW / 2;
+                          const toX = (currentIdx - 1) * unitW + cardW / 2;
+                          const midX = (fromX + toX) / 2;
+                          const arcH = 44;
+                          return (
+                            <div style={{ marginTop: 6, position: 'relative', minWidth: totalW }}>
+                              <svg width={totalW} height={arcH} viewBox={`0 0 ${totalW} ${arcH}`} style={{ display: 'block', overflow: 'visible' }}>
+                                <path d={`M ${fromX} 2 Q ${midX} ${arcH} ${toX} 2`} fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="5 3" />
+                                <polygon points={`${toX},2 ${toX - 5},14 ${toX + 5},14`} fill="#ef4444" />
+                              </svg>
+                            </div>
+                          );
+                        })()}
                         </div>
                       </div>
                     );
