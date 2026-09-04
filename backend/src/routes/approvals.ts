@@ -156,7 +156,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .join('tasks as t', 'ap.task_id', 't.id')
       .join('projects as p', 'ap.project_id', 'p.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
-      .leftJoin('users as sub', 'ap.submitted_by', 'sub.id')
+      .leftJoin('users as sub', 't.created_by', 'sub.id')
       .leftJoin(
         db('task_assignees').where('assignee_role', 'employee').groupBy('task_id').select('task_id', db.raw('MIN(user_id) as user_id')).as('emp_ta'),
         'emp_ta.task_id', 'ap.task_id'
