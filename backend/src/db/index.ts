@@ -332,6 +332,21 @@ async function createSchema(): Promise<void> {
       t.string('manager_status', 20).nullable();       // 'pending_manager' | 'accepted' | 'declined'
     });
   }
+  // Backfill pod for projects where pod is NULL: infer from the manager member's pod
+  try {
+    const nullPodProjects = await db('projects').whereNull('pod').select('id');
+    for (const proj of nullPodProjects) {
+      const mgr = await db('project_members as pm')
+        .join('users as u', 'pm.user_id', 'u.id')
+        .where('pm.project_id', proj.id)
+        .where('u.role', 'manager')
+        .whereNotNull('u.pod')
+        .select('u.pod')
+        .first();
+      if (mgr?.pod) await db('projects').where({ id: proj.id }).update({ pod: mgr.pod });
+    }
+  } catch {}
+
   const hasStartDate = await db.schema.hasColumn('projects', 'start_date');
   if (!hasStartDate) {
     await db.schema.table('projects', (t) => { t.date('start_date').nullable(); });

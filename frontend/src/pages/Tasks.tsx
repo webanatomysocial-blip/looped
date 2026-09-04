@@ -1217,7 +1217,11 @@ export default function Tasks() {
                   if (selProj?.service_type !== 'xlr8' || !form.ticket_type_id) return null;
                   const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
                   if (!tt || tt.stages.length === 0) return null;
-                  const projPod = selProj?.pod;
+                  // If project has no pod, infer from its manager member
+                  const projPod = selProj?.pod || (() => {
+                    const mgr = selProj?.members?.find((m: any) => m.role === 'manager');
+                    return mgr ? users.find(u => u.id === mgr.user_id)?.pod : null;
+                  })();
                   const employees = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 
                   // Allocation tracker
@@ -1383,6 +1387,7 @@ export default function Tasks() {
                                 {pool.length === 0 && isReviewer && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Any {isAdmin ? 'admin' : 'manager'} can review</span>}
                               </div>
                             </div>
+                            
                           );
                         })}
                       </div>
@@ -1875,7 +1880,10 @@ export default function Tasks() {
                   const tt = ticketTypes.find(t => String(t.id) === String(editTask.ticket_type_id));
                   if (!tt || tt.stages.length === 0) return null;
                   const proj = projects.find(p => String(p.id) === String(editTask.project_id));
-                  const projPod = proj?.pod;
+                  const projPod = proj?.pod || (() => {
+                    const mgr = proj?.members?.find((m: any) => m.role === 'manager');
+                    return mgr ? users.find(u => u.id === mgr.user_id)?.pod : null;
+                  })();
                   const empPool = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 
                   const totalMinE = (Number(editForm.est_hours) || 0) * 60 + (Number(editForm.est_minutes) || 0);
