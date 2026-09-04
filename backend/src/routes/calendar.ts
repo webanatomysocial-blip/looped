@@ -431,6 +431,28 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
         db.raw('0 as tracked_seconds'));
 
+    // For employees: if no slots exist this week, trigger scheduler then re-fetch
+    if (user.role !== 'admin' && user.role !== 'manager' && slotRowsRaw.length === 0) {
+      try {
+        const { scheduleUser } = await import('../services/scheduler');
+        await scheduleUser(user.id, db);
+        const refetched = await db('task_schedule_slots as s')
+          .join('tasks as t', 's.task_id', 't.id')
+          .leftJoin('projects as p', 't.project_id', 'p.id')
+          .where('s.user_id', user.id)
+          .whereBetween('s.slot_date', [weekStart, weekEnd])
+          .select(
+            't.id', 't.title', 't.due_date', 't.status', 't.priority',
+            't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+            'p.name as project_name',
+            's.id as slot_id', 's.slot_date', 's.hours as slot_hours', 's.stage_idx as scheduled_stage', 's.custom_start_hour',
+            db.raw(`${trackedSubSQL} as tracked_seconds`),
+            db.raw(`(SELECT est_hours FROM task_assignees WHERE task_id = s.task_id AND user_id = ? AND stage_idx = s.stage_idx LIMIT 1) as user_est_hours`, [user.id])
+          );
+        slotRows = refetched;
+      } catch {}
+    }
+
     // For employees: completed tasks lose their slots — fetch them by due_date
     const slottedTaskIds = new Set(slotRows.map((r: any) => r.id));
     if (user.role !== 'admin' && user.role !== 'manager') {
