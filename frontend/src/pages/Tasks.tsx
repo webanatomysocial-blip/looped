@@ -1304,7 +1304,8 @@ export default function Tasks() {
                           const isReviewer = isManager || isAdmin;
                           const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
                           const catEmployees = isReviewer ? [] : employees.filter(u =>
-                            u.categories?.some((c: any) => c.name === s.category_name) || projectMemberIds.has(u.id)
+                            u.categories?.some((c: any) => c.name === s.category_name) ||
+                            (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                           );
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
@@ -1968,7 +1969,8 @@ export default function Tasks() {
                           const isReviewer = isManager || isAdmin;
                           const editProjMemberIds = new Set((proj?.members || []).map((m: any) => m.user_id));
                           const catEmployees = isReviewer ? [] : empPool.filter(u =>
-                            u.categories?.some((c: any) => c.name === s.category_name) || editProjMemberIds.has(u.id)
+                            u.categories?.some((c: any) => c.name === s.category_name) ||
+                            (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                           );
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
