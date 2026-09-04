@@ -119,7 +119,6 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('s.user_id', user.id)
       .whereBetween('s.slot_date', [start, end])
-      .whereNot('t.status', 'completed')
       .select('t.id', 't.title', 't.due_date', 't.status', 't.priority', 't.estimated_hours',
         't.recurring_task_id', 't.recurrence_date',
         'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
@@ -324,7 +323,6 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('s.user_id', user.id)
       .whereBetween('s.slot_date', [weekStart, weekEnd])
-      .whereNot('t.status', 'completed')
       .select(
         't.id', 't.title', 't.due_date', 't.status', 't.priority',
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
