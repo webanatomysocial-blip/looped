@@ -140,9 +140,24 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
         't.recurring_task_id', 't.recurrence_date',
         'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
         db.raw("'task' as event_type"), db.raw('1 as is_placeholder'));
+    // Also fetch completed tasks (slots deleted by scheduler) via due_date or session date
+    const completedRows = await db('tasks as t')
+      .join('task_assignees as ta', 'ta.task_id', 't.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ta.user_id', user.id)
+      .where('t.status', 'completed')
+      .whereNotNull('t.due_date')
+      .whereBetween('t.due_date', [start, end])
+      .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
+        't.recurring_task_id', 't.recurrence_date',
+        'p.name as project_name',
+        db.raw("'task' as event_type"));
+    const completedIds = new Set(completedRows.map((r: any) => r.id));
+
     tasks = [
       ...slotRows.map((t: any) => ({ ...t, date: t.event_date })),
       ...futureRows.filter((t: any) => !scheduledIds.has(t.id)).map((t: any) => ({ ...t, date: t.event_date })),
+      ...completedRows.filter((t: any) => !scheduledIds.has(t.id)).map((t: any) => ({ ...t, date: t.event_date })),
     ];
   } else {
     // Admins/managers: show all tasks by due_date, but only XLR8 tasks where all employee-stage assignees have accepted
@@ -352,11 +367,23 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
           't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
           'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`))
         .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
+      // Also fetch completed tasks (no slots left after scheduler clears them)
+      const completedOverview = await db('tasks as t')
+        .leftJoin('projects as p', 't.project_id', 'p.id')
+        .where('t.status', 'completed')
+        .whereNotNull('t.due_date')
+        .whereBetween('t.due_date', [weekStart, weekEnd])
+        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
+          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
       // All overview tasks are marked is_overview — they show as chips, not counted in personal capacity
       const overviewRows = overviewTasks
         .filter((t: any) => !slottedIds.has(t.id))
         .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
-      slotRows = [...slotRowsRaw, ...overviewRows];
+      const completedRows = completedOverview
+        .filter((t: any) => !slottedIds.has(t.id))
+        .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
+      slotRows = [...slotRowsRaw, ...overviewRows, ...completedRows];
       // Trigger scheduler for admin/manager so their personally assigned tasks get real slots
       if (slotRowsRaw.length === 0) {
         import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(user.id, db)).catch(() => {});
@@ -403,6 +430,24 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
         'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
         db.raw('0 as tracked_seconds'));
+
+    // For employees: completed tasks lose their slots — fetch them by due_date
+    const slottedTaskIds = new Set(slotRows.map((r: any) => r.id));
+    if (user.role !== 'admin' && user.role !== 'manager') {
+      const completedEmployee = await db('tasks as t')
+        .join('task_assignees as ta', 'ta.task_id', 't.id')
+        .leftJoin('projects as p', 't.project_id', 'p.id')
+        .where('ta.user_id', user.id)
+        .where('t.status', 'completed')
+        .whereNotNull('t.due_date')
+        .whereBetween('t.due_date', [weekStart, weekEnd])
+        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+          'p.name as project_name', db.raw('0 as tracked_seconds'), db.raw('0 as slot_hours'));
+      for (const t of completedEmployee) {
+        if (!slottedTaskIds.has(t.id)) slotRows = [...slotRows, { ...t, slot_date: t.due_date }];
+      }
+    }
 
     const byDay: Record<string, any[]> = {};
     for (const d of days) byDay[d] = [];
