@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Bell, Settings, Plus } from 'lucide-react';
+import { Search, Bell, Settings, Plus, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi, tasksApi, projectsApi } from '../../services/api';
 import '../../css/Layout/Header.css';
@@ -22,6 +22,7 @@ export default function Header({ action }: HeaderProps) {
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
   const prevUnread = useRef(-1);
+  const [alerts, setAlerts] = useState<{ id: number; message: string }[]>([]);
   const audioCtx = useRef<AudioContext | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ type: 'task' | 'project'; id: number; title: string; sub: string }[]>([]);
@@ -78,6 +79,24 @@ export default function Header({ action }: HeaderProps) {
     return () => clearInterval(id);
   }, [user]);
 
+  // Show alert banners for admin/manager on new notifications
+  useEffect(() => {
+    if (!user || (user.role !== 'admin' && user.role !== 'manager')) return;
+    const handler = () => {
+      notificationsApi.list().then((r) => {
+        const unreadItems: any[] = (r.data || []).filter((n: any) => !n.read);
+        setAlerts(unreadItems.map((n: any) => ({ id: n.id, message: n.message })));
+      }).catch(() => {});
+    };
+    window.addEventListener('wd:new-notification', handler);
+    return () => window.removeEventListener('wd:new-notification', handler);
+  }, [user]);
+
+  const dismissAlert = (id: number) => {
+    notificationsApi.markRead(id).catch(() => {});
+    setAlerts(prev => prev.filter(a => a.id !== id));
+  };
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -125,6 +144,20 @@ export default function Header({ action }: HeaderProps) {
   const firstName = user.name.split(' ')[0];
 
   return (
+    <>
+    {alerts.length > 0 && (
+      <div style={{ position: 'fixed', top: 16, right: 20, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360, width: '90vw' }}>
+        {alerts.map(alert => (
+          <div key={alert.id} style={{ background: 'var(--surface)', border: '1.5px solid var(--sand-border)', borderLeft: '4px solid #3b82f6', borderRadius: 10, padding: '12px 14px', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <Bell size={15} color="#3b82f6" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)', lineHeight: 1.4 }}>{alert.message}</span>
+            <button onClick={() => dismissAlert(alert.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-muted)', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
     <header className="app-header">
       <div className="app-header__left">
         <h1 className="app-header__greeting">Welcome, {firstName}</h1>
@@ -201,5 +234,6 @@ export default function Header({ action }: HeaderProps) {
         </div>
       </div>
     </header>
+    </>
   );
 }

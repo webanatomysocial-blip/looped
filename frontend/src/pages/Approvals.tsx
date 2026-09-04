@@ -428,7 +428,7 @@ export default function Approvals() {
                     )}
 
                     {canReview(a) && (() => {
-                      const needsTimer = user?.role !== 'admin' && user?.role !== 'client' && a.workflow_type !== 'xlr8';
+                      const needsTimer = user?.role !== 'admin' && user?.role !== 'client';
                       const t = timers[a.task_id] ?? { seconds: 0, running: false };
                       const hasTime = t.seconds > 0;
                       if (!needsTimer) {
@@ -547,20 +547,21 @@ export default function Approvals() {
                           const currentIdx = a.xlr8_stage_idx ?? 0;
                           const xlr8Status = a.xlr8_status ?? '';
                           const fa = a.xlr8_final_approval ?? {};
-                          // Build steps from actual stage definitions
-                          const steps: { label: string; key: string }[] = [];
+                          const auditLog = steps[a.id] ?? []; // outer audit records
+                          // Build xlr8Steps from actual stage definitions (renamed to avoid shadowing outer `steps`)
+                          const xlr8Steps: { label: string; key: string }[] = [];
                           stages.forEach((s, i) => {
                             if (s.type === 'manager') {
-                              steps.push({ label: 'Manager Review', key: `mgr_${i}` });
+                              xlr8Steps.push({ label: 'Manager Review', key: `mgr_${i}` });
                             } else if (s.type === 'admin') {
-                              steps.push({ label: 'Admin Review', key: `adm_${i}` });
+                              xlr8Steps.push({ label: 'Admin Review', key: `adm_${i}` });
                             } else {
-                              steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
+                              xlr8Steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
                             }
                           });
-                          if (fa.adminRequired) steps.push({ label: 'Admin Approval', key: 'admin' });
-                          if (fa.clientOptional) steps.push({ label: 'Client Review', key: 'client' });
-                          steps.push({ label: 'Done', key: 'done' });
+                          if (fa.adminRequired) xlr8Steps.push({ label: 'Admin Approval', key: 'admin' });
+                          if (fa.clientOptional) xlr8Steps.push({ label: 'Client Review', key: 'client' });
+                          xlr8Steps.push({ label: 'Done', key: 'done' });
 
                           const getState = (key: string) => {
                             if (a.status === 'approved') return 'done';
@@ -581,13 +582,25 @@ export default function Approvals() {
 
                           return (
                             <div className="approval-timeline" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                              {[{ label: 'Submitted', key: 'submitted' }, ...steps].map((step, i, arr) => {
+                              {[{ label: 'Submitted', key: 'submitted', stageIdx: -1 }, ...xlr8Steps.map((s, si) => ({ ...s, stageIdx: si }))].map((step, i, arr) => {
                                 const state = step.key === 'submitted' ? 'done' : getState(step.key);
+                                // Look up start time from synthesized xlr8 log entries
+                                const startEntry = step.key === 'submitted'
+                                  ? auditLog.find((s) => s.stage_key === 'stage_start_0')
+                                  : auditLog.find((s) => s.stage_key === `stage_start_${step.stageIdx}`);
+                                const dateToShow = startEntry?.acted_at ?? null;
                                 return (
                                   <div key={step.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                    <div className={`timeline-chip ${state === 'done' ? 'timeline-chip--done' : state === 'active' ? 'timeline-chip--active' : 'timeline-chip--pending'}`}>
-                                      <div className="timeline-chip-dot" style={{ background: state === 'done' ? 'var(--green)' : state === 'active' ? 'var(--yellow)' : 'var(--sand-border)' }} />
-                                      {step.label}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                                      <div className={`timeline-chip ${state === 'done' ? 'timeline-chip--done' : state === 'active' ? 'timeline-chip--active' : 'timeline-chip--pending'}`}>
+                                        <div className="timeline-chip-dot" style={{ background: state === 'done' ? 'var(--green)' : state === 'active' ? 'var(--yellow)' : 'var(--sand-border)' }} />
+                                        {step.label}
+                                      </div>
+                                      {(state === 'done' || state === 'active') && dateToShow && (
+                                        <span style={{ fontSize: 9, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 4 }}>
+                                          {state === 'active' ? 'Started ' : ''}{format(new Date(dateToShow), 'MMM d, h:mm a')}
+                                        </span>
+                                      )}
                                     </div>
                                     {i < arr.length - 1 && <div className="timeline-line" style={{ marginTop: 12 }} />}
                                   </div>

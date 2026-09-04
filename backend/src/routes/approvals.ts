@@ -291,6 +291,53 @@ router.get('/:id/steps', async (req: AuthRequest, res: Response) => {
     const steps = await db('approval_steps')
       .where({ approval_id: req.params.id })
       .orderBy('acted_at', 'asc');
+
+    // For XLR8 approvals, synthesize start-time entries from xlr8_ticket_log
+    const approval = await db('approvals').where({ id: req.params.id }).select('workflow_type', 'task_id', 'created_at').first();
+    if (approval?.workflow_type === 'xlr8') {
+      const logs = await db('xlr8_ticket_log')
+        .where({ task_id: approval.task_id })
+        .orderBy('created_at', 'asc');
+
+      // Stage 0 starts at ticket creation
+      steps.push({
+        id: 'xlr8_start_0',
+        approval_id: Number(req.params.id),
+        actor_name: '',
+        actor_role: 'system',
+        action: 'approve',
+        stage_key: 'stage_start_0',
+        comments: null,
+        acted_at: approval.created_at,
+      });
+
+      // Each next_stage log entry marks the start of targetIdx stage
+      // Comment format: "Stage X: ..." where X is 1-based target index
+      for (const log of logs) {
+        if (log.action !== 'next_stage') continue;
+        const match = (log.comment ?? '').match(/^Stage (\d+):/);
+        if (!match) continue;
+        const targetIdx = Number(match[1]) - 1; // 0-based
+        const comment = log.comment ?? '';
+        let prefix = 'work';
+        if (comment.includes('Manager Review')) prefix = 'mgr';
+        else if (comment.includes('Admin Review')) prefix = 'adm';
+        const stage_key = `stage_start_${targetIdx}_${prefix}`;
+        if (!steps.find((s: any) => s.stage_key === stage_key)) {
+          steps.push({
+            id: `xlr8_ns_${log.id}`,
+            approval_id: Number(req.params.id),
+            actor_name: log.actor_name,
+            actor_role: 'system',
+            action: 'approve',
+            stage_key: `stage_start_${targetIdx}`,
+            comments: log.comment || null,
+            acted_at: log.created_at,
+          });
+        }
+      }
+    }
+
     res.json(steps);
   } catch (err) {
     console.error(err);

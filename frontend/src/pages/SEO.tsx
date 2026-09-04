@@ -885,6 +885,8 @@ export default function SEO() {
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
   const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
+  const [inlineEditTargetIdx, setInlineEditTargetIdx] = useState<number | null>(null);
+  const [inlineEditTargets, setInlineEditTargets] = useState<Target[]>([]);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
   const [paidTab, setPaidTab] = useState<'google' | 'linkedin' | 'meta'>('google');
 
@@ -1011,16 +1013,23 @@ export default function SEO() {
     setManualEdit(base);
     setManualPanel(panel);
   };
-  const saveManual = async () => {
+  const doSaveManual = async (data: ManualData, closePanel: boolean) => {
     if (!selectedClient) return;
     setManualSaving(true);
     try {
-      await seoApi.updateManual(selectedClient.id, manualEdit);
-      setManual({ ...manualEdit });
-      setManualPanel(null);
+      // Auto-calculate health_score from avg of target achievement %
+      const validTargets = data.targets.filter((t: Target) => t.target > 0);
+      if (validTargets.length > 0) {
+        data.health_score = Math.round(validTargets.reduce((s: number, t: Target) => s + Math.min(100, (t.achieved / t.target) * 100), 0) / validTargets.length);
+      }
+      await seoApi.updateManual(selectedClient.id, data);
+      setManual({ ...data });
+      if (closePanel) setManualPanel(null);
     } catch { alert('Failed to save'); }
     finally { setManualSaving(false); }
   };
+
+  const saveManual = () => doSaveManual({ ...manualEdit }, true);
 
   const openEdit = (c: Client) => {
     if (editingId === c.id) { setEditingId(null); return; }
@@ -2224,11 +2233,41 @@ export default function SEO() {
                     {manual.targets.map((t, i) => {
                       const pct = t.target > 0 ? Math.min(100, Math.round((t.achieved / t.target) * 100)) : 0;
                       const done = pct >= 100;
+                      const isInlineEdit = inlineEditTargetIdx === i;
                       return (
                         <div key={i} className="seo-target-row">
                           <div className="seo-target-header">
                             <span className="seo-source">{t.name}</span>
-                            <span className="seo-target-nums">{t.achieved.toLocaleString()}{t.unit && ` ${t.unit}`} / {t.target.toLocaleString()}{t.unit && ` ${t.unit}`}</span>
+                            {isInlineEdit && canEdit ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <input type="number" style={{ width: 60, fontSize: 12, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--sand-border)', textAlign: 'center' }}
+                                  value={inlineEditTargets[i]?.achieved ?? t.achieved}
+                                  onChange={(e) => { const a = [...inlineEditTargets]; a[i] = { ...a[i], achieved: Number(e.target.value) }; setInlineEditTargets(a); }} />
+                                <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>/</span>
+                                <input type="number" style={{ width: 60, fontSize: 12, padding: '2px 6px', borderRadius: 6, border: '1px solid var(--sand-border)', textAlign: 'center' }}
+                                  value={inlineEditTargets[i]?.target ?? t.target}
+                                  onChange={(e) => { const a = [...inlineEditTargets]; a[i] = { ...a[i], target: Number(e.target.value) }; setInlineEditTargets(a); }} />
+                                <button className="seo-inline-save" style={{ padding: '2px 10px', fontSize: 11 }} disabled={manualSaving}
+                                  onClick={() => {
+                                    const updated = manual.targets.map((row, j) => j === i ? { ...row, ...inlineEditTargets[i] } : row);
+                                    const newEdit = { ...manualEdit, targets: updated };
+                                    setManualEdit(newEdit);
+                                    doSaveManual(newEdit, false);
+                                    setInlineEditTargetIdx(null);
+                                  }}>Save</button>
+                                <button style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)' }} onClick={() => setInlineEditTargetIdx(null)}>✕</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span className="seo-target-nums">{t.achieved.toLocaleString()}{t.unit && ` ${t.unit}`} / {t.target.toLocaleString()}{t.unit && ` ${t.unit}`}</span>
+                                {canEdit && (
+                                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center' }}
+                                    onClick={() => { setInlineEditTargetIdx(i); setInlineEditTargets(manual.targets.map(r => ({ ...r }))); }}>
+                                    <Edit2 size={11} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <span className={`seo-target-pct${done ? ' seo-target-pct--done' : ''}`}>{pct}%</span>
                           </div>
                           <div className="seo-target-bar">

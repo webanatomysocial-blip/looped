@@ -101,6 +101,9 @@ export default function ShareReport() {
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 800, color: '#22c55e' }}>{manual.health_score}</div>
               <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Health Score</div>
+              {manual.health_label && (
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, maxWidth: 180 }}>{manual.health_label}</div>
+              )}
             </div>
           )}
         </div>

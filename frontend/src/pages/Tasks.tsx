@@ -1394,7 +1394,8 @@ export default function Tasks() {
                 {(() => {
                   const selProjForAssign = projects.find(p => String(p.id) === String(form.project_id));
                   if (selProjForAssign?.service_type === 'xlr8') return null;
-                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role));
+                  const projPodForAssign = selProjForAssign?.pod;
+                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role) && (!projPodForAssign || u.role === 'admin' || u.pod === projPodForAssign));
                   const selectedId = form.working_person_id;
                   const selectedUser = pool.find(u => String(u.id) === selectedId);
                   const autoManagerId = podManagerFor(selectedId);
@@ -2048,7 +2049,9 @@ export default function Tasks() {
 
                 {/* Assignment */}
                 {(() => {
-                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role));
+                  const editProj = projects.find(p => String(p.id) === String(editTask?.project_id));
+                  const editProjPod = editProj?.pod;
+                  const pool = users.filter(u => ['admin','manager','employee'].includes(u.role) && (!editProjPod || u.role === 'admin' || u.pod === editProjPod));
                   const selectedId = editForm.working_person_id;
                   const selectedUser = pool.find(u => String(u.id) === selectedId);
                   const autoManagerId = podManagerFor(selectedId);

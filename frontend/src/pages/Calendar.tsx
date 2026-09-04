@@ -401,8 +401,23 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
                               userSelect: 'none',
                               touchAction: 'none',
                             }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</div>
-                            {height > 30 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{fmtHour(startH)} – {fmtHour(endH)}</div>}
+                            {/* Title row with icon */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, overflow: 'hidden' }}>
+                              {task.event_type === 'recurring'
+                                ? <Repeat size={10} color="#818cf8" style={{ flexShrink: 0, marginTop: 1 }} />
+                                : task.status === 'completed' || task.status === 'done'
+                                ? <CheckCircle size={10} color="#22c55e" style={{ flexShrink: 0, marginTop: 1 }} />
+                                : (() => { const Ic = pc.icon; return <Ic size={10} color={pc.color} style={{ flexShrink: 0, marginTop: 1 }} />; })()
+                              }
+                              <div style={{ fontSize: 11, fontWeight: 700, color: isPlaceholder ? pc.color : pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{task.title}</div>
+                            </div>
+                            {height > 34 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{fmtHour(startH)} – {fmtHour(endH)}</div>}
+                            {height > 52 && (
+                              <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: pc.color, background: 'rgba(255,255,255,0.6)', borderRadius: 99, padding: '0px 4px' }}>{pc.label}</span>
+                                {task.project_name && <span style={{ fontSize: 9, color: pc.color, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.project_name}</span>}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -473,10 +488,16 @@ function MonthView({ year, month, onEventClick }: { year: number; month: number;
                     fontSize: 10, fontWeight: 600, padding: '2px 5px', borderRadius: 4, marginBottom: 2,
                     background: isDone ? '#f0fdf4' : ev.event_type === 'recurring' ? 'rgba(99,102,241,0.1)' : cfg.bg,
                     color: isDone ? '#15803d' : ev.event_type === 'recurring' ? '#4f46e5' : cfg.color,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     cursor: 'pointer', borderLeft: `2px solid ${isDone ? '#22c55e' : ev.event_type === 'recurring' ? '#818cf8' : cfg.color}`,
+                    display: 'flex', alignItems: 'center', gap: 3, overflow: 'hidden',
                   }}>
-                    {ev.title}
+                    {isDone
+                      ? <CheckCircle size={9} style={{ flexShrink: 0 }} />
+                      : ev.event_type === 'recurring'
+                      ? <Repeat size={9} style={{ flexShrink: 0 }} />
+                      : (() => { const Ic = cfg.icon; return <Ic size={9} style={{ flexShrink: 0 }} />; })()
+                    }
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</span>
                   </div>
                 );
               })}
@@ -594,12 +615,7 @@ export default function CalendarPage() {
               <button onClick={view==='week' ? nextWeek : nextMonth} style={{ background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', color:'var(--ink-muted)', padding:4, borderRadius:6 }} onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background='var(--bg-sand)'} onMouseLeave={e=>(e.currentTarget as HTMLElement).style.background='none'}>
                 <ChevronRight size={16} />
               </button>
-              <button onClick={view==='week' ? goToday : () => { setYear(today.getFullYear()); setMonth(today.getMonth()+1); }} style={{ fontSize:11, fontWeight:700, color:'var(--ink)', background:'var(--bg-sand)', border:'1px solid var(--sand-border)', borderRadius:6, padding:'3px 10px', cursor:'pointer' }}>Today</button>
             </div>
-
-            <button onClick={async () => { await calendarApi.schedule(); }} title="Re-run scheduling algorithm" style={{ fontSize:12, fontWeight:600, color:'var(--ink-muted)', background:'var(--bg-white)', border:'1px solid var(--sand-border)', borderRadius:10, padding:'6px 12px', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
-              <Calendar size={13} /> Schedule
-            </button>
             <button onClick={() => setShowRecurring(s => !s)} style={{ fontSize:12, fontWeight:600, color: showRecurring ? '#4f46e5' : 'var(--ink-muted)', background: showRecurring ? 'rgba(99,102,241,0.1)' : 'var(--bg-white)', border:`1px solid ${showRecurring ? '#c7d2fe' : 'var(--sand-border)'}`, borderRadius:10, padding:'6px 12px', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
               <Repeat size={13} /> Recurring ({recurringList.length})
             </button>
