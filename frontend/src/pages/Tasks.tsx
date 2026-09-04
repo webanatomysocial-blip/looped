@@ -304,7 +304,7 @@ export default function Tasks() {
     try {
       const warns: string[] = [];
       for (const uid of idsToCheck) {
-        const res = await capacityApi.check(uid);
+        const res = await capacityApi.check(uid, form.due_date || undefined);
         const total = res.data.estimated_hours_assigned + estHrs;
         if (total > capacityHours) {
           const assignee = users.find((u) => u.id === uid);

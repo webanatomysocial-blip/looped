@@ -185,9 +185,12 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
 });
 
 // GET /api/capacity/check/:userId — check a user's assigned-hours load (for capacity warnings)
+// ?due_date=YYYY-MM-DD  only count tasks due on or before that date (+ undated tasks).
+// Without it, defaults to today so future tasks don't inflate the load.
 router.get('/check/:userId', async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const targetUserId = Number(req.params.userId);
+  const checkDate = (req.query.due_date as string) || new Date().toISOString().slice(0, 10);
 
   try {
     const row = await db('tasks as t')
@@ -196,6 +199,10 @@ router.get('/check/:userId', async (req: AuthRequest, res: Response) => {
       .whereNotIn('ta.acceptance_status', ['declined'])
       .whereNotIn('t.status', ['completed', 'in_review'])
       .whereNotNull('t.estimated_hours')
+      .where(function () {
+        // Only count tasks due on/before the check date, or tasks with no due date
+        this.whereNull('t.due_date').orWhere('t.due_date', '<=', checkDate);
+      })
       .sum('t.estimated_hours as total')
       .first();
 
