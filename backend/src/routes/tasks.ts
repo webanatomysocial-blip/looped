@@ -551,6 +551,17 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
         session_date: today,
       });
 
+      // For XLR8 reviewer stages: fill in the reviewer's user_id on the null placeholder row
+      // so stageTracked query (which joins on user_id) can attribute their time to the right stage
+      const xlr8Task = await db('tasks').where({ id: taskId }).whereNotNull('ticket_type_id').first();
+      if (xlr8Task) {
+        const stageIdx = xlr8Task.xlr8_stage_idx ?? 0;
+        await db('task_assignees')
+          .where({ task_id: taskId, stage_idx: stageIdx })
+          .whereNull('user_id')
+          .update({ user_id: userId });
+      }
+
       // Don't touch status if task is already in_review (reviewer timing their review)
       const currentTask = await db('tasks').where({ id: taskId }).select('status').first();
       if (currentTask?.status !== 'in_review') {
