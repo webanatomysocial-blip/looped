@@ -204,7 +204,7 @@ export default function Home() {
   const allTasksRaw = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
   const today = new Date().toISOString().slice(0, 10);
   const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && t.due_date && t.due_date < today);
-  const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today);
+  const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
   const pendingTasks  = todayTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
   const acceptedTasks = todayTasks.filter(t => t.acceptance_status === 'accepted');

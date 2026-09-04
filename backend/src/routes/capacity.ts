@@ -139,6 +139,26 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       )
       .groupBy('t.id');
 
+    // Completed tasks due today or worked on today (for progress %)
+    const completedToday = await db('tasks as t')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('t.status', 'completed')
+      .where(function () {
+        this.where('t.due_date', today)
+          .orWhereExists(function () {
+            this.from('task_sessions as ts')
+              .whereRaw('ts.task_id = t.id')
+              .where({ 'ts.user_id': userId, 'ts.session_date': today });
+          })
+          .orWhereExists(function () {
+            this.from('task_assignees as ta')
+              .whereRaw('ta.task_id = t.id')
+              .where('ta.user_id', userId);
+          });
+      })
+      .select('t.id', 't.title', 't.status', 't.due_date', 't.ticket_type_id', 'p.name as project_name')
+      .then((rows: any[]) => rows.map((r: any) => ({ ...r, tracked_seconds_today: 0, timer_running: false, acceptance_status: 'accepted' })));
+
     const allTasks = [...mergedAssigned, ...reviewSessions];
     const taskIds = allTasks.map((t: any) => t.id);
 
@@ -171,12 +191,16 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)) };
     });
 
+    // Merge completed tasks (dedup by id)
+    const activeIds = new Set(tasks.map((t: any) => t.id));
+    const completedMerged = completedToday.filter((t: any) => !activeIds.has(t.id));
+
     res.json({
       tracked_seconds: Math.round(trackedSeconds),
       capacity_seconds: 7 * 3600,
       active_task_id: activeTaskId,
       active_session_start: activeSessionStart,
-      tasks,
+      tasks: [...tasks, ...completedMerged],
     });
   } catch (err) {
     console.error(err);
