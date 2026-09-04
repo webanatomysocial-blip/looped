@@ -238,6 +238,8 @@ export const xlr8Api = {
   assignTicket: (id: number, assignee_id: number) => api.post(`/xlr8/tickets/${id}/assign`, { assignee_id }),
   employeeAccept: (id: number) => api.post(`/xlr8/tickets/${id}/employee-accept`),
   employeeDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/employee-decline`, { comment }),
+  stagePreAccept: (id: number) => api.post(`/xlr8/tickets/${id}/stage-pre-accept`),
+  stagePreDecline: (id: number) => api.post(`/xlr8/tickets/${id}/stage-pre-decline`),
   markDone: (id: number) => api.post(`/xlr8/tickets/${id}/done`),
   reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) =>
     api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin }),

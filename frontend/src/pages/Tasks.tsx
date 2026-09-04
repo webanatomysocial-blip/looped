@@ -725,6 +725,17 @@ export default function Tasks() {
                         );
                         return null;
                       })()}
+                      {/* Pre-accept / Pre-decline for future XLR8 stages */}
+                      {task.ticket_type_id && user?.role === 'employee' && (() => {
+                        const myAssignment = task.assignees?.find((a: any) => a.user_id === user.id && a.assignee_role === 'employee');
+                        const currentIdx = (task as any).xlr8_stage_idx ?? 0;
+                        return myAssignment && myAssignment.stage_idx !== currentIdx && myAssignment.acceptance_status === 'pending';
+                      })() && (
+                        <div style={{ display: 'flex', gap: 5 }}>
+                          <button className="ticket-icon-btn ticket-icon-btn--green" title="Pre-accept stage" onClick={async () => { await xlr8Api.stagePreAccept(task.id); load(); }}><Check size={11} /></button>
+                          <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline stage" onClick={async () => { await xlr8Api.stagePreDecline(task.id); load(); }}><X size={11} /></button>
+                        </div>
+                      )}
                       {/* Accept / Decline for employee assigned tasks */}
                       {!task.ticket_type_id && user?.role === 'employee' && task.my_acceptance_status === 'pending' && (
                         <>

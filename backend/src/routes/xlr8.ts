@@ -227,6 +227,15 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     }
   }
 
+  // Notify ALL pre-assigned employee stage members to pre-accept their future stage
+  const allStageEmployees = await db('task_assignees')
+    .where({ task_id: id, assignee_role: 'employee' })
+    .whereNotNull('user_id')
+    .select('user_id', 'stage_idx');
+  for (const sa of allStageEmployees) {
+    await createNotification(sa.user_id, `You've been pre-assigned to stage ${(sa.stage_idx ?? 0) + 1} of "${title}" — please accept or decline`, 'task', project_id);
+  }
+
   res.status(201).json({ id });
   import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(id, db)).catch(() => {});
   } catch (e: any) {
@@ -391,6 +400,49 @@ async function assignToEmployee(db: any, ticket: any, assignee: any, actor: any,
   }
 }
 
+// Pre-accept a future stage assignment (before it becomes the active stage)
+router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
+  const db = getDB();
+  const updated = await db('task_assignees')
+    .where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' })
+    .whereIn('acceptance_status', ['pending', null])
+    .update({ acceptance_status: 'accepted' });
+  if (!updated) { res.status(404).json({ error: 'No pending assignment found' }); return; }
+  const ticket = await db('tasks').where({ id: req.params.id }).first();
+  if (ticket) {
+    await appendLog(ticket.id, req.user!, 'stage_pre_accepted', null, null, `Pre-accepted future stage assignment`);
+    // If all employee stages are now accepted and ticket is pending_assignee, notify managers
+    const pending = await db('task_assignees')
+      .where({ task_id: ticket.id, assignee_role: 'employee' })
+      .whereNotNull('user_id')
+      .whereNotIn('acceptance_status', ['accepted'])
+      .count('* as n').first();
+    if (Number((pending as any)?.n) === 0) {
+      const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
+      for (const m of managers) await createNotification(m.id, `All members accepted "${ticket.title}" — work can now begin`, 'task', ticket.project_id);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Pre-decline a future stage assignment
+router.post('/tickets/:id/stage-pre-decline', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
+  const db = getDB();
+  const updated = await db('task_assignees')
+    .where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' })
+    .update({ acceptance_status: 'declined' });
+  if (!updated) { res.status(404).json({ error: 'No assignment found' }); return; }
+  const ticket = await db('tasks').where({ id: req.params.id }).first();
+  if (ticket) {
+    await appendLog(ticket.id, req.user!, 'stage_pre_declined', null, null, req.body.comment || null);
+    const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
+    for (const m of managers) await createNotification(m.id, `${req.user!.name} declined a stage in "${ticket.title}" — reassignment needed`, 'task', ticket.project_id);
+  }
+  res.json({ ok: true });
+});
+
 router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Response) => {
   if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
   const db = getDB();
@@ -399,6 +451,18 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
     .where(function () { this.where('xlr8_assignee_id', req.user!.id).orWhereNull('xlr8_assignee_id'); })
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
+
+  // Block if any other employee stage hasn't pre-accepted yet
+  const pendingStages = await db('task_assignees')
+    .where({ task_id: ticket.id, assignee_role: 'employee' })
+    .whereNotNull('user_id')
+    .where('user_id', '!=', req.user!.id)
+    .whereNotIn('acceptance_status', ['accepted', 'declined'])
+    .count('* as n').first();
+  if (Number((pendingStages as any)?.n) > 0) {
+    res.status(400).json({ error: 'Waiting for other stage members to accept before work can begin' });
+    return;
+  }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
   // Mark this stage accepted so scheduler picks it up
