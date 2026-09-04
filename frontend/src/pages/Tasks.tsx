@@ -1302,7 +1302,10 @@ export default function Tasks() {
                           const isManager = s.type === 'manager';
                           const isAdmin = s.type === 'admin';
                           const isReviewer = isManager || isAdmin;
-                          const catEmployees = isReviewer ? [] : employees.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
+                          const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
+                          const catEmployees = isReviewer ? [] : employees.filter(u =>
+                            u.categories?.some((c: any) => c.name === s.category_name) || projectMemberIds.has(u.id)
+                          );
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
@@ -1963,7 +1966,10 @@ export default function Tasks() {
                           const isManager = s.type === 'manager';
                           const isAdmin = s.type === 'admin';
                           const isReviewer = isManager || isAdmin;
-                          const catEmployees = isReviewer ? [] : empPool.filter(u => u.categories?.some((c: any) => c.name === s.category_name));
+                          const editProjMemberIds = new Set((proj?.members || []).map((m: any) => m.user_id));
+                          const catEmployees = isReviewer ? [] : empPool.filter(u =>
+                            u.categories?.some((c: any) => c.name === s.category_name) || editProjMemberIds.has(u.id)
+                          );
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
