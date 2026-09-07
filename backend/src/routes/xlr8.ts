@@ -620,15 +620,22 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
   while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
 
   const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
+  // Restore the original assignee for the target stage so they get the re-do prompt
+  const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).first();
+  const prevAssigneeId = prevAssignee?.user_id ?? null;
+
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
-  await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'pending_assignee', xlr8_assignee_id: null, status: 'in_progress' });
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'pending_assignee', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
   await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
   await appendLog(ticket.id, req.user!, 'admin_declined', 'pending_admin', 'pending_assignee', req.body.comment);
 
-  // Notify managers so they can reassign
-  const managers = await db('users').whereIn('role', ['admin', 'manager']).select('id');
-  for (const m of managers) {
-    if (m.id !== req.user!.id) await createNotification(m.id, `Ticket "${ticket.title}" was declined by admin — please reassign stage ${targetIdx + 1}`, 'task', ticket.project_id);
+  if (prevAssigneeId) {
+    await createNotification(prevAssigneeId, `Ticket "${ticket.title}" was declined by admin — please redo your work`, 'task', ticket.project_id);
+  } else {
+    const managers = await db('users').whereIn('role', ['admin', 'manager']).select('id');
+    for (const m of managers) {
+      if (m.id !== req.user!.id) await createNotification(m.id, `Ticket "${ticket.title}" was declined by admin — please reassign stage ${targetIdx + 1}`, 'task', ticket.project_id);
+    }
   }
   res.json({ ok: true });
 });
