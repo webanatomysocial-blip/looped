@@ -581,6 +581,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       gmb_overview: manual.gmb_overview || '', gmb_calls: manual.gmb_calls, gmb_bookings: manual.gmb_bookings,
       gmb_website_clicks: manual.gmb_website_clicks, linkedin_url: manual.linkedin_url, linkedin_followers: manual.linkedin_followers,
       linkedin_data: null, social_media_data: null,
+      seo_authority: jp(manual.seo_authority, {}),
     } : {};
 
     // GA4 data (if configured)
