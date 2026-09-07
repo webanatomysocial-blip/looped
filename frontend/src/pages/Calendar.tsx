@@ -484,7 +484,7 @@ function MonthView({ year, month, onEventClick }: { year: number; month: number;
                 const cfg = PRIORITY_CONFIG[p] || PRIORITY_CONFIG.medium;
                 const isDone = ev.status === 'completed' || ev.status === 'done';
                 return (
-                  <div key={i} onClick={() => ev.id && onEventClick(ev.id)} style={{
+                  <div key={i} onClick={() => typeof ev.id === 'number' && onEventClick(ev.id)} style={{
                     fontSize: 10, fontWeight: 600, padding: '2px 5px', borderRadius: 4, marginBottom: 2,
                     background: isDone ? '#f0fdf4' : ev.event_type === 'recurring' ? 'rgba(99,102,241,0.1)' : cfg.bg,
                     color: isDone ? '#15803d' : ev.event_type === 'recurring' ? '#4f46e5' : cfg.color,
