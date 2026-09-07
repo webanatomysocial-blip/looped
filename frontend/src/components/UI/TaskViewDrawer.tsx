@@ -122,6 +122,15 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const rejectedAt = lastWasRejected && lastLogEntry?.created_at
                   ? format(new Date(Number(lastLogEntry.created_at) || lastLogEntry.created_at), 'MMM d, h:mm a')
                   : null;
+                const rejectedStageIdx = (() => {
+                  if (!lastWasRejected) return currentIdx;
+                  if (lastLogEntry.action === 'admin_declined') {
+                    const idx = stages.findIndex((s: any, si: number) => si > currentIdx && s.type === 'admin');
+                    return idx >= 0 ? idx : currentIdx;
+                  }
+                  return currentIdx;
+                })();
+                const redoIdx = rejectedStageIdx > currentIdx ? currentIdx : rejectedStageIdx - 1;
                 return (
                   <div>
                     <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
@@ -129,27 +138,27 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10, width: 'max-content' }}>
                         {stages.map((stage: any, i: number) => {
                           const isReview = stage.type === 'manager' || stage.type === 'admin';
-                          const isRedoTarget = lastWasRejected && i === currentIdx - 1;
-                          const isDone = !isRedoTarget && (isCompleted || i < currentIdx);
-                          const isCurrent = !isCompleted && i === currentIdx;
-                          const isPending = !isCompleted && i > currentIdx;
+                          const isRejected   = lastWasRejected && i === rejectedStageIdx;
+                          const isRedoTarget = lastWasRejected && i === redoIdx;
+                          const isDone = !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
+                          const isCurrent = !isCompleted && i === currentIdx && !isRejected;
+                          const isPending = !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
                           const stageAssignee = stageAssignees.filter((a: any) => a.stage_idx === i && a.user_id);
                           const trackedSec = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
                           const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
-                          const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#e2e8f0';
-                          const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
-                          const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#cbd5e1';
-                          const isRejected = lastWasRejected && isCurrent;
+                          const borderColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#e2e8f0';
+                          const bgColor = isRejected ? 'rgba(239,68,68,0.05)' : isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? 'rgba(59,130,246,0.05)' : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
+                          const dotColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#cbd5e1';
                           return (
                             <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
                               <div style={{ width: 180, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div style={{ position: 'absolute', top: -10, left: 10, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', whiteSpace: 'nowrap' }}>Stage {i + 1}</div>
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                                  {isDone && <CheckCircle2 size={22} color="#22c55e" />}
-                                  {isRejected && <XCircle size={22} color="#ef4444" />}
-                                  {isRedoTarget && <RefreshCw size={22} color="#f59e0b" />}
-                                  {isCurrent && !isRejected && <Circle size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
-                                  {isPending && <MinusCircle size={22} color="#cbd5e1" />}
+                                  {isDone       && <CheckCircle2 size={22} color="#22c55e" />}
+                                  {isRejected   && <XCircle      size={22} color="#ef4444" />}
+                                  {isRedoTarget && <RefreshCw    size={22} color="#f59e0b" />}
+                                  {isCurrent    && <Circle       size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
+                                  {isPending    && <MinusCircle  size={22} color="#cbd5e1" />}
                                 </div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
                                   {label}
@@ -201,11 +210,11 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           );
                         })}
                       </div>
-                      {lastWasRejected && currentIdx > 0 && (() => {
+                      {lastWasRejected && rejectedStageIdx > 0 && (() => {
                         const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
                         const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
-                        const fromX = currentIdx * unitW + cardW / 2;
-                        const toX = (currentIdx - 1) * unitW + cardW / 2;
+                        const fromX = rejectedStageIdx * unitW + cardW / 2;
+                        const toX = redoIdx * unitW + cardW / 2;
                         const midX = (fromX + toX) / 2;
                         const arcH = 44;
                         return (
