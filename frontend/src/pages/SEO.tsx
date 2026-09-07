@@ -2086,60 +2086,62 @@ export default function SEO() {
             })()}
 
             {/* ── SEO Health & Authority (manual) ── */}
-            {(() => {
-              const sa = manual.seo_authority ?? {};
-              const hasAny = [sa.on_page_score, sa.backlinks, sa.referring_domains, sa.domain_authority, sa.page_authority].some(v => v != null);
-              if (!canEdit && !hasAny) return null;
-              const fields = [
-                { key: 'on_page_score',      label: 'On-Page Score' },
-                { key: 'backlinks',           label: 'Backlinks' },
-                { key: 'referring_domains',   label: 'Referring Domains' },
-                { key: 'domain_authority',    label: 'Domain Authority' },
-                { key: 'page_authority',      label: 'Page Authority' },
-              ] as const;
-              return (
-                <div className="seo-section">
-                  <h3 className="seo-section__title">
-                    SEO Health &amp; Authority
-                    {canEdit && (
-                      <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'seo_authority' ? null : 'seo_authority')}>
-                        <Edit2 size={11} /> {manualPanel === 'seo_authority' ? 'Cancel' : 'Edit'}
-                      </button>
-                    )}
-                  </h3>
-                  {manualPanel === 'seo_authority' && canEdit && (
-                    <div className="seo-manual-panel">
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-                        {fields.map(({ key, label }) => (
-                          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
-                            <span className="seo-inline-label">{label}</span>
-                            <input className="form-input seo-manual-input" type="number" min={0} placeholder="—"
-                              value={manualEdit.seo_authority?.[key] ?? ''}
-                              onChange={(e) => setManualEdit(prev => ({ ...prev, seo_authority: { ...prev.seo_authority, [key]: e.target.value === '' ? null : Number(e.target.value) } }))} />
-                          </label>
-                        ))}
-                      </div>
-                      <div className="seo-manual-actions" style={{ marginTop: 12 }}>
-                        <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
-                      </div>
-                    </div>
+            {(canEdit || [manual.seo_authority?.on_page_score, manual.seo_authority?.backlinks, manual.seo_authority?.referring_domains, manual.seo_authority?.domain_authority, manual.seo_authority?.page_authority].some(v => v != null)) && (
+              <div className="seo-section">
+                <h3 className="seo-section__title">
+                  SEO Health &amp; Authority
+                  {canEdit && (
+                    <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'seo_authority' ? null : 'seo_authority')}>
+                      <Edit2 size={11} /> {manualPanel === 'seo_authority' ? 'Cancel' : 'Edit'}
+                    </button>
                   )}
-                  {hasAny && (
-                    <div className="seo-cards">
-                      {fields.filter(({ key }) => sa[key] != null).map(({ key, label }) => (
-                        <div key={key} className="seo-card">
-                          <p className="seo-card__label" style={{ marginBottom: 4 }}>{label}</p>
-                          <p className="seo-card__val">{(sa[key] as number).toLocaleString()}</p>
-                        </div>
+                </h3>
+                {manualPanel === 'seo_authority' && canEdit && (
+                  <div className="seo-manual-panel">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                      {([
+                        { key: 'on_page_score',     label: 'On-Page Score' },
+                        { key: 'backlinks',          label: 'Backlinks' },
+                        { key: 'referring_domains',  label: 'Referring Domains' },
+                        { key: 'domain_authority',   label: 'Domain Authority' },
+                        { key: 'page_authority',     label: 'Page Authority' },
+                      ] as { key: keyof NonNullable<ManualData['seo_authority']>; label: string }[]).map(({ key, label }) => (
+                        <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                          <span className="seo-inline-label">{label}</span>
+                          <input className="form-input seo-manual-input" type="number" min={0} placeholder="—"
+                            value={manualEdit.seo_authority?.[key] ?? ''}
+                            onChange={(e) => setManualEdit(prev => ({ ...prev, seo_authority: { ...prev.seo_authority, [key]: e.target.value === '' ? null : Number(e.target.value) } }))} />
+                        </label>
                       ))}
                     </div>
-                  )}
-                  {!hasAny && canEdit && !manualPanel && (
-                    <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add SEO authority data.</p>
-                  )}
-                </div>
-              );
-            })()}
+                    <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                      <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                    </div>
+                  </div>
+                )}
+                {[manual.seo_authority?.on_page_score, manual.seo_authority?.backlinks, manual.seo_authority?.referring_domains, manual.seo_authority?.domain_authority, manual.seo_authority?.page_authority].some(v => v != null) && (
+                  <div className="seo-cards">
+                    {([
+                      { key: 'on_page_score',    label: 'On-Page Score' },
+                      { key: 'backlinks',         label: 'Backlinks' },
+                      { key: 'referring_domains', label: 'Referring Domains' },
+                      { key: 'domain_authority',  label: 'Domain Authority' },
+                      { key: 'page_authority',    label: 'Page Authority' },
+                    ] as { key: keyof NonNullable<ManualData['seo_authority']>; label: string }[])
+                      .filter(({ key }) => manual.seo_authority?.[key] != null)
+                      .map(({ key, label }) => (
+                        <div key={key} className="seo-card">
+                          <p className="seo-card__label" style={{ marginBottom: 4 }}>{label}</p>
+                          <p className="seo-card__val">{Number(manual.seo_authority![key]).toLocaleString()}</p>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                {![manual.seo_authority?.on_page_score, manual.seo_authority?.backlinks, manual.seo_authority?.referring_domains, manual.seo_authority?.domain_authority, manual.seo_authority?.page_authority].some(v => v != null) && canEdit && !manualPanel && (
+                  <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add SEO authority data.</p>
+                )}
+              </div>
+            )}
 
             {/* ── Keyword Rankings (manual) ── */}
             <div className="seo-section" style={!canEdit && manual.keyword_rankings.length === 0 ? { display: 'none' } : undefined}>
