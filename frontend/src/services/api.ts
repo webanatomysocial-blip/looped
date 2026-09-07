@@ -244,6 +244,7 @@ export const xlr8Api = {
   reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) =>
     api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin }),
   adminApprove: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment }),
+  adminDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-decline`, { comment }),
   adminSendClient: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-send-client`, { comment }),
   clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),
 };

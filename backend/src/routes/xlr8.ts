@@ -605,6 +605,34 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
   }
 });
 
+router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const db = getDB();
+  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
+  if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
+
+  const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
+  const stages: any[] = pj(ticketType?.stages, []);
+  const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
+
+  // Find the previous employee stage to send work back to
+  let prevEmpIdx = currentStageIdx - 1;
+  while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
+
+  const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
+  await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'pending_assignee', xlr8_assignee_id: null, status: 'in_progress' });
+  await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+  await appendLog(ticket.id, req.user!, 'admin_declined', 'pending_admin', 'pending_assignee', req.body.comment);
+
+  // Notify managers so they can reassign
+  const managers = await db('users').whereIn('role', ['admin', 'manager']).select('id');
+  for (const m of managers) {
+    if (m.id !== req.user!.id) await createNotification(m.id, `Ticket "${ticket.title}" was declined by admin — please reassign stage ${targetIdx + 1}`, 'task', ticket.project_id);
+  }
+  res.json({ ok: true });
+});
+
 router.post('/tickets/:id/admin-send-client', async (req: AuthRequest, res: Response) => {
   if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
   const db = getDB();

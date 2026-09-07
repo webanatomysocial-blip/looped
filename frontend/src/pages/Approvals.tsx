@@ -279,7 +279,9 @@ export default function Approvals() {
         const st = (reviewModal as any).xlr8_status ?? reviewModal.status;
         let res: any = null;
         if (st === 'pending_admin') {
-          if (skipType === 'send_client') {
+          if (action === 'reject') {
+            await xlr8Api.adminDecline(tid, notes || undefined);
+          } else if (skipType === 'send_client') {
             await xlr8Api.adminSendClient(tid, notes || undefined);
           } else {
             await xlr8Api.adminApprove(tid, notes || undefined);
@@ -763,7 +765,7 @@ export default function Approvals() {
                     if (reviewModal.workflow_type === 'xlr8') {
                       const st = (reviewModal as any).xlr8_status ?? reviewModal.status;
                       if (st === 'pending_manager') return ' — Approve to move to admin review, or reject to send back to the employee.';
-                      if (st === 'pending_admin') return ' — Approve to send to the client for sign-off.';
+                      if (st === 'pending_admin') return ' — Approve to send to the client, or reject to send the work back to be redone.';
                       if (st === 'pending_client') return ' — Approve to mark the ticket as completed.';
                       return ' — Review this stage.';
                     }
@@ -792,7 +794,7 @@ export default function Approvals() {
               >
                 <CheckCircle size={15} /> Approve
               </button>
-              {isNewWorkflow(reviewModal) && !(reviewModal.workflow_type === 'xlr8' && ['pending_admin', 'pending_client'].includes((reviewModal as any).xlr8_status ?? reviewModal.status)) ? (
+              {isNewWorkflow(reviewModal) && !(reviewModal.workflow_type === 'xlr8' && ['pending_client'].includes((reviewModal as any).xlr8_status ?? reviewModal.status)) ? (
                 <button
                   onClick={() => setAction('reject')}
                   className={`review-action-btn changes${action === 'reject' ? ' selected' : ''}`}

@@ -14,7 +14,7 @@ const ACTION_LABELS: Record<string, string> = {
   employee_declined: 'Declined', work_done: 'Marked done',
   manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
   next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin',
-  admin_approved: 'Admin approved', admin_skip_client: 'Completed (client skipped)',
+  admin_approved: 'Admin approved', admin_declined: 'Admin returned to employee', admin_skip_client: 'Completed (client skipped)',
   admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
 };
 
