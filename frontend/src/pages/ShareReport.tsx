@@ -256,6 +256,28 @@ export default function ShareReport() {
           </Section>
         )}
 
+        {/* SEO Health & Authority */}
+        {[manual.seo_authority?.on_page_score, manual.seo_authority?.backlinks, manual.seo_authority?.referring_domains, manual.seo_authority?.domain_authority, manual.seo_authority?.page_authority].some((v: any) => v != null) && (
+          <Section title="SEO Health &amp; Authority">
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {([
+                { key: 'on_page_score',    label: 'On-Page Score' },
+                { key: 'backlinks',         label: 'Backlinks' },
+                { key: 'referring_domains', label: 'Referring Domains' },
+                { key: 'domain_authority',  label: 'Domain Authority' },
+                { key: 'page_authority',    label: 'Page Authority' },
+              ] as { key: string; label: string }[])
+                .filter(({ key }) => (manual.seo_authority as any)?.[key] != null)
+                .map(({ key, label }) => (
+                  <div key={key} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 18px', minWidth: 130 }}>
+                    <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{label}</p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', margin: 0 }}>{Number((manual.seo_authority as any)[key]).toLocaleString()}</p>
+                  </div>
+                ))}
+            </div>
+          </Section>
+        )}
+
         {/* Traffic Acquisition + Demographics */}
         {report?.acquisition?.length > 0 && (
           <Section title="Traffic Acquisition">
