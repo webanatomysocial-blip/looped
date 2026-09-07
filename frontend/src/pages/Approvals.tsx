@@ -682,15 +682,15 @@ export default function Approvals() {
                     )}
 
                     {/* Audit step history */}
-                    {(steps[a.id]?.length ?? 0) > 0 && (
+                    {(steps[a.id]?.filter((s: any) => isNewWorkflow(a) ? s.action === 'reject' : true).length ?? 0) > 0 && (
                       <div style={{ marginBottom: 14 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>
                           Decision History
                         </div>
-                        {steps[a.id].map((step) => (
+                        {(isNewWorkflow(a) ? steps[a.id].filter((s: any) => s.action === 'reject') : steps[a.id]).map((step: any) => (
                           <div key={step.id} className={`approval-note${step.action === 'reject' ? ' approval-note--danger' : ''}`}>
                             <strong>
-                              {step.actor_name} ({step.actor_role}) · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(new Date(step.acted_at), 'MMM d, h:mm a')}
+                              {step.actor_name}{step.actor_name ? ` (${step.actor_role})` : step.actor_role} · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(new Date(step.acted_at), 'MMM d, h:mm a')}
                             </strong>
                             {step.comments && <span> — {step.comments}</span>}
                           </div>

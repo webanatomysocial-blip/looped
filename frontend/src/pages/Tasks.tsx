@@ -669,7 +669,11 @@ export default function Tasks() {
                       // For XLR8 tickets show the current stage's est_hours, not the whole-task total
                       if (task.ticket_type_id) {
                         const currentIdx = (task as any).xlr8_stage_idx ?? 0;
-                        const stageAssignee = task.assignees?.find((a: any) => a.stage_idx === currentIdx && a.est_hours > 0);
+                        const currentRoleAssignee = task.assignees?.find((a: any) => a.stage_idx === currentIdx);
+                        const isReviewStage = ['admin', 'manager'].includes(currentRoleAssignee?.assignee_role ?? '');
+                        const stageAssignee = isReviewStage
+                          ? task.assignees?.slice().reverse().find((a: any) => a.stage_idx < currentIdx && a.assignee_role === 'employee' && a.est_hours > 0)
+                          : task.assignees?.find((a: any) => a.stage_idx === currentIdx && a.est_hours > 0);
                         const h = stageAssignee?.est_hours ?? null;
                         return h
                           ? <span style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3 }}><Clock size={11} />{fmtHours(Number(h))}</span>
@@ -908,27 +912,43 @@ export default function Tasks() {
                     const isCompleted = viewTask.status === 'completed' || xlr8Status === 'completed';
                     const lastLogEntry = viewLog[viewLog.length - 1];
                     const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
-                    const rejectedAt = lastWasRejected && lastLogEntry?.created_at
-                      ? format(new Date(Number(lastLogEntry.created_at) || lastLogEntry.created_at), 'MMM d, h:mm a')
-                      : null;
                     const fmtSec = (s: number) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
-                    // For admin_declined the task moves back to a previous stage, so rejectedStageIdx != currentIdx
+
+                    // Build full rejection history from log
+                    type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string };
+                    const declineEvents: DeclineEvent[] = [];
+                    let trackedIdx = 0;
+                    for (const entry of viewLog) {
+                      if (entry.action === 'next_stage') {
+                        const m2 = (entry.comment ?? '').match(/^Stage (\d+):/);
+                        if (m2) trackedIdx = Number(m2[1]) - 1;
+                      } else if (entry.action === 'admin_declined' || entry.action === 'manager_declined') {
+                        let pi = trackedIdx - 1;
+                        while (pi >= 0 && stages[pi]?.type !== 'employee') pi--;
+                        declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at });
+                        trackedIdx = pi >= 0 ? pi : 0;
+                      } else if (entry.action === 'employee_declined') {
+                        declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at });
+                      }
+                    }
+
+                    // Current rejection state (for card coloring)
                     const rejectedStageIdx = (() => {
                       if (!lastWasRejected) return currentIdx;
                       if (lastLogEntry.action === 'admin_declined') {
                         const idx = stages.findIndex((s: any, si: number) => si > currentIdx && s.type === 'admin');
                         return idx >= 0 ? idx : currentIdx;
                       }
-                      return currentIdx; // manager_declined: task stays at same stage
+                      return currentIdx;
                     })();
-                    // redoIdx: the stage that needs rework
                     const redoIdx = rejectedStageIdx > currentIdx ? currentIdx : rejectedStageIdx - 1;
 
                     return (
                       <div>
                         <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                        <div style={{ overflowX: 'auto', paddingBottom: lastWasRejected ? 52 : 4, position: 'relative' }}>
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px', width: 'max-content' }}>
+                        <div style={{ overflowX: 'auto', position: 'relative' }}>
+                        <div style={{ width: 'max-content' }}>
+                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px' }}>
                           {stages.map((stage: any, i: number) => {
                             const isReview = stage.type === 'manager' || stage.type === 'admin';
                             const isRejected  = lastWasRejected && i === rejectedStageIdx;
@@ -1041,67 +1061,70 @@ export default function Tasks() {
                           })}
                         </div>
 
-                        {/* Red rejection back-arrow row */}
-                        {lastWasRejected && rejectedStageIdx > 0 && (() => {
-                          const cardW = 180;
-                          const arrowW = 40;
-                          const unitW = cardW + arrowW;
+                        {/* Rejection arcs — concentric, history list */}
+                        {declineEvents.length > 0 && (() => {
+                          const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
                           const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
-                          const fromX = rejectedStageIdx * unitW + cardW / 2;
-                          const toX = redoIdx * unitW + cardW / 2;
-                          const midX = (fromX + toX) / 2;
-                          const arcH = 44;
-                          const comment = lastLogEntry?.comment;
+                          const baseArcH = 40, arcStep = 20;
+                          const maxArcH = baseArcH + (declineEvents.length - 1) * arcStep;
+                          const realArcs = declineEvents.filter(ev => ev.fromIdx !== ev.toIdx);
                           return (
-                            <div style={{ marginTop: 6, position: 'relative', minWidth: totalW }}>
-                              {/* Arc SVG */}
-                              <svg width={totalW} height={arcH} viewBox={`0 0 ${totalW} ${arcH}`} style={{ display: 'block', overflow: 'visible' }}>
-                                <defs>
-                                  <marker id="rejArrowHead" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse">
-                                    <polygon points="8,4 0,0 0,8" fill="#ef4444" />
-                                  </marker>
-                                </defs>
-                                <path
-                                  d={`M ${fromX} 4 C ${fromX} ${arcH}, ${toX} ${arcH}, ${toX} 4`}
-                                  stroke="#ef4444" strokeWidth="2" fill="none"
-                                  markerEnd="url(#rejArrowHead)"
-                                  strokeDasharray="5 3"
-                                />
-                              </svg>
-                              {/* Info pill centered under arc */}
-                              <div style={{
-                                position: 'absolute',
-                                bottom: -28,
-                                left: midX,
-                                transform: 'translateX(-50%)',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 4,
-                                pointerEvents: 'none',
-                              }}>
-                                <div style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                                  background: '#fef2f2', border: '1px solid #fecaca',
-                                  borderRadius: 99, padding: '3px 10px',
-                                  fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap',
-                                }}>
-                                  <XCircle size={11} color="#ef4444" />
-                                  Rejected{rejectedAt ? ` · ${rejectedAt}` : ''}
+                            <div style={{ marginTop: 8 }}>
+                              {realArcs.length > 0 && (
+                                <div style={{ position: 'relative', minWidth: totalW }}>
+                                  <svg width={totalW} height={maxArcH + 4} viewBox={`0 0 ${totalW} ${maxArcH + 4}`} style={{ display: 'block', overflow: 'visible' }}>
+                                    <defs><marker id="rejArrowHead" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><polygon points="8,4 0,0 0,8" fill="#ef4444" /></marker></defs>
+                                    {realArcs.map((ev, ei) => {
+                                      const fromX = ev.fromIdx * unitW + cardW / 2;
+                                      const toX = ev.toIdx * unitW + cardW / 2;
+                                      const h = maxArcH - ei * arcStep;
+                                      const isLast = ei === realArcs.length - 1;
+                                      return (
+                                        <path key={ei}
+                                          d={`M ${fromX} 4 C ${fromX} ${h}, ${toX} ${h}, ${toX} 4`}
+                                          stroke="#ef4444" strokeWidth={isLast ? 2.5 : 1.5} fill="none"
+                                          markerEnd={isLast ? 'url(#rejArrowHead)' : undefined}
+                                          strokeDasharray="5 3"
+                                          opacity={0.25 + (ei / Math.max(1, realArcs.length - 1)) * 0.75}
+                                        />
+                                      );
+                                    })}
+                                  </svg>
+                                  {(() => {
+                                    const last = realArcs[realArcs.length - 1];
+                                    const midX = (last.fromIdx * unitW + cardW / 2 + last.toIdx * unitW + cardW / 2) / 2;
+                                    const atStr = last.at ? format(new Date(Number(last.at) || last.at), 'MMM d, h:mm a') : null;
+                                    return (
+                                      <div style={{ position: 'absolute', top: baseArcH - 10, left: midX, transform: 'translateX(-50%)' }}>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 99, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap' }}>
+                                          <XCircle size={11} color="#ef4444" />
+                                          {declineEvents.length > 1 ? `${declineEvents.length} Rejections` : 'Rejected'}{atStr ? ` · ${atStr}` : ''}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
-                                {comment && (
-                                  <div style={{
-                                    fontSize: 10, color: '#b91c1c', fontStyle: 'italic',
-                                    background: '#fff5f5', borderRadius: 6, padding: '2px 8px',
-                                    border: '1px solid #fecaca', maxWidth: 220, textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                  }}>
-                                    "{comment}"
-                                  </div>
-                                )}
+                              )}
+                              <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                {declineEvents.map((ev, ei) => {
+                                  const atStr = ev.at ? format(new Date(Number(ev.at) || ev.at), 'MMM d, h:mm a') : null;
+                                  const isLast = ei === declineEvents.length - 1;
+                                  return (
+                                    <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11 }}>
+                                      <div style={{ width: 18, height: 18, borderRadius: '50%', background: isLast ? '#ef4444' : '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>
+                                      <div>
+                                        <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
+                                        {atStr && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>{atStr}</span>}
+                                        {ev.comment && <span style={{ color: '#b91c1c', fontStyle: 'italic', marginLeft: 4 }}>— "{ev.comment}"</span>}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           );
                         })()}
+                        </div>{/* end width:max-content */}
                         </div>{/* end scroll wrapper */}
                       </div>
                     );

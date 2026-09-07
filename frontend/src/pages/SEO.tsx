@@ -1013,14 +1013,16 @@ export default function SEO() {
     setManualEdit(base);
     setManualPanel(panel);
   };
-  const doSaveManual = async (data: ManualData, closePanel: boolean) => {
+  const doSaveManual = async (data: ManualData, closePanel: boolean, skipHealthAutoCalc = false) => {
     if (!selectedClient) return;
     setManualSaving(true);
     try {
-      // Auto-calculate health_score from avg of target achievement %
-      const validTargets = data.targets.filter((t: Target) => t.target > 0);
-      if (validTargets.length > 0) {
-        data.health_score = Math.round(validTargets.reduce((s: number, t: Target) => s + Math.min(100, (t.achieved / t.target) * 100), 0) / validTargets.length);
+      // Auto-calculate health_score from avg of target achievement % — skip when user manually set it
+      if (!skipHealthAutoCalc) {
+        const validTargets = data.targets.filter((t: Target) => t.target > 0);
+        if (validTargets.length > 0) {
+          data.health_score = Math.round(validTargets.reduce((s: number, t: Target) => s + Math.min(100, (t.achieved / t.target) * 100), 0) / validTargets.length);
+        }
       }
       await seoApi.updateManual(selectedClient.id, data);
       setManual({ ...data });
@@ -1029,7 +1031,7 @@ export default function SEO() {
     finally { setManualSaving(false); }
   };
 
-  const saveManual = () => doSaveManual({ ...manualEdit }, true);
+  const saveManual = () => doSaveManual({ ...manualEdit }, true, manualPanel === 'health');
 
   const openEdit = (c: Client) => {
     if (editingId === c.id) { setEditingId(null); return; }

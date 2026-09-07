@@ -311,6 +311,27 @@ router.get('/:id/steps', async (req: AuthRequest, res: Response) => {
         acted_at: approval.created_at,
       });
 
+      // Include decline/rejection events in the history
+      const DECLINE_ACTIONS: Record<string, string> = {
+        admin_declined: 'Admin returned to employee',
+        manager_declined: 'Manager returned to employee',
+        employee_declined: 'Employee declined',
+      };
+      for (const log of logs) {
+        if (DECLINE_ACTIONS[log.action]) {
+          steps.push({
+            id: `xlr8_decline_${log.id}`,
+            approval_id: Number(req.params.id),
+            actor_name: log.actor_name,
+            actor_role: log.actor_role ?? 'system',
+            action: 'reject',
+            stage_key: `decline_${log.id}`,
+            comments: log.comment || DECLINE_ACTIONS[log.action],
+            acted_at: log.created_at,
+          });
+        }
+      }
+
       // Each next_stage log entry marks the start of targetIdx stage
       // Comment format: "Stage X: ..." where X is 1-based target index
       for (const log of logs) {

@@ -119,9 +119,26 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const isCompleted = task.status === 'completed' || task.xlr8_status === 'completed';
                 const lastLogEntry = log[log.length - 1];
                 const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
-                const rejectedAt = lastWasRejected && lastLogEntry?.created_at
-                  ? format(new Date(Number(lastLogEntry.created_at) || lastLogEntry.created_at), 'MMM d, h:mm a')
-                  : null;
+
+                // Build full rejection history from log
+                type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string };
+                const declineEvents: DeclineEvent[] = [];
+                let trackedIdx = 0;
+                for (const entry of log) {
+                  if (entry.action === 'next_stage') {
+                    const m = (entry.comment ?? '').match(/^Stage (\d+):/);
+                    if (m) trackedIdx = Number(m[1]) - 1;
+                  } else if (entry.action === 'admin_declined' || entry.action === 'manager_declined') {
+                    let pi = trackedIdx - 1;
+                    while (pi >= 0 && stages[pi]?.type !== 'employee') pi--;
+                    declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at });
+                    trackedIdx = pi >= 0 ? pi : 0;
+                  } else if (entry.action === 'employee_declined') {
+                    declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at });
+                  }
+                }
+
+                // Current rejection state (for card coloring)
                 const rejectedStageIdx = (() => {
                   if (!lastWasRejected) return currentIdx;
                   if (lastLogEntry.action === 'admin_declined') {
@@ -134,8 +151,9 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 return (
                   <div>
                     <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                    <div style={{ overflowX: 'auto', paddingBottom: lastWasRejected ? 52 : 4, position: 'relative' }}>
-                      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10, width: 'max-content' }}>
+                    <div style={{ overflowX: 'auto', position: 'relative' }}>
+                      <div style={{ width: 'max-content' }}>
+                      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
                         {stages.map((stage: any, i: number) => {
                           const isReview = stage.type === 'manager' || stage.type === 'admin';
                           const isRejected   = lastWasRejected && i === rejectedStageIdx;
@@ -210,27 +228,73 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           );
                         })}
                       </div>
-                      {lastWasRejected && rejectedStageIdx > 0 && (() => {
+                      {declineEvents.length > 0 && (() => {
                         const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
                         const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
-                        const fromX = rejectedStageIdx * unitW + cardW / 2;
-                        const toX = redoIdx * unitW + cardW / 2;
-                        const midX = (fromX + toX) / 2;
-                        const arcH = 44;
+                        const baseArcH = 40, arcStep = 20;
+                        const maxArcH = baseArcH + (declineEvents.length - 1) * arcStep;
+                        // filter out degenerate arcs (same fromIdx/toIdx) for SVG only
+                        const realArcs = declineEvents.filter(ev => ev.fromIdx !== ev.toIdx);
                         return (
-                          <div style={{ marginTop: 6, position: 'relative', minWidth: totalW }}>
-                            <svg width={totalW} height={arcH} viewBox={`0 0 ${totalW} ${arcH}`} style={{ display: 'block', overflow: 'visible' }}>
-                              <defs><marker id="rejArrowHead2" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><polygon points="8,4 0,0 0,8" fill="#ef4444" /></marker></defs>
-                              <path d={`M ${fromX} 4 C ${fromX} ${arcH}, ${toX} ${arcH}, ${toX} 4`} stroke="#ef4444" strokeWidth="2" fill="none" markerEnd="url(#rejArrowHead2)" strokeDasharray="5 3" />
-                            </svg>
-                            <div style={{ position: 'absolute', bottom: -28, left: midX, transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 99, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap' }}>
-                                <XCircle size={11} color="#ef4444" /> Rejected{rejectedAt ? ` · ${rejectedAt}` : ''}
+                          <div style={{ marginTop: 8 }}>
+                            {realArcs.length > 0 && (
+                              <div style={{ position: 'relative', minWidth: totalW }}>
+                                <svg width={totalW} height={maxArcH + 4} viewBox={`0 0 ${totalW} ${maxArcH + 4}`} style={{ display: 'block', overflow: 'visible' }}>
+                                  <defs><marker id="rejArrowHead2" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><polygon points="8,4 0,0 0,8" fill="#ef4444" /></marker></defs>
+                                  {realArcs.map((ev, ei) => {
+                                    const fromX = ev.fromIdx * unitW + cardW / 2;
+                                    const toX = ev.toIdx * unitW + cardW / 2;
+                                    // oldest = deepest, newest = shallowest
+                                    const h = maxArcH - ei * arcStep;
+                                    const isLast = ei === realArcs.length - 1;
+                                    return (
+                                      <path key={ei}
+                                        d={`M ${fromX} 4 C ${fromX} ${h}, ${toX} ${h}, ${toX} 4`}
+                                        stroke="#ef4444" strokeWidth={isLast ? 2.5 : 1.5} fill="none"
+                                        markerEnd={isLast ? 'url(#rejArrowHead2)' : undefined}
+                                        strokeDasharray="5 3"
+                                        opacity={0.25 + (ei / Math.max(1, realArcs.length - 1)) * 0.75}
+                                      />
+                                    );
+                                  })}
+                                </svg>
+                                {/* Pill at midpoint of newest arc */}
+                                {(() => {
+                                  const last = realArcs[realArcs.length - 1];
+                                  const midX = (last.fromIdx * unitW + cardW / 2 + last.toIdx * unitW + cardW / 2) / 2;
+                                  const atStr = last.at ? format(new Date(Number(last.at) || last.at), 'MMM d, h:mm a') : null;
+                                  return (
+                                    <div style={{ position: 'absolute', top: baseArcH - 10, left: midX, transform: 'translateX(-50%)' }}>
+                                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 99, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap' }}>
+                                        <XCircle size={11} color="#ef4444" />
+                                        {declineEvents.length > 1 ? `${declineEvents.length} Rejections` : 'Rejected'}{atStr ? ` · ${atStr}` : ''}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
+                            )}
+                            {/* Rejection history list */}
+                            <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                              {declineEvents.map((ev, ei) => {
+                                const atStr = ev.at ? format(new Date(Number(ev.at) || ev.at), 'MMM d, h:mm a') : null;
+                                const isLast = ei === declineEvents.length - 1;
+                                return (
+                                  <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11 }}>
+                                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: isLast ? '#ef4444' : '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>
+                                    <div>
+                                      <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
+                                      {atStr && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>{atStr}</span>}
+                                      {ev.comment && <span style={{ color: '#b91c1c', fontStyle: 'italic', marginLeft: 4 }}>— "{ev.comment}"</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         );
                       })()}
+                      </div>{/* end width:max-content */}
                     </div>
                   </div>
                 );

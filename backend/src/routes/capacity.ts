@@ -130,7 +130,9 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where('ts.user_id', userId)
       .where('ts.session_date', today)
       .whereNotIn('ts.task_id', assignedTaskIds.length ? assignedTaskIds : [0])
+      .whereNotIn('ts.task_id', xlr8Ids.size ? [...xlr8Ids] : [0])
       .whereNotIn('t.status', ['completed'])
+      .where(function () { this.whereNull('t.ticket_type_id').orWhereIn('t.xlr8_status', ['pending_assignee', 'in_progress']); })
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name',
