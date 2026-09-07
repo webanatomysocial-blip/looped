@@ -288,6 +288,10 @@ async function createSchema(): Promise<void> {
       if (!hasFlagsRisks) {
         await db.schema.table('seo_manual_data', (t) => { t.text('flags_risks').nullable(); });
       }
+      const hasSeoAuthority = await db.schema.hasColumn('seo_manual_data', 'seo_authority');
+      if (!hasSeoAuthority) {
+        await db.schema.table('seo_manual_data', (t) => { t.text('seo_authority').nullable(); });
+      }
     }
   });
 

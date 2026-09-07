@@ -142,6 +142,7 @@ interface ManualData {
   health_score: number;
   health_label: string;
   flags_risks: string;
+  seo_authority: { on_page_score?: number | null; backlinks?: number | null; referring_domains?: number | null; domain_authority?: number | null; page_authority?: number | null; };
   // legacy flat fields
   gmb_rating: number | null;
   gmb_reviews: number | null;
@@ -758,6 +759,21 @@ ${totalClicks > 0 ? `
 </div></div>
 </div>` : ''}
 
+${(() => {
+  const sa = manual.seo_authority ?? {};
+  const authorityFields = [
+    { key: 'on_page_score',    label: 'On-Page Score' },
+    { key: 'backlinks',        label: 'Backlinks' },
+    { key: 'referring_domains',label: 'Referring Domains' },
+    { key: 'domain_authority', label: 'Domain Authority' },
+    { key: 'page_authority',   label: 'Page Authority' },
+  ] as const;
+  const cards = authorityFields.filter(({ key }) => sa[key] != null)
+    .map(({ key, label }) => `<div class="mini-card"><div class="mini-card-val">${(sa[key] as number).toLocaleString()}</div><div class="mini-card-label">${label}</div></div>`)
+    .join('');
+  return cards ? `<div class="section-block"><h2>SEO Health &amp; Authority</h2><div class="section"><div class="section-inner"><div class="mini-cards">${cards}</div></div></div></div>` : '';
+})()}
+
 ${kwRows ? `
 <div class="section-block">
 <h2>Keyword Rankings</h2>
@@ -851,6 +867,7 @@ const emptyManual = (): ManualData => ({
   health_score: 76,
   health_label: 'Weighted for a balanced goal, vs target',
   flags_risks: '',
+  seo_authority: {},
   gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
   gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
   gmb_key_insights: '', gmb_prev_rating: null, gmb_prev_reviews: null,
@@ -884,7 +901,7 @@ export default function SEO() {
   // Manual data
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
-  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | null>(null);
+  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | 'seo_authority' | null>(null);
   const [inlineEditTargetIdx, setInlineEditTargetIdx] = useState<number | null>(null);
   const [inlineEditTargets, setInlineEditTargets] = useState<Target[]>([]);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
@@ -2064,6 +2081,62 @@ export default function SEO() {
                       </div>
                     ))}
                   </div>
+                </div>
+              );
+            })()}
+
+            {/* ── SEO Health & Authority (manual) ── */}
+            {(() => {
+              const sa = manual.seo_authority ?? {};
+              const hasAny = [sa.on_page_score, sa.backlinks, sa.referring_domains, sa.domain_authority, sa.page_authority].some(v => v != null);
+              if (!canEdit && !hasAny) return null;
+              const fields = [
+                { key: 'on_page_score',      label: 'On-Page Score' },
+                { key: 'backlinks',           label: 'Backlinks' },
+                { key: 'referring_domains',   label: 'Referring Domains' },
+                { key: 'domain_authority',    label: 'Domain Authority' },
+                { key: 'page_authority',      label: 'Page Authority' },
+              ] as const;
+              return (
+                <div className="seo-section">
+                  <h3 className="seo-section__title">
+                    SEO Health &amp; Authority
+                    {canEdit && (
+                      <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'seo_authority' ? null : 'seo_authority')}>
+                        <Edit2 size={11} /> {manualPanel === 'seo_authority' ? 'Cancel' : 'Edit'}
+                      </button>
+                    )}
+                  </h3>
+                  {manualPanel === 'seo_authority' && canEdit && (
+                    <div className="seo-manual-panel">
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
+                        {fields.map(({ key, label }) => (
+                          <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                            <span className="seo-inline-label">{label}</span>
+                            <input className="form-input seo-manual-input" type="number" min={0} placeholder="—"
+                              value={manualEdit.seo_authority?.[key] ?? ''}
+                              onChange={(e) => setManualEdit(prev => ({ ...prev, seo_authority: { ...prev.seo_authority, [key]: e.target.value === '' ? null : Number(e.target.value) } }))} />
+                          </label>
+                        ))}
+                      </div>
+                      <div className="seo-manual-actions" style={{ marginTop: 12 }}>
+                        <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                      </div>
+                    </div>
+                  )}
+                  {hasAny && (
+                    <div className="seo-cards">
+                      {fields.filter(({ key }) => sa[key] != null).map(({ key, label }) => (
+                        <div key={key} className="seo-card">
+                          <p className="seo-card__label" style={{ marginBottom: 4 }}>{label}</p>
+                          <p className="seo-card__val">{(sa[key] as number).toLocaleString()}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!hasAny && canEdit && !manualPanel && (
+                    <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add SEO authority data.</p>
+                  )}
                 </div>
               );
             })()}
