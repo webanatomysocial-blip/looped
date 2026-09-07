@@ -759,8 +759,17 @@ export default function Approvals() {
               {isNewWorkflow(reviewModal) ? (
                 <>
                   <strong>{getCurrentStageLabel(reviewModal)}</strong>
-                  {' — Approving will advance to the next stage. Rejecting returns it to the previous approver.'}
                   {(() => {
+                    if (reviewModal.workflow_type === 'xlr8') {
+                      const st = (reviewModal as any).xlr8_status ?? reviewModal.status;
+                      if (st === 'pending_manager') return ' — Approve to move to admin review, or reject to send back to the employee.';
+                      if (st === 'pending_admin') return ' — Approve to send to the client for sign-off.';
+                      if (st === 'pending_client') return ' — Approve to mark the ticket as completed.';
+                      return ' — Review this stage.';
+                    }
+                    return ' — Approving will advance to the next stage. Rejecting returns it to the previous approver.';
+                  })()}
+                  {reviewModal.workflow_type !== 'xlr8' && (() => {
                     const stages = WORKFLOWS[reviewModal.workflow_type!] ?? [];
                     const i = stages.findIndex((s) => s.status === reviewModal.status);
                     return i === 0 ? ' Rejection at this stage fully rejects the submission.' : null;
@@ -783,7 +792,7 @@ export default function Approvals() {
               >
                 <CheckCircle size={15} /> Approve
               </button>
-              {isNewWorkflow(reviewModal) ? (
+              {isNewWorkflow(reviewModal) && !(reviewModal.workflow_type === 'xlr8' && ['pending_admin', 'pending_client'].includes((reviewModal as any).xlr8_status ?? reviewModal.status)) ? (
                 <button
                   onClick={() => setAction('reject')}
                   className={`review-action-btn changes${action === 'reject' ? ' selected' : ''}`}
