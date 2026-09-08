@@ -11,7 +11,6 @@ import AssetLibrary from './pages/AssetLibrary';
 import Reports from './pages/Reports';
 import Notifications from './pages/Notifications';
 import Messages from './pages/Messages';
-import ApprovedFiles from './pages/ApprovedFiles';
 import Settings from './pages/Settings';
 import UserManagement from './pages/admin/UserManagement';
 import ContactFormProjects from './pages/admin/ContactFormProjects';
@@ -80,12 +79,6 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* All roles: approved files */}
-      <Route path="/approved" element={
-        <PrivateRoute>
-          <ApprovedFiles />
-        </PrivateRoute>
-      } />
 
       {/* Asset library */}
       <Route path="/assets" element={

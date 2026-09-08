@@ -25,7 +25,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
-      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
@@ -52,7 +51,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
-      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
@@ -72,7 +70,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
-      { to: '/approved',           icon: RiFileCheckLine,  label: 'Approved' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
     ],
     more: [
@@ -90,7 +87,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
       { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Reviews' },
-      { to: '/approved',           icon: RiCheckboxLine,   label: 'Approved' },
       { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
     ],
     more: [],
