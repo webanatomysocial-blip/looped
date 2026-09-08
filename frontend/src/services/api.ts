@@ -71,6 +71,13 @@ export const tasksApi = {
   delete: (id: number) => api.delete(`/tasks/${id}`),
   accept: (id: number, action: 'accept' | 'decline') => api.post(`/tasks/${id}/accept`, { action }),
   timer: (id: number, action: 'start' | 'pause' | 'done') => api.post(`/tasks/${id}/timer`, { action }),
+  getDeliverables: (id: number) => api.get(`/tasks/${id}/deliverables`),
+  addDeliverableLink: (id: number, url: string, name?: string) => api.post(`/tasks/${id}/deliverables/link`, { url, name }),
+  addDeliverableFile: (id: number, file: File) => {
+    const fd = new FormData(); fd.append('file', file);
+    return api.post(`/tasks/${id}/deliverables/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  deleteDeliverable: (taskId: number, deliverableId: number) => api.delete(`/tasks/${taskId}/deliverables/${deliverableId}`),
 };
 
 export const capacityApi = {

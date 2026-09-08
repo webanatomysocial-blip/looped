@@ -1154,6 +1154,21 @@ async function createSchema(): Promise<void> {
       if (!hasCustomStart) await db.schema.table('task_schedule_slots', (t) => { t.float('custom_start_hour').nullable(); });
     }
   });
+
+  // Task deliverables — files/links attached when employee marks work done
+  await db.schema.hasTable('task_deliverables').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_deliverables', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('uploaded_by').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('type', 10).notNullable(); // 'file' | 'link'
+        t.string('name', 500).notNullable();
+        t.string('url', 2000).notNullable();
+        t.timestamps(true, true);
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {

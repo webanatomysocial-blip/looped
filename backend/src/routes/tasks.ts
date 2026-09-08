@@ -1,6 +1,19 @@
 import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+const deliverableUploadDir = path.join(__dirname, '../../uploads/deliverables');
+if (!fs.existsSync(deliverableUploadDir)) fs.mkdirSync(deliverableUploadDir, { recursive: true });
+const deliverableUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, deliverableUploadDir),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`),
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 const router = Router();
 router.use(authenticate);
@@ -740,6 +753,58 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// ── Deliverables (files + links attached at done) ────────────────────────────
+
+router.get('/:id/deliverables', async (req: AuthRequest, res: Response) => {
+  const db = getDB();
+  const rows = await db('task_deliverables as d')
+    .join('users as u', 'd.uploaded_by', 'u.id')
+    .where('d.task_id', req.params.id)
+    .select('d.*', 'u.name as uploader_name')
+    .orderBy('d.created_at', 'asc');
+  res.json(rows);
+});
+
+router.post('/:id/deliverables/link', async (req: AuthRequest, res: Response) => {
+  const { url, name } = req.body;
+  if (!url) { res.status(400).json({ error: 'url required' }); return; }
+  const db = getDB();
+  const [id] = await db('task_deliverables').insert({
+    task_id: req.params.id,
+    uploaded_by: req.user!.id,
+    type: 'link',
+    name: name || url,
+    url,
+  });
+  res.json({ id, type: 'link', name: name || url, url });
+});
+
+router.post('/:id/deliverables/file', deliverableUpload.single('file'), async (req: AuthRequest, res: Response) => {
+  if (!req.file) { res.status(400).json({ error: 'file required' }); return; }
+  const db = getDB();
+  const url = `/uploads/deliverables/${req.file.filename}`;
+  const [id] = await db('task_deliverables').insert({
+    task_id: req.params.id,
+    uploaded_by: req.user!.id,
+    type: 'file',
+    name: req.file.originalname,
+    url,
+  });
+  res.json({ id, type: 'file', name: req.file.originalname, url });
+});
+
+router.delete('/:taskId/deliverables/:id', async (req: AuthRequest, res: Response) => {
+  const db = getDB();
+  const row = await db('task_deliverables').where({ id: req.params.id, task_id: req.params.taskId }).first();
+  if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+  if (row.type === 'file') {
+    const fp = path.join(__dirname, '../../', row.url);
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  }
+  await db('task_deliverables').where({ id: req.params.id }).delete();
+  res.json({ ok: true });
 });
 
 export default router;

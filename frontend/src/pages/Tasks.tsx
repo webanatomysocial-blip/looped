@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle } from 'lucide-react';
+import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
@@ -75,6 +75,9 @@ export default function Tasks() {
   const [showTicketDecline, setShowTicketDecline] = useState(false);
   const [doneConfirmTask, setDoneConfirmTask] = useState<Task | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
+  const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
+  const [doneLinkInput, setDoneLinkInput] = useState('');
+  const [doneUploading, setDoneUploading] = useState(false);
   const [capacityWarnings, setCapacityWarnings] = useState<string[]>([]);
 
   const canCreate = user?.role !== 'client';
@@ -332,9 +335,12 @@ export default function Tasks() {
     if (action === 'done' && taskObj) {
       setDoneConfirmTask(taskObj);
       setDoneModalChecklist([]);
+      setDoneDeliverables([]);
+      setDoneLinkInput('');
       try {
-        const full = await tasksApi.get(taskId);
+        const [full, delivs] = await Promise.all([tasksApi.get(taskId), tasksApi.getDeliverables(taskId)]);
         setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+        setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
     }
@@ -360,6 +366,8 @@ export default function Tasks() {
     }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
+    setDoneDeliverables([]);
+    setDoneLinkInput('');
     load();
   };
 
@@ -2255,7 +2263,7 @@ export default function Tasks() {
           <div style={{
             position: 'absolute', inset: 0,
             background: 'rgba(26,26,26,0.4)', backdropFilter: 'blur(3px)',
-          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
+          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); setDoneDeliverables([]); setDoneLinkInput(''); }} />
           <div style={{
             position: 'relative', background: '#fff', borderRadius: 20, padding: 0,
             width: '90%', maxWidth: 460, zIndex: 901,
@@ -2311,6 +2319,67 @@ export default function Tasks() {
               </div>
             )}
 
+            {/* Deliverables */}
+            <div style={{ padding: '12px 24px', borderTop: '1px solid var(--sand-border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 10 }}>
+                Attach Deliverables <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span>
+              </div>
+
+              {/* Existing deliverables */}
+              {doneDeliverables.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: 'var(--bg-sand)', borderRadius: 8, border: '1px solid var(--sand-border)' }}>
+                  {d.type === 'file' ? <Paperclip size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} /> : <Link2 size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />}
+                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--ink)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <ExternalLink size={11} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />
+                  <button onClick={async () => { await tasksApi.deleteDeliverable(doneConfirmTask!.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-muted)' }}><Trash2 size={13} /></button>
+                </div>
+              ))}
+
+              {/* Link input */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input
+                  className="form-input"
+                  placeholder="Paste a link (Google Drive, Figma, URL…)"
+                  value={doneLinkInput}
+                  onChange={e => setDoneLinkInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && doneLinkInput.trim()) {
+                      const res = await tasksApi.addDeliverableLink(doneConfirmTask!.id, doneLinkInput.trim());
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                      setDoneLinkInput('');
+                    }
+                  }}
+                  style={{ flex: 1, fontSize: 12 }}
+                />
+                <button className="btn-secondary" style={{ fontSize: 12, padding: '0 12px', whiteSpace: 'nowrap' }}
+                  onClick={async () => {
+                    if (!doneLinkInput.trim()) return;
+                    const res = await tasksApi.addDeliverableLink(doneConfirmTask!.id, doneLinkInput.trim());
+                    setDoneDeliverables(prev => [...prev, res.data]);
+                    setDoneLinkInput('');
+                  }}>
+                  <Link2 size={12} /> Add Link
+                </button>
+              </div>
+
+              {/* File upload */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)', padding: '6px 10px', border: '1.5px dashed var(--sand-border)', borderRadius: 8, justifyContent: 'center' }}>
+                <Paperclip size={13} />
+                {doneUploading ? 'Uploading…' : 'Upload a file'}
+                <input type="file" style={{ display: 'none' }} disabled={doneUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDoneUploading(true);
+                    try {
+                      const res = await tasksApi.addDeliverableFile(doneConfirmTask!.id, file);
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                    } finally { setDoneUploading(false); e.target.value = ''; }
+                  }}
+                />
+              </label>
+            </div>
+
             {/* Footer */}
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--sand-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {doneModalChecklist.length === 0 || doneModalChecklist.every(i => i.completed) ? (
@@ -2322,7 +2391,7 @@ export default function Tasks() {
                   Mark as done anyway
                 </button>
               )}
-              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
+              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); setDoneDeliverables([]); setDoneLinkInput(''); }}>
                 Go back
               </button>
             </div>
