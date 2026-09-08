@@ -1,7 +1,7 @@
 <title>TaskViewDrawer</title>
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink } from 'lucide-react';
+import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink, Trash2 } from 'lucide-react';
 import { tasksApi, xlr8Api } from '../../services/api';
 
 interface Props {
@@ -27,8 +27,35 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const [task, setTask] = useState<any>(null);
   const [log, setLog]   = useState<any[]>([]);
   const [deliverables, setDeliverables] = useState<any[]>([]);
+  const [linkInput, setLinkInput] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [tab, setTab]   = useState<'info' | 'activity'>('info');
   const [loading, setLoading] = useState(true);
+
+  const addLink = async () => {
+    const url = linkInput.trim();
+    if (!url) return;
+    try {
+      const r = await tasksApi.addDeliverableLink(taskId, url);
+      setDeliverables(prev => [...prev, r.data]);
+      setLinkInput('');
+    } catch {}
+  };
+
+  const addFile = async (file: File) => {
+    setUploading(true);
+    try {
+      const r = await tasksApi.addDeliverableFile(taskId, file);
+      setDeliverables(prev => [...prev, r.data]);
+    } catch {} finally { setUploading(false); }
+  };
+
+  const removeDeliverable = async (id: number) => {
+    try {
+      await tasksApi.deleteDeliverable(taskId, id);
+      setDeliverables(prev => prev.filter(d => d.id !== id));
+    } catch {}
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -169,24 +196,44 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const redoIdx = rejectedStageIdx > currentIdx ? currentIdx : rejectedStageIdx - 1;
                 return (
                   <div>
-                    {/* Deliverables — shown above stage flow so reviewers see them immediately */}
-                    {deliverables.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <div className="drawer-info-label" style={{ marginBottom: 8 }}>Deliverables</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {deliverables.map((d: any) => (
-                            <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
-                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--ink)' }}>
-                              {d.type === 'file'
-                                ? <Paperclip size={13} color="var(--ink-muted)" />
-                                : <Link2 size={13} color="var(--ink-muted)" />}
-                              <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
-                              <ExternalLink size={11} color="var(--ink-muted)" />
-                            </a>
-                          ))}
+                    {/* Deliverables — always visible so reviewer can see / add */}
+                    <div style={{ marginBottom: 20 }}>
+                      <div className="drawer-info-label" style={{ marginBottom: 8 }}>Attachments</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {deliverables.length === 0 && (
+                          <div style={{ fontSize: 12, color: 'var(--ink-muted)', fontStyle: 'italic', padding: '6px 0' }}>No attachments yet</div>
+                        )}
+                        {deliverables.map((d: any) => (
+                          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                            {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
+                            <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                            <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
+                            <button onClick={() => removeDeliverable(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0 }}>
+                              <Trash2 size={11} color="#ef4444" />
+                            </button>
+                          </div>
+                        ))}
+                        {/* Add link */}
+                        <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                          <input
+                            value={linkInput}
+                            onChange={e => setLinkInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') addLink(); }}
+                            placeholder="Paste link (Drive, Figma, URL…)"
+                            style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 12, background: 'var(--surface)', color: 'var(--ink)', outline: 'none' }}
+                          />
+                          <button onClick={addLink} style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink)' }}>+ Link</button>
                         </div>
+                        {/* Upload file */}
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)', padding: '7px 12px', border: '1.5px dashed var(--border)', borderRadius: 8, justifyContent: 'center' }}>
+                          <Paperclip size={13} />
+                          {uploading ? 'Uploading…' : 'Upload a file'}
+                          <input type="file" style={{ display: 'none' }} disabled={uploading}
+                            onChange={async e => { const f = e.target.files?.[0]; if (f) await addFile(f); e.target.value = ''; }}
+                          />
+                        </label>
                       </div>
-                    )}
+                    </div>
                     <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
                     <div style={{ overflowX: 'auto', position: 'relative' }}>
                       <div style={{ width: 'max-content' }}>
@@ -344,6 +391,32 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   <div className="drawer-info-label">Assigned to</div>
                   <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>
                     {task.assignees?.length > 0 ? task.assignees.map((a: any) => a.name).join(', ') : task.assigned_name || '—'}
+                  </div>
+                </div>
+              )}
+
+              {/* Attachments (non-XLR8 tasks) */}
+              {!task.ticket_type_id && (
+                <div>
+                  <div className="drawer-info-label" style={{ marginBottom: 8 }}>Attachments</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {deliverables.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-muted)', fontStyle: 'italic' }}>No attachments yet</div>}
+                    {deliverables.map((d: any) => (
+                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                        {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
+                        <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                        <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
+                        <button onClick={() => removeDeliverable(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}><Trash2 size={11} color="#ef4444" /></button>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                      <input value={linkInput} onChange={e => setLinkInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addLink(); }} placeholder="Paste link…" style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 12, background: 'var(--surface)', color: 'var(--ink)', outline: 'none' }} />
+                      <button onClick={addLink} style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', fontSize: 12, color: 'var(--ink)' }}>+ Link</button>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)', padding: '7px 12px', border: '1.5px dashed var(--border)', borderRadius: 8, justifyContent: 'center' }}>
+                      <Paperclip size={13} />{uploading ? 'Uploading…' : 'Upload a file'}
+                      <input type="file" style={{ display: 'none' }} disabled={uploading} onChange={async e => { const f = e.target.files?.[0]; if (f) await addFile(f); e.target.value = ''; }} />
+                    </label>
                   </div>
                 </div>
               )}
