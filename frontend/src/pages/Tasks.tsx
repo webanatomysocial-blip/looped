@@ -923,7 +923,7 @@ export default function Tasks() {
                     const fmtSec = (s: number) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
 
                     // Build full rejection history from log
-                    type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string };
+                    type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
                     const declineEvents: DeclineEvent[] = [];
                     let trackedIdx = 0;
                     for (const entry of viewLog) {
@@ -933,10 +933,10 @@ export default function Tasks() {
                       } else if (entry.action === 'admin_declined' || entry.action === 'manager_declined') {
                         let pi = trackedIdx - 1;
                         while (pi >= 0 && stages[pi]?.type !== 'employee') pi--;
-                        declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at });
+                        declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
                         trackedIdx = pi >= 0 ? pi : 0;
                       } else if (entry.action === 'employee_declined') {
-                        declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at });
+                        declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
                       }
                     }
 
@@ -1122,7 +1122,8 @@ export default function Tasks() {
                                       <div style={{ width: 18, height: 18, borderRadius: '50%', background: isLast ? '#ef4444' : '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>
                                       <div>
                                         <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
-                                        {atStr && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>{atStr}</span>}
+                                        {ev.actor_name && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>by {ev.actor_name}</span>}
+                                        {atStr && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>· {atStr}</span>}
                                         {ev.comment && <span style={{ color: '#b91c1c', fontStyle: 'italic', marginLeft: 4 }}>— "{ev.comment}"</span>}
                                       </div>
                                     </div>
