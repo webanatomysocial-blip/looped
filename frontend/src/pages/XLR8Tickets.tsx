@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout/Layout';
-import { xlr8Api, projectsApi, categoriesApi } from '../services/api';
+import { xlr8Api, projectsApi, categoriesApi, tasksApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import {
   RiAddLine, RiTimeLine, RiCheckLine, RiUserLine, RiLoader4Line, RiArrowRightLine,
@@ -100,6 +100,10 @@ export default function XLR8Tickets() {
   const [showDecline, setShowDecline] = useState(false);
   const [showEmployeeDecline, setShowEmployeeDecline] = useState(false);
   const [employeeDeclineComment, setEmployeeDeclineComment] = useState('');
+  const [showDoneModal, setShowDoneModal] = useState(false);
+  const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
+  const [doneLinkInput, setDoneLinkInput] = useState('');
+  const [doneUploading, setDoneUploading] = useState(false);
 
   useEffect(() => {
     projectsApi.list().then((r) => {
@@ -173,8 +177,16 @@ export default function XLR8Tickets() {
 
   const markDone = async () => {
     if (!selected) return;
+    setDoneDeliverables([]);
+    setDoneLinkInput('');
+    try { const r = await tasksApi.getDeliverables(selected.id); setDoneDeliverables(r.data || []); } catch {}
+    setShowDoneModal(true);
+  };
+
+  const confirmMarkDone = async () => {
+    if (!selected) return;
     setActionLoading(true);
-    try { await xlr8Api.markDone(selected.id); await refresh(); }
+    try { await xlr8Api.markDone(selected.id); setShowDoneModal(false); await refresh(); }
     finally { setActionLoading(false); }
   };
 
@@ -554,6 +566,83 @@ export default function XLR8Tickets() {
           </div>
         )}
       </div>
+
+      {/* Mark Done modal with deliverables */}
+      {showDoneModal && selected && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '8vh' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(26,26,26,0.4)', backdropFilter: 'blur(3px)' }} onClick={() => setShowDoneModal(false)} />
+          <div style={{ position: 'relative', background: '#fff', borderRadius: 20, width: '90%', maxWidth: 460, zIndex: 901, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', marginBottom: 4 }}>Mark as Done</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{selected.title}</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Have you completed everything for this task?</div>
+            </div>
+
+            {/* Deliverables */}
+            <div style={{ padding: '16px 24px', overflowY: 'auto' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', marginBottom: 10 }}>
+                Attach Deliverables <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span>
+              </div>
+
+              {doneDeliverables.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>{d.type === 'file' ? '📎' : '🔗'}</span>
+                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <button onClick={async () => { await tasksApi.deleteDeliverable(selected.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>×</button>
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input
+                  style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, outline: 'none' }}
+                  placeholder="Paste a link (Google Drive, Figma, URL…)"
+                  value={doneLinkInput}
+                  onChange={e => setDoneLinkInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && doneLinkInput.trim()) {
+                      const res = await tasksApi.addDeliverableLink(selected.id, doneLinkInput.trim());
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                      setDoneLinkInput('');
+                    }
+                  }}
+                />
+                <button onClick={async () => {
+                  if (!doneLinkInput.trim()) return;
+                  const res = await tasksApi.addDeliverableLink(selected.id, doneLinkInput.trim());
+                  setDoneDeliverables(prev => [...prev, res.data]);
+                  setDoneLinkInput('');
+                }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  + Link
+                </button>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#64748b', padding: '8px 12px', border: '1.5px dashed #e2e8f0', borderRadius: 8, justifyContent: 'center' }}>
+                📎 {doneUploading ? 'Uploading…' : 'Upload a file'}
+                <input type="file" style={{ display: 'none' }} disabled={doneUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDoneUploading(true);
+                    try {
+                      const res = await tasksApi.addDeliverableFile(selected.id, file);
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                    } finally { setDoneUploading(false); e.target.value = ''; }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button onClick={confirmMarkDone} disabled={actionLoading} style={{ padding: '10px 0', borderRadius: 10, background: '#16a34a', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 14 }}>
+                {actionLoading ? 'Saving…' : '✓ Yes, mark as done'}
+              </button>
+              <button onClick={() => setShowDoneModal(false)} style={{ padding: '10px 0', borderRadius: 10, background: '#f1f5f9', color: '#1e293b', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

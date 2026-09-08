@@ -795,7 +795,7 @@ export default function Tasks() {
                               <Play size={12} />
                             </button>
                           )}
-                          {task.status === 'in_progress' && (
+                          {(task.status === 'in_progress' || task.xlr8_status === 'in_progress') && (
                             <button className="icon-action" title="Mark done" style={{ background: 'var(--ink)', color: '#fff' }}
                               onClick={() => handleTimer(task.id, 'done', task)}>
                               <Check size={12} />

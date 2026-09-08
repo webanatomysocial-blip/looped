@@ -69,6 +69,9 @@ export default function Home() {
   );
   const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
+  const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
+  const [doneLinkInput, setDoneLinkInput] = useState('');
+  const [doneUploading, setDoneUploading] = useState(false);
   const [viewTask, setViewTask] = useState<any | null>(null);
   const [viewTab, setViewTab] = useState<'info' | 'activity'>('info');
   const [viewLog, setViewLog] = useState<any[]>([]);
@@ -164,9 +167,12 @@ export default function Home() {
     if (action === 'done' && taskObj) {
       setDoneConfirmTask(taskObj);
       setDoneModalChecklist([]);
+      setDoneDeliverables([]);
+      setDoneLinkInput('');
       try {
-        const full = await tasksApi.get(taskId);
+        const [full, delivs] = await Promise.all([tasksApi.get(taskId), tasksApi.getDeliverables(taskId)]);
         setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+        setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
     }
@@ -191,6 +197,8 @@ export default function Home() {
     }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
+    setDoneDeliverables([]);
+    setDoneLinkInput('');
     load();
   };
 
@@ -691,7 +699,7 @@ export default function Home() {
           <div style={{
             position: 'absolute', inset: 0,
             background: 'rgba(26,26,26,0.4)', backdropFilter: 'blur(3px)',
-          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }} />
+          }} onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); setDoneDeliverables([]); setDoneLinkInput(''); }} />
           <div style={{
             position: 'relative', background: '#fff', borderRadius: 20,
             width: '90%', maxWidth: 460, zIndex: 901,
@@ -742,6 +750,56 @@ export default function Home() {
                 ))}
               </div>
             )}
+            {/* Deliverables */}
+            <div style={{ padding: '12px 24px', borderTop: '1px solid #e8e3da' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', marginBottom: 10 }}>
+                Attach Deliverables <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span>
+              </div>
+              {doneDeliverables.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8f7f4', borderRadius: 8, border: '1px solid #e8e3da' }}>
+                  <span style={{ fontSize: 11 }}>{d.type === 'file' ? '📎' : '🔗'}</span>
+                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <button onClick={async () => { await tasksApi.deleteDeliverable(doneConfirmTask!.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 16 }}>×</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #e8e3da', fontSize: 12, outline: 'none' }}
+                  placeholder="Paste a link (Google Drive, Figma, URL…)"
+                  value={doneLinkInput}
+                  onChange={e => setDoneLinkInput(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && doneLinkInput.trim()) {
+                      const res = await tasksApi.addDeliverableLink(doneConfirmTask!.id, doneLinkInput.trim());
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                      setDoneLinkInput('');
+                    }
+                  }}
+                />
+                <button onClick={async () => {
+                  if (!doneLinkInput.trim()) return;
+                  const res = await tasksApi.addDeliverableLink(doneConfirmTask!.id, doneLinkInput.trim());
+                  setDoneDeliverables(prev => [...prev, res.data]);
+                  setDoneLinkInput('');
+                }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #e8e3da', background: '#f8f7f4', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  + Link
+                </button>
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#888', padding: '8px 12px', border: '1.5px dashed #e8e3da', borderRadius: 8, justifyContent: 'center' }}>
+                📎 {doneUploading ? 'Uploading…' : 'Upload a file'}
+                <input type="file" style={{ display: 'none' }} disabled={doneUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDoneUploading(true);
+                    try {
+                      const res = await tasksApi.addDeliverableFile(doneConfirmTask!.id, file);
+                      setDoneDeliverables(prev => [...prev, res.data]);
+                    } finally { setDoneUploading(false); e.target.value = ''; }
+                  }}
+                />
+              </label>
+            </div>
+
             <div style={{ padding: '16px 24px', borderTop: '1px solid #e8e3da', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {doneModalChecklist.length > 0 && !doneModalChecklist.every(i => i.completed) && (
                 <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
@@ -756,7 +814,7 @@ export default function Home() {
               >
                 <Check size={15} /> Yes, mark as complete
               </button>
-              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); }}>
+              <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); setDoneDeliverables([]); setDoneLinkInput(''); }}>
                 Go back
               </button>
             </div>
