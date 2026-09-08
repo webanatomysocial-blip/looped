@@ -4,10 +4,12 @@ import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XC
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
+import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import { useAuth } from '../contexts/AuthContext';
 import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
+
 
 function fmtSeconds(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -72,21 +74,11 @@ export default function Home() {
   const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
   const [doneLinkInput, setDoneLinkInput] = useState('');
   const [doneUploading, setDoneUploading] = useState(false);
-  const [viewTask, setViewTask] = useState<any | null>(null);
-  const [viewTab, setViewTab] = useState<'info' | 'activity'>('info');
-  const [viewLog, setViewLog] = useState<any[]>([]);
+  const [viewTask, setViewTask] = useState<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const openTaskView = async (taskId: number) => {
-    try {
-      const res = await tasksApi.get(taskId);
-      setViewTask(res.data);
-      setViewTab('info');
-      setViewLog([]);
-      if (res.data.ticket_type_id) {
-        try { const r = await xlr8Api.getTicketLog(taskId); setViewLog(r.data); } catch { /* ignore */ }
-      }
-    } catch { /* ignore */ }
+  const openTaskView = (taskId: number) => {
+    setViewTask(taskId);
   };
 
   const isCapacityRole = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
@@ -849,226 +841,7 @@ export default function Home() {
       )}
 
       {/* Task view canvas */}
-      {viewTask && (
-        <div className="drawer-overlay">
-          <div className="drawer-backdrop" onClick={() => setViewTask(null)} />
-          <div className="drawer-panel">
-            <div className="drawer-header">
-              <div className="drawer-header__label">
-                {viewTask.project_name}{viewTask.client_name ? ` · ${viewTask.client_name}` : ''}
-              </div>
-              <div className="drawer-header__row">
-                <span className="drawer-header__title">{viewTask.title}</span>
-                <button type="button" className="drawer-close" onClick={() => setViewTask(null)}>×</button>
-              </div>
-              <div style={{ display: 'flex', marginTop: 14, gap: 0, borderBottom: '1.5px solid var(--bg-sand)', marginBottom: -18 }}>
-                {(['info', 'activity'] as const).map(tab => (
-                  <button key={tab} type="button" onClick={() => setViewTab(tab)} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    padding: '6px 16px 10px',
-                    fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    color: viewTab === tab ? 'var(--ink)' : 'var(--ink-muted)',
-                    borderBottom: viewTab === tab ? '2px solid var(--ink)' : '2px solid transparent',
-                    marginBottom: -1.5,
-                  }}>
-                    {tab === 'info' ? 'Info' : 'Activity Log'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="drawer-body" style={{ overflowY: 'auto' }}>
-              {viewTab === 'info' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                    {[
-                      { label: 'Task Key', value: (() => {
-                        const mon = new Date(viewTask.created_at).toLocaleString('en-US', { month: 'short' }).toUpperCase();
-                        const proj = (viewTask.project_name || '').replace(/\s+/g, '').toUpperCase().slice(0, 8);
-                        return <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{proj}-{viewTask.id}-{mon}</span>;
-                      })() },
-                      { label: 'Status', value: <span className={`badge badge--${viewTask.status}`}>{viewTask.status.replace(/_/g, ' ')}</span> },
-                      { label: 'Due Date', value: viewTask.due_date ? format(new Date(viewTask.due_date), 'MMM d, yyyy') : '—' },
-                      { label: 'Created by', value: viewTask.created_by_name || '—' },
-                    ].map(({ label, value }) => (
-                      <div key={label}>
-                        <div className="drawer-info-label">{label}</div>
-                        <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>{value}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div>
-                    <div className="drawer-info-label">Description</div>
-                    {viewTask.description
-                      ? <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.03)', borderRadius: 8, padding: '12px 14px', marginTop: 6 }}>{viewTask.description}</div>
-                      : <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 4 }}>No description provided.</div>
-                    }
-                  </div>
-
-                  {/* XLR8 Stage Tracker */}
-                  {viewTask.ticket_type_id && viewTask.xlr8_stages?.length > 0 && (() => {
-                    const stages: any[] = viewTask.xlr8_stages;
-                    const stageAssignees: any[] = viewTask.stage_assignees || [];
-                    const stageTracked: any[] = viewTask.stage_tracked || [];
-                    const currentIdx: number = viewTask.xlr8_stage_idx ?? 0;
-                    const isCompleted = viewTask.status === 'completed' || viewTask.xlr8_status === 'completed';
-                    const lastLogEntry = viewLog[viewLog.length - 1];
-                    const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
-                    const fmtSec = (s: number) => { const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const sec = s % 60; return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
-                    return (
-                      <div>
-                        <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                        <div style={{ overflowX: 'auto', paddingBottom: lastWasRejected ? 52 : 4, position: 'relative' }}>
-                        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: '10px', width: 'max-content' }}>
-                          {stages.map((stage: any, i: number) => {
-                            const isReview = stage.type === 'manager' || stage.type === 'admin';
-                            const isRedoTarget = lastWasRejected && i === currentIdx - 1;
-                            const isDone = !isRedoTarget && (isCompleted || i < currentIdx);
-                            const isCurrent = !isCompleted && i === currentIdx;
-                            const isPending = !isCompleted && i > currentIdx;
-                            const stageAssignee = stageAssignees.filter((a: any) => a.stage_idx === i && a.user_id);
-                            const trackedSec = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
-                            const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
-                            const borderColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#e2e8f0';
-                            const bgColor = isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? (lastWasRejected ? 'rgba(239,68,68,0.05)' : 'rgba(59,130,246,0.05)') : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
-                            const dotColor = isDone ? '#22c55e' : isCurrent ? (lastWasRejected ? '#ef4444' : '#3b82f6') : isRedoTarget ? '#f59e0b' : '#cbd5e1';
-                            const showArrow = i < stages.length - 1;
-                            const isRejected = lastWasRejected && isCurrent;
-                            return (
-                              <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
-                                <div style={{ width: 180, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                  <div style={{ position: 'absolute', top: -10, left: 10, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', whiteSpace: 'nowrap' }}>Stage {i + 1}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                                    {isDone      && <CheckCircle2 size={22} color="#22c55e" />}
-                                    {isRejected  && <XCircle      size={22} color="#ef4444" />}
-                                    {isRedoTarget && <RefreshCw   size={22} color="#f59e0b" />}
-                                    {isCurrent && !isRejected && <Circle size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
-                                    {isPending   && <MinusCircle  size={22} color="#cbd5e1" />}
-                                  </div>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
-                                    {label}
-                                    {isReview && (
-                                      <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : '#3b82f6', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>
-                                    )}
-                                  </div>
-                                  <div style={{ flex: 1 }}>
-                                    {stageAssignee.length > 0 ? (
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                        {stageAssignee.map((a: any) => (
-                                          <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)' }}>
-                                            <span style={{ width: 16, height: 16, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                              {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                            </span>
-                                            {a.user_name?.split(' ')[0]}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontStyle: 'italic' }}>TBD</span>}
-                                  </div>
-                                  {(() => {
-                                    const estSec = stageAssignee.reduce((s: number, a: any) => s + (Number(a.est_hours) || 0) * 3600, 0);
-                                    const overSec = trackedSec > 0 && estSec > 0 ? Math.max(0, trackedSec - estSec) : 0;
-                                    return (
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1' }}>
-                                        <Clock size={10} color={trackedSec > 0 ? 'var(--ink-muted)' : '#cbd5e1'} />
-                                        {trackedSec > 0 ? fmtSec(Number(trackedSec)) : '—'} logged
-                                        {overSec > 0 && (
-                                          <span style={{ fontSize: 9, fontWeight: 800, color: '#dc2626', background: 'rgba(220,38,38,0.1)', borderRadius: 99, padding: '1px 5px', marginLeft: 2 }}>
-                                            +{fmtSec(overSec)} over
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })()}
-                                  {isRejected && lastLogEntry?.comment && (
-                                    <div style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 6, padding: '4px 6px', fontStyle: 'italic', lineHeight: 1.4 }}>
-                                      ✕ "{lastLogEntry.comment}"
-                                    </div>
-                                  )}
-                                  {isRejected && !lastLogEntry?.comment && (
-                                    <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>✕ Rejected</div>
-                                  )}
-                                </div>
-                                {showArrow && (
-                                  <div style={{ width: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <svg width="40" height="20" viewBox="0 0 40 20">
-                                      <line x1="0" y1="10" x2="30" y2="10" stroke={isDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={isPending ? '4 3' : 'none'} />
-                                      <polygon points="40,10 28,4 28,16" fill={isDone ? '#22c55e' : '#e2e8f0'} />
-                                    </svg>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {lastWasRejected && currentIdx > 0 && (() => {
-                          const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
-                          const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
-                          const fromX = currentIdx * unitW + cardW / 2;
-                          const toX = (currentIdx - 1) * unitW + cardW / 2;
-                          const midX = (fromX + toX) / 2;
-                          const arcH = 44;
-                          return (
-                            <div style={{ marginTop: 6, position: 'relative', minWidth: totalW }}>
-                              <svg width={totalW} height={arcH} viewBox={`0 0 ${totalW} ${arcH}`} style={{ display: 'block', overflow: 'visible' }}>
-                                <path d={`M ${fromX} 2 Q ${midX} ${arcH} ${toX} 2`} fill="none" stroke="#ef4444" strokeWidth="2" strokeDasharray="5 3" />
-                                <polygon points={`${toX},2 ${toX - 5},14 ${toX + 5},14`} fill="#ef4444" />
-                              </svg>
-                            </div>
-                          );
-                        })()}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {!viewTask.ticket_type_id && (
-                    <div>
-                      <div className="drawer-info-label">Assigned to</div>
-                      <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>{viewTask.assignees?.length > 0 ? viewTask.assignees.map((a: any) => a.name).join(', ') : viewTask.assigned_name || '—'}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {viewTab === 'activity' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {viewLog.length > 0 ? viewLog.map((entry: any, i: number) => {
-                    const actionLabels: Record<string, string> = {
-                      created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted',
-                      employee_declined: 'Declined', work_done: 'Marked done',
-                      manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
-                      next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin',
-                      admin_approved: 'Admin approved', admin_skip_client: 'Completed (client skipped)',
-                      admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
-                    };
-                    const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
-                    return (
-                      <div key={i} style={{
-                        fontSize: 12, padding: '10px 12px', borderRadius: 8,
-                        background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)',
-                        border: `1px solid ${isDanger ? 'rgba(239,68,68,0.18)' : 'rgba(76,175,125,0.18)'}`,
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{actionLabels[entry.action] || entry.action}</span></span>
-                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
-                            {format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}
-                          </span>
-                        </div>
-                        {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}
-                      </div>
-                    );
-                  }) : (
-                    <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic' }}>
-                      {viewTask.ticket_type_id ? 'No workflow history yet.' : 'Activity log is available for XLR8 tickets only.'}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {viewTask && <TaskViewDrawer taskId={viewTask} onClose={() => setViewTask(null)} />}
     </Layout>
   );
 }
