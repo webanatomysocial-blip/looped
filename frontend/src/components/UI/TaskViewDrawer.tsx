@@ -169,6 +169,24 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const redoIdx = rejectedStageIdx > currentIdx ? currentIdx : rejectedStageIdx - 1;
                 return (
                   <div>
+                    {/* Deliverables — shown above stage flow so reviewers see them immediately */}
+                    {deliverables.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div className="drawer-info-label" style={{ marginBottom: 8 }}>Deliverables</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {deliverables.map((d: any) => (
+                            <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--ink)' }}>
+                              {d.type === 'file'
+                                ? <Paperclip size={13} color="var(--ink-muted)" />
+                                : <Link2 size={13} color="var(--ink-muted)" />}
+                              <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                              <ExternalLink size={11} color="var(--ink-muted)" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
                     <div style={{ overflowX: 'auto', position: 'relative' }}>
                       <div style={{ width: 'max-content' }}>
@@ -326,25 +344,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   <div className="drawer-info-label">Assigned to</div>
                   <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>
                     {task.assignees?.length > 0 ? task.assignees.map((a: any) => a.name).join(', ') : task.assigned_name || '—'}
-                  </div>
-                </div>
-              )}
-
-              {/* Deliverables */}
-              {deliverables.length > 0 && (
-                <div>
-                  <div className="drawer-info-label" style={{ marginBottom: 8 }}>Deliverables</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {deliverables.map((d: any) => (
-                      <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--ink)' }}>
-                        {d.type === 'file'
-                          ? <Paperclip size={13} color="var(--ink-muted)" />
-                          : <Link2 size={13} color="var(--ink-muted)" />}
-                        <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
-                        <ExternalLink size={11} color="var(--ink-muted)" />
-                      </a>
-                    ))}
                   </div>
                 </div>
               )}
