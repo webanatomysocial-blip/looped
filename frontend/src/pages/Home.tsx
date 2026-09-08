@@ -190,6 +190,10 @@ export default function Home() {
 
   const confirmDone = async () => {
     if (!doneConfirmTask) return;
+    if (doneLinkInput.trim()) {
+      try { const r = await tasksApi.addDeliverableLink(doneConfirmTask.id, doneLinkInput.trim()); setDoneDeliverables(prev => [...prev, r.data]); } catch {}
+      setDoneLinkInput('');
+    }
     if (doneConfirmTask.ticket_type_id) {
       await xlr8Api.markDone(doneConfirmTask.id);
     } else {

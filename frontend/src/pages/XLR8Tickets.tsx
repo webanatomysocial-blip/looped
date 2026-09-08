@@ -189,6 +189,10 @@ export default function XLR8Tickets() {
 
   const confirmMarkDone = async () => {
     if (!selected) return;
+    if (doneLinkInput.trim()) {
+      try { const r = await tasksApi.addDeliverableLink(selected.id, doneLinkInput.trim()); setDoneDeliverables(prev => [...prev, r.data]); } catch {}
+      setDoneLinkInput('');
+    }
     setActionLoading(true);
     try { await xlr8Api.markDone(selected.id); setShowDoneModal(false); await refresh(); }
     finally { setActionLoading(false); }

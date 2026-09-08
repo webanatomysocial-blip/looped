@@ -358,8 +358,12 @@ export default function Tasks() {
 
   const confirmDone = async () => {
     if (!doneConfirmTask) return;
+    // Auto-save any link the user typed but forgot to click + Link
+    if (doneLinkInput.trim()) {
+      try { const r = await tasksApi.addDeliverableLink(doneConfirmTask.id, doneLinkInput.trim()); setDoneDeliverables(prev => [...prev, r.data]); } catch {}
+      setDoneLinkInput('');
+    }
     if (doneConfirmTask.ticket_type_id) {
-      // XLR8 ticket: close timer + log time + submit to approvals + advance XLR8 workflow
       await xlr8Api.markDone(doneConfirmTask.id);
     } else {
       await tasksApi.timer(doneConfirmTask.id, 'done');
