@@ -924,6 +924,7 @@ export default function Tasks() {
 
                     // Build full rejection history from log
                     type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
+                    const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : 'employee';
                     const declineEvents: DeclineEvent[] = [];
                     let trackedIdx = 0;
                     for (const entry of viewLog) {
@@ -932,7 +933,7 @@ export default function Tasks() {
                         if (m2) trackedIdx = Number(m2[1]) - 1;
                       } else if (entry.action === 'admin_declined' || entry.action === 'manager_declined') {
                         let pi = trackedIdx - 1;
-                        while (pi >= 0 && stages[pi]?.type !== 'employee') pi--;
+                        while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
                         declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
                         trackedIdx = pi >= 0 ? pi : 0;
                       } else if (entry.action === 'employee_declined') {
