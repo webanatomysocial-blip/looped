@@ -187,8 +187,11 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const checklist = await db('task_checklist').where({ task_id: req.params.id });
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
+      .leftJoin(db('task_sessions').where('ended_at', null).select('user_id', 'task_id').as('ts'), function() {
+        this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id');
+      })
       .where({ 'ta.task_id': req.params.id })
-      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color');
+      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
     // Tracked seconds per stage (derived from started_at/ended_at in task_sessions)
     const isProd = process.env.NODE_ENV === 'production';
     const secSQL = isProd

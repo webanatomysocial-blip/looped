@@ -270,14 +270,25 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                                 <div style={{ flex: 1 }}>
                                   {stageAssignee.length > 0 ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                      {stageAssignee.map((a: any) => (
-                                        <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)' }}>
-                                          <span style={{ width: 16, height: 16, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                            {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                      {stageAssignee.map((a: any) => {
+                                        const status = a.is_active ? 'working' : (a.acceptance_status || 'pending');
+                                        const pill: Record<string, { label: string; bg: string; color: string }> = {
+                                          working:  { label: 'Working', bg: 'rgba(59,130,246,0.12)', color: '#2563eb' },
+                                          accepted: { label: 'Accepted', bg: 'rgba(34,197,94,0.12)', color: '#16a34a' },
+                                          declined: { label: 'Declined', bg: 'rgba(239,68,68,0.12)', color: '#dc2626' },
+                                          pending:  { label: 'Not yet accepted', bg: 'rgba(148,163,184,0.15)', color: '#64748b' },
+                                        };
+                                        const p = pill[status] || pill.pending;
+                                        return (
+                                          <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', flexWrap: 'wrap' }}>
+                                            <span style={{ width: 16, height: 16, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                                              {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                            </span>
+                                            {a.user_name?.split(' ')[0]}
+                                            <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>
                                           </span>
-                                          {a.user_name?.split(' ')[0]}
-                                        </span>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   ) : <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontStyle: 'italic' }}>TBD</span>}
                                 </div>
