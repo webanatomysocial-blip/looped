@@ -674,23 +674,23 @@ ${manual.gmb_locations.map((loc) => {
 <title>SEO &amp; Social Analytics Report — ${clientName}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #f1f5f9; padding: 32px 36px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1a1a1a; background: #f1f5f9; padding: 20px 24px; }
   h1 { font-size: 22px; font-weight: 800; color: #ffffff; }
-  h2 { font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 12px; margin-top: 24px; text-transform: uppercase; letter-spacing: 0.05em; }
+  h2 { font-size: 11px; font-weight: 700; color: #1e293b; margin-bottom: 8px; margin-top: 14px; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .meta { font-size: 12px; color: #94a3b8; margin-top: 4px; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 10px; margin-bottom: 20px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: 10px; margin-bottom: 12px; }
   .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; }
   .card-val { font-size: 20px; font-weight: 800; color: #0f172a; }
   .card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .mini-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .mini-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
   .mini-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; min-width: 110px; }
   .mini-card-val { font-size: 15px; font-weight: 800; color: #0f172a; }
   .mini-card-label { font-size: 10px; font-weight: 600; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.04em; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th { text-align: left; font-size: 10px; font-weight: 700; color: #64748b; padding: 8px 12px; background: #f1f5f9; text-transform: uppercase; letter-spacing: 0.05em; }
   th:not(:first-child) { text-align: left; }
-  .section { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; page-break-inside: avoid; background: #fff; }
-  .section-inner { padding: 14px 20px; }
+  .section { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 12px; page-break-inside: avoid; background: #fff; }
+  .section-inner { padding: 12px 16px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .badge { display: inline-block; background: #dcfce7; color: #166534; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
   svg { display: block; max-width: 100%; height: auto; }
@@ -712,9 +712,9 @@ ${manual.gmb_locations.map((loc) => {
 </style>
 </head><body>
 
-<div style="background:#1d2033;border-radius:14px;padding:22px 26px;margin-bottom:24px;color:#fff;display:flex;align-items:center;justify-content:space-between;page-break-inside:avoid;box-shadow:0 4px 16px rgba(0,0,0,0.12)">
+<div style="background:#1d2033;border-radius:14px;padding:16px 20px;margin-bottom:14px;color:#fff;display:flex;align-items:center;justify-content:space-between;page-break-inside:avoid;box-shadow:0 4px 16px rgba(0,0,0,0.12)">
   <div>
-    <h1 style="font-size:22px;font-weight:700;color:#ffffff;margin:0 0 4px">${clientName} — ${rangeLabel}</h1>
+    <h1 style="font-size:16px;font-weight:700;color:#ffffff;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${clientName} — ${rangeLabel}</h1>
     <p style="font-size:12px;color:#94a3b8;margin:0">Generated ${dateStr} · ${agencyName || 'Loooped'} Report Module</p>
   </div>
   <div style="display:flex;align-items:center;gap:16px">
