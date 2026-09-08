@@ -391,16 +391,21 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     }
 
     // Recurring instances for the week (always due_date based — no scheduling needed)
-    const recurringTemplates = await db('recurring_tasks as rt')
+    let recurringQuery = db('recurring_tasks as rt')
       .leftJoin('projects as p', 'rt.project_id', 'p.id')
+      .leftJoin('users as u', 'rt.assigned_to', 'u.id')
       .where('rt.active', true)
-      .where('rt.assigned_to', user.id)
       .where('rt.start_date', '<=', weekEnd)
       .where(function () { this.whereNull('rt.end_date').orWhere('rt.end_date', '>=', weekStart); })
-      .select('rt.*', 'p.name as project_name');
+      .select('rt.*', 'p.name as project_name', 'u.name as assigned_to_name');
+    if (user.role !== 'admin' && user.role !== 'manager') {
+      recurringQuery = recurringQuery.where('rt.assigned_to', user.id);
+    }
+    const recurringTemplates = await recurringQuery;
 
     const recurring: any[] = [];
     for (const rt of recurringTemplates) {
+      const isOwn = rt.assigned_to === user.id;
       const rdaysList = rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [];
       for (const dateStr of days) {
         const dow = new Date(dateStr + 'T00:00:00').getDay();
@@ -409,7 +414,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         else if (rt.recurrence_type === 'weekly') occurs = rdaysList.includes(dow);
         else if (rt.recurrence_type === 'monthly') { const d = parseInt(dateStr.slice(8)); occurs = rt.day_of_month ? d === rt.day_of_month : d === 1; }
         if (!occurs || dateStr < rt.start_date || (rt.end_date && dateStr > rt.end_date)) continue;
-        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, event_type: 'recurring', tracked_seconds: 0 });
+        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, assigned_to_name: rt.assigned_to_name, event_type: 'recurring', tracked_seconds: 0, is_overview: !isOwn });
       }
     }
 
@@ -434,6 +439,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     // For employees: if no slots exist this week, trigger scheduler then re-fetch
     if (user.role !== 'admin' && user.role !== 'manager' && slotRowsRaw.length === 0) {
       try {
+        
         const { scheduleUser } = await import('../services/scheduler');
         await scheduleUser(user.id, db);
         const refetched = await db('task_schedule_slots as s')

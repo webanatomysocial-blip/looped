@@ -145,6 +145,12 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
         {tracked > 0 && (
           <span style={{ fontSize: 9, color: '#22c55e', fontWeight: 700 }}>· {fmtSec(tracked)}</span>
         )}
+        {task.is_overview && task.assigned_to_name && (
+          <span style={{ fontSize: 9, color: '#818cf8', fontWeight: 700 }}>· {task.assigned_to_name}</span>
+        )}
+        {task.is_overview && !task.assigned_to_name && task.assigned_name && (
+          <span style={{ fontSize: 9, color: 'var(--ink-muted)', fontWeight: 700 }}>· {task.assigned_name}</span>
+        )}
       </div>
     </div>
   );
@@ -267,15 +273,13 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
         // Compute start times. Pinned tasks (custom_start_hour / local overrides) use their pinned time;
         // unpinned tasks stack from 9am in priority order.
         const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
-        const dayOverview: Record<string, any[]> = {};
         for (const day of data.days) {
           let cursor = GRID_START;
           dayBlocks[day] = [];
-          dayOverview[day] = [];
           const pinnedTasks: { task: any; startH: number; endH: number }[] = [];
           const freeTasks: any[] = [];
           for (const task of (data.byDay[day] || [])) {
-            if (task.is_overview) { dayOverview[day].push(task); continue; }
+            if (task.is_overview) { freeTasks.push(task); continue; } // overview tasks stack in grid too
             const slotId = task.slot_id;
             const pinnedH = slotId != null ? (pinned[slotId] ?? task.custom_start_hour ?? null) : null;
             if (pinnedH != null) {
@@ -310,23 +314,6 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
                     <div style={{ fontSize: 11, fontWeight: 800, color: isToday ? 'rgba(255,255,255,0.7)' : 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{DAY_LABELS[i]}</div>
                     <div style={{ fontSize: 20, fontWeight: 800, color: isToday ? '#fff' : 'var(--ink)', lineHeight: 1.2 }}>{d.getDate()}</div>
                     <CapacityBar tasks={data.byDay[day] || []} showOver={!isOverview} />
-                    {/* Overview chips in header (admin/manager) — keeps them out of time grid */}
-                    {(dayOverview[day] || []).length > 0 && (
-                      <div style={{ padding: '4px 4px 2px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        {(dayOverview[day] || []).map((task: any, j: number) => {
-                          const pc = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
-                          return (
-                            <div key={`ov-${task.id || j}`} onClick={() => task.id && onTaskClick(task.id)} style={{
-                              background: pc.bg, border: `1px solid ${pc.border}`, borderRadius: 4,
-                              padding: '1px 5px', cursor: 'pointer', height: 18,
-                              display: 'flex', alignItems: 'center', overflow: 'hidden',
-                            }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', textAlign: 'left' }}>{task.title}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                 );
               })}
