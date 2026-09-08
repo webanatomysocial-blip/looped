@@ -4,7 +4,7 @@ import { xlr8Api, projectsApi, categoriesApi, tasksApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import {
   RiAddLine, RiTimeLine, RiCheckLine, RiUserLine, RiLoader4Line, RiArrowRightLine,
-  RiCloseLine, RiCheckboxCircleLine,
+  RiCloseLine, RiCheckboxCircleLine, RiAttachmentLine, RiLinkM, RiExternalLinkLine,
 } from 'react-icons/ri';
 
 interface Stage { category_id: number; category_name: string }
@@ -101,6 +101,7 @@ export default function XLR8Tickets() {
   const [showEmployeeDecline, setShowEmployeeDecline] = useState(false);
   const [employeeDeclineComment, setEmployeeDeclineComment] = useState('');
   const [showDoneModal, setShowDoneModal] = useState(false);
+  const [selectedDeliverables, setSelectedDeliverables] = useState<any[]>([]);
   const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
   const [doneLinkInput, setDoneLinkInput] = useState('');
   const [doneUploading, setDoneUploading] = useState(false);
@@ -128,8 +129,10 @@ export default function XLR8Tickets() {
 
   const openTicket = async (t: Ticket) => {
     setSelected(t); setEligible(null); setShowDecline(false); setDeclineComment(''); setShowEmployeeDecline(false); setEmployeeDeclineComment('');
+    setSelectedDeliverables([]);
     setLogLoading(true);
     xlr8Api.getTicketLog(t.id).then((r) => { setLog(r.data); setLogLoading(false); });
+    tasksApi.getDeliverables(t.id).then((r) => setSelectedDeliverables(r.data || [])).catch(() => {});
   };
 
   const refresh = async () => {
@@ -139,6 +142,7 @@ export default function XLR8Tickets() {
       setSelected(r.data);
       const lr = await xlr8Api.getTicketLog(selected.id);
       setLog(lr.data);
+      tasksApi.getDeliverables(selected.id).then((dr) => setSelectedDeliverables(dr.data || [])).catch(() => {});
     }
   };
 
@@ -481,6 +485,25 @@ export default function XLR8Tickets() {
                       <button className="btn-primary" onClick={decline} disabled={actionLoading} style={{ fontSize: 12, background: 'var(--red)', borderColor: 'var(--red)' }}>
                         Decline
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Deliverables */}
+                {selectedDeliverables.length > 0 && (
+                  <div style={{ marginTop: 16 }}>
+                    <p style={{ fontSize: 11, color: 'var(--ink-muted)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deliverables</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {selectedDeliverables.map((d: any) => (
+                        <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--ink)' }}>
+                          {d.type === 'file'
+                            ? <RiAttachmentLine style={{ fontSize: 13, color: 'var(--ink-muted)', flexShrink: 0 }} />
+                            : <RiLinkM style={{ fontSize: 13, color: 'var(--ink-muted)', flexShrink: 0 }} />}
+                          <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                          <RiExternalLinkLine style={{ fontSize: 11, color: 'var(--ink-muted)', flexShrink: 0 }} />
+                        </a>
+                      ))}
                     </div>
                   </div>
                 )}

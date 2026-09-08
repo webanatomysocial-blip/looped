@@ -1,7 +1,7 @@
 <title>TaskViewDrawer</title>
 import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink } from 'lucide-react';
 import { tasksApi, xlr8Api } from '../../services/api';
 
 interface Props {
@@ -26,6 +26,7 @@ function fmtSec(s: number) {
 export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const [task, setTask] = useState<any>(null);
   const [log, setLog]   = useState<any[]>([]);
+  const [deliverables, setDeliverables] = useState<any[]>([]);
   const [tab, setTab]   = useState<'info' | 'activity'>('info');
   const [loading, setLoading] = useState(true);
 
@@ -33,6 +34,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
     setLoading(true);
     setTask(null);
     setLog([]);
+    setDeliverables([]);
     setTab('info');
     tasksApi.get(taskId)
       .then(r => {
@@ -40,6 +42,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
         if (r.data.ticket_type_id) {
           xlr8Api.getTicketLog(taskId).then(lr => setLog(lr.data)).catch(() => {});
         }
+        tasksApi.getDeliverables(taskId).then(dr => setDeliverables(dr.data || [])).catch(() => {});
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -323,6 +326,25 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   <div className="drawer-info-label">Assigned to</div>
                   <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 2 }}>
                     {task.assignees?.length > 0 ? task.assignees.map((a: any) => a.name).join(', ') : task.assigned_name || '—'}
+                  </div>
+                </div>
+              )}
+
+              {/* Deliverables */}
+              {deliverables.length > 0 && (
+                <div>
+                  <div className="drawer-info-label" style={{ marginBottom: 8 }}>Deliverables</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {deliverables.map((d: any) => (
+                      <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', textDecoration: 'none', color: 'var(--ink)' }}>
+                        {d.type === 'file'
+                          ? <Paperclip size={13} color="var(--ink-muted)" />
+                          : <Link2 size={13} color="var(--ink-muted)" />}
+                        <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                        <ExternalLink size={11} color="var(--ink-muted)" />
+                      </a>
+                    ))}
                   </div>
                 </div>
               )}
