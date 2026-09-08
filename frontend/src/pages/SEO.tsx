@@ -242,12 +242,16 @@ function downloadPDF(
     ['Engagement Rate', `${eng.engagementRate}%`            + cmpBadge(eng.engagementRate, prev?.engagementRate)],
   ];
 
-  const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => `
-    <tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
+  const acqRows = report.acquisition.filter((r) => selectedAcquisitions.has(r.channel)).map((r, i) => {
+    const p = (report as any).prevAcquisition?.find((x: any) => x.channel === r.channel);
+    const ds = cmpBadge(r.sessions, p?.sessions);
+    const du = cmpBadge(r.users, p?.users);
+    return `<tr style="background:${i % 2 === 0 ? '#f9f9f9' : '#fff'}">
       <td style="padding:8px 12px;font-weight:600">${r.channel}</td>
-      <td style="padding:8px 12px;text-align:left">${r.sessions.toLocaleString()}</td>
-      <td style="padding:8px 12px;text-align:left">${r.users.toLocaleString()}</td>
-    </tr>`).join('');
+      <td style="padding:8px 12px;text-align:left">${r.sessions.toLocaleString()}${ds}</td>
+      <td style="padding:8px 12px;text-align:left">${r.users.toLocaleString()}${du}</td>
+    </tr>`;
+  }).join('');
 
   const showCountryCol = demoCountry === 'all';
   const demoRows = report.demographics.filter((r) => selectedDemographics.has(r.city)).map((r: any, i) => `
