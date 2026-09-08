@@ -927,15 +927,30 @@ export default function Tasks() {
                     const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : 'employee';
                     const declineEvents: DeclineEvent[] = [];
                     let trackedIdx = 0;
+                    let lastAdminIdx = -1;
+                    let lastManagerIdx = -1;
                     for (const entry of viewLog) {
                       if (entry.action === 'next_stage') {
                         const m2 = (entry.comment ?? '').match(/^Stage (\d+):/);
-                        if (m2) trackedIdx = Number(m2[1]) - 1;
-                      } else if (entry.action === 'admin_declined' || entry.action === 'manager_declined') {
-                        let pi = trackedIdx - 1;
+                        if (m2) {
+                          trackedIdx = Number(m2[1]) - 1;
+                          if ((entry.comment ?? '').includes('Admin Review')) lastAdminIdx = trackedIdx;
+                          else if ((entry.comment ?? '').includes('Manager Review')) lastManagerIdx = trackedIdx;
+                        }
+                      } else if (entry.action === 'admin_declined') {
+                        const fromIdx = lastAdminIdx >= 0 ? lastAdminIdx : trackedIdx;
+                        let pi = fromIdx - 1;
                         while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
-                        declineEvents.push({ fromIdx: trackedIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
+                        declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
                         trackedIdx = pi >= 0 ? pi : 0;
+                        lastAdminIdx = -1;
+                      } else if (entry.action === 'manager_declined') {
+                        const fromIdx = lastManagerIdx >= 0 ? lastManagerIdx : trackedIdx;
+                        let pi = fromIdx - 1;
+                        while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
+                        declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
+                        trackedIdx = pi >= 0 ? pi : 0;
+                        lastManagerIdx = -1;
                       } else if (entry.action === 'employee_declined') {
                         declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
                       }
