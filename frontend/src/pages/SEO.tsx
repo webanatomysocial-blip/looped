@@ -712,26 +712,16 @@ ${manual.gmb_locations.map((loc) => {
 </style>
 </head><body>
 
-<div style="background:#1d2033;border-radius:14px;padding:16px 20px;margin-bottom:14px;color:#fff;display:flex;align-items:center;justify-content:space-between;page-break-inside:avoid;box-shadow:0 4px 16px rgba(0,0,0,0.12)">
+<div style="background:#1d2033;border-radius:14px;padding:22px 26px;margin-bottom:24px;color:#fff;display:flex;align-items:center;justify-content:space-between;page-break-inside:avoid;">
   <div>
-    <h1 style="font-size:16px;font-weight:700;color:#ffffff;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${clientName} — ${rangeLabel}</h1>
-    <p style="font-size:12px;color:#94a3b8;margin:0">Generated ${dateStr} · ${agencyName || 'Loooped'} Report Module</p>
+    <h1 style="font-size:20px;font-weight:700;color:#ffffff;margin:0 0 4px;">${clientName} — Analytics Report</h1>
+    <p style="font-size:12px;color:#94a3b8;margin:0;">Powered by ${agencyName || 'webanatomy'}</p>
   </div>
-  <div style="display:flex;align-items:center;gap:16px">
-    <div style="position:relative;width:64px;height:64px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-      <svg width="64" height="64" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r="26" fill="none" stroke="#2e344e" stroke-width="5"/>
-        <circle cx="32" cy="32" r="26" fill="none" stroke="#22c55e" stroke-width="5"
-          stroke-dasharray="${(2 * Math.PI * 26 * (manual.health_score ?? 76)) / 100} ${2 * Math.PI * 26}"
-          stroke-dashoffset="0" stroke-linecap="round" transform="rotate(-90 32 32)"/>
-      </svg>
-      <div style="position:absolute;text-align:center">
-        <span style="font-size:17px;font-weight:800;color:#ffffff;display:block;line-height:1">${manual.health_score ?? 76}</span>
-        <span style="font-size:7px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;display:block;margin-top:2px">HEALTH</span>
-      </div>
-    </div>
-    <div style="max-width:180px;font-size:11px;color:#cbd5e1;line-height:1.4">${manual.health_label || 'Weighted for a balanced goal, vs target'}</div>
-  </div>
+  ${manual.health_score != null ? `<div style="text-align:center;">
+    <div style="font-size:28px;font-weight:800;color:#22c55e;">${manual.health_score}</div>
+    <div style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Health Score</div>
+    ${manual.health_label ? `<div style="font-size:11px;color:#64748b;margin-top:4px;max-width:180px;">${manual.health_label}</div>` : ''}
+  </div>` : ''}
 </div>
 
 ${execHtml}
