@@ -925,21 +925,22 @@ export default function Tasks() {
                 {/* Description */}
                 <div className="drawer-section">
                   <div className="drawer-section-title">Description</div>
-                  <textarea
-                    className="form-input"
-                    style={{ resize: 'none', fontSize: 13 }}
-                    rows={3}
-                    placeholder="Add a description…"
-                    value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  />
-                  {/https?:\/\/[^\s]+/.test(form.description) && (
-                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {form.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
-                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
-                      ))}
-                    </div>
-                  )}
+                  <div className="form-input" style={{ padding: 0, overflow: 'hidden' }}>
+                    <textarea
+                      style={{ resize: 'none', fontSize: 13, width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: '8px 10px', display: 'block', boxSizing: 'border-box' }}
+                      rows={3}
+                      placeholder="Add a description…"
+                      value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    />
+                    {/https?:\/\/[^\s]+/.test(form.description) && (
+                      <div style={{ padding: '0 10px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, borderTop: '1px solid var(--sand-border)' }}>
+                        {form.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* XLR8 Stages panel — shown when a ticket type is selected */}
@@ -1567,21 +1568,22 @@ export default function Tasks() {
                 {/* Description */}
                 <div className="drawer-section">
                   <div className="drawer-section-title">Description</div>
-                  <textarea
-                    className="form-input"
-                    style={{ resize: 'none', fontSize: 13 }}
-                    rows={3}
-                    placeholder="Add a description…"
-                    value={editForm.description}
-                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                  />
-                  {/https?:\/\/[^\s]+/.test(editForm.description) && (
-                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {editForm.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
-                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
-                      ))}
-                    </div>
-                  )}
+                  <div className="form-input" style={{ padding: 0, overflow: 'hidden' }}>
+                    <textarea
+                      style={{ resize: 'none', fontSize: 13, width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: '8px 10px', display: 'block', boxSizing: 'border-box' }}
+                      rows={3}
+                      placeholder="Add a description…"
+                      value={editForm.description}
+                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    />
+                    {/https?:\/\/[^\s]+/.test(editForm.description) && (
+                      <div style={{ padding: '0 10px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, borderTop: '1px solid var(--sand-border)' }}>
+                        {editForm.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Checklist */}
