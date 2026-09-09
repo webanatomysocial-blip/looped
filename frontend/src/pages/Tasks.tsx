@@ -986,7 +986,7 @@ export default function Tasks() {
                     const isReviewStageType = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
                     const reviewCount = tt.stages.filter(isReviewStageType).length;
                     const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageType(tt.stages[i]));
-                    const empTotal = totalMin - reviewCount * REVIEW_MIN;
+                    const empTotal = Math.floor(totalMin * 0.8) - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
                     const empRem = empCount > 0 ? empTotal % empCount : 0;
@@ -1651,7 +1651,7 @@ export default function Tasks() {
                     const isReviewStageTypeE = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
                     const reviewCount = tt.stages.filter(isReviewStageTypeE).length;
                     const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageTypeE(tt.stages[i]));
-                    const empTotal = totalMinE - reviewCount * REVIEW_MIN;
+                    const empTotal = Math.floor(totalMinE * 0.8) - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
                     const empRem = empCount > 0 ? empTotal % empCount : 0;
