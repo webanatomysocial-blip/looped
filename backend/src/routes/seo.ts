@@ -427,6 +427,7 @@ router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       health_label:        row.health_label        || 'Weighted for a balanced goal, vs target',
       flags_risks:         row.flags_risks         || '',
       seo_authority:       row.seo_authority       ? JSON.parse(row.seo_authority) : {},
+      hour_utilization:    row.hour_utilization    ? JSON.parse(row.hour_utilization) : [],
     });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -445,7 +446,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     }
-    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers, gmb_locations, executive_summary, sig_change_whys, last_period_plan, best_performing_asset, next_period_plan, period_targets, meta_organic, linkedin_organic, performance_marketing, health_score, health_label, flags_risks, seo_authority } = req.body;
+    const { keyword_rankings, targets, key_insights, linkedin_data, social_media_data, organic_form_data, gmb_rating, gmb_reviews, gmb_profile_url, gmb_overview, gmb_calls, gmb_bookings, gmb_website_clicks, linkedin_url, linkedin_followers, gmb_locations, executive_summary, sig_change_whys, last_period_plan, best_performing_asset, next_period_plan, period_targets, meta_organic, linkedin_organic, performance_marketing, health_score, health_label, flags_risks, seo_authority, hour_utilization } = req.body;
     const payload = {
       keyword_rankings:    keyword_rankings   !== undefined ? JSON.stringify(keyword_rankings)   : undefined,
       targets:             targets            !== undefined ? JSON.stringify(targets)            : undefined,
@@ -476,6 +477,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       health_label:        health_label        !== undefined ? health_label                        : undefined,
       flags_risks:         flags_risks         !== undefined ? (flags_risks || null)               : undefined,
       seo_authority:       seo_authority       !== undefined ? JSON.stringify(seo_authority)       : undefined,
+      hour_utilization:    hour_utilization    !== undefined ? JSON.stringify(hour_utilization)    : undefined,
       updated_at:          new Date(),
     };
     const existing = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
@@ -577,6 +579,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       health_score:        manual.health_score          ?? 76,
       health_label:        manual.health_label          || '',
       flags_risks:         manual.flags_risks           || '',
+      hour_utilization:    jp(manual.hour_utilization, []),
       gmb_rating: manual.gmb_rating, gmb_reviews: manual.gmb_reviews, gmb_profile_url: manual.gmb_profile_url,
       gmb_overview: manual.gmb_overview || '', gmb_calls: manual.gmb_calls, gmb_bookings: manual.gmb_bookings,
       gmb_website_clicks: manual.gmb_website_clicks, linkedin_url: manual.linkedin_url, linkedin_followers: manual.linkedin_followers,

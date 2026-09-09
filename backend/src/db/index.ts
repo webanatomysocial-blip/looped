@@ -292,6 +292,10 @@ async function createSchema(): Promise<void> {
       if (!hasSeoAuthority) {
         await db.schema.table('seo_manual_data', (t) => { t.text('seo_authority').nullable(); });
       }
+      const hasHourUtil = await db.schema.hasColumn('seo_manual_data', 'hour_utilization');
+      if (!hasHourUtil) {
+        await db.schema.table('seo_manual_data', (t) => { t.text('hour_utilization').nullable(); });
+      }
     }
   });
 
