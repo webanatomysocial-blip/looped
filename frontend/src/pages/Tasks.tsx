@@ -916,7 +916,7 @@ export default function Tasks() {
                         <div className="drawer-info-label">Ticket Type *</div>
                         <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => {
                           const tt = ticketTypes.find(t => String(t.id) === e.target.value);
-                          const checklist = tt?.checklist?.length ? tt.checklist.map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
+                          const checklist = tt?.checklist?.filter((i: any) => i.text?.trim()).length ? tt.checklist.filter((i: any) => i.text?.trim()).map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
                           setStageAssignments({});
                           setForm({ ...form, ticket_type_id: e.target.value, checklist });
                         }} required>
