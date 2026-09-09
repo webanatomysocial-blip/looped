@@ -82,12 +82,12 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         this.on('ta_est.task_id', 't.id').on('ta_est.stage_idx', 't.xlr8_stage_idx');
       })
       .where('t.xlr8_assignee_id', userId)
-      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
+      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress', 'pending_manager'])
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
-        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' ELSE 'accepted' END as acceptance_status"),
+        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' WHEN t.xlr8_status = 'pending_manager' THEN 'review' ELSE 'accepted' END as acceptance_status"),
         db.raw("'employee' as assignee_role"),
         db.raw('MIN(ta_est.est_hours) as stage_est_hours')
       )
@@ -132,7 +132,19 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('ts.task_id', assignedTaskIds.length ? assignedTaskIds : [0])
       .whereNotIn('ts.task_id', xlr8Ids.size ? [...xlr8Ids] : [0])
       .whereNotIn('t.status', ['completed'])
-      .where(function () { this.whereNull('t.ticket_type_id').orWhereIn('t.xlr8_status', ['pending_assignee', 'in_progress']); })
+      .where(function () {
+        this.whereNull('t.ticket_type_id').orWhere(function () {
+          this.whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
+            // exclude XLR8 tasks where this user's stage is already past (they already did their work)
+            .whereNotExists(function () {
+              this.from('task_assignees as ta2')
+                .whereRaw('ta2.task_id = ts.task_id')
+                .where('ta2.user_id', userId)
+                .whereNotNull('ta2.stage_idx')
+                .whereRaw('ta2.stage_idx < t.xlr8_stage_idx');
+            });
+        });
+      })
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name',

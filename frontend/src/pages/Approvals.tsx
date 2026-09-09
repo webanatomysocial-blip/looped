@@ -228,6 +228,8 @@ export default function Approvals() {
       if (user.role === 'manager') return live === 'pending_manager';
       if (user.role === 'admin')   return live === 'pending_admin';
       if (user.role === 'client')  return live === 'pending_client';
+      // Reviewer-stage employee: can act when it's their turn as the xlr8_assignee
+      if (user.role === 'employee') return live === 'pending_manager' && (a as any).xlr8_assignee_id === user.id;
       return false;
     }
     // Custom sequential flow

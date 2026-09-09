@@ -77,6 +77,7 @@ export default function Home() {
   const [doneUploading, setDoneUploading] = useState(false);
   const [viewTask, setViewTask] = useState<number | null>(null);
   const [declinedStages, setDeclinedStages] = useState<any[]>([]);
+  const [reviewDeliverables, setReviewDeliverables] = useState<Record<number, { deliverables: any[]; checklist: any[] }>>({});
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const openTaskView = (taskId: number) => {
@@ -174,7 +175,7 @@ export default function Home() {
       setDoneLinkInput('');
       try {
         const [full, delivs] = await Promise.all([tasksApi.get(taskId), tasksApi.getDeliverables(taskId)]);
-        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.text?.trim()).map((i: any) => ({ ...i, completed: false })));
         setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
@@ -413,6 +414,59 @@ export default function Home() {
               </div>
             </div>
           );
+        })()}
+
+        {/* Reviewer stage alert — for employees assigned as stage reviewers */}
+        {user?.role === 'employee' && (() => {
+          const reviewTasks = (data?.tasks ?? []).filter((t: any) => t.acceptance_status === 'review');
+          if (reviewTasks.length === 0) return null;
+          return reviewTasks.map((task: any) => {
+            const reviewData = reviewDeliverables[task.id];
+            if (!reviewData) {
+              Promise.all([tasksApi.getDeliverables(task.id), tasksApi.get(task.id)])
+                .then(([dr, tr]) => setReviewDeliverables(prev => ({ ...prev, [task.id]: { deliverables: dr.data, checklist: tr.data.checklist || [] } })))
+                .catch(() => {});
+            }
+            const delivs = reviewData?.deliverables || [];
+            const links = delivs.filter((d: any) => d.type === 'link');
+            const files = delivs.filter((d: any) => d.type === 'file');
+            const checklist = reviewData?.checklist || [];
+            return (
+              <div key={task.id} style={{ background: 'rgba(59,130,246,0.06)', border: '1.5px solid rgba(59,130,246,0.3)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>🔍</span>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Review required</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', background: 'rgba(59,130,246,0.1)', borderRadius: 99, padding: '2px 8px' }}>Reviewer</span>
+                </div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}</span></div>
+                {checklist.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Checklist</div>
+                    {checklist.map((c: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)' }}>
+                        <span style={{ color: c.completed ? 'var(--green)' : 'var(--ink-muted)' }}>{c.completed ? '✓' : '○'}</span>
+                        {c.text}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(links.length > 0 || files.length > 0) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Deliverables</div>
+                    {links.map((d: any) => (
+                      <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--blue)', textDecoration: 'underline' }}>🔗 {d.name || d.url}</a>
+                    ))}
+                    {files.map((d: any) => (
+                      <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--blue)', textDecoration: 'underline' }}>📎 {d.name}</a>
+                    ))}
+                  </div>
+                )}
+                <Link to="/approvals" style={{ alignSelf: 'flex-start', background: 'var(--blue)', color: '#fff', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                  Go to Approvals →
+                </Link>
+              </div>
+            );
+          });
         })()}
 
         {/* Overdue / over-capacity warning — employees only */}

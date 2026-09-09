@@ -25,7 +25,7 @@ function parseTicketType(row: any) {
 
 // Stages without an explicit type are backward-compat employee stages
 function stageType(stage: any): 'employee' | 'manager' | 'admin' {
-  if (stage?.type === 'manager') return 'manager';
+  if (stage?.type === 'manager' || stage?.reviewer === true) return 'manager';
   if (stage?.type === 'admin') return 'admin';
   return 'employee';
 }
@@ -540,12 +540,14 @@ router.post('/tickets/:id/done', async (req: AuthRequest, res: Response) => {
 router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
   const { action, comment } = req.body;
   if (!['approve', 'decline'].includes(action)) { res.status(400).json({ error: 'action must be approve or decline' }); return; }
-  if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Manager only' }); return; }
-
   const db = getDB();
   // Allow review when: assignee_id is set (employee just finished) OR current stage is manager type
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_manager' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not pending manager review' }); return; }
+
+  // Allow admin/manager always; allow employee only if they are the pre-assigned reviewer for this stage
+  const isReviewerEmployee = req.user!.role === 'employee' && ticket.xlr8_assignee_id === req.user!.id;
+  if (!['admin', 'manager'].includes(req.user!.role) && !isReviewerEmployee) { res.status(403).json({ error: 'Not authorized to review this ticket' }); return; }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
   const stages: any[] = pj(ticketType?.stages, []);

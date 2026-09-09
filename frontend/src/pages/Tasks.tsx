@@ -684,7 +684,7 @@ export default function Tasks() {
                         if (s === 'pending_admin') return task.xlr8_assignee_name || 'Admin';
                         if (s === 'pending_client') return task.client_name || 'Client';
                         if (s === 'completed') return '—';
-                        if (task.status === 'in_progress') return task.assignees?.find((a: any) => a.assignee_role === 'employee')?.name || 'Employee';
+                        if (s === 'in_progress') return task.xlr8_assignee_name || task.assignees?.find((a: any) => a.stage_idx === task.xlr8_stage_idx)?.name || 'Employee';
                         return '—';
                       })()}
                     </span>

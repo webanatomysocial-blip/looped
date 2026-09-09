@@ -166,7 +166,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .select(
         'ap.*',
         't.title as task_title',
-        't.xlr8_stage_idx', 't.xlr8_status',
+        't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
         'p.name as project_name',
         'c.name as client_name',
         'sub.name as submitted_by_name',
@@ -209,6 +209,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     } else if (role === 'employee') {
       // Employee sees: own submissions + custom-flow + XLR8 tickets they ever acted on (log history)
+      // + XLR8 reviewer stages currently assigned to them (reviewer:true stages behave like manager review)
       query = query.where(function () {
         this.where('ap.submitted_by', userId)
           .orWhereRaw(`(ap.workflow_type = 'custom' AND EXISTS (
@@ -217,7 +218,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           ))`, [userId])
           .orWhereRaw(`(ap.workflow_type = 'xlr8' AND EXISTS (
             SELECT 1 FROM xlr8_ticket_log log WHERE log.task_id = ap.task_id AND log.actor_id = ?
-          ))`, [userId]);
+          ))`, [userId])
+          .orWhereRaw(`(ap.workflow_type = 'xlr8' AND t.xlr8_assignee_id = ? AND ap.status = 'pending_manager' AND EXISTS (
+            SELECT 1 FROM task_assignees ta
+            JOIN xlr8_ticket_types xtt2 ON xtt2.id = t.ticket_type_id
+            WHERE ta.task_id = t.id AND ta.user_id = ?
+            AND json_extract(json(xtt2.stages), '$[' || t.xlr8_stage_idx || '].reviewer') = 1
+          ))`, [userId, userId]);
       });
     }
 
