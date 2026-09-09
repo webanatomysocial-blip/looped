@@ -1619,7 +1619,7 @@ export default function Tasks() {
                           >
                             <CheckSquare size={14} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)' }} />
                           </button>
-                          <span style={{ fontSize: 13, flex: 1, textDecoration: item.completed ? 'line-through' : 'none', color: item.completed ? 'var(--ink-muted)' : 'var(--ink)' }}>
+                          <span style={{ fontSize: 13, flex: 1, color: item.completed ? 'var(--ink-muted)' : 'var(--ink)' }}>
                             {item.text}
                           </span>
                         </div>
@@ -1996,7 +1996,6 @@ export default function Tasks() {
                     <CheckSquare size={16} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)', flexShrink: 0 }} />
                     <span style={{
                       fontSize: 13, flex: 1,
-                      textDecoration: item.completed ? 'line-through' : 'none',
                       color: item.completed ? 'var(--ink-muted)' : 'var(--ink)',
                     }}>{item.text}</span>
                   </div>

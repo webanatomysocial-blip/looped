@@ -739,7 +739,6 @@ export default function Home() {
                     <CheckSquare size={16} style={{ color: item.completed ? '#4caf7d' : '#ccc', flexShrink: 0 }} />
                     <span style={{
                       fontSize: 13, flex: 1,
-                      textDecoration: item.completed ? 'line-through' : 'none',
                       color: item.completed ? '#888' : '#1a1a1a',
                     }}>{item.text}</span>
                   </div>
