@@ -1009,7 +1009,7 @@ export default function Tasks() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 11, color: remMin < 0 ? 'var(--red)' : 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                               {fmtMin(allocMin)} / {fmtMin(totalMin)}
-                              {remMin > 0 && <> · {fmtMin(remMin)} left</>}
+                              {remMin > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMin(remMin)} buffer</span>}
                               {remMin < 0 && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMin(remMin)} over</span>}
                             </span>
                             <button type="button" onClick={autoSplit} style={{ fontSize: 11, padding: '2px 8px', background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)' }}>
@@ -1674,7 +1674,7 @@ export default function Tasks() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ fontSize: 11, color: remMinE < 0 ? 'var(--red)' : 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                               {fmtMinE(allocMinE)} / {fmtMinE(totalMinE)}
-                              {remMinE > 0 && <> · {fmtMinE(remMinE)} left</>}
+                              {remMinE > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMinE(remMinE)} buffer</span>}
                               {remMinE < 0 && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMinE(remMinE)} over</span>}
                             </span>
                             <button type="button" onClick={autoSplitE} style={{ fontSize: 11, padding: '2px 8px', background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer', color: 'var(--ink-muted)' }}>
