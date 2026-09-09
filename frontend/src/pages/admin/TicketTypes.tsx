@@ -8,7 +8,7 @@ import {
   RiBarChartLine, RiLineChartLine, RiMailLine, RiCursorLine,
 } from 'react-icons/ri';
 
-interface Stage { type?: 'employee' | 'manager' | 'admin'; category_id?: number; category_name?: string; est_hours?: number }
+interface Stage { type?: 'employee' | 'manager' | 'admin'; category_id?: number; category_name?: string; est_hours?: number; reviewer?: boolean }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
 interface ChecklistItem { text: string; checked: boolean }
 interface TicketType {
@@ -189,17 +189,18 @@ export default function TicketTypes() {
               {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>No stages — ticket goes straight to final approval.</p>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {form.stages.map((s, i) => {
-                  const isReviewer = s.type === 'manager' || s.type === 'admin';
-                  const bg = s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : s.type === 'admin' ? 'var(--surface-raised, #fff4f0)' : 'var(--surface-raised, #f8f8f8)';
-                  // Single dropdown value: "manager", "admin", or category_id as string
-                  const dropVal = isReviewer ? s.type! : String(s.category_id ?? '');
+                  const isReviewerType = s.type === 'manager' || s.type === 'admin';
+                  const isEmployee = !isReviewerType;
+                  const bg = s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : s.type === 'admin' ? 'var(--surface-raised, #fff4f0)' : s.reviewer ? 'var(--surface-raised, #f0fdf4)' : 'var(--surface-raised, #f8f8f8)';
+                  const dropVal = isReviewerType ? s.type! : String(s.category_id ?? '');
                   const handleDrop = (val: string) => {
                     if (val === 'manager') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'manager' }; return { ...f, stages }; });
                     else if (val === 'admin') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'admin' }; return { ...f, stages }; });
                     else setStageCategory(i, Number(val));
                   };
+                  const toggleReviewer = () => setForm(f => { const stages = [...f.stages]; stages[i] = { ...stages[i], reviewer: !stages[i].reviewer }; return { ...f, stages }; });
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: bg, borderRadius: 8, border: '1px solid var(--sand-border)' }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: bg, borderRadius: 8, border: `1px solid ${isEmployee && s.reviewer ? '#bbf7d0' : 'var(--sand-border)'}` }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 20, textAlign: 'center', flexShrink: 0 }}>{i + 1}</span>
                       <select
                         className="form-input"
@@ -211,6 +212,19 @@ export default function TicketTypes() {
                         <option value="manager">Manager Review</option>
                         <option value="admin">Admin Review</option>
                       </select>
+                      {isEmployee && (
+                        <button
+                          type="button"
+                          onClick={toggleReviewer}
+                          title="Toggle Reviewer mode — employee acts as a reviewer for this stage"
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${s.reviewer ? '#22c55e' : 'var(--sand-border)'}`, background: s.reviewer ? '#dcfce7' : 'transparent', color: s.reviewer ? '#16a34a' : 'var(--ink-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+                        >
+                          <span style={{ width: 26, height: 14, borderRadius: 99, background: s.reviewer ? '#22c55e' : '#cbd5e1', position: 'relative', display: 'inline-block', flexShrink: 0, transition: 'background 0.15s' }}>
+                            <span style={{ position: 'absolute', top: 2, left: s.reviewer ? 14 : 2, width: 10, height: 10, borderRadius: '50%', background: '#fff', transition: 'left 0.15s' }} />
+                          </span>
+                          Reviewer
+                        </button>
+                      )}
                       <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0}><RiArrowUpLine /></button>
                       <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === form.stages.length - 1}><RiArrowDownLine /></button>
                       <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => removeStage(i)}><RiDeleteBinLine /></button>
