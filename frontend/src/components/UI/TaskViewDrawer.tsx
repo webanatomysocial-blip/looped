@@ -191,7 +191,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
 
                 // Build full rejection history from log
                 type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
-                const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : 'employee';
+                const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
                 const declineEvents: DeclineEvent[] = [];
                 let trackedIdx = 0;
                 let lastAdminIdx = -1;
@@ -240,7 +240,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       <div style={{ width: 'max-content' }}>
                       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
                         {stages.map((stage: any, i: number) => {
-                          const isReview = stage.type === 'manager' || stage.type === 'admin';
+                          const isReview = stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true;
                           const isRejected   = lastWasRejected && i === rejectedStageIdx;
                           const isRedoTarget = lastWasRejected && i === redoIdx;
                           const isDone = !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
@@ -265,7 +265,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                                 </div>
                                 <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
                                   {label}
-                                  {isReview && <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : '#3b82f6', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>}
+                                  {isReview && <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : stage.type === 'manager' ? '#3b82f6' : '#16a34a', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : stage.type === 'manager' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>}
                                 </div>
                                 <div style={{ flex: 1 }}>
                                   {stageAssignee.length > 0 ? (
