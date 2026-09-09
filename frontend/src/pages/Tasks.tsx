@@ -1,4 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+
+const URL_RE_G = /https?:\/\/[^\s<>"]+/g;
+function linkifyHtml(text: string) {
+  return text.replace(URL_RE_G, url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">${url}</a>`);
+}
+function DescEditor({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const skipSync = useRef(false);
+  useEffect(() => {
+    if (!ref.current || skipSync.current) return;
+    ref.current.innerHTML = value ? linkifyHtml(value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')) : '';
+  }, [value]);
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      data-placeholder={placeholder}
+      onInput={() => { skipSync.current = true; onChange(ref.current?.innerText || ''); setTimeout(() => { skipSync.current = false; }, 0); }}
+      onPaste={e => {
+        e.preventDefault();
+        const text = e.clipboardData.getData('text/plain');
+        const html = linkifyHtml(text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
+        document.execCommand('insertHTML', false, html);
+        skipSync.current = true; onChange(ref.current?.innerText || ''); setTimeout(() => { skipSync.current = false; }, 0);
+      }}
+      style={{ minHeight: 72, fontSize: 13, padding: '8px 10px', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', outline: 'none', color: 'var(--ink)' }}
+    />
+  );
+}
 import { format } from 'date-fns';
 import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
@@ -925,21 +955,8 @@ export default function Tasks() {
                 {/* Description */}
                 <div className="drawer-section">
                   <div className="drawer-section-title">Description</div>
-                  <div className="form-input" style={{ padding: 0, overflow: 'hidden' }}>
-                    <textarea
-                      style={{ resize: 'none', fontSize: 13, width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: '8px 10px', display: 'block', boxSizing: 'border-box' }}
-                      rows={3}
-                      placeholder="Add a description…"
-                      value={form.description}
-                      onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    />
-                    {/https?:\/\/[^\s]+/.test(form.description) && (
-                      <div style={{ padding: '0 10px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, borderTop: '1px solid var(--sand-border)' }}>
-                        {form.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
-                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
-                        ))}
-                      </div>
-                    )}
+                  <div className="form-input desc-editor-wrap">
+                    <DescEditor value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="Add a description…" />
                   </div>
                 </div>
 
@@ -1568,21 +1585,8 @@ export default function Tasks() {
                 {/* Description */}
                 <div className="drawer-section">
                   <div className="drawer-section-title">Description</div>
-                  <div className="form-input" style={{ padding: 0, overflow: 'hidden' }}>
-                    <textarea
-                      style={{ resize: 'none', fontSize: 13, width: '100%', border: 'none', outline: 'none', background: 'transparent', padding: '8px 10px', display: 'block', boxSizing: 'border-box' }}
-                      rows={3}
-                      placeholder="Add a description…"
-                      value={editForm.description}
-                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                    />
-                    {/https?:\/\/[^\s]+/.test(editForm.description) && (
-                      <div style={{ padding: '0 10px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, borderTop: '1px solid var(--sand-border)' }}>
-                        {editForm.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
-                          <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
-                        ))}
-                      </div>
-                    )}
+                  <div className="form-input desc-editor-wrap">
+                    <DescEditor value={editForm.description} onChange={v => setEditForm(f => ({ ...f, description: v }))} placeholder="Add a description…" />
                   </div>
                 </div>
 

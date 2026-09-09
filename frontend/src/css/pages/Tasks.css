@@ -496,3 +496,7 @@
 .drawer-checklist-row { display: flex; align-items: center; gap: 8px; }
 
 /* drawer-footer, drawer-submit, drawer-cancel — in global.css */
+
+.desc-editor-wrap { padding: 0 !important; }
+.desc-editor-wrap [contenteditable]:empty::before { content: attr(data-placeholder); color: var(--ink-muted); pointer-events: none; }
+
