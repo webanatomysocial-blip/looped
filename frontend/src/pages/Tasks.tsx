@@ -26,7 +26,7 @@ function DescEditor({ value, onChange, placeholder }: { value: string; onChange:
         document.execCommand('insertHTML', false, html);
         skipSync.current = true; onChange(ref.current?.innerText || ''); setTimeout(() => { skipSync.current = false; }, 0);
       }}
-      style={{ minHeight: 72, fontSize: 13, padding: '8px 10px', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', outline: 'none', color: 'var(--ink)' }}
+      style={{ minHeight: 72, fontSize: 13, padding: '8px 10px', lineHeight: 1.6, wordBreak: 'break-word', whiteSpace: 'pre-wrap', outline: 'none', color: 'var(--ink)', cursor: 'text' }}
     />
   );
 }

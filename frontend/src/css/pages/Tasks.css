@@ -500,3 +500,4 @@
 .desc-editor-wrap { padding: 0 !important; }
 .desc-editor-wrap [contenteditable]:empty::before { content: attr(data-placeholder); color: var(--ink-muted); pointer-events: none; }
 
+.desc-editor-wrap [contenteditable] a { cursor: pointer; }
