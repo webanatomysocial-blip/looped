@@ -247,6 +247,33 @@ router.get('/check/:userId', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET /api/capacity/declined-stages — tasks with declined stage assignees (admin/manager only)
+router.get('/declined-stages', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  const db = getDB();
+  try {
+    const declined = await db('task_assignees as ta')
+      .join('tasks as t', 't.id', 'ta.task_id')
+      .join('users as u', 'u.id', 'ta.user_id')
+      .leftJoin(
+        db('xlr8_ticket_log').where('action', 'stage_pre_declined').orderBy('created_at', 'desc').as('tl'),
+        function() { this.on('tl.task_id', 'ta.task_id').on('tl.actor_id', 'ta.user_id'); }
+      )
+      .where('ta.acceptance_status', 'declined')
+      .whereNotNull('ta.user_id')
+      .whereNotIn('t.status', ['completed'])
+      .select(
+        't.id as task_id', 't.title', 't.project_id', 't.xlr8_status',
+        'ta.stage_idx', 'ta.assignee_role',
+        'u.name as declined_by', 'u.avatar_color',
+        'tl.comment as reason'
+      );
+    res.json(declined);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/capacity/team — all employees' daily capacity (manager/admin only)
 router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
   const db = getDB();

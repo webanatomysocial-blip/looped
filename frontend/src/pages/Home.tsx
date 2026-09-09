@@ -75,6 +75,7 @@ export default function Home() {
   const [doneLinkInput, setDoneLinkInput] = useState('');
   const [doneUploading, setDoneUploading] = useState(false);
   const [viewTask, setViewTask] = useState<number | null>(null);
+  const [declinedStages, setDeclinedStages] = useState<any[]>([]);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const openTaskView = (taskId: number) => {
@@ -101,6 +102,9 @@ export default function Home() {
 
   useEffect(() => {
     projectsApi.list().then((r) => setProjects(r.data)).catch(() => {});
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      capacityApi.declinedStages().then((r) => setDeclinedStages(r.data)).catch(() => {});
+    }
     approvalsApi.list().then((r) => {
       const approved = (r.data as any[])
         .filter(a => a.status === 'approved')
@@ -310,6 +314,39 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Declined stage alert — admin/manager only */}
+        {(user?.role === 'admin' || user?.role === 'manager') && declinedStages.length > 0 && (
+          <div style={{ background: 'rgba(220,38,38,0.06)', border: '1.5px solid rgba(220,38,38,0.3)', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: '#dc2626' }}>
+                {declinedStages.length} stage{declinedStages.length > 1 ? 's' : ''} declined — reassignment needed
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {declinedStages.map((d: any, i: number) => (
+                <div key={i} style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: d.avatar_color || '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                      {(d.declined_by || '?')[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{d.declined_by}</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}> declined stage {(d.stage_idx ?? 0) + 1} of </span>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setViewTask(d.task_id)}>{d.title}</span>
+                    </div>
+                  </div>
+                  {d.reason && (
+                    <div style={{ fontSize: 12, color: '#7f1d1d', background: 'rgba(220,38,38,0.07)', borderRadius: 6, padding: '5px 8px', fontStyle: 'italic', marginLeft: 34 }}>
+                      "{d.reason}"
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Pending task invitation alert */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {

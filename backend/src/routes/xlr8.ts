@@ -299,6 +299,13 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
   if (rows.length > 0) await db('task_assignees').insert(rows);
   const totalHours = stage_assignments.reduce((sum: number, sa: any) => sum + (sa.est_hours || 0), 0);
   if (totalHours > 0) await db('tasks').where({ id: ticket.id }).update({ estimated_hours: totalHours });
+
+  // Notify newly pre-assigned employees
+  const newEmpAssignees = rows.filter(r => r.assignee_role === 'employee' && r.user_id);
+  for (const sa of newEmpAssignees) {
+    await createNotification(sa.user_id, `You've been pre-assigned to stage ${(sa.stage_idx ?? 0) + 1} of "${ticket.title}" — please accept or decline`, 'task', ticket.project_id);
+  }
+
   res.json({ ok: true });
   import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
 });
