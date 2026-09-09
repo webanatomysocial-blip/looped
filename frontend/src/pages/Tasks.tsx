@@ -18,6 +18,7 @@ function DescEditor({ value, onChange, placeholder }: { value: string; onChange:
       suppressContentEditableWarning
       data-placeholder={placeholder}
       onInput={() => { skipSync.current = true; onChange(ref.current?.innerText || ''); setTimeout(() => { skipSync.current = false; }, 0); }}
+      onClick={e => { const a = (e.target as HTMLElement).closest('a'); if (a) { e.preventDefault(); window.open(a.getAttribute('href')!, '_blank', 'noopener,noreferrer'); } }}
       onPaste={e => {
         e.preventDefault();
         const text = e.clipboardData.getData('text/plain');
