@@ -957,10 +957,9 @@ export default function Tasks() {
                   const autoSplit = () => {
                     if (!totalMin) return;
                     const REVIEW_MIN = 2;
-                    const reviewCount = tt.stages.filter((s: any) => s.type === 'manager' || s.type === 'admin').length;
-                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => {
-                      const s = tt.stages[i]; return s.type !== 'manager' && s.type !== 'admin';
-                    });
+                    const isReviewStageType = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
+                    const reviewCount = tt.stages.filter(isReviewStageType).length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageType(tt.stages[i]));
                     const empTotal = totalMin - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
@@ -968,7 +967,7 @@ export default function Tasks() {
                     setStageAssignments(prev => {
                       const next = { ...prev };
                       tt.stages.forEach((s: any, i: number) => {
-                        const isReview = s.type === 'manager' || s.type === 'admin';
+                        const isReview = isReviewStageType(s);
                         const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
@@ -996,6 +995,7 @@ export default function Tasks() {
                           const sa = stageAssignments[idx] || { user_ids: [], est_hours: '', est_minutes: '0' };
                           const isManager = s.type === 'manager';
                           const isAdmin = s.type === 'admin';
+                          const isEmpReviewer = s.reviewer === true;
                           const isReviewer = isManager || isAdmin;
                           const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
                           const catEmployees = isReviewer ? [] : employees.filter(u =>
@@ -1012,14 +1012,17 @@ export default function Tasks() {
                           const unselectedUsers = pool.filter(u => !sa.user_ids.includes(u.id));
                           const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string }>) =>
                             setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
-                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)';
-                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)';
+                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : isEmpReviewer ? 'rgba(34,197,94,0.05)' : 'var(--surface-raised, #f8f8f8)';
+                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : isEmpReviewer ? '#16a34a' : 'var(--ink)';
                           const label = isAdmin ? 'Admin Review' : isManager ? 'Manager Review' : s.category_name;
                           return (
                             <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: bgColor }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor }}>{label}</span>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  {label}
+                                  {(isReviewer || isEmpReviewer) && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
+                                </span>
                                 <input
                                   type="number" min="0" max="99" placeholder="0h"
                                   value={sa.est_hours}
@@ -1622,10 +1625,9 @@ export default function Tasks() {
                   const autoSplitE = () => {
                     if (!totalMinE) return;
                     const REVIEW_MIN = 2;
-                    const reviewCount = tt.stages.filter((s: any) => s.type === 'manager' || s.type === 'admin').length;
-                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => {
-                      const s = tt.stages[i]; return s.type !== 'manager' && s.type !== 'admin';
-                    });
+                    const isReviewStageTypeE = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
+                    const reviewCount = tt.stages.filter(isReviewStageTypeE).length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageTypeE(tt.stages[i]));
                     const empTotal = totalMinE - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
@@ -1633,7 +1635,7 @@ export default function Tasks() {
                     setEditStageAssignments(prev => {
                       const next = { ...prev };
                       tt.stages.forEach((s: any, i: number) => {
-                        const isReview = s.type === 'manager' || s.type === 'admin';
+                        const isReview = isReviewStageTypeE(s);
                         const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
@@ -1661,6 +1663,7 @@ export default function Tasks() {
                           const sa = editStageAssignments[idx] || { user_ids: [], est_hours: '', est_minutes: '0' };
                           const isManager = s.type === 'manager';
                           const isAdmin = s.type === 'admin';
+                          const isEmpReviewer = s.reviewer === true;
                           const isReviewer = isManager || isAdmin;
                           const editProjMemberIds = new Set((proj?.members || []).map((m: any) => m.user_id));
                           const catEmployees = isReviewer ? [] : empPool.filter(u =>
@@ -1677,14 +1680,17 @@ export default function Tasks() {
                           const unselectedUsers = pool2.filter(u => !sa.user_ids.includes(u.id));
                           const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string }>) =>
                             setEditStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
-                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : 'var(--surface-raised, #f8f8f8)';
-                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : 'var(--ink)';
+                          const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : isEmpReviewer ? 'rgba(34,197,94,0.05)' : 'var(--surface-raised, #f8f8f8)';
+                          const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : isEmpReviewer ? '#16a34a' : 'var(--ink)';
                           const label = isAdmin ? 'Admin Review' : isManager ? 'Manager Review' : s.category_name;
                           return (
                             <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: bgColor }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor }}>{label}</span>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  {label}
+                                  {(isReviewer || isEmpReviewer) && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
+                                </span>
                                 <input
                                   type="number" min="0" max="99" placeholder="0h"
                                   value={sa.est_hours}

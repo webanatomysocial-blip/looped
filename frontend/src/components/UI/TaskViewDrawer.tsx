@@ -4,6 +4,16 @@ import { format } from 'date-fns';
 import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink, Trash2 } from 'lucide-react';
 import { tasksApi, xlr8Api } from '../../services/api';
 
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function linkifyText(text: string) {
+  const parts = text.split(URL_RE);
+  return parts.map((p, i) =>
+    URL_RE.test(p)
+      ? <a key={i} href={p} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{p}</a>
+      : p
+  );
+}
+
 interface Props {
   taskId: number;
   onClose: () => void;
@@ -135,7 +145,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
               <div>
                 <div className="drawer-info-label">Description</div>
                 {task.description
-                  ? <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.03)', borderRadius: 8, padding: '12px 14px', marginTop: 6 }}>{task.description}</div>
+                  ? <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.03)', borderRadius: 8, padding: '12px 14px', marginTop: 6 }}>{linkifyText(task.description)}</div>
                   : <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 4 }}>No description provided.</div>
                 }
               </div>
