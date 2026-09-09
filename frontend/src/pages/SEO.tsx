@@ -142,6 +142,7 @@ interface ManualData {
   health_score: number;
   health_label: string;
   flags_risks: string;
+  hour_utilization: { label: string; hours: number | null }[];
   seo_authority: { on_page_score?: number | null; backlinks?: number | null; referring_domains?: number | null; domain_authority?: number | null; page_authority?: number | null; };
   // legacy flat fields
   gmb_rating: number | null;
@@ -527,6 +528,20 @@ ${manual.gmb_locations.map((loc) => {
   ${metaPmHtml}
 </div>` : '';
 
+  const filledHours = (manual.hour_utilization ?? []).filter(r => r.label?.trim() && r.hours != null);
+  const hourUtilHtml = filledHours.length > 0 ? `
+<div class="section-block">
+<h2>Total Hour wise Utilization</h2>
+<div class="section">
+  <div class="section-inner">
+    <div class="mini-cards">
+      ${filledHours.map(r => `<div class="mini-card"><div class="mini-card-val">${r.hours} hrs</div><div class="mini-card-label">${r.label}</div></div>`).join('')}
+    </div>
+    <p style="font-size:12px;color:#64748b;margin-top:10px 0 0"><strong>Total:</strong> ${filledHours.reduce((s, r) => s + (Number(r.hours) || 0), 0)} hrs</p>
+  </div>
+</div>
+</div>` : '';
+
   const flagsRisksHtml = manual.flags_risks ? `
 <div class="section-block" style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px 20px">
   <h2 style="color:#dc2626;font-size:14px;text-transform:uppercase;margin:0 0 8px">Flags / Risks</h2>
@@ -814,6 +829,8 @@ ${socialOrganicHtml}
 
 ${performanceMarketingHtml}
 
+${hourUtilHtml}
+
 ${flagsRisksHtml}
 
 </body></html>`;
@@ -861,6 +878,7 @@ const emptyManual = (): ManualData => ({
   health_score: 76,
   health_label: 'Weighted for a balanced goal, vs target',
   flags_risks: '',
+  hour_utilization: [],
   seo_authority: {},
   gmb_rating: null, gmb_reviews: null, gmb_profile_url: '',
   gmb_overview: '', gmb_calls: null, gmb_bookings: null, gmb_website_clicks: null,
@@ -895,7 +913,7 @@ export default function SEO() {
   // Manual data
   const [manual, setManual]             = useState<ManualData>(emptyManual());
   const [manualEdit, setManualEdit]     = useState<ManualData>(emptyManual());
-  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | 'seo_authority' | null>(null);
+  const [manualPanel, setManualPanel]   = useState<'keywords' | 'targets' | 'gmb' | 'insights' | 'organic' | 'linkedin' | 'social' | 'meta_organic' | 'linkedin_organic' | 'performance_marketing' | 'exec_summary' | 'last_plan' | 'next_plan' | 'health' | 'seo_authority' | 'hour_utilization' | null>(null);
   const [inlineEditTargetIdx, setInlineEditTargetIdx] = useState<number | null>(null);
   const [inlineEditTargets, setInlineEditTargets] = useState<Target[]>([]);
   const [socialTab, setSocialTab] = useState<'meta_organic' | 'linkedin_organic'>('meta_organic');
@@ -2892,7 +2910,63 @@ export default function SEO() {
             {/* ── Flags / Risks ── */}
             <div className="seo-section">
               <div className="seo-section-header" style={{ cursor: 'default', marginBottom : '10px' }}>
-                <div>
+                {/* ── Hour Utilization ── */}
+            <div className="seo-section" style={{ marginBottom: 20 }}>
+              <h3 className="seo-section__title">
+                Total Hour wise Utilization
+                <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>manual</span>
+                {canEdit && (
+                  <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === 'hour_utilization' ? null : 'hour_utilization')}>
+                    <Edit2 size={11} /> {manualPanel === 'hour_utilization' ? 'Cancel' : 'Edit'}
+                  </button>
+                )}
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '0 0 10px' }}>Only filled rows are shown on the report and PDF.</p>
+
+              {manualPanel === 'hour_utilization' && canEdit && (
+                <div className="seo-manual-panel" style={{ margin: '12px 16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                    {(manualEdit.hour_utilization ?? []).map((row, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input className="form-input" placeholder="Category (e.g. SEO Optimisation)" style={{ flex: 2, fontSize: 12 }}
+                          value={row.label}
+                          onChange={e => { const u = [...(manualEdit.hour_utilization ?? [])]; u[i] = { ...u[i], label: e.target.value }; setManualEdit(p => ({ ...p, hour_utilization: u })); }} />
+                        <input className="form-input" type="number" min="0" placeholder="Hours" style={{ flex: 1, fontSize: 12 }}
+                          value={row.hours ?? ''}
+                          onChange={e => { const u = [...(manualEdit.hour_utilization ?? [])]; u[i] = { ...u[i], hours: e.target.value === '' ? null : Number(e.target.value) }; setManualEdit(p => ({ ...p, hour_utilization: u })); }} />
+                        <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', fontSize: 16, lineHeight: 1 }}
+                          onClick={() => { const u = (manualEdit.hour_utilization ?? []).filter((_, j) => j !== i); setManualEdit(p => ({ ...p, hour_utilization: u })); }}>×</button>
+                      </div>
+                    ))}
+                    <button type="button" className="seo-manual-edit-btn" style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                      onClick={() => setManualEdit(p => ({ ...p, hour_utilization: [...(p.hour_utilization ?? []), { label: '', hours: null }] }))}>
+                      + Add row
+                    </button>
+                  </div>
+                  <div className="seo-manual-actions">
+                    <button className="seo-inline-save" onClick={saveManual} disabled={manualSaving}>{manualSaving ? 'Saving…' : 'Save'}</button>
+                  </div>
+                </div>
+              )}
+
+              {(manual.hour_utilization ?? []).filter(r => r.label?.trim() && r.hours != null).length > 0 && (
+                <div style={{ padding: '0 16px 16px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {(manual.hour_utilization ?? []).filter(r => r.label?.trim() && r.hours != null).map((r, i) => (
+                      <div key={i} style={{ background: 'var(--sand)', border: '1px solid var(--sand-border)', borderRadius: 10, padding: '12px 18px', minWidth: 130 }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)' }}>{r.hours} hrs</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{r.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 10, marginBottom: 0 }}>
+                    <strong>Total:</strong> {(manual.hour_utilization ?? []).filter(r => r.hours != null).reduce((s, r) => s + (Number(r.hours) || 0), 0)} hrs
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div>
                   <h2 className="seo-section-title">Flags / Risks</h2>
                   <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: 0 }}>Leave blank if nothing's wrong — this only shows on the report if filled in.</p>
                 </div>

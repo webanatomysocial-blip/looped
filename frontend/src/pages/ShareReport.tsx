@@ -475,6 +475,20 @@ export default function ShareReport() {
           );
         })()}
 
+        {/* Hour Utilization */}
+        {(manual.hour_utilization ?? []).filter((r: any) => r.label?.trim() && r.hours != null).length > 0 && (
+          <Section title="Total Hour wise Utilization">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+              {(manual.hour_utilization ?? []).filter((r: any) => r.label?.trim() && r.hours != null).map((r: any, i: number) => (
+                <MiniCard key={i} label={r.label} val={`${r.hours} hrs`} />
+              ))}
+            </div>
+            <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>
+              <strong>Total:</strong> {(manual.hour_utilization ?? []).filter((r: any) => r.hours != null).reduce((s: number, r: any) => s + (Number(r.hours) || 0), 0)} hrs
+            </p>
+          </Section>
+        )}
+
         {/* Flags / Risks */}
         {manual.flags_risks && (
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '14px 18px', marginBottom: 20 }}>
