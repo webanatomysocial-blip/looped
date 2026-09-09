@@ -158,7 +158,7 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
 
 // ─── Weekly view ─────────────────────────────────────────────────────────────
 const GRID_START_H = 9;
-const GRID_END_H   = 19;
+const GRID_END_H   = 25;
 const ROW_PX       = 60;
 
 function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: number) => void }) {

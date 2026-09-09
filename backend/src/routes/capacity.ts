@@ -82,19 +82,34 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         this.on('ta_est.task_id', 't.id').on('ta_est.stage_idx', 't.xlr8_stage_idx');
       })
       .where('t.xlr8_assignee_id', userId)
-      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress', 'pending_manager'])
+      .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress', 'pending_manager', 'pending_admin'])
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
-        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' WHEN t.xlr8_status = 'pending_manager' THEN 'review' ELSE 'accepted' END as acceptance_status"),
+        db.raw("CASE WHEN t.xlr8_status = 'pending_assignee' THEN 'pending' WHEN t.xlr8_status IN ('pending_manager','pending_admin') THEN 'review' ELSE 'accepted' END as acceptance_status"),
         db.raw("'employee' as assignee_role"),
         db.raw('MIN(ta_est.est_hours) as stage_est_hours')
       )
       .groupBy('t.id');
 
+    // For admin/manager: also include pending_admin/pending_manager XLR8 tasks needing their review (where xlr8_assignee_id may be null)
+    const pendingReviewForRole = (req.user!.role === 'admin' || req.user!.role === 'manager') ? await db('tasks as t')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('t.xlr8_status', req.user!.role === 'admin' ? 'pending_admin' : 'pending_manager')
+      .whereNotIn('t.status', ['completed'])
+      .whereNotNull('t.ticket_type_id')
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
+        db.raw("'review' as acceptance_status"),
+        db.raw("'employee' as assignee_role"),
+        db.raw('NULL as stage_est_hours')
+      ) : [];
+
     // XLR8 future-stage assignments waiting for this user's acceptance
     const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
+    const reviewRoleIds = new Set((pendingReviewForRole as any[]).map((t: any) => t.id));
     // Only show pending-acceptance for employee/manager roles, not admin/client
     const pendingStageRows = req.user!.role === 'admin' || req.user!.role === 'client' ? [] : await db('task_assignees as ta')
       .join('tasks as t', 't.id', 'ta.task_id')
@@ -105,7 +120,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
       .whereNotIn('t.status', ['completed'])
-      .whereNotIn('ta.task_id', xlr8Ids.size ? [...xlr8Ids] : [0])
+      .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds].length ? [...xlr8Ids, ...reviewRoleIds] : [0])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
@@ -117,9 +132,10 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
     // Merge XLR8 tickets (avoid duplicates)
     const pendingIds = new Set(pendingStageRows.map((t: any) => t.id));
     const mergedAssigned = [
-      ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id)),
+      ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id) && !reviewRoleIds.has(t.id)),
       ...xlr8Tasks,
       ...pendingStageRows,
+      ...(pendingReviewForRole as any[]),
     ];
 
     // Also include tasks this user reviewed today (session exists but not assigned)

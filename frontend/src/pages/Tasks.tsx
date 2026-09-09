@@ -612,7 +612,7 @@ export default function Tasks() {
           <table className="data-table">
             <thead>
               <tr>
-                {['Task', 'Priority', 'Project', 'Assigned to', 'Created by', 'Pending with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
+                {['Task', 'Priority', 'Project', 'Assigned to', 'Created by', 'Task with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
