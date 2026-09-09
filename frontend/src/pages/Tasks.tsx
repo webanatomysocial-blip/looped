@@ -933,6 +933,13 @@ export default function Tasks() {
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
                   />
+                  {/https?:\/\/[^\s]+/.test(form.description) && (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {form.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* XLR8 Stages panel — shown when a ticket type is selected */}
@@ -1568,6 +1575,13 @@ export default function Tasks() {
                     value={editForm.description}
                     onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                   />
+                  {/https?:\/\/[^\s]+/.test(editForm.description) && (
+                    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {editForm.description.match(/https?:\/\/[^\s]+/g)?.map((url, i) => (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--blue, #2563eb)', textDecoration: 'underline', wordBreak: 'break-all' }}>{url}</a>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Checklist */}
