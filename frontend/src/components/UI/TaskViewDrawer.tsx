@@ -333,6 +333,44 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                             </div>
                           );
                         })}
+                        {/* Final approval cards: admin + client */}
+                        {(() => {
+                          const fa = (task as any).xlr8_final_approval || {};
+                          const allStagesDone = isCompleted || task.xlr8_status === 'pending_admin' || task.xlr8_status === 'pending_client' || task.xlr8_status === 'completed';
+                          const cards: { key: string; label: string; color: string; accentColor: string; isDone: boolean; isActive: boolean }[] = [];
+                          if (fa.adminRequired) {
+                            const isDone = isCompleted || task.xlr8_status === 'pending_client';
+                            const isActive = task.xlr8_status === 'pending_admin';
+                            cards.push({ key: 'admin', label: 'Admin Approval', color: '#ea580c', accentColor: 'rgba(234,88,12,0.08)', isDone, isActive });
+                          }
+                          if (fa.clientOptional) {
+                            const isDone = isCompleted;
+                            const isActive = task.xlr8_status === 'pending_client';
+                            cards.push({ key: 'client', label: 'Client Approval', color: '#0891b2', accentColor: 'rgba(8,145,178,0.08)', isDone, isActive });
+                          }
+                          if (cards.length === 0) return null;
+                          return cards.map((c, ci) => (
+                            <div key={c.key} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                              <div style={{ width: 32, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <svg width="32" height="20" viewBox="0 0 32 20">
+                                  <line x1="0" y1="10" x2="22" y2="10" stroke={ci === 0 && allStagesDone ? '#22c55e' : '#e2e8f0'} strokeWidth="2" strokeDasharray={!allStagesDone ? '4 3' : 'none'} />
+                                  <polygon points="32,10 20,4 20,16" fill={ci === 0 && allStagesDone ? '#22c55e' : '#e2e8f0'} />
+                                </svg>
+                              </div>
+                              <div style={{ width: 160, minHeight: 100, border: `2px solid ${c.isDone ? '#22c55e' : c.isActive ? c.color : '#e2e8f0'}`, borderRadius: 12, padding: '14px 12px 12px', background: c.isDone ? 'rgba(34,197,94,0.06)' : c.isActive ? c.accentColor : 'var(--surface)', position: 'relative', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+                                <div style={{ position: 'absolute', top: -10, left: 10, background: c.isDone ? '#22c55e' : c.isActive ? c.color : '#cbd5e1', color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', whiteSpace: 'nowrap' }}>{c.label}</div>
+                                <div style={{ display: 'flex', alignItems: 'center' }}>
+                                  {c.isDone   && <CheckCircle2 size={22} color="#22c55e" />}
+                                  {c.isActive && !c.isDone && <Circle size={22} color={c.color} fill={c.accentColor} />}
+                                  {!c.isDone && !c.isActive && <MinusCircle size={22} color="#cbd5e1" />}
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: c.isDone ? 'var(--ink)' : c.isActive ? c.color : 'var(--ink-muted)' }}>
+                                  {c.isDone ? 'Approved' : c.isActive ? 'Pending approval' : 'Awaiting stages'}
+                                </div>
+                              </div>
+                            </div>
+                          ));
+                        })()}
                       </div>
                       {declineEvents.length > 0 && (() => {
                         const cardW = 180, arrowW = 40, unitW = cardW + arrowW;

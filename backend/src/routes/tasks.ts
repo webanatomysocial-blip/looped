@@ -206,11 +206,15 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       .groupBy('ta.stage_idx')
       .select('ta.stage_idx', db.raw(secSQL));
     let xlr8_stages = null;
+    let xlr8_final_approval: any = null;
     if (task.ticket_type_id) {
       const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
-      if (tt) xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
+      if (tt) {
+        xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
+        xlr8_final_approval = typeof tt.final_approval === 'string' ? JSON.parse(tt.final_approval || '{}') : (tt.final_approval ?? {});
+      }
     }
-    res.json({ ...task, checklist, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages });
+    res.json({ ...task, checklist, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval });
   } catch (e: any) {
     console.error('GET /tasks/:id error:', e?.message, e?.stack);
     res.status(500).json({ error: 'Server error' });
