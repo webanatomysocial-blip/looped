@@ -1089,7 +1089,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                     {unselectedUsers.map(u => (
                                       <button key={u.id} type="button"
-                                        onClick={() => updateSa({ user_ids: [u.id] })}
+                                        onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                         <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                           {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -1131,7 +1131,7 @@ export default function Tasks() {
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
-                                            onClick={() => updateSa({ user_ids: [u.id] })}
+                                            onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                             <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                               {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -1757,7 +1757,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                     {unselectedUsers.map(u => (
                                       <button key={u.id} type="button"
-                                        onClick={() => updateSa({ user_ids: [u.id] })}
+                                        onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                         <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                           {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -1799,7 +1799,7 @@ export default function Tasks() {
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
-                                            onClick={() => updateSa({ user_ids: [u.id] })}
+                                            onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                             <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                               {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}

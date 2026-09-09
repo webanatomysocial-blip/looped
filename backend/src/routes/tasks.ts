@@ -322,8 +322,9 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       updates.status = status;
     }
 
-    // Role-based assignee update (from edit drawer)
-    if (working_person_id !== undefined || task_manager_id !== undefined) {
+    // Role-based assignee update (from edit drawer) — skip for XLR8 tickets; stage assignments are managed via PUT /stage-assignments
+    const taskForCheck = await db('tasks').where({ id: req.params.id }).select('ticket_type_id').first();
+    if (!taskForCheck?.ticket_type_id && (working_person_id !== undefined || task_manager_id !== undefined)) {
       const workerId  = working_person_id ? Number(working_person_id) : null;
       const managerId = task_manager_id   ? Number(task_manager_id)   : null;
       updates.assigned_to = workerId;
@@ -347,7 +348,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager?.user_id)) {
         await createNotification(managerId, `You are managing task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
       }
-    } else if (assignee_ids !== undefined) {
+    } else if (!taskForCheck?.ticket_type_id && assignee_ids !== undefined) {
       const ids: number[] = Array.isArray(assignee_ids) ? assignee_ids : (assignee_ids ? [Number(assignee_ids)] : []);
       updates.assigned_to = ids[0] || null;
       await db('task_assignees').where({ task_id: req.params.id }).delete();

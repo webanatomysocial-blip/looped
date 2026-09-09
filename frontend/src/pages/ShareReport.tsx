@@ -155,9 +155,9 @@ export default function ShareReport() {
           </Section>
         )}
 
-        {/* Current Period Targets */}
-        {manual.period_targets && Object.values(manual.period_targets).some((v) => v) && (
-          <Section title="Current Period Targets">
+        {/* Next Period Targets */}
+        {manual.period_targets && Object.values(manual.period_targets).some((v: any) => v?.prev || v?.next) && (
+          <Section title="Next Period Targets">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {[
                 ['Sessions', manual.period_targets.sessions],
@@ -165,8 +165,10 @@ export default function ShareReport() {
                 ['Engagement Rate', manual.period_targets.engagement_rate],
                 ['Instagram Reach', manual.period_targets.instagram_reach],
                 ['Facebook Reach', manual.period_targets.facebook_reach],
-              ].filter(([, v]) => v).map(([label, val]) => (
-                <MiniCard key={label as string} label={label as string} val={val as string} />
+                ['Domain Authority', manual.period_targets.domain_authority],
+                ['LinkedIn', manual.period_targets.linkedin],
+              ].filter(([, v]: any) => v?.prev || v?.next).map(([label, v]: any) => (
+                <MiniCard key={label as string} label={label as string} val={`${v.prev || '—'} → ${v.next || '—'}`} />
               ))}
             </div>
           </Section>

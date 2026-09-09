@@ -11,6 +11,7 @@ import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 
 
+
 function fmtSeconds(sec: number): string {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -147,16 +148,22 @@ export default function Home() {
   const submitDecline = async () => {
     if (!declineModal) return;
     const { task } = declineModal;
-    // XLR8 current-stage: decline via xlr8 endpoint (reverts xlr8_status to pending_manager)
-    // Future-stage or non-XLR8: mark declined in task_assignees and notify creator
+    // XLR8 current-stage assignee: decline → revert to pending_manager
+    // XLR8 pre-assigned future stage: use stage-pre-decline so comment is logged and managers notified
+    // Non-XLR8: generic accept/decline
     if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
       await xlr8Api.employeeDecline(task.id, declineComment);
+    } else if (task.ticket_type_id) {
+      await xlr8Api.stagePreDecline(task.id, declineComment);
     } else {
       await tasksApi.accept(task.id, 'decline');
     }
     setDeclineModal(null);
     setDeclineComment('');
     load();
+    if (user?.role === 'admin' || user?.role === 'manager') {
+      capacityApi.declinedStages().then((r) => setDeclinedStages(r.data)).catch(() => {});
+    }
   };
 
   const handleTimer = async (taskId: number, action: 'start' | 'pause' | 'done', taskObj?: CapacityTask) => {

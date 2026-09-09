@@ -197,7 +197,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const currentIdx: number = task.xlr8_stage_idx ?? 0;
                 const isCompleted = task.status === 'completed' || task.xlr8_status === 'completed';
                 const lastLogEntry = log[log.length - 1];
-                const lastWasRejected = lastLogEntry && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
+                const lastWasRejected = lastLogEntry && !lastLogEntry.action.includes('stage_pre_declined') && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
 
                 // Build full rejection history from log
                 type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };

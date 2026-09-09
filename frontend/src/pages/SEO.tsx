@@ -83,13 +83,19 @@ interface NextPeriodPlanItem {
   expected: string;
 }
 
+interface PeriodTargetValue { prev: string; next: string; }
+
 interface PeriodTargets {
-  sessions: string;
-  leads: string;
-  engagement_rate: string;
-  instagram_reach: string;
-  facebook_reach: string;
+  sessions: PeriodTargetValue;
+  leads: PeriodTargetValue;
+  engagement_rate: PeriodTargetValue;
+  instagram_reach: PeriodTargetValue;
+  facebook_reach: PeriodTargetValue;
+  domain_authority: PeriodTargetValue;
+  linkedin: PeriodTargetValue;
 }
+
+const emptyPeriodTargetValue: PeriodTargetValue = { prev: '', next: '' };
 
 interface OrganicMetrics {
   views: string | null;
@@ -279,15 +285,17 @@ function downloadPDF(
   // ── Period Targets ──
   const pt = manual.period_targets;
   const ptCards = [
-    pt?.sessions ? ['Target Sessions', pt.sessions] : null,
-    pt?.leads ? ['Target Leads', pt.leads] : null,
-    pt?.engagement_rate ? ['Target Engagement Rate', pt.engagement_rate] : null,
-    pt?.instagram_reach ? ['Instagram Reach Target', pt.instagram_reach] : null,
-    pt?.facebook_reach ? ['Facebook Reach Target', pt.facebook_reach] : null,
+    pt?.sessions?.prev || pt?.sessions?.next ? ['Target Sessions', `${pt.sessions.prev || '—'} → ${pt.sessions.next || '—'}`] : null,
+    pt?.leads?.prev || pt?.leads?.next ? ['Target Leads', `${pt.leads.prev || '—'} → ${pt.leads.next || '—'}`] : null,
+    pt?.engagement_rate?.prev || pt?.engagement_rate?.next ? ['Target Engagement Rate', `${pt.engagement_rate.prev || '—'} → ${pt.engagement_rate.next || '—'}`] : null,
+    pt?.instagram_reach?.prev || pt?.instagram_reach?.next ? ['Instagram Reach Target', `${pt.instagram_reach.prev || '—'} → ${pt.instagram_reach.next || '—'}`] : null,
+    pt?.facebook_reach?.prev || pt?.facebook_reach?.next ? ['Facebook Reach Target', `${pt.facebook_reach.prev || '—'} → ${pt.facebook_reach.next || '—'}`] : null,
+    pt?.domain_authority?.prev || pt?.domain_authority?.next ? ['Domain Authority Target', `${pt.domain_authority.prev || '—'} → ${pt.domain_authority.next || '—'}`] : null,
+    pt?.linkedin?.prev || pt?.linkedin?.next ? ['LinkedIn Target', `${pt.linkedin.prev || '—'} → ${pt.linkedin.next || '—'}`] : null,
   ].filter(Boolean) as [string, string][];
   const targetCardsHtml = ptCards.length > 0 ? `
 <div class="section-block">
-<h2>Current Period Targets</h2>
+<h2>Next Period Targets</h2>
 <div class="section">
   <div class="section-inner">
     <div class="mini-cards">${ptCards.map(([l, v]) => `<div class="mini-card"><div class="mini-card-val">${v}</div><div class="mini-card-label">${l}</div></div>`).join('')}</div>
@@ -868,7 +876,11 @@ const emptyManual = (): ManualData => ({
   organic_form_data: [], gmb_locations: [],
   executive_summary: '', sig_change_whys: {}, last_period_plan: [],
   best_performing_asset: [], next_period_plan: [],
-  period_targets: { sessions: '', leads: '', engagement_rate: '', instagram_reach: '', facebook_reach: '' },
+  period_targets: {
+    sessions: { ...emptyPeriodTargetValue }, leads: { ...emptyPeriodTargetValue }, engagement_rate: { ...emptyPeriodTargetValue },
+    instagram_reach: { ...emptyPeriodTargetValue }, facebook_reach: { ...emptyPeriodTargetValue },
+    domain_authority: { ...emptyPeriodTargetValue }, linkedin: { ...emptyPeriodTargetValue },
+  },
   meta_organic: {
     instagram: emptyOrganicMetrics(),
     facebook: emptyOrganicMetrics(),
@@ -1848,7 +1860,7 @@ export default function SEO() {
             {(canEdit || Object.values(manual.period_targets ?? {}).some(v => v)) && (
               <div className="seo-section">
                 <h3 className="seo-section__title">
-                  Current Period Targets
+                  Next Period Targets
                   <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-muted)', marginLeft: 6 }}>manual</span>
                   {canEdit && (
                     <button className="seo-manual-edit-btn" onClick={() => openManualPanel(manualPanel === ('period_targets' as any) ? null : 'period_targets' as any)}>
@@ -1866,12 +1878,19 @@ export default function SEO() {
                         { key: 'engagement_rate', label: 'Engagement rate target' },
                         { key: 'instagram_reach', label: 'Instagram reach target' },
                         { key: 'facebook_reach', label: 'Facebook reach target' },
+                        { key: 'domain_authority', label: 'Domain authority target' },
+                        { key: 'linkedin', label: 'LinkedIn target' },
                       ] as const).map(({ key, label }) => (
                         <div key={key} className="seo-inline-field">
                           <label className="seo-inline-label">{label}</label>
-                          <input className="form-input seo-inline-input" placeholder="e.g. 1,450"
-                            value={manualEdit.period_targets?.[key] ?? ''}
-                            onChange={(e) => setManualEdit({ ...manualEdit, period_targets: { ...(manualEdit.period_targets ?? {}), [key]: e.target.value } as PeriodTargets })} />
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input className="form-input seo-inline-input" placeholder="Prev e.g. 1,450" style={{ flex: 1 }}
+                              value={manualEdit.period_targets?.[key]?.prev ?? ''}
+                              onChange={(e) => setManualEdit({ ...manualEdit, period_targets: { ...(manualEdit.period_targets ?? {}), [key]: { ...(manualEdit.period_targets?.[key] ?? emptyPeriodTargetValue), prev: e.target.value } } as PeriodTargets })} />
+                            <input className="form-input seo-inline-input" placeholder="Next e.g. 1,450" style={{ flex: 1 }}
+                              value={manualEdit.period_targets?.[key]?.next ?? ''}
+                              onChange={(e) => setManualEdit({ ...manualEdit, period_targets: { ...(manualEdit.period_targets ?? {}), [key]: { ...(manualEdit.period_targets?.[key] ?? emptyPeriodTargetValue), next: e.target.value } } as PeriodTargets })} />
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1880,19 +1899,25 @@ export default function SEO() {
                     </div>
                   </div>
                 )}
-                {manualPanel !== ('period_targets' as any) && Object.values(manual.period_targets ?? {}).some(v => v) && (
-                  <div className="seo-cards" style={{ flexWrap: 'wrap' }}>
+                {manualPanel !== ('period_targets' as any) && Object.values(manual.period_targets ?? {}).some(v => v?.prev || v?.next) && (
+                  <div className="seo-cards" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                     {([
                       { key: 'sessions', label: 'Sessions', icon: Globe },
                       { key: 'leads', label: 'Leads', icon: Users },
                       { key: 'engagement_rate', label: 'Engagement Rate', icon: TrendingUp },
                       { key: 'instagram_reach', label: 'Instagram Reach', icon: Users },
                       { key: 'facebook_reach', label: 'Facebook Reach', icon: Users },
-                    ] as const).filter(({ key }) => manual.period_targets?.[key]).map(({ key, label, icon: Icon }) => (
+                      { key: 'domain_authority', label: 'Domain Authority', icon: TrendingUp },
+                      { key: 'linkedin', label: 'LinkedIn', icon: Users },
+                    ] as const).filter(({ key }) => manual.period_targets?.[key]?.prev || manual.period_targets?.[key]?.next).map(({ key, label, icon: Icon }) => (
                       <div key={key} className="seo-card">
                         <div className="seo-card__icon"><Icon size={15} /></div>
-                        <div>
-                          <p className="seo-card__val">{manual.period_targets[key]}</p>
+                        <div style={{ minWidth: 0 }}>
+                          <p className="seo-card__val" style={{ display: 'flex', alignItems: 'baseline', gap: 5, flexWrap: 'wrap' }}>
+                            <span style={{ color: 'var(--ink-muted)', fontSize: '0.7em', fontWeight: 600 }}>{manual.period_targets[key]?.prev || '—'}</span>
+                            <span style={{ color: 'var(--ink-muted)', fontSize: '0.7em', fontWeight: 500 }}>→</span>
+                            <span>{manual.period_targets[key]?.next || '—'}</span>
+                          </p>
                           <p className="seo-card__label">{label} target</p>
                         </div>
                       </div>
