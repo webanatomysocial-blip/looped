@@ -1824,8 +1824,8 @@ export default function Tasks() {
                   );
                 })()}
 
-                {/* Assignment */}
-                {(() => {
+                {/* Assignment — hidden when task has stages */}
+                {!editTask?.ticket_type_id && (() => {
                   const editProj = projects.find(p => String(p.id) === String(editTask?.project_id));
                   const editProjPod = editProj?.pod;
                   const pool = users.filter(u => ['admin','manager','employee'].includes(u.role) && (!editProjPod || u.role === 'admin' || u.pod === editProjPod));
