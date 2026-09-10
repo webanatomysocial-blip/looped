@@ -409,7 +409,7 @@ async function assignToEmployee(db: any, ticket: any, assignee: any, actor: any,
 
 // Pre-accept a future stage assignment (before it becomes the active stage)
 router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Response) => {
-  if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
+  if (!['employee', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Not authorized' }); return; }
   const db = getDB();
   const updated = await db('task_assignees')
     .where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' })
@@ -435,7 +435,7 @@ router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Respo
 
 // Pre-decline a future stage assignment
 router.post('/tickets/:id/stage-pre-decline', async (req: AuthRequest, res: Response) => {
-  if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
+  if (!['employee', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Not authorized' }); return; }
   const db = getDB();
   const updated = await db('task_assignees')
     .where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' })
@@ -451,7 +451,7 @@ router.post('/tickets/:id/stage-pre-decline', async (req: AuthRequest, res: Resp
 });
 
 router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Response) => {
-  if (req.user!.role !== 'employee') { res.status(403).json({ error: 'Employees only' }); return; }
+  if (!['employee', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Not authorized' }); return; }
   const db = getDB();
   const ticket = await db('tasks')
     .where({ id: req.params.id, xlr8_status: 'pending_assignee' })
