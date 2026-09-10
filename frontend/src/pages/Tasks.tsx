@@ -568,7 +568,7 @@ export default function Tasks() {
             <div className="filter-bar">
               {statuses.map((s) => (
                 <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                  {s === 'all' ? 'All' : s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                  {({ all: 'All', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
                 </button>
               ))}
             </div>
