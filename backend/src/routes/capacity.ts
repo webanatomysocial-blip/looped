@@ -135,7 +135,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id) && !reviewRoleIds.has(t.id)),
       ...xlr8Tasks,
       ...pendingStageRows,
-      ...(pendingReviewForRole as any[]),
+      ...(pendingReviewForRole as any[]).filter((t: any) => !xlr8Ids.has(t.id)),
     ];
 
     // Also include tasks this user reviewed today (session exists but not assigned)
