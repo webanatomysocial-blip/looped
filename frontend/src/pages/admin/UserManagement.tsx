@@ -220,7 +220,7 @@ export default function UserManagement() {
           title={editUser ? editUser.name : 'Create user'}
           onClose={() => setShowModal(false)}
         >
-          <form onSubmit={handleSubmit} style={{ display: 'contents' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'contents' }} autoComplete="off">
             <div className="drawer-body">
               {error && <div className="modal-error">{error}</div>}
               <div>
@@ -229,7 +229,7 @@ export default function UserManagement() {
               </div>
               <div>
                 <label className="form-label">Email *</label>
-                <input type="email" className="form-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+                <input type="email" className="form-input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required autoComplete="off" />
               </div>
               <div>
                 <label className="form-label">{editUser ? 'New password (leave blank to keep)' : 'Password *'}</label>
@@ -239,6 +239,7 @@ export default function UserManagement() {
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   required={!editUser}
+                  autoComplete="new-password"
                   placeholder={editUser ? 'Leave blank to keep unchanged' : ''}
                 />
               </div>
