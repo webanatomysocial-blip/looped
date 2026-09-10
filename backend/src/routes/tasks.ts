@@ -106,7 +106,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ? await db('task_assignees as ta')
           .join('users as u', 'ta.user_id', 'u.id')
           .whereIn('ta.task_id', taskIds)
-          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours')
+          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours')
       : [];
 
     // Timer state: active sessions for current user today + all active runners per task
@@ -191,7 +191,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id');
       })
       .where({ 'ta.task_id': req.params.id })
-      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
+      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
     // Tracked seconds per stage (derived from started_at/ended_at in task_sessions)
     const isProd = process.env.NODE_ENV === 'production';
     const secSQL = isProd

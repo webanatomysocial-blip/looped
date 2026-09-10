@@ -657,7 +657,7 @@ export default function Tasks() {
                             return (
                               <div key={a.user_id} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2, opacity: hasAnyMe && !isMe ? 0.35 : 1, transition: 'opacity 0.15s' }}>
                                 <div style={{ position: 'relative' }}>
-                                  <Avatar name={a.name} color={a.avatar_color} size="sm" title={`${a.name} · ${arFull}`} />
+                                  <Avatar name={a.name} color={a.avatar_color} avatarUrl={a.avatar_url} size="sm" title={`${a.name} · ${arFull}`} />
                                   {isWorking && (
                                     <span style={{ position: 'absolute', bottom: -1, right: -1, width: 7, height: 7, background: 'var(--green)', borderRadius: '50%', border: '1.5px solid #fff' }} title="Working now" />
                                   )}

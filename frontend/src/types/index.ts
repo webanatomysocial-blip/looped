@@ -125,6 +125,7 @@ export interface TaskAssignee {
   user_id: number;
   name: string;
   avatar_color: string;
+  avatar_url?: string | null;
   role?: Role;
   assignee_role?: 'employee' | 'manager';
   acceptance_status?: 'pending' | 'accepted' | 'declined';
