@@ -649,12 +649,14 @@ export default function Tasks() {
                       ? <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {task.assignees.map((a) => {
                             const isWorking = task.active_runner_ids?.includes(a.user_id);
+                            const isMe = a.user_id === user?.id;
+                            const hasAnyMe = task.assignees.some((x: any) => x.user_id === user?.id);
                             const ar = a.assignee_role ?? 'employee';
                             const arColor = ar === 'manager' ? 'var(--orange)' : 'var(--green)';
                             const arLabel = ar === 'manager' ? 'M' : 'E';
                             const arFull  = ar === 'manager' ? 'Manager' : 'Employee';
                             return (
-                              <div key={a.user_id} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                              <div key={a.user_id} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2, opacity: hasAnyMe && !isMe ? 0.35 : 1, transition: 'opacity 0.15s' }}>
                                 <div style={{ position: 'relative' }}>
                                   <Avatar name={a.name} color={a.avatar_color} size="sm" title={`${a.name} · ${arFull}`} />
                                   {isWorking && (
