@@ -199,8 +199,8 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
     // Send welcome email with credentials (fire-and-forget)
     sendEmail({
       to: [{ email, name }],
-      subject: 'Your Workdeck account has been created',
-      body: `Hi ${name},\n\nYour Workdeck account is ready. Here are your login details:\n\nEmail: ${email}\nPassword: ${password}\n\nPlease log in and change your password immediately for security.\n\nThank you,\nWorkdeck Team`,
+      subject: 'Your Loooped account has been created',
+      body: `Hi ${name},\n\nYour Loooped account is ready. Here are your login details:\n\nEmail: ${email}\nPassword: ${password}\n\nPlease log in and change your password immediately for security.\n\nThank you,\nLoooped Team`,
     }).catch(() => {/* ignore email errors so user creation still succeeds */});
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

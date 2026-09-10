@@ -16,7 +16,7 @@ export async function sendEmail(opts: {
   attachments?: { filename: string; path: string }[];
 }): Promise<void> {
   const toList = opts.to.map((r) => `"${r.name}" <${r.email}>`).join(', ');
-  const fromName = opts.fromName || process.env.MAIL_FROM_NAME || 'Workdeck';
+  const fromName = opts.fromName || process.env.MAIL_FROM_NAME || 'Loooped';
   await transporter.sendMail({
     from: `"${fromName}" <${process.env.GMAIL_USER}>`,
     to: toList,
