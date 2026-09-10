@@ -143,7 +143,7 @@ export default function Tasks() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
-    const isXlr8 = selectedProject?.service_type === 'xlr8';
+    const isXlr8 = !!form.ticket_type_id;
 
     if (isXlr8) {
       if (!form.ticket_type_id) { alert('Please select a Ticket Type.'); return; }
@@ -231,8 +231,7 @@ export default function Tasks() {
   const handleDraft = async () => {
     if (!form.title.trim()) { alert('Please enter a title.'); return; }
     if (!form.project_id) { alert('Please select a project.'); return; }
-    const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
-    const isXlr8 = selectedProject?.service_type === 'xlr8';
+    const isXlr8 = !!form.ticket_type_id;
     try {
       if (isXlr8) {
         await xlr8Api.createTicket({
@@ -910,12 +909,9 @@ export default function Tasks() {
                       {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
-                  {(() => {
-                    const selProj = projects.find(p => String(p.id) === String(form.project_id));
-                    if (selProj?.service_type !== 'xlr8') return null;
-                    return (
+                  {form.project_id && (
                       <div className="drawer-info-field">
-                        <div className="drawer-info-label">Ticket Type *</div>
+                        <div className="drawer-info-label">Ticket Type <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(optional)</span></div>
                         <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => {
                           const tt = ticketTypes.find(t => String(t.id) === e.target.value);
                           const checklist = tt?.checklist?.filter((i: any) => i.text?.trim()).length ? tt.checklist.filter((i: any) => i.text?.trim()).map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
@@ -926,8 +922,7 @@ export default function Tasks() {
                           {ticketTypes.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
                         </select>
                       </div>
-                    );
-                  })()}
+                  )}
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Due date</div>
                     <input type="date" className="form-input" style={{ fontSize: 12 }} value={form.due_date} onChange={(e) => { setForm({ ...form, due_date: e.target.value }); setTimeout(checkCapacity, 0); }} />
@@ -966,7 +961,7 @@ export default function Tasks() {
                 {/* XLR8 Stages panel — shown when a ticket type is selected */}
                 {(() => {
                   const selProj = projects.find(p => String(p.id) === String(form.project_id));
-                  if (selProj?.service_type !== 'xlr8' || !form.ticket_type_id) return null;
+                  if (!form.ticket_type_id) return null;
                   const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
                   if (!tt || tt.stages.length === 0) return null;
                   // If project has no pod, infer from its manager member
@@ -1163,10 +1158,10 @@ export default function Tasks() {
                   );
                 })()}
 
-                {/* Assignment — hidden for XLR8 (manager assigns after ticket is raised) */}
+                {/* Assignment — hidden when ticket type selected (stage flow handles assignment) */}
                 {(() => {
                   const selProjForAssign = projects.find(p => String(p.id) === String(form.project_id));
-                  if (selProjForAssign?.service_type === 'xlr8') return null;
+                  if (form.ticket_type_id) return null;
                   const projPodForAssign = selProjForAssign?.pod;
                   const pool = users.filter(u => ['admin','manager','employee'].includes(u.role) && (!projPodForAssign || u.role === 'admin' || u.pod === projPodForAssign));
                   const selectedId = form.working_person_id;
@@ -1294,11 +1289,11 @@ export default function Tasks() {
                   );
                 })()}
 
-                {/* Approvers (Sequential) — hidden for XLR8 projects */}
+                {/* Approvers (Sequential) — hidden when ticket type selected */}
                 {(() => {
                   const FLOW_ROLES = ['employee', 'manager', 'admin', 'client'] as const;
                   const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
-                  if (selectedProject?.service_type === 'xlr8') return null;
+                  if (form.ticket_type_id) return null;
                   const projectPod = selectedProject?.members
                     .map(m => users.find(u => u.id === m.user_id && u.role === 'employee')?.pod)
                     .find(pod => !!pod) ?? null;
