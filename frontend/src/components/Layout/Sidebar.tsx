@@ -246,11 +246,13 @@ export default function Sidebar() {
 
         <div
           className="sidebar__avatar"
-          style={{ backgroundColor: user.avatar_color }}
+          style={{ backgroundColor: user.avatar_url ? 'transparent' : user.avatar_color }}
           title={user.name}
           onClick={() => navigate('/settings')}
         >
-          {initials}
+          {user.avatar_url
+            ? <img src={user.avatar_url} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+            : initials}
         </div>
       </div>
     </aside>
