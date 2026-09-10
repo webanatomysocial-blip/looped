@@ -189,13 +189,12 @@ export default function TicketTypes() {
               {form.stages.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 8 }}>No stages — ticket goes straight to final approval.</p>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {form.stages.map((s, i) => {
-                  const isReviewerType = s.type === 'manager' || s.type === 'admin';
+                  const isReviewerType = s.type === 'admin';
                   const isEmployee = !isReviewerType;
-                  const bg = s.type === 'manager' ? 'var(--surface-raised, #f0f4ff)' : s.type === 'admin' ? 'var(--surface-raised, #fff4f0)' : s.reviewer ? 'var(--surface-raised, #f0fdf4)' : 'var(--surface-raised, #f8f8f8)';
+                  const bg = s.type === 'admin' ? 'var(--surface-raised, #fff4f0)' : s.reviewer ? 'var(--surface-raised, #f0fdf4)' : 'var(--surface-raised, #f8f8f8)';
                   const dropVal = isReviewerType ? s.type! : String(s.category_id ?? '');
                   const handleDrop = (val: string) => {
-                    if (val === 'manager') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'manager' }; return { ...f, stages }; });
-                    else if (val === 'admin') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'admin' }; return { ...f, stages }; });
+                    if (val === 'admin') setForm(f => { const stages = [...f.stages]; stages[i] = { type: 'admin' }; return { ...f, stages }; });
                     else setStageCategory(i, Number(val));
                   };
                   const toggleReviewer = () => setForm(f => { const stages = [...f.stages]; stages[i] = { ...stages[i], reviewer: !stages[i].reviewer }; return { ...f, stages }; });
@@ -209,7 +208,6 @@ export default function TicketTypes() {
                         style={{ flex: 1, marginBottom: 0 }}
                       >
                         {categories.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
-                        <option value="manager">Manager Review</option>
                         <option value="admin">Admin Review</option>
                       </select>
                       {isEmployee && (
@@ -341,7 +339,7 @@ export default function TicketTypes() {
                     {t.stages.map((s, i) => (
                       <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 11 }}>
-                          {i + 1}. {s.type === 'manager' ? 'Manager Review' : s.type === 'admin' ? 'Admin Review' : s.category_name}
+                          {i + 1}. {s.type === 'admin' ? 'Admin Review' : s.category_name}
                         </span>
                         {i < t.stages.length - 1 && <span style={{ color: 'var(--ink-muted)', fontSize: 12 }}>→</span>}
                       </span>

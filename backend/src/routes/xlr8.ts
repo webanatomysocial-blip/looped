@@ -25,7 +25,7 @@ function parseTicketType(row: any) {
 
 // Stages without an explicit type are backward-compat employee stages
 function stageType(stage: any): 'employee' | 'manager' | 'admin' {
-  if (stage?.type === 'manager' || stage?.reviewer === true) return 'manager';
+  if (stage?.reviewer === true) return 'manager';
   if (stage?.type === 'admin') return 'admin';
   return 'employee';
 }
