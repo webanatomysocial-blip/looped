@@ -729,7 +729,7 @@ export default function Home() {
                   <div style={{ display: 'flex' }}>
                     {(p.members || []).slice(0, 3).map((m) => (
                       <div key={m.user_id} style={{ marginLeft: -6 }}>
-                        <Avatar name={m.name} color={m.avatar_color} size="sm" />
+                        <Avatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size="sm" />
                       </div>
                     ))}
                   </div>

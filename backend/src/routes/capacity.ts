@@ -321,7 +321,7 @@ router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, r
     let empQuery = db('users')
       .whereIn('role', ['employee', 'manager'])
       .orderBy('name')
-      .select('id', 'name', 'avatar_color', 'role', 'pod');
+      .select('id', 'name', 'avatar_color', 'avatar_url', 'role', 'pod');
 
     if (req.user!.role === 'manager') {
       // Look up the manager's own pod and filter to that pod only

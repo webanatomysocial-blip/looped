@@ -171,8 +171,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         'c.name as client_name',
         'sub.name as submitted_by_name',
         'sub.avatar_color as submitted_by_color',
+        'sub.avatar_url as submitted_by_avatar_url',
         'worker.name as worker_name',
         'worker.avatar_color as worker_avatar_color',
+        'worker.avatar_url as worker_avatar_url',
         'xtt.stages as xlr8_stages_raw',
         'xtt.final_approval as xlr8_final_approval_raw',
         'xtt.name as xlr8_ticket_type_name'

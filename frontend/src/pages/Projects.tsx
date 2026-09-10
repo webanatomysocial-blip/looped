@@ -553,7 +553,7 @@ export default function Projects() {
                       <td className="proj-td">
                         <div className="proj-team">
                           {project.members.slice(0, 4).map((m) => (
-                            <Avatar key={m.user_id} name={m.name} color={m.avatar_color} size="sm" />
+                            <Avatar key={m.user_id} name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size="sm" />
                           ))}
                           {project.members.length > 4 && (
                             <div className="proj-team-more">+{project.members.length - 4}</div>
@@ -876,7 +876,7 @@ export default function Projects() {
                           <div className="member-list-row__check">
                             {form.member_ids.includes(u.id) && <span className="member-list-row__tick">✓</span>}
                           </div>
-                          <Avatar name={u.name} color={u.avatar_color} size="sm" />
+                          <Avatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size="sm" />
                           <div className="member-list-row__info">
                             <span className="member-list-row__name">{u.name}</span>
                             {u.categories && u.categories.length > 0 && (

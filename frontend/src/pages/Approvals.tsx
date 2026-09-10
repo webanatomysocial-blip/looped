@@ -383,7 +383,7 @@ export default function Approvals() {
               <div key={a.id} className="approval-card">
                 {/* Header row */}
                 <div className="approval-card__row" onClick={() => expand(a.id)}>
-                  <Avatar name={a.submitted_by_name} color={a.submitted_by_color} size="md" />
+                  <Avatar name={a.submitted_by_name} color={a.submitted_by_color} avatarUrl={(a as any).submitted_by_avatar_url} size="md" />
 
                   <div className="approval-card__info">
                     <p className="approval-card__title">{a.title}</p>
@@ -392,7 +392,7 @@ export default function Approvals() {
                     </p>
                     {a.submitted_by_name && (
                       <div className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Avatar name={a.submitted_by_name} color={a.submitted_by_color ?? undefined} size="sm" />
+                        <Avatar name={a.submitted_by_name} color={a.submitted_by_color ?? undefined} avatarUrl={(a as any).submitted_by_avatar_url} size="sm" />
                         <span>Created by <strong style={{ color: 'var(--ink)' }}>{a.submitted_by_name}</strong></span>
                       </div>
                     )}

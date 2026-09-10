@@ -138,7 +138,7 @@ export default function AssetLibrary() {
                   <td style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{asset.project_name || '—'}</td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar name={asset.uploaded_by_name} color={asset.avatar_color} size="sm" />
+                      <Avatar name={asset.uploaded_by_name} color={asset.avatar_color} avatarUrl={asset.avatar_url} size="sm" />
                       <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{asset.uploaded_by_name}</span>
                     </div>
                   </td>

@@ -377,7 +377,7 @@ export default function Settings() {
                   <div className="stg-members-list">
                     {podMembers.map((m: any) => (
                       <div key={m.user_id} className="stg-member-row">
-                        <Avatar name={m.name} color={m.avatar_color} size="sm" />
+                        <Avatar name={m.name} color={m.avatar_color} avatarUrl={(m as any).avatar_url} size="sm" />
                         <div className="stg-member-row__info">
                           <p className="stg-member-row__name">{m.name}</p>
                           <p className="stg-member-row__role">{ROLE_LABEL[m.role] ?? m.role}</p>

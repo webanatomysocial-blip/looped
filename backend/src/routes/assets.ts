@@ -43,7 +43,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let query = db('assets as a')
       .leftJoin('projects as p', 'a.project_id', 'p.id')
       .leftJoin('users as u', 'a.uploaded_by', 'u.id')
-      .select('a.*', 'p.name as project_name', 'u.name as uploaded_by_name', 'u.avatar_color');
+      .select('a.*', 'p.name as project_name', 'u.name as uploaded_by_name', 'u.avatar_color', 'u.avatar_url');
     if (project_id) query = query.where('a.project_id', project_id);
     const assets = await query.orderBy('a.created_at', 'desc');
     res.json(assets);

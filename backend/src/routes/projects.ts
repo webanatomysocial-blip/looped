@@ -40,7 +40,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       ? await db('project_members as pm')
           .join('users as u', 'pm.user_id', 'u.id')
           .whereIn('pm.project_id', projectIds)
-          .select('pm.project_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.role', 'u.pod')
+          .select('pm.project_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'u.pod')
       : [];
 
     // Aggregate total hours_logged per project from time_logs (with hourly_rate or user salary for cost)
@@ -170,7 +170,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const members = await db('project_members as pm')
       .join('users as u', 'pm.user_id', 'u.id')
       .where('pm.project_id', req.params.id)
-      .select('u.id', 'u.name', 'u.avatar_color', 'u.role');
+      .select('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role');
 
     res.json({ ...project, members });
   } catch {

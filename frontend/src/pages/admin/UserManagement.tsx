@@ -176,7 +176,7 @@ export default function UserManagement() {
             <div key={u.id} className="user-card">
               <div className="user-card__top">
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1, minWidth: 0 }}>
-                  <Avatar name={u.name} color={u.avatar_color} size="lg" />
+                  <Avatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size="lg" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p className="user-card__name">{u.name}</p>
                     <p className="user-card__email">{u.email}</p>

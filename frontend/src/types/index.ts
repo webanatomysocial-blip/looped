@@ -118,6 +118,7 @@ export interface ProjectMember {
   user_id: number;
   name: string;
   avatar_color: string;
+  avatar_url?: string | null;
   role: Role;
   pod?: string | null;
 }
@@ -272,6 +273,7 @@ export interface Asset {
   uploaded_by: number;
   uploaded_by_name: string;
   avatar_color: string;
+  avatar_url?: string | null;
   created_at: string;
 }
 

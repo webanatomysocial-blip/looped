@@ -15,7 +15,7 @@ interface Ticket {
   id: number; title: string; description?: string; status: string; xlr8_status: string;
   xlr8_stage_idx: number; ticket_type_id: number; ticket_type_name: string;
   project_id: number; project_name: string; creator_id: number; creator_name: string; creator_color: string;
-  assignee_name?: string; assignee_color?: string; xlr8_assignee_id?: number;
+  assignee_name?: string; assignee_color?: string; assignee_avatar_url?: string | null; xlr8_assignee_id?: number;
   stages: Stage[]; final_approval: FinalApproval; created_at: string;
 }
 
@@ -49,11 +49,11 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function Avatar({ name, color, size = 28 }: { name: string; color: string; size?: number }) {
+function Avatar({ name, color, avatarUrl, size = 28 }: { name: string; color: string; avatarUrl?: string | null; size?: number }) {
   const initials = name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.35, color: '#fff', fontWeight: 700, flexShrink: 0 }}>
-      {initials}
+    <div style={{ width: size, height: size, borderRadius: '50%', background: avatarUrl ? 'transparent' : color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size * 0.35, color: '#fff', fontWeight: 700, flexShrink: 0, overflow: 'hidden' }}>
+      {avatarUrl ? <img src={avatarUrl} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} /> : initials}
     </div>
   );
 }
@@ -287,7 +287,7 @@ export default function XLR8Tickets() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {eligible.map((e: any) => (
                   <button key={e.id} className="btn-ghost" onClick={() => assignTo(e.id)} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Avatar name={e.name} color={e.avatar_color || '#888'} size={22} /> {e.name}
+                    <Avatar name={e.name} color={e.avatar_color || '#888'} avatarUrl={e.avatar_url} size={22} /> {e.name}
                   </button>
                 ))}
               </div>
@@ -397,7 +397,7 @@ export default function XLR8Tickets() {
                       <StagePips stages={t.stages} currentIdx={t.xlr8_stage_idx} xlrStatus={t.xlr8_status} />
                       {t.assignee_name && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8 }}>
-                          <Avatar name={t.assignee_name} color={t.assignee_color || '#888'} size={18} />
+                          <Avatar name={t.assignee_name} color={t.assignee_color || '#888'} avatarUrl={t.assignee_avatar_url} size={18} />
                           <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{t.assignee_name}</span>
                         </div>
                       )}
@@ -466,7 +466,7 @@ export default function XLR8Tickets() {
                   <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <RiUserLine style={{ color: 'var(--ink-muted)', fontSize: 14 }} />
                     <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>Current assignee:</span>
-                    <Avatar name={selected.assignee_name} color={selected.assignee_color || '#888'} size={20} />
+                    <Avatar name={selected.assignee_name} color={selected.assignee_color || '#888'} avatarUrl={selected.assignee_avatar_url} size={20} />
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{selected.assignee_name}</span>
                   </div>
                 )}

@@ -98,7 +98,7 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
       't.ticket_type_id', 't.created_at', 't.project_id', 't.xlr8_assignee_id',
       'p.name as project_name',
       'creator.id as creator_id', 'creator.name as creator_name',
-      'assignee.name as assignee_name', 'assignee.avatar_color as assignee_color',
+      'assignee.name as assignee_name', 'assignee.avatar_color as assignee_color', 'assignee.avatar_url as assignee_avatar_url',
       'tt.name as ticket_type_name', 'tt.stages', 'tt.final_approval',
     );
   if (project_id) q = q.where('t.project_id', project_id);
@@ -255,7 +255,7 @@ router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
     .select(
       't.*',
       'creator.name as creator_name', 'creator.avatar_color as creator_color',
-      'assignee.name as assignee_name', 'assignee.avatar_color as assignee_color',
+      'assignee.name as assignee_name', 'assignee.avatar_color as assignee_color', 'assignee.avatar_url as assignee_avatar_url',
       'tt.name as ticket_type_name', 'tt.stages', 'tt.final_approval',
     )
     .first();

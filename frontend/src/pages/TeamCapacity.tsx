@@ -186,7 +186,7 @@ export default function TeamCapacityPage() {
                   >
                     {/* Member column */}
                     <div className="tc-col-member">
-                      <Avatar name={member.name} color={member.avatar_color} size="md" />
+                      <Avatar name={member.name} color={member.avatar_color} avatarUrl={(member as any).avatar_url} size="md" />
                       <div>
                         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           {member.name}

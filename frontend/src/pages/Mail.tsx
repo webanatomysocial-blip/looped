@@ -144,7 +144,7 @@ export default function Mail() {
               <div className="mail-pills">
                 {selectedUsers.map((u) => (
                   <span key={u.id} className="mail-pill">
-                    <Avatar name={u.name} color={u.avatar_color} size="sm" />
+                    <Avatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size="sm" />
                     {u.name}
                     <button onClick={() => removeRecipient(u.id)} className="mail-pill__x"><RiCloseLine size={10} /></button>
                   </span>
@@ -167,7 +167,7 @@ export default function Mail() {
                 <div className="mail-recipient-list">
                   {visibleUsers.filter((u) => !form.recipient_ids.includes(u.id)).slice(0, 8).map((u) => (
                     <button key={u.id} className="mail-recipient-row" onClick={() => { toggleRecipient(u.id); setSearch(''); }}>
-                      <Avatar name={u.name} color={u.avatar_color} size="sm" />
+                      <Avatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size="sm" />
                       <div className="mail-recipient-info">
                         <span className="mail-recipient-name">{u.name}</span>
                         <span className="mail-recipient-email">{u.email}</span>
