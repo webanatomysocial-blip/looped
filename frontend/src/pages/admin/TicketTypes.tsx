@@ -67,7 +67,7 @@ export default function TicketTypes() {
   function openCreate() { setView('pick'); }
 
   function openEdit(t: TicketType) {
-    setForm({ name: t.name, stages: [...t.stages], final_approval: { ...DEFAULT_FA, ...t.final_approval }, checklist: t.checklist || [] });
+    setForm({ name: t.name, stages: t.stages.filter(s => s.type !== 'manager'), final_approval: { ...DEFAULT_FA, ...t.final_approval }, checklist: t.checklist || [] });
     setEditing(t);
     setView('form');
   }
