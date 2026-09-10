@@ -280,7 +280,13 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
   const stages: any[] = pj(ticketType?.stages, []);
 
-  // Replace all assignees
+  // Replace assignees — preserve acceptance_status for stages already completed (past current stage)
+  const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
+  const existingRows = await db('task_assignees').where({ task_id: ticket.id }).select('stage_idx', 'user_id', 'acceptance_status');
+  const existingStatusMap: Record<string, string> = {};
+  for (const r of existingRows) {
+    if (r.stage_idx < currentStageIdx) existingStatusMap[`${r.stage_idx}:${r.user_id}`] = r.acceptance_status || 'pending';
+  }
   await db('task_assignees').where({ task_id: ticket.id }).delete();
   const rows: any[] = [];
   for (const sa of stage_assignments) {
@@ -290,7 +296,8 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
     const estH = sa.est_hours || null;
     if (sa.user_ids.length > 0) {
       for (const uid of sa.user_ids) {
-        rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+        const preserved = existingStatusMap[`${sa.stage_idx}:${uid}`];
+        rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: preserved || 'pending', stage_idx: sa.stage_idx, est_hours: estH });
       }
     } else if (estH) {
       rows.push({ task_id: ticket.id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
