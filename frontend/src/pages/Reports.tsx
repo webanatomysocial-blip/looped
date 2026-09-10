@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import { reportsApi, timeLogsApi, projectsApi, usersApi, tasksApi } from '../services/api';
 import { ReportSummary, Project, User } from '../types';
+import { MiniAvatar } from '../components/UI/Avatar';
 import '../css/pages/Reports.css';
 
 const STATUS_BAR_COLOR: Record<string, string> = {
@@ -445,9 +446,7 @@ export default function Reports() {
                   {/* Employee header */}
                   {selectedUser && (
                     <div className="rp-emp-header">
-                      <div className="report-tl-avatar" style={{ background: selectedUser.avatar_color, width: 48, height: 48, fontSize: 16 }}>
-                        {selectedUser.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
+                      <MiniAvatar name={selectedUser.name} color={selectedUser.avatar_color} avatarUrl={selectedUser.avatar_url} size={48} fontSize={16} style={{ borderRadius: '50%' }} />
                       <div>
                         <p style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>{selectedUser.name}</p>
                         <p style={{ fontSize: 12, color: 'var(--ink-muted)', textTransform: 'capitalize' }}>{selectedUser.role}{selectedUser.pod ? ` · ${selectedUser.pod}` : ''}</p>

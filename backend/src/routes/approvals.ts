@@ -238,7 +238,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         .join('users as u', 'f.user_id', 'u.id')
         .whereIn('f.task_id', customIds)
         .orderBy('f.task_id').orderBy('f.position')
-        .select('f.task_id', 'f.position', 'u.id as user_id', 'u.name', 'u.role', 'u.avatar_color');
+        .select('f.task_id', 'f.position', 'u.id as user_id', 'u.name', 'u.role', 'u.avatar_color', 'u.avatar_url');
       for (const r of flowRows) {
         if (!flowMap[r.task_id]) flowMap[r.task_id] = [];
         flowMap[r.task_id].push(r);

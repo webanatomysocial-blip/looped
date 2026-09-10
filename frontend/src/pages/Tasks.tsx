@@ -46,7 +46,7 @@ function fmtHours(h: number): string {
   return `${hrs}h ${mins}m`;
 }
 import Badge from '../components/UI/Badge';
-import Avatar from '../components/UI/Avatar';
+import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
 import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi } from '../services/api';
@@ -1077,9 +1077,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
                                     {selectedUsers.map(u => (
                                       <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
-                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                        </span>
+                                        <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
                                         <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
                                       </span>
@@ -1092,9 +1090,7 @@ export default function Tasks() {
                                       <button key={u.id} type="button"
                                         onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
-                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                        </span>
+                                        <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span>{u.name.split(' ')[0]}</span>
                                       </button>
                                     ))}
@@ -1492,9 +1488,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
                                     {selectedUsers.map(u => (
                                       <span key={u.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--surface)', border: '1px solid var(--green)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11 }}>
-                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                        </span>
+                                        <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span style={{ fontWeight: 600 }}>{u.name.split(' ')[0]}</span>
                                         <button type="button" onClick={() => updateSa({ user_ids: sa.user_ids.filter(id => id !== u.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1, color: 'var(--ink-muted)', padding: 0, fontSize: 12 }}>×</button>
                                       </span>
@@ -1507,9 +1501,7 @@ export default function Tasks() {
                                       <button key={u.id} type="button"
                                         onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
-                                        <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                          {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                        </span>
+                                        <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span>{u.name.split(' ')[0]}</span>
                                       </button>
                                     ))}
@@ -1591,9 +1583,7 @@ export default function Tasks() {
                       {/* Auto-manager info */}
                       {autoManager && (
                         <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <div className="ap-avatar" style={{ background: autoManager.avatar_color, width: 18, height: 18, fontSize: 8 }}>
-                            {autoManager.name.split(' ').map((n:string)=>n[0]).join('').toUpperCase().slice(0,2)}
-                          </div>
+                          <MiniAvatar name={autoManager.name} color={autoManager.avatar_color} avatarUrl={autoManager.avatar_url} size={18} fontSize={8} />
                           <span>Manager: <strong style={{ color: 'var(--ink)' }}>{autoManager.name}</strong> (auto-assigned)</span>
                         </div>
                       )}
@@ -1601,9 +1591,7 @@ export default function Tasks() {
                       <div className="ap-slot">
                         {selectedUser && (
                           <div className="ap-selected" style={{ borderColor: 'var(--green)' }}>
-                            <div className="ap-avatar ap-avatar--lg" style={{ background: selectedUser.avatar_color }}>
-                              {selectedUser.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
-                            </div>
+                                            <MiniAvatar name={selectedUser.name} color={selectedUser.avatar_color} avatarUrl={selectedUser.avatar_url} size={36} fontSize={13} />
                             <div style={{ flex: 1 }}>
                               <div className="ap-selected__name">{selectedUser.name}</div>
                               <div className="ap-selected__role">{selectedUser.role}</div>
@@ -1637,9 +1625,7 @@ export default function Tasks() {
                                 }}
                                 title={u.name}
                               >
-                                <div className="ap-avatar" style={{ background: u.avatar_color }}>
-                                  {u.name.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2)}
-                                </div>
+                                <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={28} fontSize={10} />
                                 <span className="ap-chip__name">{u.name.split(' ')[0]}</span>
                               </button>
                             );
@@ -1867,9 +1853,7 @@ export default function Tasks() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {ticketEligible.map((e: any) => (
                       <button key={e.id} className="btn-ghost" style={{ justifyContent: 'flex-start', gap: 8 }} onClick={() => ticketAssign(e.id)}>
-                        <span style={{ width: 28, height: 28, borderRadius: '50%', background: e.avatar_color || '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700 }}>
-                          {e.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                        </span>
+                        <MiniAvatar name={e.name} color={e.avatar_color} avatarUrl={e.avatar_url} size={28} fontSize={11} />
                         {e.name}
                       </button>
                     ))}

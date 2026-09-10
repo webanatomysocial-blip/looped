@@ -346,7 +346,7 @@ router.post('/tickets/:id/accept', async (req: AuthRequest, res: Response) => {
   const preAssigned = await db('task_assignees as ta')
     .join('users as u', 'u.id', 'ta.user_id')
     .where({ 'ta.task_id': ticket.id, 'ta.stage_idx': ticket.xlr8_stage_idx ?? 0, 'ta.assignee_role': 'employee' })
-    .select('u.id', 'u.name', 'u.avatar_color');
+    .select('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url');
 
   if (preAssigned.length === 1) {
     await assignToEmployee(db, ticket, preAssigned[0], req.user!, stage, 'auto');
@@ -365,7 +365,7 @@ router.post('/tickets/:id/accept', async (req: AuthRequest, res: Response) => {
     .where('ec.name', stage.category_name)
     .where('u.role', 'employee');
   if (actor?.pod) eligibleQuery = eligibleQuery.where('u.pod', actor.pod);
-  const eligible = await eligibleQuery.select('u.id', 'u.name', 'u.avatar_color');
+  const eligible = await eligibleQuery.select('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url');
 
   if (eligible.length === 0) {
     res.status(400).json({ error: `No employees found in category "${stage.category_name}". Please assign someone to this category first.` });

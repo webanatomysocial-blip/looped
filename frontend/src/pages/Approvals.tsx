@@ -5,7 +5,7 @@ import Pagination from '../components/UI/Pagination';
 
 const PAGE_SIZE = 7;
 import Layout from '../components/Layout/Layout';
-import Avatar from '../components/UI/Avatar';
+import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
 import { approvalsApi, tasksApi, xlr8Api } from '../services/api';
@@ -512,9 +512,7 @@ export default function Approvals() {
                                       fontSize: 12, fontWeight: 600,
                                       color: isDone ? 'var(--green)' : isRejected ? 'var(--red)' : isActive ? 'var(--blue)' : 'var(--ink-muted)',
                                     }}>
-                                      <div style={{ width: 22, height: 22, borderRadius: '50%', background: step.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff', fontWeight: 800, flexShrink: 0 }}>
-                                        {step.name.split(' ').map((n:string)=>n[0]).join('').toUpperCase().slice(0,2)}
-                                      </div>
+                                      <MiniAvatar name={step.name} color={step.avatar_color} avatarUrl={step.avatar_url} size={22} fontSize={9} />
                                       {isActive && <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--blue)', flexShrink: 0 }} />}
                                       {step.name}
                                     </div>
@@ -886,9 +884,7 @@ export default function Approvals() {
                     setAssignStage(null);
                     load();
                   }}>
-                  <span style={{ width: 30, height: 30, borderRadius: '50%', background: e.avatar_color || '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 700 }}>
-                    {e.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                  </span>
+                  <MiniAvatar name={e.name} color={e.avatar_color} avatarUrl={e.avatar_url} size={30} fontSize={11} />
                   {e.name}
                 </button>
               ))}

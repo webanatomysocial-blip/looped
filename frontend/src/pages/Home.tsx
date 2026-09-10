@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
-import Avatar from '../components/UI/Avatar';
+import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import { ReviewAlert } from '../components/UI/ReviewAlert';
 import { useAuth } from '../contexts/AuthContext';
@@ -337,9 +337,7 @@ export default function Home() {
               {declinedStages.map((d: any, i: number) => (
                 <div key={i} style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: d.avatar_color || '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                      {(d.declined_by || '?')[0].toUpperCase()}
-                    </div>
+                    <MiniAvatar name={d.declined_by || '?'} color={d.avatar_color} avatarUrl={d.avatar_url} size={26} fontSize={11} />
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{d.declined_by}</span>
                       <span style={{ fontSize: 12, color: '#64748b' }}> declined stage {(d.stage_idx ?? 0) + 1} of </span>

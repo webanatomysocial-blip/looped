@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink, Trash2 } from 'lucide-react';
 import { tasksApi, xlr8Api } from '../../services/api';
+import { MiniAvatar } from './Avatar';
 
 const URL_RE = /(https?:\/\/[^\s]+)/g;
 function linkifyText(text: string) {
@@ -291,9 +292,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                                         const p = pill[status] || pill.pending;
                                         return (
                                           <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', flexWrap: 'wrap' }}>
-                                            <span style={{ width: 16, height: 16, borderRadius: '50%', background: isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 7, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                              {(a.user_name || '?').split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                            </span>
+                                            <MiniAvatar name={a.user_name || '?'} color={isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8')} avatarUrl={isPending ? null : a.avatar_url} size={16} fontSize={7} />
                                             {a.user_name?.split(' ')[0]}
                                             <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>
                                           </span>

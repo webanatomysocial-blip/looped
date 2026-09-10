@@ -22,6 +22,7 @@ export interface FlowStep {
   name: string;
   role: string;
   avatar_color: string;
+  avatar_url?: string | null;
 }
 
 export interface ApprovalStep {
