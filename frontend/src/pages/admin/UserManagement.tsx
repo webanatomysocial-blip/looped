@@ -258,26 +258,28 @@ export default function UserManagement() {
                   </div>
                 </div>
               )}
-              <div>
-                <label className="form-label">Pod (Team)</label>
-                <div className="user-form-role-row" style={{ marginTop: 6 }}>
-                  {(['pod1', 'pod2'] as const).map((p) => {
-                    const selected = form.pod === p;
-                    const color = p === 'pod1' ? '#0369a1' : '#9d174d';
-                    const bg = p === 'pod1' ? 'rgba(3,105,161,0.12)' : 'rgba(157,23,77,0.12)';
-                    return (
-                      <button
-                        key={p} type="button"
-                        onClick={() => setForm({ ...form, pod: selected ? '' : p })}
-                        className="role-btn"
-                        style={{ minWidth: 80, ...(selected ? { background: bg, borderColor: color, color } : {}) }}
-                      >
-                        {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
-                      </button>
-                    );
-                  })}
+              {form.role !== 'client' && (
+                <div>
+                  <label className="form-label">Pod (Team)</label>
+                  <div className="user-form-role-row" style={{ marginTop: 6 }}>
+                    {(['pod1', 'pod2'] as const).map((p) => {
+                      const selected = form.pod === p;
+                      const color = p === 'pod1' ? '#0369a1' : '#9d174d';
+                      const bg = p === 'pod1' ? 'rgba(3,105,161,0.12)' : 'rgba(157,23,77,0.12)';
+                      return (
+                        <button
+                          key={p} type="button"
+                          onClick={() => setForm({ ...form, pod: selected ? '' : p })}
+                          className="role-btn"
+                          style={{ minWidth: 80, ...(selected ? { background: bg, borderColor: color, color } : {}) }}
+                        >
+                          {p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
               {(form.role === 'employee' || form.role === 'manager') && (
                 <div>
                   <label className="form-label">Monthly Salary (₹)</label>
