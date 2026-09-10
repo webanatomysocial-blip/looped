@@ -972,7 +972,7 @@ export default function Tasks() {
                     const mgr = selProj?.members?.find((m: any) => m.role === 'manager');
                     return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
-                  const employees = users.filter(u => ['employee', 'manager'].includes(u.role) && (!projPod || u.role !== 'employee' || u.pod === projPod));
+                  const employees = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 
                   // Allocation tracker
                   const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
@@ -1029,11 +1029,14 @@ export default function Tasks() {
                           const isEmpReviewer = s.reviewer === true;
                           const isReviewer = isManager || isAdmin;
                           const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
-                          const catEmployees = isReviewer ? [] : employees.filter(u =>
-                            u.categories?.some((c: any) => c.name === s.category_name) ||
-                            (u.role === 'manager' && s.category_name === 'manager') ||
-                            (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
-                          );
+                          const podManagers = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
+                          const catEmployees = isReviewer ? [] : [
+                            ...employees.filter(u =>
+                              u.categories?.some((c: any) => c.name === s.category_name) ||
+                              (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
+                            ),
+                            ...(s.category_name === 'manager' ? podManagers : []),
+                          ];
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
@@ -1127,7 +1130,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {stageSearchTerm[idx] && employees
+                                      {stageSearchTerm[idx] && [...employees, ...(s.category_name === 'manager' ? podManagers : [])]
                                         .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
@@ -1642,7 +1645,7 @@ export default function Tasks() {
                     const mgr = proj?.members?.find((m: any) => m.role === 'manager');
                     return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
-                  const empPool = users.filter(u => ['employee', 'manager'].includes(u.role) && (!projPod || u.role !== 'employee' || u.pod === projPod));
+                  const empPool = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
 
                   const totalMinE = (Number(editForm.est_hours) || 0) * 60 + (Number(editForm.est_minutes) || 0);
                   const allocMinE = Object.values(editStageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
@@ -1698,11 +1701,14 @@ export default function Tasks() {
                           const isEmpReviewer = s.reviewer === true;
                           const isReviewer = isManager || isAdmin;
                           const editProjMemberIds = new Set((proj?.members || []).map((m: any) => m.user_id));
-                          const catEmployees = isReviewer ? [] : empPool.filter(u =>
-                            u.categories?.some((c: any) => c.name === s.category_name) ||
-                            (u.role === 'manager' && s.category_name === 'manager') ||
-                            (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
-                          );
+                          const podManagers2 = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
+                          const catEmployees = isReviewer ? [] : [
+                            ...empPool.filter(u =>
+                              u.categories?.some((c: any) => c.name === s.category_name) ||
+                              (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
+                            ),
+                            ...(s.category_name === 'manager' ? podManagers2 : []),
+                          ];
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
@@ -1796,7 +1802,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setEditStageSearchOpen(prev => ({ ...prev, [idx]: false })); setEditStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {editStageSearchTerm[idx] && empPool
+                                      {editStageSearchTerm[idx] && [...empPool, ...(s.category_name === 'manager' ? podManagers2 : [])]
                                         .filter(u => u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
