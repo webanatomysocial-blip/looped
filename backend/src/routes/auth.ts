@@ -51,7 +51,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     );
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, pod: user.pod ?? null },
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null },
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -64,7 +64,7 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     const user = await db('users').where({ id: req.user!.id }).first();
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
     const categories = await getUserCategories(user.id);
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, pod: user.pod ?? null, categories });
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null, categories });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

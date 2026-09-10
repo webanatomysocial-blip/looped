@@ -70,6 +70,12 @@ async function createSchema(): Promise<void> {
           t.decimal('monthly_salary', 12, 2).nullable();
         });
       }
+      const hasAvatarUrl = await db.schema.hasColumn('users', 'avatar_url');
+      if (!hasAvatarUrl) {
+        await db.schema.table('users', (t) => {
+          t.string('avatar_url').nullable();
+        });
+      }
     }
   });
 

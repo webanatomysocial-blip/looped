@@ -35,6 +35,11 @@ export const usersApi = {
   delete: (id: number) => api.delete(`/users/${id}`),
   changePassword: (current_password: string, new_password: string) =>
     api.put('/users/me/password', { current_password, new_password }),
+  uploadAvatar: (file: File) => {
+    const fd = new FormData();
+    fd.append('avatar', file);
+    return api.post('/users/me/avatar', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
   clientsByPod: () => api.get('/users/clients-by-pod'),
   myClients: () => api.get('/users/my-clients'),
   getNotifPrefs: (clientUserId: number | null) =>

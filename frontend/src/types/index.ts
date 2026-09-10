@@ -49,6 +49,7 @@ export interface User {
   email: string;
   role: Role;
   avatar_color: string;
+  avatar_url?: string | null;
   pod?: 'pod1' | 'pod2' | null;
   categories?: EmployeeCategory[];
   monthly_salary?: number | null;

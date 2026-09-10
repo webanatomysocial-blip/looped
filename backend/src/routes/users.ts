@@ -1,8 +1,26 @@
 import { Router, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
+
+const uploadDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const avatarUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename: (_req, file, cb) => cb(null, `avatar-${Date.now()}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 500 * 1024 }, // 500 KB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Images only'));
+  },
+});
 
 const router = Router();
 router.use(authenticate);
@@ -30,7 +48,7 @@ router.get('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRe
   try {
     const isAdmin = req.user!.role === 'admin';
     const selectCols = [
-      'u.id', 'u.name', 'u.email', 'u.role', 'u.avatar_color', 'u.pod',
+      'u.id', 'u.name', 'u.email', 'u.role', 'u.avatar_color', 'u.avatar_url', 'u.pod',
       'u.created_at', 'u.client_company_id', 'cc.name as company_name',
       // monthly_salary only returned to admin/manager (not exposed to employees or clients)
       ...(isAdmin ? ['u.monthly_salary'] : []),
@@ -49,7 +67,7 @@ router.get('/by-role/:role', requireRoles('admin', 'manager'), async (req: AuthR
   try {
     const users = await getDB()('users')
       .where({ role: req.params.role })
-      .select('id', 'name', 'email', 'role', 'avatar_color', 'pod');
+      .select('id', 'name', 'email', 'role', 'avatar_color', 'avatar_url', 'pod');
     res.json(await attachCategories(users));
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -146,7 +164,7 @@ router.get('/team', async (_req: AuthRequest, res: Response) => {
   try {
     const users = await getDB()('users')
       .whereIn('role', ['admin', 'manager', 'employee'])
-      .select('id', 'name', 'email', 'role', 'avatar_color', 'pod');
+      .select('id', 'name', 'email', 'role', 'avatar_color', 'avatar_url', 'pod');
     res.json(users);
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -226,6 +244,25 @@ router.put('/me/password', async (req: AuthRequest, res: Response) => {
     res.json({ message: 'Password updated' });
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST upload avatar (self)
+router.post('/me/avatar', avatarUpload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  try {
+    const db = getDB();
+    const avatarUrl = `/uploads/${req.file.filename}`;
+    // Delete old avatar file if it exists
+    const existing = await db('users').where({ id: req.user!.id }).select('avatar_url').first();
+    if (existing?.avatar_url) {
+      const oldPath = path.join(uploadDir, path.basename(existing.avatar_url));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+    await db('users').where({ id: req.user!.id }).update({ avatar_url: avatarUrl });
+    res.json({ avatar_url: avatarUrl });
+  } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RiUserLine, RiNotification3Line, RiTeamLine, RiShieldLine, RiEyeLine, RiEyeOffLine, RiCheckLine } from 'react-icons/ri';
 import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
@@ -31,8 +31,28 @@ const CLIENT_PREF_DEFAULTS = { approvals: true, responses: true, comments: true 
 interface ClientRow { id: number; name: string; email: string; avatar_color: string; company_name: string | null; }
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [section, setSection] = useState<Section>('profile');
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarError, setAvatarError] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { setAvatarError('Image must be 500 KB or smaller'); return; }
+    setAvatarError('');
+    setAvatarUploading(true);
+    try {
+      await usersApi.uploadAvatar(file);
+      await refreshUser();
+    } catch {
+      setAvatarError('Upload failed. Please try again.');
+    } finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
 
   // ── Global notification prefs
   const [globalPrefs, setGlobalPrefs] = useState(loadGlobalPrefs);
@@ -182,8 +202,15 @@ export default function Settings() {
               <div className="stg-panel card">
                 <h3 className="stg-panel__title">Profile</h3>
                 <div className="stg-profile-hero">
-                  <div className="stg-profile-avatar">
-                    {user && <Avatar name={user.name} color={user.avatar_color} size="lg" />}
+                  <div className="stg-profile-avatar" style={{ position: 'relative', cursor: 'pointer' }} onClick={() => avatarInputRef.current?.click()} title="Change profile picture">
+                    {user && <Avatar name={user.name} color={user.avatar_color} avatarUrl={user.avatar_url} size="lg" />}
+                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                      onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+                    >
+                      <span style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{avatarUploading ? '…' : 'Edit'}</span>
+                    </div>
+                    <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
                   </div>
                   <div className="stg-profile-hero__info">
                     <p className="stg-profile-hero__name">{user?.name}</p>
@@ -191,6 +218,8 @@ export default function Settings() {
                       {ROLE_LABEL[user?.role ?? ''] ?? user?.role}
                       {user?.pod ? ` · ${POD_LABEL[user.pod] ?? user.pod}` : ''}
                     </p>
+                    {avatarError && <p style={{ color: 'var(--red)', fontSize: 12, marginTop: 4 }}>{avatarError}</p>}
+                    <p style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4 }}>Click photo to change · Max 500 KB</p>
                   </div>
                 </div>
                 <div className="stg-fields-grid">
