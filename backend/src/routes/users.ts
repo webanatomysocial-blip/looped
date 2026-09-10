@@ -200,7 +200,7 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
     sendEmail({
       to: [{ email, name }],
       subject: 'Your Loooped account has been created',
-      body: `Hi ${name},\n\nYour Loooped account is ready. Here are your login details:\n\nEmail: ${email}\nPassword: ${password}\n\nPlease log in and change your password immediately for security.\n\nThank you,\nLoooped Team`,
+      body: `Hi ${name},\n\nYour Loooped account is ready. Here are your login details:\n\nEmail: ${email}\nPassword: ${password}\n\nLogin here: https://loooped.in/login\n\nPlease log in and change your password immediately for security.\n\nThank you,\nLoooped Team`,
     }).catch(() => {/* ignore email errors so user creation still succeeds */});
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
