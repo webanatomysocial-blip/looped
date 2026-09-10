@@ -2000,20 +2000,27 @@ export default function Tasks() {
                 {doneModalChecklist.map((item, idx) => (
                   <div
                     key={item.id}
-                    onClick={() => toggleDoneItem(idx)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '9px 12px', marginBottom: 4, borderRadius: 10, cursor: 'pointer',
+                      padding: '9px 12px', marginBottom: 4, borderRadius: 10,
                       background: item.completed ? 'rgba(76,175,125,0.07)' : 'var(--bg-sand)',
                       border: `1.5px solid ${item.completed ? 'rgba(76,175,125,0.3)' : 'var(--sand-border)'}`,
                       transition: 'all 0.15s',
                     }}
                   >
-                    <CheckSquare size={16} style={{ color: item.completed ? 'var(--green)' : 'var(--sand-border)', flexShrink: 0 }} />
-                    <span style={{
-                      fontSize: 13, flex: 1,
-                      color: item.completed ? 'var(--ink-muted)' : 'var(--ink)',
-                    }}>{item.text}</span>
+                    <span style={{ fontSize: 13, flex: 1, color: item.completed ? 'var(--ink-muted)' : 'var(--ink)' }}>{item.text}</span>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => !item.completed && toggleDoneItem(idx)}
+                        style={{ padding: '3px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, border: 'none', cursor: item.completed ? 'default' : 'pointer', background: item.completed ? 'var(--green)' : 'var(--sand-border)', color: item.completed ? '#fff' : 'var(--ink-muted)', transition: 'all 0.15s' }}
+                      >Yes</button>
+                      <button
+                        type="button"
+                        onClick={() => item.completed && toggleDoneItem(idx)}
+                        style={{ padding: '3px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700, border: 'none', cursor: !item.completed ? 'default' : 'pointer', background: !item.completed ? '#ef4444' : 'var(--sand-border)', color: !item.completed ? '#fff' : 'var(--ink-muted)', transition: 'all 0.15s' }}
+                      >No</button>
+                    </div>
                   </div>
                 ))}
               </div>
