@@ -44,6 +44,30 @@ export default function TicketTypes() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', stages: [] as Stage[], final_approval: { ...DEFAULT_FA }, checklist: [] as ChecklistItem[] });
   const checklistRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [newCatName, setNewCatName] = useState('');
+  const [editingCat, setEditingCat] = useState<{ id: number; name: string } | null>(null);
+
+  const reloadCategories = () => categoriesApi.list().then(r => setCategories(r.data));
+
+  const addCategory = async () => {
+    if (!newCatName.trim()) return;
+    await categoriesApi.create(newCatName.trim());
+    setNewCatName('');
+    reloadCategories();
+  };
+
+  const saveCatEdit = async () => {
+    if (!editingCat || !editingCat.name.trim()) return;
+    await categoriesApi.update(editingCat.id, editingCat.name.trim());
+    setEditingCat(null);
+    reloadCategories();
+  };
+
+  const deleteCategory = async (id: number, name: string) => {
+    if (!confirm(`Delete category "${name}"?`)) return;
+    await categoriesApi.delete(id);
+    reloadCategories();
+  };
 
   const load = () => xlr8Api.getTicketTypes().then((r) => setTypes(r.data));
   useEffect(() => {
@@ -360,6 +384,45 @@ export default function TicketTypes() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Categories management */}
+        <div style={{ marginTop: 40 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>Stage Categories</h3>
+              <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '2px 0 0' }}>Job roles available as stage workers</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+            {categories.map(c => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--surface)', border: '1px solid var(--sand-border)', borderRadius: 8 }}>
+                {editingCat?.id === c.id ? (
+                  <>
+                    <input className="form-input" style={{ flex: 1, marginBottom: 0 }} value={editingCat.name} autoFocus
+                      onChange={e => setEditingCat({ ...editingCat, name: e.target.value })}
+                      onKeyDown={e => { if (e.key === 'Enter') saveCatEdit(); if (e.key === 'Escape') setEditingCat(null); }} />
+                    <button className="btn-primary" style={{ padding: '4px 12px', fontSize: 12 }} onClick={saveCatEdit}>Save</button>
+                    <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setEditingCat(null)}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{c.name}</span>
+                    <button className="btn-ghost" style={{ padding: '4px 8px', fontSize: 12 }} onClick={() => setEditingCat({ id: c.id, name: c.name })}><RiEditLine /></button>
+                    <button className="btn-ghost" style={{ padding: '4px 8px', color: 'var(--red)' }} onClick={() => deleteCategory(c.id, c.name)}><RiDeleteBinLine /></button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input className="form-input" style={{ flex: 1, marginBottom: 0 }} placeholder="New category name (e.g. Manager)" value={newCatName}
+              onChange={e => setNewCatName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addCategory(); }} />
+            <button className="btn-primary" style={{ padding: '8px 16px', fontSize: 13 }} onClick={addCategory} disabled={!newCatName.trim()}>
+              <RiAddLine style={{ marginRight: 4 }} />Add
+            </button>
+          </div>
         </div>
       </div>
     </Layout>
