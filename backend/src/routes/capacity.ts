@@ -129,12 +129,20 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'
       );
 
+    // Deduplicate pendingStageRows by task id (a user may have multiple stage rows)
+    const pendingStageDeduped = Object.values(
+      (pendingStageRows as any[]).reduce((acc: any, row: any) => {
+        if (!acc[row.id] || row.my_stage_idx < acc[row.id].my_stage_idx) acc[row.id] = row;
+        return acc;
+      }, {})
+    );
+
     // Merge XLR8 tickets (avoid duplicates)
-    const pendingIds = new Set(pendingStageRows.map((t: any) => t.id));
+    const pendingIds = new Set(pendingStageDeduped.map((t: any) => (t as any).id));
     const mergedAssigned = [
       ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id) && !reviewRoleIds.has(t.id)),
       ...xlr8Tasks,
-      ...pendingStageRows,
+      ...pendingStageDeduped,
       ...(pendingReviewForRole as any[]).filter((t: any) => !xlr8Ids.has(t.id)),
     ];
 
