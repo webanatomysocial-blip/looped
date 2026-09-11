@@ -10,7 +10,7 @@ import { User, Role, EmployeeCategory } from '../../types';
 import '../../css/admin/UserManagement.css';
 
 const ROLE_OPTIONS: Role[] = ['admin', 'manager', 'employee', 'client'];
-const defaultForm = { name: '', email: '', password: '', role: 'employee' as Role, company_name: '', category_ids: [] as number[], pod: '' as 'pod1' | 'pod2' | '', monthly_salary: '' };
+const defaultForm = { name: '', email: '', password: '', role: 'employee' as Role, company_name: '', category_ids: [] as number[], pod: '' as 'pod1' | 'pod2' | '', monthly_salary: '', send_welcome_email: false };
 
 export default function UserManagement() {
   const [users, setUsers]         = useState<User[]>([]);
@@ -47,6 +47,7 @@ export default function UserManagement() {
       category_ids: u.categories?.map((c) => c.id) || [],
       pod: (u.pod as 'pod1' | 'pod2' | '') || '',
       monthly_salary: u.monthly_salary != null ? String(u.monthly_salary) : '',
+      send_welcome_email: false,
     });
     setError('');
     setShowModal(true);
@@ -80,6 +81,7 @@ export default function UserManagement() {
           payload.monthly_salary = form.monthly_salary !== '' ? Number(form.monthly_salary) : null;
         }
         if (form.role === 'employee') payload.category_ids = form.category_ids;
+        if (form.role === 'client') payload.send_welcome_email = form.send_welcome_email;
         await usersApi.create(payload);
       }
       setShowModal(false);
@@ -296,10 +298,29 @@ export default function UserManagement() {
                 </div>
               )}
               {form.role === 'client' && (
-                <div>
-                  <label className="form-label">Company name</label>
-                  <input className="form-input" placeholder="Client company" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-                </div>
+                <>
+                  <div>
+                    <label className="form-label">Company name</label>
+                    <input className="form-input" placeholder="Client company" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+                  </div>
+                  {!editUser && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <label style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>Send welcome email</label>
+                      <button type="button"
+                        onClick={() => setForm((f) => ({ ...f, send_welcome_email: !f.send_welcome_email }))}
+                        style={{
+                          width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s',
+                          background: form.send_welcome_email ? '#22c55e' : '#d1d5db',
+                        }}>
+                        <span style={{
+                          position: 'absolute', top: 3, left: form.send_welcome_email ? 23 : 3,
+                          width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s',
+                        }} />
+                      </button>
+                      <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{form.send_welcome_email ? 'Yes' : 'No'}</span>
+                    </div>
+                  )}
+                </>
               )}
               {form.role === 'employee' && (
                 <div>

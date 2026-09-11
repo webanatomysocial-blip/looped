@@ -308,9 +308,12 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const project = await db('projects').where({ id: project_id }).first();
 
     // Auto-pause active session if high/urgent priority task assigned
-    if (workerId && ['high', 'urgent'].includes(priority)) {
+    const effectivePriority = priority || 'medium';
+    if (workerId && ['high', 'urgent'].includes(effectivePriority)) {
       await pauseActiveSession(db, workerId);
-      await createNotification(workerId, `⚠️ ${priority === 'urgent' ? 'Urgent' : 'High priority'} task "${title}" assigned — your active task was paused`, 'task', project_id);
+      if (workerId !== req.user!.id) {
+        await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${title}" assigned — your active task was paused`, 'task', project_id);
+      }
     } else if (workerId && workerId !== req.user!.id) {
       await createNotification(workerId, `You have been assigned task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
     }
@@ -382,13 +385,17 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       const taskRow = await db('tasks').where({ id: req.params.id }).select('title', 'project_id').first();
       const proj = taskRow ? await db('projects').where({ id: taskRow.project_id }).select('name').first() : null;
       const projName = proj?.name || 'a project';
-      if (workerId && workerId !== req.user!.id && workerId !== Number(prevWorker?.user_id)) {
+      if (workerId) {
+        const isNewWorker = workerId !== Number(prevWorker?.user_id);
         // Get effective priority (from body or existing task)
         const effectivePriority = priority || (await db('tasks').where({ id: req.params.id }).select('priority').first())?.priority;
         if (['high', 'urgent'].includes(effectivePriority)) {
+          // Always pause active session for high/urgent — regardless of who is creating/re-assigning
           await pauseActiveSession(db, workerId);
-          await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${taskRow?.title}" assigned — your active task was paused`, 'task', taskRow?.project_id);
-        } else {
+          if (workerId !== req.user!.id || isNewWorker) {
+            await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${taskRow?.title}" assigned — your active task was paused`, 'task', taskRow?.project_id);
+          }
+        } else if (isNewWorker && workerId !== req.user!.id) {
           await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
         }
       }
@@ -552,10 +559,14 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
         task.project_id
       );
     }
-    res.json({ message: 'Updated' });
     if (action === 'accept') {
+      // Pause active session BEFORE responding so the frontend reload sees the closed session
+      if (task && ['high', 'urgent'].includes(task.priority)) {
+        await pauseActiveSession(db, userId);
+      }
       import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(userId, db)).catch(() => {});
     }
+    res.json({ message: 'Updated' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

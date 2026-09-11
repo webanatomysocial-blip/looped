@@ -84,4 +84,73 @@ router.post('/upload/:projectId', upload.single('file'), async (req: AuthRequest
   }
 });
 
+// GET unread count across project messages + internal chats
+router.get('/unread-count', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+
+    // Project messages: count messages in projects this user is a member of, sent by others, after last_read_at
+    const memberProjects = await db('project_members').where({ user_id: userId }).select('project_id');
+    const projectIds = memberProjects.map((r: any) => r.project_id);
+    let projectUnread = 0;
+    if (projectIds.length) {
+      const reads = await db('message_reads').where({ user_id: userId }).whereNotNull('project_id').select('project_id', 'last_read_at');
+      const readMap: Record<number, Date> = {};
+      for (const r of reads) readMap[r.project_id] = new Date(r.last_read_at);
+      for (const pid of projectIds) {
+        const since = readMap[pid];
+        const q = db('messages').where('project_id', pid).whereNot('sender_id', userId);
+        if (since) q.where('created_at', '>', since);
+        const [{ count }] = await q.count('id as count');
+        projectUnread += Number(count);
+      }
+    }
+
+    // Internal chats: count messages in chats this user is a member of, sent by others, after last_read_at
+    const memberChats = await db('internal_chat_members').where({ user_id: userId }).select('chat_id');
+    const chatIds = memberChats.map((r: any) => r.chat_id);
+    let chatUnread = 0;
+    if (chatIds.length) {
+      const reads = await db('message_reads').where({ user_id: userId }).whereNotNull('chat_id').select('chat_id', 'last_read_at');
+      const readMap: Record<number, Date> = {};
+      for (const r of reads) readMap[r.chat_id] = new Date(r.last_read_at);
+      for (const cid of chatIds) {
+        const since = readMap[cid];
+        const q = db('internal_messages').where('chat_id', cid).whereNot('sender_id', userId);
+        if (since) q.where('created_at', '>', since);
+        const [{ count }] = await q.count('id as count');
+        chatUnread += Number(count);
+      }
+    }
+
+    res.json({ count: projectUnread + chatUnread });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST mark read — body: { project_id } or { chat_id }
+router.post('/mark-read', async (req: AuthRequest, res: Response) => {
+  const { project_id, chat_id } = req.body;
+  if (!project_id && !chat_id) { res.status(400).json({ error: 'project_id or chat_id required' }); return; }
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const now = new Date();
+    if (project_id) {
+      await db('message_reads')
+        .insert({ user_id: userId, project_id, last_read_at: now })
+        .onConflict(['user_id', 'project_id']).merge({ last_read_at: now });
+    } else {
+      await db('message_reads')
+        .insert({ user_id: userId, chat_id, last_read_at: now })
+        .onConflict(['user_id', 'chat_id']).merge({ last_read_at: now });
+    }
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 export default router;

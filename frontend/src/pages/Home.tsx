@@ -8,7 +8,7 @@ import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import { ReviewAlert } from '../components/UI/ReviewAlert';
 import UrgentTaskAlert from '../components/UI/UrgentTaskAlert';
 import { useAuth } from '../contexts/AuthContext';
-import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api } from '../services/api';
+import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api, regularisationApi } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 
@@ -76,6 +76,9 @@ export default function Home() {
     () => new Set(JSON.parse(localStorage.getItem('dismissed_rejected_ids') || '[]'))
   );
   const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
+  const [regulariseTask, setRegulariseTask] = useState<CapacityTask | null>(null);
+  const [regulariseReason, setRegulariseReason] = useState('');
+  const [regulariseLoading, setRegulariseLoading] = useState(false);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
   const [doneLinkInput, setDoneLinkInput] = useState('');
@@ -148,6 +151,11 @@ export default function Home() {
     } else {
       await tasksApi.accept(task.id, action);
     }
+    // If accepting a high/urgent task, pause any currently running timer
+    if (['high', 'urgent'].includes(task.priority ?? '')) {
+      const running = (data?.tasks ?? []).find((t: any) => t.timer_running);
+      if (running) await tasksApi.timer(running.id, 'pause').catch(() => {});
+    }
     load();
   };
 
@@ -184,6 +192,20 @@ export default function Home() {
         setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
+    }
+    if (action === 'start') {
+      // Block starting a non-urgent/high task if an urgent/high accepted task exists
+      const urgentBlocking = (data?.tasks ?? []).filter((t: any) =>
+        t.id !== taskId &&
+        ['high', 'urgent'].includes(t.priority) &&
+        t.my_acceptance_status === 'accepted' &&
+        !['completed', 'in_review'].includes(t.status)
+      );
+      const thisTask = (data?.tasks ?? []).find((t: any) => t.id === taskId);
+      if (urgentBlocking.length > 0 && !['high', 'urgent'].includes(thisTask?.priority ?? '')) {
+        const names = urgentBlocking.map((t: any) => `"${t.title}" (${t.priority})`).join(', ');
+        if (!window.confirm(`You have urgent/high priority task(s) pending: ${names}.\n\nAre you sure you want to work on a lower-priority task instead?`)) return;
+      }
     }
     await tasksApi.timer(taskId, action);
     load();
@@ -523,7 +545,10 @@ export default function Home() {
                 const liveSec = Math.round(task.timer_running ? taskLiveSeconds(task) : task.tracked_seconds_today);
 
                 return (
-                  <div key={task.id} className="cap-task-row">
+                  <div key={task.id} className="cap-task-row" style={
+                    task.priority === 'urgent' ? { background: '#fff1f2', borderLeft: '3px solid #dc2626' } :
+                    task.priority === 'high'   ? { background: '#fff7ed', borderLeft: '3px solid #ea580c' } : undefined
+                  }>
                     <div
                       className={`cap-task-row__check${task.status === 'in_review' ? ' cap-task-row__check--done' : ''}`}
                       onClick={() => task.status === 'in_progress' && handleTimer(task.id, 'done', task)}
@@ -531,7 +556,25 @@ export default function Home() {
                     />
 
                     <div className="cap-task-row__info">
-                      <div className="cap-task-row__title" style={{ cursor: 'pointer' }} onClick={() => openTaskView(task.id)}>{task.title}</div>
+                      <div className="cap-task-row__title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => openTaskView(task.id)}>
+                        {task.title}
+                        {task.priority && (() => {
+                          const p = task.priority as string;
+                          const map: Record<string, { bg: string; color: string; border: string }> = {
+                            urgent: { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' },
+                            high:   { bg: '#fff7ed', color: '#ea580c', border: '#fed7aa' },
+                            medium: { bg: '#fffbeb', color: '#b45309', border: '#fde68a' },
+                            low:    { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0' },
+                          };
+                          const s = map[p];
+                          if (!s) return null;
+                          return (
+                            <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+                              {p}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <div className="cap-task-row__meta">
                         <span>{task.project_name}</span>
                         {(() => {
@@ -566,6 +609,18 @@ export default function Home() {
                       <div className="cap-task-row__review-badge">
                         In Review
                       </div>
+                    )}
+
+                    {/* Regularise button — shown when tracked time exceeds estimated */}
+                    {task.acceptance_status === 'accepted' && task.estimated_hours && !['completed','in_review'].includes(task.status) &&
+                      (task.tracked_seconds_today > 0 || liveSec > 0) &&
+                      (liveSec > task.estimated_hours * 3600 || task.tracked_seconds_today > task.estimated_hours * 3600) && (
+                      <button
+                        onClick={() => { setRegulariseTask(task); setRegulariseReason(''); }}
+                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1.5px solid #f59e0b', background: '#fffbeb', color: '#b45309', cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: 4 }}
+                        title="Request time extension">
+                        ⏱ Regularise
+                      </button>
                     )}
 
                     {(task.acceptance_status === 'accepted' || task.assignee_role === 'review') && task.status !== 'in_review' && (
@@ -913,6 +968,56 @@ export default function Home() {
             <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
               <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b', fontWeight: 500 }} onClick={() => setDeclineModal(null)}>Cancel</button>
               <button style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }} onClick={submitDecline}>Decline</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regularise modal */}
+      {regulariseTask && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
+          <div style={{ background: '#ffffff', borderRadius: 14, padding: 28, width: 400, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>⏱ Request Regularisation</h3>
+            <p style={{ margin: '0 0 6px', fontSize: 13, color: '#64748b' }}>
+              <strong style={{ color: '#0f172a' }}>{regulariseTask.title}</strong>
+            </p>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 14, padding: '10px 12px', background: '#fff7ed', borderRadius: 8, border: '1px solid #fed7aa' }}>
+              <div style={{ fontSize: 12, color: '#92400e' }}>
+                <div style={{ fontWeight: 700 }}>Est. time</div>
+                <div>{regulariseTask.estimated_hours ? `${(regulariseTask.estimated_hours * 60).toFixed(0)} min` : '—'}</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#92400e' }}>
+                <div style={{ fontWeight: 700 }}>Tracked today</div>
+                <div>{fmtSeconds(Math.round(regulariseTask.timer_running ? taskLiveSeconds(regulariseTask) : regulariseTask.tracked_seconds_today))}</div>
+              </div>
+              <div style={{ fontSize: 12, color: '#92400e' }}>
+                <div style={{ fontWeight: 700 }}>Buffer (20%)</div>
+                <div>{regulariseTask.estimated_hours ? `${(regulariseTask.estimated_hours * 0.2 * 60).toFixed(0)} min` : '—'}</div>
+              </div>
+            </div>
+            <textarea
+              autoFocus
+              placeholder="Reason (optional) — e.g. task was more complex than expected…"
+              value={regulariseReason}
+              onChange={(e) => setRegulariseReason(e.target.value)}
+              style={{ width: '100%', minHeight: 80, borderRadius: 8, border: '1.5px solid #e2e8f0', padding: '10px 12px', fontSize: 13, color: '#0f172a', background: '#f8fafc', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }}
+            />
+            <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>Your request will be sent to the admin and pod manager for approval.</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+              <button style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b', fontWeight: 500 }} onClick={() => setRegulariseTask(null)}>Cancel</button>
+              <button disabled={regulariseLoading} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#f59e0b', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                onClick={async () => {
+                  setRegulariseLoading(true);
+                  try {
+                    await regularisationApi.request(regulariseTask.id, regulariseReason || undefined);
+                    setRegulariseTask(null);
+                    alert('Regularisation request sent!');
+                  } catch (e: any) {
+                    alert(e?.response?.data?.error || 'Error sending request');
+                  } finally { setRegulariseLoading(false); }
+                }}>
+                {regulariseLoading ? 'Sending…' : 'Send Request'}
+              </button>
             </div>
           </div>
         </div>

@@ -32,6 +32,7 @@ import XLR8Tickets from './pages/XLR8Tickets';
 import TicketTypes from './pages/admin/TicketTypes';
 import LandingPage from './pages/LandingPage';
 import CalendarPage from './pages/Calendar';
+import RegularisationPage from './pages/Regularisation';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
@@ -243,6 +244,9 @@ function AppRoutes() {
         user?.role === 'client'
           ? <Navigate to="/projects" replace />
           : <Navigate to="/dashboard" replace />
+      } />
+      <Route path="/regularisation" element={
+        <PrivateRoute roles={['admin', 'manager']}><RegularisationPage /></PrivateRoute>
       } />
     </Routes>
   );

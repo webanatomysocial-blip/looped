@@ -95,6 +95,9 @@ export default function Projects() {
 
   const [briefingFileName, setBriefingFileName] = useState('');
   const [driveFileName, setDriveFileName] = useState('');
+  const [showAddClient, setShowAddClient] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({ name: '', email: '', password: '', company_name: '', send_welcome_email: false });
+  const [addingClient, setAddingClient] = useState(false);
 
   // Manager accept flow
   const [acceptProject, setAcceptProject] = useState<Project | null>(null);
@@ -595,25 +598,75 @@ export default function Projects() {
           <form onSubmit={handleSubmit} style={{ display: 'contents' }}>
             <div className="drawer-body">
               <div>
-                <label className="form-label">Project name *</label>
+                <label className="form-label">Company name *</label>
                 <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus readOnly={!!(editProject && user?.role === 'manager')} style={editProject && user?.role === 'manager' ? { background: 'var(--bg-sand)', color: 'var(--ink-muted)', cursor: 'default' } : {}} />
               </div>
 
               <div>
-                <label className="form-label">Client</label>
-                <select className="form-input" value={form.client_company_id} disabled={!!(editProject && user?.role === 'manager')}
-                  onChange={(e) => {
-                    const cid = e.target.value;
-                    const client = companies.find((c) => String(c.id) === cid);
-                    setForm((f) => ({
-                      ...f,
-                      client_company_id: cid,
-                      ...(client?.pod ? { pod: client.pod as 'pod1' | 'pod2' } : {}),
-                    }));
-                  }}>
-                  <option value="">No client</option>
-                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <label className="form-label" style={{ margin: 0 }}>Client</label>
+                  {!showAddClient && (
+                    <button type="button" style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                      onClick={() => { setShowAddClient(true); setNewClientForm({ name: '', email: '', password: '', company_name: '', send_welcome_email: false }); }}>
+                      + Add client
+                    </button>
+                  )}
+                </div>
+                {showAddClient ? (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--bg-card)' }}>
+                    <input className="form-input" placeholder="Full name *" autoComplete="off" value={newClientForm.name} onChange={(e) => setNewClientForm((f) => ({ ...f, name: e.target.value }))} autoFocus />
+                    <input className="form-input" placeholder="Email *" type="email" autoComplete="new-password" value={newClientForm.email} onChange={(e) => setNewClientForm((f) => ({ ...f, email: e.target.value }))} />
+                    <input className="form-input" placeholder="Password *" type="password" autoComplete="new-password" value={newClientForm.password} onChange={(e) => setNewClientForm((f) => ({ ...f, password: e.target.value }))} />
+                    <input className="form-input" placeholder="Company name" autoComplete="off" value={newClientForm.company_name} onChange={(e) => setNewClientForm((f) => ({ ...f, company_name: e.target.value }))} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>Send welcome email</span>
+                      <button type="button"
+                        onClick={() => setNewClientForm((f) => ({ ...f, send_welcome_email: !f.send_welcome_email }))}
+                        style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s', background: newClientForm.send_welcome_email ? '#22c55e' : '#d1d5db' }}>
+                        <span style={{ position: 'absolute', top: 3, left: newClientForm.send_welcome_email ? 23 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                      </button>
+                      <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{newClientForm.send_welcome_email ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" className="btn-primary" style={{ flex: 1, fontSize: 12 }} disabled={addingClient}
+                        onClick={async () => {
+                          if (!newClientForm.name || !newClientForm.email || !newClientForm.password) { alert('Name, email and password are required'); return; }
+                          setAddingClient(true);
+                          try {
+                            await usersApi.create({ name: newClientForm.name, email: newClientForm.email, password: newClientForm.password, role: 'client', company_name: newClientForm.company_name || undefined, send_welcome_email: newClientForm.send_welcome_email });
+                            // Refresh companies list
+                            const [projRes, compRes] = await Promise.all([projectsApi.list(), usersApi.companies()]);
+                            setProjects(projRes.data);
+                            const freshCompanies: ClientCompany[] = compRes.data;
+                            setCompanies(freshCompanies);
+                            // Auto-select the newly created client
+                            const created = freshCompanies.find((c) => c.name.toLowerCase() === newClientForm.name.toLowerCase());
+                            if (created) setForm((f) => ({ ...f, client_company_id: String(created.id) }));
+                            setShowAddClient(false);
+                          } catch (err: any) { alert(err?.response?.data?.error || 'Error creating client'); }
+                          finally { setAddingClient(false); }
+                        }}>
+                        {addingClient ? 'Creating…' : 'Create client'}
+                      </button>
+                      <button type="button" style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', cursor: 'pointer' }}
+                        onClick={() => setShowAddClient(false)}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <select className="form-input" value={form.client_company_id} disabled={!!(editProject && user?.role === 'manager')}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      const client = companies.find((c) => String(c.id) === cid);
+                      setForm((f) => ({
+                        ...f,
+                        client_company_id: cid,
+                        ...(client?.pod ? { pod: client.pod as 'pod1' | 'pod2' } : {}),
+                      }));
+                    }}>
+                    <option value="">No client</option>
+                    {companies.map((c) => <option key={c.id} value={c.id}>{(c as any).client_user_name || c.name}</option>)}
+                  </select>
+                )}
               </div>
 
               {/* Service type — toggle for admin, read-only badge for manager */}

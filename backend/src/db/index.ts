@@ -1179,6 +1179,37 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+
+  // message_reads — last-seen timestamp per user per chat (internal) and per project (client messages)
+  await db.schema.hasTable('message_reads').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('message_reads', (t) => {
+        t.increments('id').primary();
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('chat_id').nullable();
+        t.integer('project_id').nullable();
+        t.timestamp('last_read_at').notNullable();
+        t.unique(['user_id', 'chat_id']);
+        t.unique(['user_id', 'project_id']);
+      });
+    }
+  });
+
+  await db.schema.hasTable('regularisation_requests').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('regularisation_requests', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.text('reason').nullable();
+        t.string('status').notNullable().defaultTo('pending');
+        t.float('new_est_hours').nullable();
+        t.integer('reviewed_by').nullable().references('id').inTable('users').onDelete('SET NULL');
+        t.timestamp('reviewed_at').nullable();
+        t.timestamps(true, true);
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {

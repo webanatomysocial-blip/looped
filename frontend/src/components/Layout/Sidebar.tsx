@@ -6,10 +6,10 @@ import {
   RiGroupLine, RiSettings4Line, RiLogoutBoxRLine, RiMailLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
-  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiCalendarLine,
+  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiCalendarLine, RiTimeLine,
 } from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
-import { notificationsApi } from '../../services/api';
+import { notificationsApi, messagesApi } from '../../services/api';
 import { Role } from '../../types';
 import '../../css/Layout/Sidebar.css';
 
@@ -40,6 +40,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
+      { to: '/regularisation',     icon: RiTimeLine,       label: 'Regularisation' },
     ],
   },
   manager: {
@@ -60,6 +61,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
+      { to: '/regularisation',     icon: RiTimeLine,       label: 'Regularisation' },
     ],
   },
   employee: {
@@ -95,6 +97,7 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [unread, setUnread] = useState(0);
+  const [unreadMsg, setUnreadMsg] = useState(0);
   const [tooltip, setTooltip] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -104,6 +107,14 @@ export default function Sidebar() {
     const fetch = () => notificationsApi.unreadCount().then((r) => setUnread(r.data.count)).catch(() => {});
     fetch();
     const id = setInterval(fetch, 30000);
+    return () => clearInterval(id);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetch = () => messagesApi.unreadCount().then((r) => setUnreadMsg(r.data.count)).catch(() => {});
+    fetch();
+    const id = setInterval(fetch, 20000);
     return () => clearInterval(id);
   }, [user]);
 
@@ -135,6 +146,7 @@ export default function Sidebar() {
   const renderItem = ({ to, icon: Icon, label }: NavItem) => {
     const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
     const hasNotif = label === 'Notifications' && unread > 0;
+    const hasMsg = label === 'Messages' && unreadMsg > 0;
     return (
       <div
         key={to}
@@ -148,6 +160,18 @@ export default function Sidebar() {
         >
           <Icon size={18} />
           {hasNotif && <span className="sidebar__notif-dot" />}
+          {hasMsg && (
+            <span style={{
+              position: 'absolute', top: 4, right: 4,
+              background: '#ef4444', color: '#fff',
+              fontSize: 9, fontWeight: 800, lineHeight: 1,
+              minWidth: 15, height: 15, borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '0 3px', boxShadow: '0 0 0 2px var(--sidebar-bg, #1a1a1a)',
+            }}>
+              {unreadMsg > 99 ? '99+' : unreadMsg}
+            </span>
+          )}
         </button>
         {tooltip === label && <div className="sidebar__tooltip">{label}</div>}
       </div>

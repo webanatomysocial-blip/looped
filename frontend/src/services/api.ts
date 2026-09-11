@@ -120,6 +120,8 @@ export const messagesApi = {
   send: (message: string, projectId?: number) => api.post('/messages', { message, project_id: projectId }),
   uploadFile: (projectId: number, formData: FormData) =>
     api.post(`/messages/upload/${projectId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  unreadCount: () => api.get('/messages/unread-count'),
+  markRead: (opts: { project_id?: number; chat_id?: number }) => api.post('/messages/mark-read', opts),
 };
 
 export const internalChatApi = {
@@ -260,6 +262,12 @@ export const xlr8Api = {
   adminDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-decline`, { comment }),
   adminSendClient: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-send-client`, { comment }),
   clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),
+};
+
+export const regularisationApi = {
+  request: (task_id: number, reason?: string) => api.post('/regularisation', { task_id, reason }),
+  list: () => api.get('/regularisation'),
+  review: (id: number, action: 'approve' | 'reject', new_est_hours?: number) => api.put(`/regularisation/${id}`, { action, new_est_hours }),
 };
 
 export default api;

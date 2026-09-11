@@ -157,18 +157,18 @@ function TaskBlock({ task, onClick }: { task: any; onClick: () => void }) {
 }
 
 // ─── Weekly view ─────────────────────────────────────────────────────────────
-const GRID_START_H = 9;
-const GRID_END_H   = 25;
+const GRID_START_H = 0;
+const GRID_END_H   = 24;
 const ROW_PX       = 60;
 
-function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: number) => void }) {
+function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: any) => void }) {
   const { user } = useAuth();
   const isOverview = user?.role === 'admin' || user?.role === 'manager';
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]> } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nowPct, setNowPct] = useState(() => {
-    const n = new Date(); return ((n.getHours() + n.getMinutes() / 60 - 9) / 10) * 100;
+    const n = new Date(); return ((n.getHours() + n.getMinutes() / 60 - GRID_START_H) / (GRID_END_H - GRID_START_H)) * 100;
   });
   // Map slotId → pinned start hour (local overrides after drag)
   const [pinned, setPinned] = useState<Record<number, number>>({});
@@ -180,7 +180,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
   const today = dateStr(new Date());
 
   useEffect(() => {
-    const tick = () => { const n = new Date(); setNowPct(((n.getHours() + n.getMinutes() / 60 - 9) / 10) * 100); };
+    const tick = () => { const n = new Date(); setNowPct(((n.getHours() + n.getMinutes() / 60 - GRID_START_H) / (GRID_END_H - GRID_START_H)) * 100); };
     const id = setInterval(tick, 60000);
     return () => clearInterval(id);
   }, []);
@@ -274,7 +274,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
         // unpinned tasks stack from 9am in priority order.
         const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
         for (const day of data.days) {
-          let cursor = GRID_START;
+          let cursor = 9;
           dayBlocks[day] = [];
           const pinnedTasks: { task: any; startH: number; endH: number }[] = [];
           const freeTasks: any[] = [];
@@ -368,7 +368,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
                               setDragPos({ slotId: task.slot_id, startH: baseStartH });
                               (e.target as HTMLElement).setPointerCapture(e.pointerId);
                             } : undefined}
-                            onClick={() => { if (!dragRef.current && task.id) onTaskClick(task.id); }}
+                            onClick={() => { if (!dragRef.current) onTaskClick(task); }}
                             style={{
                               position: 'absolute',
                               top, left: 3, right: 3, height,
@@ -421,7 +421,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (id: num
 }
 
 // ─── Monthly view (existing logic, cleaned up) ───────────────────────────────
-function MonthView({ year, month, onEventClick }: { year: number; month: number; onEventClick: (id: number) => void }) {
+function MonthView({ year, month, onEventClick }: { year: number; month: number; onEventClick: (ev: any) => void }) {
   const [events, setEvents] = useState<{ tasks: any[]; recurring: any[] }>({ tasks: [], recurring: [] });
   const [loading, setLoading] = useState(false);
   const today = dateStr(new Date());
@@ -471,7 +471,7 @@ function MonthView({ year, month, onEventClick }: { year: number; month: number;
                 const cfg = PRIORITY_CONFIG[p] || PRIORITY_CONFIG.medium;
                 const isDone = ev.status === 'completed' || ev.status === 'done';
                 return (
-                  <div key={i} onClick={() => typeof ev.id === 'number' && onEventClick(ev.id)} style={{
+                  <div key={i} onClick={() => onEventClick(ev)} style={{
                     fontSize: 10, fontWeight: 600, padding: '2px 5px', borderRadius: 4, marginBottom: 2,
                     background: isDone ? '#f0fdf4' : ev.event_type === 'recurring' ? 'rgba(99,102,241,0.1)' : cfg.bg,
                     color: isDone ? '#15803d' : ev.event_type === 'recurring' ? '#4f46e5' : cfg.color,
@@ -506,6 +506,7 @@ export default function CalendarPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [selected, setSelected] = useState<number | null>(null); // task ID for drawer
+  const [selectedRecurring, setSelectedRecurring] = useState<any | null>(null); // recurring event info popup
   const [recurringList, setRecurringList] = useState<any[]>([]);
   const [showRecurring, setShowRecurring] = useState(false);
   const [modal, setModal] = useState(false);
@@ -613,10 +614,26 @@ export default function CalendarPage() {
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flex: 1, minHeight: 0 }}>
           {/* ── Main view ── */}
           {view === 'week' && (
-            <WeekView monday={monday} onTaskClick={setSelected} />
+            <WeekView monday={monday} onTaskClick={(task) => {
+              if (task.event_type === 'recurring') {
+                if (task.task_instance_id) { setSelected(task.task_instance_id); setSelectedRecurring(null); }
+                else { setSelectedRecurring(task); setSelected(null); }
+              } else {
+                setSelected(task.id);
+                setSelectedRecurring(null);
+              }
+            }} />
           )}
           {view === 'month' && (
-            <MonthView year={year} month={month} onEventClick={setSelected} />
+            <MonthView year={year} month={month} onEventClick={(ev) => {
+              if (ev.event_type === 'recurring') {
+                if (ev.task_instance_id) { setSelected(ev.task_instance_id); setSelectedRecurring(null); }
+                else { setSelectedRecurring(ev); setSelected(null); }
+              } else {
+                setSelected(ev.id);
+                setSelectedRecurring(null);
+              }
+            }} />
           )}
 
           {/* ── Recurring sidebar ── */}
@@ -653,6 +670,39 @@ export default function CalendarPage() {
         {/* ── Task detail panel ── */}
         {selected != null && (
           <TaskViewDrawer taskId={selected} onClose={() => setSelected(null)} />
+        )}
+
+        {/* ── Recurring event detail popup ── */}
+        {selectedRecurring && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setSelectedRecurring(null)}>
+            <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: 400, boxShadow: '0 24px 64px rgba(0,0,0,0.18)', border: '1px solid rgba(255,255,255,0.8)' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <Repeat size={16} color="#818cf8" />
+                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>{selectedRecurring.title}</span>
+                <button onClick={() => setSelectedRecurring(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', padding: 2 }}>✕</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                {[
+                  { label: 'Date', value: selectedRecurring.date },
+                  { label: 'Status', value: selectedRecurring.status },
+                  { label: 'Estimated', value: selectedRecurring.estimated_hours ? `${selectedRecurring.estimated_hours}h` : '—' },
+                  { label: 'Priority', value: selectedRecurring.priority || 'medium' },
+                  { label: 'Assigned to', value: selectedRecurring.assigned_to_name || '—' },
+                  { label: 'Project', value: selectedRecurring.project_name || '—' },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{ background: '#f8f5f0', borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', textTransform: 'capitalize' }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
+                This recurring task hasn't been generated as an active task yet for this date. It will appear once the scheduler runs.
+              </p>
+            </div>
+          </div>
         )}
 
         {/* ── Recurring task modal ── */}

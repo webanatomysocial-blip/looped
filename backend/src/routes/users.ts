@@ -173,7 +173,7 @@ router.get('/team', async (_req: AuthRequest, res: Response) => {
 
 // POST create user (admin only)
 router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
-  const { name, email, password, role, company_name, category_ids, pod, monthly_salary } = req.body;
+  const { name, email, password, role, company_name, category_ids, pod, monthly_salary, send_welcome_email } = req.body;
   if (!name || !email || !password || !role) {
     res.status(400).json({ error: 'All fields required' }); return;
   }
@@ -214,7 +214,9 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
 
     res.status(201).json({ id, name, email, role, avatar_color: color });
 
-    // Send welcome email with credentials (fire-and-forget)
+    // Send welcome email — always for non-clients; for clients only if send_welcome_email !== false
+    const shouldEmail = role === 'client' ? send_welcome_email === true : true;
+    if (!shouldEmail) return;
     sendEmail({
       to: [{ email, name }],
       subject: 'Your Loooped account has been created',

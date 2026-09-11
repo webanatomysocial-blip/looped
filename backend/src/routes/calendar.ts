@@ -194,9 +194,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
     })
     .select('rt.*', 'u.name as assigned_to_name', 'u.avatar_color', 'p.name as project_name');
 
-  if (user.role !== 'admin' && user.role !== 'manager') {
-    rtQuery = rtQuery.where('rt.assigned_to', user.id);
-  }
+  rtQuery = rtQuery.where('rt.assigned_to', user.id);
 
   const recurringTemplates = await rtQuery;
 
@@ -398,9 +396,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .where('rt.start_date', '<=', weekEnd)
       .where(function () { this.whereNull('rt.end_date').orWhere('rt.end_date', '>=', weekStart); })
       .select('rt.*', 'p.name as project_name', 'u.name as assigned_to_name');
-    if (user.role !== 'admin' && user.role !== 'manager') {
-      recurringQuery = recurringQuery.where('rt.assigned_to', user.id);
-    }
+    recurringQuery = recurringQuery.where('rt.assigned_to', user.id);
     const recurringTemplates = await recurringQuery;
 
     const recurring: any[] = [];

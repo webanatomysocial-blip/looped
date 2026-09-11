@@ -47,12 +47,14 @@ export default function Messages() {
     usersApi.team().then((r) => setTeamUsers(r.data.filter((u: User) => u.id !== user?.id)));
   }, []);
 
-  // Load messages when activeChat changes
+  // Load messages when activeChat changes + mark read
   useEffect(() => {
     if (!activeChat) return;
     internalChatApi.getMessages(activeChat.id).then((r) => setInternalMsgs(r.data));
+    messagesApi.markRead({ chat_id: activeChat.id }).catch(() => {});
     const interval = setInterval(() => {
       internalChatApi.getMessages(activeChat.id).then((r) => setInternalMsgs(r.data));
+      messagesApi.markRead({ chat_id: activeChat.id }).catch(() => {});
     }, 5000);
     return () => clearInterval(interval);
   }, [activeChat]);
@@ -66,12 +68,16 @@ export default function Messages() {
     });
   }, []);
 
-  // Load + auto-refresh client messages whenever project changes
+  // Load + auto-refresh client messages whenever project changes + mark read
   useEffect(() => {
     if (!selectedProject) return;
     const fetch = () => messagesApi.list(selectedProject.id).then((r) => setClientMsgs(r.data));
     fetch();
-    const interval = setInterval(fetch, 4000);
+    messagesApi.markRead({ project_id: selectedProject.id }).catch(() => {});
+    const interval = setInterval(() => {
+      fetch();
+      messagesApi.markRead({ project_id: selectedProject.id }).catch(() => {});
+    }, 4000);
     return () => clearInterval(interval);
   }, [selectedProject]);
 
