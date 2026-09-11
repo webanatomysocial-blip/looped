@@ -253,9 +253,10 @@ export default function Home() {
   const allTasksRaw = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
   const today = new Date().toISOString().slice(0, 10);
   const liveSeconds = (t: CapacityTask) => t.tracked_seconds_today + (t.timer_running ? elapsed : 0);
+  const effectiveEst = (t: CapacityTask) => (t.stage_est_hours ?? t.estimated_hours ?? 0) * 3600;
   const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && (
     (t.due_date && t.due_date < today) ||
-    (t.estimated_hours && t.acceptance_status === 'accepted' && liveSeconds(t) > t.estimated_hours * 3600)
+    (effectiveEst(t) > 0 && t.acceptance_status === 'accepted' && liveSeconds(t) > effectiveEst(t))
   ));
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
@@ -578,7 +579,7 @@ export default function Home() {
                             </span>
                           );
                         })()}
-                        {task.estimated_hours && task.acceptance_status === 'accepted' && liveSeconds(task) > task.estimated_hours * 3600 && (
+                        {effectiveEst(task) > 0 && task.acceptance_status === 'accepted' && liveSeconds(task) > effectiveEst(task) && (
                           <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5' }}>
                             Over Est
                           </span>
@@ -621,9 +622,9 @@ export default function Home() {
                     )}
 
                     {/* Regularise button — shown when tracked time exceeds estimated */}
-                    {task.acceptance_status === 'accepted' && task.estimated_hours && !['completed','in_review'].includes(task.status) &&
+                    {task.acceptance_status === 'accepted' && effectiveEst(task) > 0 && !['completed','in_review'].includes(task.status) &&
                       (task.tracked_seconds_today > 0 || liveSec > 0) &&
-                      (liveSec > task.estimated_hours * 3600 || task.tracked_seconds_today > task.estimated_hours * 3600) && (
+                      liveSec > effectiveEst(task) && (
                       <button
                         onClick={() => { setRegulariseTask(task); setRegulariseReason(''); }}
                         style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1.5px solid #f59e0b', background: '#fffbeb', color: '#b45309', cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: 4 }}
