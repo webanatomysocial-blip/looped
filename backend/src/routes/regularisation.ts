@@ -33,9 +33,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const userId = req.user!.id;
 
-    // Must be assigned to this task
+    // Must be assigned to this task (via task_assignees OR xlr8_assignee_id)
     const assigned = await db('task_assignees').where({ task_id, user_id: userId }).first();
-    if (!assigned) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
+    const xlr8Assigned = await db('tasks').where({ id: task_id, xlr8_assignee_id: userId }).first();
+    if (!assigned && !xlr8Assigned) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
 
     // No duplicate pending request
     const existing = await db('regularisation_requests').where({ task_id, user_id: userId, status: 'pending' }).first();
@@ -49,14 +50,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // Notify all admins
     const admins = await db('users').where({ role: 'admin' }).select('id');
     for (const a of admins) {
-      await createNotification(a.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', task_id);
+      await createNotification(a.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
     }
 
     // Notify pod manager if task's project has a pod
     if (task?.pod) {
       const podManagers = await db('users').where({ role: 'manager', pod: task.pod }).select('id');
       for (const m of podManagers) {
-        await createNotification(m.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', task_id);
+        await createNotification(m.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
       }
     }
 
