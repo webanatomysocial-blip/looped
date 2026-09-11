@@ -936,7 +936,16 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
       .where({ 'd.task_id': row.task_id })
       .select('d.*', 'u.name as uploader_name');
 
-    res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables });
+    let activity_log: any[] = [];
+    if (task.ticket_type_id) {
+      activity_log = await db('xlr8_ticket_log as l')
+        .leftJoin('users as u', 'l.actor_id', 'u.id')
+        .where({ 'l.task_id': row.task_id })
+        .select('l.*', 'u.name as actor_name')
+        .orderBy('l.created_at', 'asc');
+    }
+
+    res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables, activity_log });
   } catch (e: any) {
     console.error('Public task error:', e?.message);
     res.status(500).json({ error: 'Server error' });
