@@ -65,7 +65,7 @@ export default function IdCardModal({ name, role, avatarUrl, onClose }: Props) {
             {/* Single lanyard strap with rotated text */}
             <div style={{
               width: 22,
-              height: 90,
+              height: 120,
               background: '#111',
               borderRadius: '0 0 3px 3px',
               boxShadow: '2px 0 6px rgba(0,0,0,0.5), -2px 0 6px rgba(0,0,0,0.3)',
