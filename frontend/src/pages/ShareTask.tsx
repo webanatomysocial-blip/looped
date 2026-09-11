@@ -313,7 +313,7 @@ export default function ShareTask() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f8f5f0 0%, #ede8e0 100%)', fontFamily: 'system-ui, -apple-system, sans-serif', padding: '40px 20px 80px' }}>
-      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ maxWidth: 1400, margin: '0 auto' }}>
 
         {/* Header card */}
         <div style={{ borderRadius: 20, border: '1px solid rgba(255,255,255,0.7)', background: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.6) 100%)', backdropFilter: 'blur(24px)', boxShadow: '0 10px 40px rgba(0,0,0,0.06)', padding: '28px 28px 0', marginBottom: 16 }}>
