@@ -28,6 +28,7 @@ export default function Header({ action }: HeaderProps) {
   const [results, setResults] = useState<{ type: 'task' | 'project'; id: number; title: string; sub: string }[]>([]);
   const [showDrop, setShowDrop] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Create AudioContext lazily on first user gesture
@@ -225,9 +226,9 @@ export default function Header({ action }: HeaderProps) {
 
         <div
           className="app-header__avatar"
-          style={{ backgroundColor: user.avatar_url ? 'transparent' : user.avatar_color }}
+          style={{ backgroundColor: user.avatar_url ? 'transparent' : user.avatar_color, cursor: 'pointer' }}
           title={user.name}
-          onClick={() => navigate('/settings')}
+          onClick={() => user.avatar_url ? setShowAvatarModal(true) : navigate('/settings')}
         >
           {user.avatar_url
             ? <img src={user.avatar_url} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
@@ -236,6 +237,20 @@ export default function Header({ action }: HeaderProps) {
         </div>
       </div>
     </header>
+
+    {/* Avatar preview modal */}
+    {showAvatarModal && user.avatar_url && (
+      <div onClick={() => setShowAvatarModal(false)} style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}>
+        <div onClick={e => e.stopPropagation()} style={{ position: 'relative', borderRadius: 20, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.4)' }}>
+          <img src={user.avatar_url} alt={user.name} style={{ display: 'block', maxWidth: '80vw', maxHeight: '80vh', width: 'auto', height: 'auto', minWidth: 240 }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }}>
+            <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{user.name}</div>
+            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>{user.role}</div>
+          </div>
+          <button onClick={() => setShowAvatarModal(false)} style={{ position: 'absolute', top: 12, right: 12, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+        </div>
+      </div>
+    )}
     </>
   );
 }
