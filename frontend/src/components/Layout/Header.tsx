@@ -240,16 +240,25 @@ export default function Header({ action }: HeaderProps) {
 
     {/* Avatar preview modal */}
     {showAvatarModal && user.avatar_url && (
-      <div onClick={() => setShowAvatarModal(false)} style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}>
-        <div onClick={e => e.stopPropagation()} style={{ position: 'relative', borderRadius: 20, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.4)' }}>
-          <img src={user.avatar_url} alt={user.name} style={{ display: 'block', maxWidth: '80vw', maxHeight: '80vh', width: 'auto', height: 'auto', minWidth: 240 }} />
-          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '16px 20px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }}>
-            <div style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>{user.name}</div>
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textTransform: 'capitalize' }}>{user.role}</div>
+      <>
+        <style>{`
+          @keyframes __av-backdrop { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes __av-card { from { opacity: 0; transform: scale(0.88) translateY(16px) } to { opacity: 1; transform: scale(1) translateY(0) } }
+          @keyframes __av-info { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
+        `}</style>
+        <div onClick={() => setShowAvatarModal(false)} style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', animation: '__av-backdrop 0.25s ease both' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', borderRadius: 24, overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.5)', animation: '__av-card 0.35s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+            <img src={user.avatar_url} alt={user.name} style={{ display: 'block', maxWidth: '80vw', maxHeight: '80vh', width: 'auto', height: 'auto', minWidth: 260 }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '28px 22px 20px', background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)', animation: '__av-info 0.4s 0.15s ease both' }}>
+              <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, letterSpacing: '-0.01em' }}>{user.name}</div>
+              <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12, marginTop: 3, textTransform: 'capitalize', fontWeight: 500 }}>{user.role}</div>
+            </div>
+            <button onClick={() => setShowAvatarModal(false)} style={{ position: 'absolute', top: 12, right: 12, width: 30, height: 30, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer', fontSize: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.7)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.45)')}>×</button>
           </div>
-          <button onClick={() => setShowAvatarModal(false)} style={{ position: 'absolute', top: 12, right: 12, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
         </div>
-      </div>
+      </>
     )}
     </>
   );
