@@ -43,6 +43,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const [tab, setTab]   = useState<'info' | 'activity'>('info');
   const [loading, setLoading] = useState(true);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [drawerElapsed, setDrawerElapsed] = useState(0);
 
   const handleCopyLink = async () => {
     try {
@@ -95,6 +96,13 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, [taskId]);
+
+  // Tick elapsed seconds so live-running stage tracked time stays accurate
+  useEffect(() => {
+    setDrawerElapsed(0);
+    const id = setInterval(() => setDrawerElapsed(e => e + 1), 1000);
+    return () => clearInterval(id);
   }, [taskId]);
 
   return (
@@ -276,7 +284,9 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           const isCurrent = !isCompleted && i === currentIdx && !isRejected;
                           const isPending = !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
                           const stageAssignee = stageAssignees.filter((a: any) => a.stage_idx === i && a.user_id);
-                          const trackedSec = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
+                          const rawTracked = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
+                          const stageIsActive = (task.stage_assignees ?? []).some((a: any) => a.stage_idx === i && a.is_active);
+                          const trackedSec = Number(rawTracked) + (stageIsActive ? drawerElapsed : 0);
                           const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
                           const borderColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#e2e8f0';
                           const bgColor = isRejected ? 'rgba(239,68,68,0.05)' : isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? 'rgba(59,130,246,0.05)' : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
