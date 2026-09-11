@@ -133,6 +133,7 @@ export interface TaskAssignee {
   acceptance_status?: 'pending' | 'accepted' | 'declined';
   stage_idx?: number;
   est_hours?: number | null;
+  designation?: string | null;
 }
 
 export interface Task {

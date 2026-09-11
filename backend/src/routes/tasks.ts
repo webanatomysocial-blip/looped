@@ -135,8 +135,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const assigneeRows = taskIds.length
       ? await db('task_assignees as ta')
           .join('users as u', 'ta.user_id', 'u.id')
+          .leftJoin(
+            db('user_categories as uc').join('employee_categories as ec', 'uc.category_id', 'ec.id')
+              .select('uc.user_id', db.raw('MIN(ec.name) as designation'))
+              .groupBy('uc.user_id').as('uc_agg'),
+            'uc_agg.user_id', 'u.id'
+          )
           .whereIn('ta.task_id', taskIds)
-          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours')
+          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours', 'uc_agg.designation')
       : [];
 
     // Timer state: active sessions for current user today + all active runners per task

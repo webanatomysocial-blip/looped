@@ -659,7 +659,7 @@ export default function Tasks() {
                             const arFull  = ar === 'manager' ? 'Manager' : 'Employee';
                             return (
                               <div key={a.user_id} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2, opacity: hasAnyMe && !isMe ? 0.35 : 1, transition: 'opacity 0.15s' }}>
-                                <div style={{ position: 'relative', cursor: a.avatar_url ? 'pointer' : 'default' }} onClick={() => a.avatar_url && setPreviewUser({ name: a.name, role: arFull, avatar_url: a.avatar_url })}>
+                                <div style={{ position: 'relative', cursor: a.avatar_url ? 'pointer' : 'default' }} onClick={() => a.avatar_url && setPreviewUser({ name: a.name, role: a.designation ?? arFull, avatar_url: a.avatar_url })}>
                                   <Avatar name={a.name} color={a.avatar_color} avatarUrl={a.avatar_url} size="sm" title={`${a.name} · ${arFull}`} />
                                   {isWorking && (
                                     <span style={{ position: 'absolute', bottom: -1, right: -1, width: 7, height: 7, background: 'var(--green)', borderRadius: '50%', border: '1.5px solid #fff' }} title="Working now" />

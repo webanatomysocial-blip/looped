@@ -240,7 +240,7 @@ export default function Header({ action }: HeaderProps) {
     </header>
 
     {showAvatarModal && user.avatar_url && (
-      <IdCardModal name={user.name} role={user.role} avatarUrl={user.avatar_url} onClose={() => setShowAvatarModal(false)} />
+      <IdCardModal name={user.name} role={user.categories?.[0]?.name ?? user.role} avatarUrl={user.avatar_url} onClose={() => setShowAvatarModal(false)} />
     )}
     </>
   );
