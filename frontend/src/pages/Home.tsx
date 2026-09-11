@@ -252,7 +252,10 @@ export default function Home() {
 
   const allTasksRaw = [...(data?.tasks ?? [])].sort((a, b) => b.id - a.id);
   const today = new Date().toISOString().slice(0, 10);
-  const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && t.due_date && t.due_date < today);
+  const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && (
+    (t.due_date && t.due_date < today) ||
+    (t.estimated_hours && t.acceptance_status === 'accepted' && t.tracked_seconds_today > t.estimated_hours * 3600)
+  ));
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
   const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
@@ -574,6 +577,11 @@ export default function Home() {
                             </span>
                           );
                         })()}
+                        {task.estimated_hours && task.acceptance_status === 'accepted' && task.tracked_seconds_today > task.estimated_hours * 3600 && (
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5' }}>
+                            Over Est
+                          </span>
+                        )}
                       </div>
                       <div className="cap-task-row__meta">
                         <span>{task.project_name}</span>
