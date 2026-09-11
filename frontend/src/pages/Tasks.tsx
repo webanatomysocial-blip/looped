@@ -524,6 +524,7 @@ export default function Tasks() {
 
   const [page, setPage] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
+  const [previewUser, setPreviewUser] = useState<{ name: string; role?: string; avatar_url: string } | null>(null);
 
   const statuses = ['all', 'draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
   const filtered = tasks.filter((t) => {
@@ -538,6 +539,7 @@ export default function Tasks() {
   const paginated   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
+    <>
     <Layout>
       <div className="page-wrap">
         <div className="tasks-top">
@@ -656,7 +658,7 @@ export default function Tasks() {
                             const arFull  = ar === 'manager' ? 'Manager' : 'Employee';
                             return (
                               <div key={a.user_id} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2, opacity: hasAnyMe && !isMe ? 0.35 : 1, transition: 'opacity 0.15s' }}>
-                                <div style={{ position: 'relative' }}>
+                                <div style={{ position: 'relative', cursor: a.avatar_url ? 'pointer' : 'default' }} onClick={() => a.avatar_url && setPreviewUser({ name: a.name, role: arFull, avatar_url: a.avatar_url })}>
                                   <Avatar name={a.name} color={a.avatar_color} avatarUrl={a.avatar_url} size="sm" title={`${a.name} · ${arFull}`} />
                                   {isWorking && (
                                     <span style={{ position: 'absolute', bottom: -1, right: -1, width: 7, height: 7, background: 'var(--green)', borderRadius: '50%', border: '1.5px solid #fff' }} title="Working now" />
@@ -1998,5 +2000,29 @@ export default function Tasks() {
         </div>
       )}
     </Layout>
+
+    {/* Avatar preview modal */}
+    {previewUser && (
+      <>
+        <style>{`
+          @keyframes __av-backdrop { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes __av-card { from { opacity: 0; transform: scale(0.88) translateY(16px) } to { opacity: 1; transform: scale(1) translateY(0) } }
+          @keyframes __av-info { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
+        `}</style>
+        <div onClick={() => setPreviewUser(null)} style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', animation: '__av-backdrop 0.25s ease both' }}>
+          <div onClick={e => e.stopPropagation()} style={{ position: 'relative', borderRadius: 24, overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.5)', animation: '__av-card 0.35s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+            <img src={previewUser.avatar_url} alt={previewUser.name} style={{ display: 'block', maxWidth: '80vw', maxHeight: '80vh', width: 'auto', height: 'auto', minWidth: 260 }} />
+            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '28px 22px 20px', background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)', animation: '__av-info 0.4s 0.15s ease both' }}>
+              <div style={{ color: '#fff', fontWeight: 700, fontSize: 17, letterSpacing: '-0.01em' }}>{previewUser.name}</div>
+              {previewUser.role && <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12, marginTop: 3, textTransform: 'capitalize', fontWeight: 500 }}>{previewUser.role}</div>}
+            </div>
+            <button onClick={() => setPreviewUser(null)} style={{ position: 'absolute', top: 12, right: 12, width: 30, height: 30, borderRadius: '50%', background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer', fontSize: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', transition: 'background 0.15s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.7)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.45)')}>×</button>
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }
