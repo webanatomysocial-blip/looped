@@ -24,12 +24,20 @@ async function ensureTable() {
   }
 }
 
+// Ensure tracked_seconds_snapshot column exists
+async function ensureTrackedSnapshot() {
+  const db = getDB();
+  const has = await db.schema.hasColumn('regularisation_requests', 'tracked_seconds_snapshot');
+  if (!has) await db.schema.table('regularisation_requests', t => { t.integer('tracked_seconds_snapshot').nullable(); });
+}
+
 // POST — employee requests regularisation for an overdue task
 router.post('/', async (req: AuthRequest, res: Response) => {
-  const { task_id, reason } = req.body;
+  const { task_id, reason, tracked_seconds } = req.body;
   if (!task_id) { res.status(400).json({ error: 'task_id required' }); return; }
   try {
     await ensureTable();
+    await ensureTrackedSnapshot();
     const db = getDB();
     const userId = req.user!.id;
 
@@ -42,7 +50,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const existing = await db('regularisation_requests').where({ task_id, user_id: userId, status: 'pending' }).first();
     if (existing) { res.status(409).json({ error: 'A pending request already exists for this task' }); return; }
 
-    const [id] = await db('regularisation_requests').insert({ task_id, user_id: userId, reason: reason || null });
+    const [id] = await db('regularisation_requests').insert({
+      task_id, user_id: userId, reason: reason || null,
+      tracked_seconds_snapshot: tracked_seconds ?? null,
+    });
 
     const task = await db('tasks as t').join('projects as p', 't.project_id', 'p.id').where('t.id', task_id).select('t.title', 'p.name as project_name', 'p.pod').first();
     const requester = await db('users').where({ id: userId }).select('name').first();
@@ -97,7 +108,8 @@ router.get('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res: 
         const end = s.ended_at ? (isNaN(Number(s.ended_at)) ? new Date(s.ended_at).getTime() : Number(s.ended_at)) : now;
         trackedMs += Math.max(0, end - start);
       }
-      return { ...r, tracked_hours: Math.round((trackedMs / 3600000) * 1000) / 1000 };
+      const trackedSec = r.tracked_seconds_snapshot != null ? r.tracked_seconds_snapshot : Math.round(trackedMs / 1000);
+      return { ...r, tracked_hours: Math.round((trackedSec / 3600) * 1000) / 1000 };
     }));
 
     res.json(result);

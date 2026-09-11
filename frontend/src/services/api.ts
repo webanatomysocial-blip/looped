@@ -266,7 +266,7 @@ export const xlr8Api = {
 };
 
 export const regularisationApi = {
-  request: (task_id: number, reason?: string) => api.post('/regularisation', { task_id, reason }),
+  request: (task_id: number, reason?: string, tracked_seconds?: number) => api.post('/regularisation', { task_id, reason, tracked_seconds }),
   list: () => api.get('/regularisation'),
   review: (id: number, action: 'approve' | 'reject', new_est_hours?: number) => api.put(`/regularisation/${id}`, { action, new_est_hours }),
 };

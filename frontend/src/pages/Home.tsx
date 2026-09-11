@@ -1017,7 +1017,8 @@ export default function Home() {
                 onClick={async () => {
                   setRegulariseLoading(true);
                   try {
-                    await regularisationApi.request(regulariseTask.id, regulariseReason || undefined);
+                    const liveSec = Math.round(regulariseTask.timer_running ? taskLiveSeconds(regulariseTask) : regulariseTask.tracked_seconds_today);
+                    await regularisationApi.request(regulariseTask.id, regulariseReason || undefined, liveSec);
                     setRegulariseTask(null);
                     alert('Regularisation request sent!');
                   } catch (e: any) {
