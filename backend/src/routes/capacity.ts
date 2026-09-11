@@ -70,7 +70,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       })
       .whereNotIn('t.status', ['completed'])
       .select(
-        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 't.priority',
         'p.name as project_name',
         'ta.acceptance_status', 'ta.assignee_role', 't.ticket_type_id'
       );

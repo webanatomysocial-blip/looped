@@ -6,6 +6,7 @@ import Layout from '../components/Layout/Layout';
 import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import { ReviewAlert } from '../components/UI/ReviewAlert';
+import UrgentTaskAlert from '../components/UI/UrgentTaskAlert';
 import { useAuth } from '../contexts/AuthContext';
 import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
@@ -65,6 +66,9 @@ export default function Home() {
   const [priorityPage, setPriorityPage] = useState(1);
   const PAGE_SIZE = 5;
   const [approvedTasks, setApprovedTasks] = useState<{ id: number; task_title: string; project_name: string; final_approved_at: string }[]>([]);
+  const [dismissedUrgentIds, setDismissedUrgentIds] = useState<Set<number>>(
+    () => new Set(JSON.parse(localStorage.getItem('dismissed_urgent_ids') || '[]'))
+  );
   const [dismissedApprovedIds, setDismissedApprovedIds] = useState<Set<number>>(
     () => new Set(JSON.parse(localStorage.getItem('dismissed_approved_ids') || '[]'))
   );
@@ -323,6 +327,26 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        {/* Urgent / High priority task alerts */}
+        {user?.role !== 'admin' && user?.role !== 'client' && (() => {
+          const urgentTasks = (data?.tasks ?? []).filter((t: any) =>
+            ['high', 'urgent'].includes(t.priority) &&
+            t.acceptance_status === 'accepted' &&
+            !['completed', 'in_review'].includes(t.status) &&
+            !dismissedUrgentIds.has(t.id)
+          ) as any[];
+          return (
+            <UrgentTaskAlert
+              tasks={urgentTasks}
+              onDismiss={(id) => {
+                const next = new Set(dismissedUrgentIds).add(id);
+                setDismissedUrgentIds(next);
+                localStorage.setItem('dismissed_urgent_ids', JSON.stringify([...next]));
+              }}
+            />
+          );
+        })()}
 
         {/* Declined stage alert — admin/manager only */}
         {(user?.role === 'admin' || user?.role === 'manager') && declinedStages.length > 0 && (

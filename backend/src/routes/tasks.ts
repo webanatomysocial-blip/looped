@@ -1,6 +1,36 @@
 import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
+
+// Pause any active timer sessions for a user and write time_logs
+async function pauseActiveSession(db: any, userId: number): Promise<void> {
+  const now = new Date();
+  const open = await db('task_sessions')
+    .where({ user_id: userId }).whereNull('ended_at').select('*');
+  for (const s of open) {
+    await db('task_sessions').where({ id: s.id }).update({ ended_at: now });
+    const startMs = isNaN(Number(s.started_at)) ? new Date(s.started_at).getTime() : Number(s.started_at);
+    const hrs = (now.getTime() - startMs) / 3600000;
+    if (hrs >= 0.001) {
+      const taskRow = await db('tasks').where({ id: s.task_id }).select('project_id').first();
+      const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
+      if (taskRow) {
+        await db('time_logs').insert({
+          task_id: s.task_id,
+          project_id: taskRow.project_id,
+          user_id: userId,
+          log_date: s.session_date,
+          hours: Math.round(hrs * 1000) / 1000,
+          notes: 'Auto-paused — urgent/high priority task assigned',
+          task_session_id: s.id,
+          hourly_rate: hourlyRate,
+        });
+      }
+    }
+  }
+}
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -276,7 +306,12 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const warnings: string[] = [];
     if (isDraft) { res.status(201).json({ id, warnings }); return; }
     const project = await db('projects').where({ id: project_id }).first();
-    if (workerId && workerId !== req.user!.id) {
+
+    // Auto-pause active session if high/urgent priority task assigned
+    if (workerId && ['high', 'urgent'].includes(priority)) {
+      await pauseActiveSession(db, workerId);
+      await createNotification(workerId, `⚠️ ${priority === 'urgent' ? 'Urgent' : 'High priority'} task "${title}" assigned — your active task was paused`, 'task', project_id);
+    } else if (workerId && workerId !== req.user!.id) {
       await createNotification(workerId, `You have been assigned task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
     }
     if (workerId && estimated_hours) {
@@ -311,7 +346,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
 
 // PUT update task
 router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  const { title, description, assignee_ids, due_date, due_time, estimated_hours, status, working_person_id, task_manager_id } = req.body;
+  const { title, description, assignee_ids, due_date, due_time, estimated_hours, status, working_person_id, task_manager_id, priority } = req.body;
   try {
     const db = getDB();
     const updates: any = {};
@@ -320,6 +355,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (due_time !== undefined) updates.due_time = due_time;
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
+    if (priority !== undefined) updates.priority = priority;
     const VALID_STATUSES = ['draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
     if (status !== undefined) {
       if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
@@ -347,7 +383,14 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       const proj = taskRow ? await db('projects').where({ id: taskRow.project_id }).select('name').first() : null;
       const projName = proj?.name || 'a project';
       if (workerId && workerId !== req.user!.id && workerId !== Number(prevWorker?.user_id)) {
-        await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+        // Get effective priority (from body or existing task)
+        const effectivePriority = priority || (await db('tasks').where({ id: req.params.id }).select('priority').first())?.priority;
+        if (['high', 'urgent'].includes(effectivePriority)) {
+          await pauseActiveSession(db, workerId);
+          await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${taskRow?.title}" assigned — your active task was paused`, 'task', taskRow?.project_id);
+        } else {
+          await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+        }
       }
       if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager?.user_id)) {
         await createNotification(managerId, `You are managing task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
