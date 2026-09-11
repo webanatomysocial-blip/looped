@@ -24,6 +24,7 @@ import SEO from './pages/SEO';
 import LocalSEO from './pages/LocalSEO';
 import ShareReport from './pages/ShareReport';
 import ShareAdsReport from './pages/ShareAdsReport';
+import ShareTask from './pages/ShareTask';
 import Ads from './pages/Ads';
 import TeamCapacityPage from './pages/TeamCapacity';
 import ProjectReports from './pages/ProjectReports';
@@ -235,6 +236,7 @@ function AppRoutes() {
       {/* Default redirect */}
       <Route path="/share/:token" element={<ShareReport />} />
       <Route path="/share/ads/:token" element={<ShareAdsReport />} />
+      <Route path="/share/task/:token" element={<ShareTask />} />
       <Route path="/" element={
         user
           ? (user.role === 'client' ? <Navigate to="/projects" replace /> : <Navigate to="/dashboard" replace />)

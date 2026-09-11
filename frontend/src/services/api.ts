@@ -83,6 +83,7 @@ export const tasksApi = {
     return api.post(`/tasks/${id}/deliverables/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
   },
   deleteDeliverable: (taskId: number, deliverableId: number) => api.delete(`/tasks/${taskId}/deliverables/${deliverableId}`),
+  getShareToken: (id: number) => api.post(`/tasks/${id}/share-token`),
 };
 
 export const capacityApi = {

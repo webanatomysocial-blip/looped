@@ -869,4 +869,76 @@ router.delete('/:taskId/deliverables/:id', async (req: AuthRequest, res: Respons
   res.json({ ok: true });
 });
 
+// POST /:id/share-token — generate or return existing share token (authenticated)
+router.post('/:id/share-token', async (req: AuthRequest, res: Response) => {
+  const db = getDB();
+  const taskId = Number(req.params.id);
+  const existing = await db('task_share_tokens').where({ task_id: taskId }).first();
+  if (existing) { res.json({ token: existing.token }); return; }
+  const crypto = await import('crypto');
+  const token = crypto.randomBytes(32).toString('hex');
+  await db('task_share_tokens').insert({ task_id: taskId, token });
+  res.json({ token });
+});
+
 export default router;
+
+// ─── Public task router (no auth) ────────────────────────────────────────────
+import { Router as PublicRouter } from 'express';
+export const publicTaskRouter = PublicRouter();
+
+publicTaskRouter.get('/:token', async (req: any, res: any) => {
+  try {
+    const db = getDB();
+    const row = await db('task_share_tokens').where({ token: req.params.token }).first();
+    if (!row) { res.status(404).json({ error: 'Invalid or revoked link' }); return; }
+
+    const task = await db('tasks as t')
+      .join('projects as p', 't.project_id', 'p.id')
+      .leftJoin('users as a', 't.assigned_to', 'a.id')
+      .leftJoin('users as cr', 't.created_by', 'cr.id')
+      .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
+      .where('t.id', row.task_id)
+      .select('t.*', 'p.name as project_name', 'c.name as client_name', 'a.name as assigned_name', 'cr.name as created_by_name')
+      .first();
+    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+
+    const stageAssignees = await db('task_assignees as ta')
+      .leftJoin('users as u', 'u.id', 'ta.user_id')
+      .where({ 'ta.task_id': row.task_id })
+      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url');
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const secSQL = isProd
+      ? "COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) as tracked_seconds"
+      : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";
+    const stageTracked = await db('task_assignees as ta')
+      .leftJoin('task_sessions as ts', function () {
+        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id');
+      })
+      .where({ 'ta.task_id': row.task_id })
+      .whereNotNull('ta.stage_idx')
+      .groupBy('ta.stage_idx')
+      .select('ta.stage_idx', db.raw(secSQL));
+
+    let xlr8_stages = null;
+    let xlr8_final_approval: any = null;
+    if (task.ticket_type_id) {
+      const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
+      if (tt) {
+        xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
+        xlr8_final_approval = typeof tt.final_approval === 'string' ? JSON.parse(tt.final_approval || '{}') : (tt.final_approval ?? {});
+      }
+    }
+
+    const deliverables = await db('task_deliverables as d')
+      .leftJoin('users as u', 'd.uploaded_by', 'u.id')
+      .where({ 'd.task_id': row.task_id })
+      .select('d.*', 'u.name as uploader_name');
+
+    res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables });
+  } catch (e: any) {
+    console.error('Public task error:', e?.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});

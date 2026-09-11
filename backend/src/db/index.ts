@@ -1210,6 +1210,17 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+
+  await db.schema.hasTable('task_share_tokens').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_share_tokens', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.string('token', 64).notNullable().unique();
+        t.timestamps(true, true);
+      });
+    }
+  });
 }
 
 async function seedAdmin(): Promise<void> {

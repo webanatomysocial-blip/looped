@@ -42,6 +42,17 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const [uploading, setUploading] = useState(false);
   const [tab, setTab]   = useState<'info' | 'activity'>('info');
   const [loading, setLoading] = useState(true);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const handleCopyLink = async () => {
+    try {
+      const r = await tasksApi.getShareToken(taskId);
+      const url = `${window.location.origin}/share/task/${r.data.token}`;
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {}
+  };
 
   const addLink = async () => {
     const url = linkInput.trim();
@@ -129,7 +140,14 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   { label: 'Task Key', value: (() => {
                     const mon = task.created_at ? new Date(task.created_at).toLocaleString('en-US', { month: 'short' }).toUpperCase() : '';
                     const proj = (task.project_name || '').replace(/\s+/g, '').toUpperCase().slice(0, 8);
-                    return <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{proj}-{task.id}-{mon}</span>;
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{proj}-{task.id}-{mon}</span>
+                        <button onClick={handleCopyLink} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: '1px solid var(--border, #e5e5e5)', background: linkCopied ? 'rgba(34,197,94,0.1)' : 'transparent', color: linkCopied ? '#15803d' : 'var(--ink-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, transition: 'all 0.15s', fontFamily: 'inherit' }}>
+                          {linkCopied ? '✓ Copied' : '🔗 Copy link'}
+                        </button>
+                      </div>
+                    );
                   })() },
                   { label: 'Status', value: <span className={`badge badge--${task.status}`}>{task.status?.replace(/_/g, ' ')}</span> },
                   { label: 'Due Date', value: task.due_date ? format(new Date(task.due_date + 'T00:00:00'), 'MMM d, yyyy') : '—' },
