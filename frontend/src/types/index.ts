@@ -306,10 +306,19 @@ export interface InternalChat {
   id: number;
   type: 'direct' | 'group';
   name: string | null;
+  avatar_url?: string | null;
   created_by: number;
   created_at: string;
-  members: { id: number; name: string; avatar_color: string; role: Role }[];
+  is_pinned: boolean;
+  unread_count: number;
+  members: { id: number; name: string; avatar_color: string; avatar_url?: string | null; role: Role }[];
   last_message: InternalMessage | null;
+}
+
+export interface MsgReaction {
+  emoji: string;
+  user_id: number;
+  user_name: string;
 }
 
 export interface InternalMessage {
@@ -319,10 +328,18 @@ export interface InternalMessage {
   sender_name: string;
   sender_color: string;
   sender_role: Role;
+  sender_avatar?: string | null;
   content: string;
   file_url: string | null;
   file_name: string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  reply_to_id?: number | null;
+  forwarded_from_id?: number | null;
+  reply_to?: { id: number; content: string; sender_name: string; deleted_at?: string | null } | null;
+  reactions: MsgReaction[];
+  read_by_other: boolean;
 }
 
 export interface ReportSummary {

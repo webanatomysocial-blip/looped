@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { format, isToday, isYesterday } from 'date-fns';
-import { Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip, UserPlus, X, Search, Check, CheckCheck } from 'lucide-react';
+import {
+  Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip, UserPlus, X,
+  Search, Check, CheckCheck, Pin, PinOff, LogOut, MoreVertical, Reply,
+  Pencil, Trash2, Forward, Smile,
+} from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { messagesApi, projectsApi, internalChatApi, usersApi } from '../services/api';
@@ -8,6 +12,8 @@ import { Message, Project, InternalChat, InternalMessage, User } from '../types'
 import '../css/pages/Messages.css';
 
 type Tab = 'internal' | 'client';
+
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 function formatMsgDate(d: string | Date) {
   const dt = new Date(d);
@@ -56,6 +62,17 @@ export default function Messages() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupAvatarRef = useRef<HTMLInputElement>(null);
 
+  // New feature state
+  const [msgSearch, setMsgSearch] = useState('');
+  const [showMsgSearch, setShowMsgSearch] = useState(false);
+  const [replyTo, setReplyTo] = useState<InternalMessage | null>(null);
+  const [editingMsg, setEditingMsg] = useState<InternalMessage | null>(null);
+  const [editText, setEditText] = useState('');
+  const [contextMenu, setContextMenu] = useState<{ msg: InternalMessage; x: number; y: number } | null>(null);
+  const [forwardMsg, setForwardMsg] = useState<InternalMessage | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState<number | null>(null); // msgId
+  const inputRef = useRef<HTMLInputElement>(null);
+
   // Client chat state
   const [clientMsgs, setClientMsgs] = useState<Message[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -73,14 +90,15 @@ export default function Messages() {
     usersApi.team().then(r => setTeamUsers(r.data.filter((u: User) => u.id !== user?.id)));
   }, []);
 
+  const loadMessages = (chatId: number, search?: string) =>
+    internalChatApi.getMessages(chatId, search || undefined).then(r => setInternalMsgs(r.data));
+
   useEffect(() => {
     if (!activeChat) return;
-    const load = () => internalChatApi.getMessages(activeChat.id).then(r => setInternalMsgs(r.data));
-    load();
-    messagesApi.markRead({ chat_id: activeChat.id }).catch(() => {});
-    const iv = setInterval(() => { load(); messagesApi.markRead({ chat_id: activeChat.id }).catch(() => {}); }, 5000);
+    loadMessages(activeChat.id, msgSearch || undefined);
+    const iv = setInterval(() => loadMessages(activeChat.id, msgSearch || undefined), 5000);
     return () => clearInterval(iv);
-  }, [activeChat]);
+  }, [activeChat, msgSearch]);
 
   useEffect(() => {
     projectsApi.list().then(r => {
@@ -99,12 +117,25 @@ export default function Messages() {
     return () => clearInterval(iv);
   }, [selectedProject]);
 
+  // Close context menu on outside click
+  useEffect(() => {
+    const handler = () => { setContextMenu(null); setShowEmojiPicker(null); };
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, []);
+
+  const refreshChats = async () => {
+    const r = await internalChatApi.listChats();
+    setChats(r.data);
+    return r.data as InternalChat[];
+  };
+
   const sendInternal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!internalText.trim() || !activeChat) return;
-    await internalChatApi.sendMessage(activeChat.id, internalText);
-    setInternalText('');
-    internalChatApi.getMessages(activeChat.id).then(r => setInternalMsgs(r.data));
+    await internalChatApi.sendMessage(activeChat.id, internalText, replyTo?.id ?? null);
+    setInternalText(''); setReplyTo(null);
+    loadMessages(activeChat.id);
   };
 
   const sendClient = async (e: React.FormEvent) => {
@@ -119,7 +150,7 @@ export default function Messages() {
     if (!e.target.files?.[0] || !activeChat) return;
     const fd = new FormData(); fd.append('file', e.target.files[0]);
     await internalChatApi.uploadFile(activeChat.id, fd);
-    internalChatApi.getMessages(activeChat.id).then(r => setInternalMsgs(r.data));
+    loadMessages(activeChat.id);
     e.target.value = '';
   };
 
@@ -134,9 +165,8 @@ export default function Messages() {
   const addMembersToGroup = async () => {
     if (!activeChat || !addMemberIds.length) return;
     await Promise.all(addMemberIds.map(uid => internalChatApi.addMember(activeChat.id, uid)));
-    const refreshed = await internalChatApi.listChats();
-    setChats(refreshed.data);
-    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    const list = await refreshChats();
+    const found = list.find((c: InternalChat) => c.id === activeChat.id);
     if (found) setActiveChat(found);
     setShowAddMember(false); setAddMemberIds([]);
   };
@@ -145,9 +175,8 @@ export default function Messages() {
     if (!selectedMembers.length) return;
     const r = await internalChatApi.createChat({ type: newChatType, name: newChatType === 'group' ? newChatName : undefined, member_ids: selectedMembers });
     const newId = r.data.id;
-    const refreshed = await internalChatApi.listChats();
-    setChats(refreshed.data);
-    const found = refreshed.data.find((c: InternalChat) => c.id === newId);
+    const list = await refreshChats();
+    const found = list.find((c: InternalChat) => c.id === newId);
     if (found) setActiveChat(found);
     setShowNewChat(false); setSelectedMembers([]); setNewChatName('');
   };
@@ -168,9 +197,8 @@ export default function Messages() {
   const saveRename = async () => {
     if (!activeChat || !renameVal.trim()) return;
     await internalChatApi.renameChat(activeChat.id, renameVal.trim());
-    const refreshed = await internalChatApi.listChats();
-    setChats(refreshed.data);
-    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    const list = await refreshChats();
+    const found = list.find((c: InternalChat) => c.id === activeChat.id);
     if (found) setActiveChat(found);
     setEditingName(false);
   };
@@ -179,14 +207,51 @@ export default function Messages() {
     if (!e.target.files?.[0] || !activeChat) return;
     const fd = new FormData(); fd.append('avatar', e.target.files[0]);
     await internalChatApi.uploadGroupAvatar(activeChat.id, fd);
-    const refreshed = await internalChatApi.listChats();
-    setChats(refreshed.data);
-    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    const list = await refreshChats();
+    const found = list.find((c: InternalChat) => c.id === activeChat.id);
     if (found) setActiveChat(found);
     e.target.value = '';
   };
 
-  // Inject date dividers into message list
+  const handleEditSave = async () => {
+    if (!editingMsg || !editText.trim() || !activeChat) return;
+    await internalChatApi.editMessage(activeChat.id, editingMsg.id, editText);
+    setEditingMsg(null); setEditText('');
+    loadMessages(activeChat.id);
+  };
+
+  const handleDelete = async (msg: InternalMessage) => {
+    if (!activeChat) return;
+    await internalChatApi.deleteMessage(activeChat.id, msg.id);
+    loadMessages(activeChat.id);
+  };
+
+  const handleReact = async (msgId: number, emoji: string) => {
+    if (!activeChat) return;
+    await internalChatApi.reactMessage(activeChat.id, msgId, emoji);
+    setShowEmojiPicker(null);
+    loadMessages(activeChat.id);
+  };
+
+  const handleForwardTo = async (toChatId: number) => {
+    if (!forwardMsg || !activeChat) return;
+    await internalChatApi.forwardMessage(activeChat.id, forwardMsg.id, toChatId);
+    setForwardMsg(null);
+  };
+
+  const handlePin = async (chat: InternalChat) => {
+    await internalChatApi.pinChat(chat.id);
+    refreshChats();
+  };
+
+  const handleLeave = async () => {
+    if (!activeChat) return;
+    if (!confirm('Leave this group?')) return;
+    await internalChatApi.leaveGroup(activeChat.id);
+    setActiveChat(null);
+    refreshChats();
+  };
+
   function withDividers<T extends { created_at: string }>(msgs: T[]) {
     const out: Array<T | { __divider: string; created_at: string }> = [];
     let last = '';
@@ -201,7 +266,6 @@ export default function Messages() {
   const filteredChats = chats.filter(c => getChatLabel(c).toLowerCase().includes(search.toLowerCase()));
   const filteredProjects = projects.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
 
-  // Determine active tab's current conversation label + members for header
   const headerName = tab === 'internal'
     ? (activeChat ? getChatLabel(activeChat) : '')
     : (selectedProject?.name ?? '');
@@ -212,32 +276,127 @@ export default function Messages() {
     ? (activeChat.type === 'direct' ? getChatOther(activeChat) : null)
     : null;
 
-  const renderBubbles = (msgs: any[], isInternalMsgs: boolean) => {
+  const renderInternalBubbles = (msgs: InternalMessage[]) => {
     const items = withDividers(msgs);
     return items.map((item, idx) => {
       if ('__divider' in item) {
-        return (
-          <div key={`div-${idx}`} className="wa-date-divider">
-            <span>{item.__divider}</span>
+        return <div key={`div-${idx}`} className="wa-date-divider"><span>{item.__divider}</span></div>;
+      }
+      const m = item as InternalMessage;
+      const isMe = m.sender_id === user?.id;
+      const isDeleted = !!m.deleted_at;
+
+      // Group reactions by emoji
+      const reactionMap: Record<string, { count: number; mine: boolean; names: string[] }> = {};
+      for (const r of (m.reactions || [])) {
+        if (!reactionMap[r.emoji]) reactionMap[r.emoji] = { count: 0, mine: false, names: [] };
+        reactionMap[r.emoji].count++;
+        reactionMap[r.emoji].names.push(r.user_name);
+        if (r.user_id === user?.id) reactionMap[r.emoji].mine = true;
+      }
+
+      return (
+        <div key={m.id} className={`wa-bubble-wrap wa-bubble-wrap--${isMe ? 'mine' : 'theirs'}`}>
+          {!isMe && <p className="wa-sender-name">{m.sender_name?.split(' ')[0]}</p>}
+
+          <div className="wa-bubble-outer" style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start' }}>
+            {/* Context menu trigger */}
+            {!isDeleted && (
+              <button
+                className="wa-ctx-btn"
+                onClick={e => { e.stopPropagation(); setContextMenu({ msg: m, x: e.clientX, y: e.clientY }); setShowEmojiPicker(null); }}
+              >
+                <MoreVertical size={13} />
+              </button>
+            )}
+
+            {/* Forwarded label */}
+            {m.forwarded_from_id && (
+              <div className="wa-forwarded-label"><Forward size={10} /> Forwarded</div>
+            )}
+
+            {/* Reply quote */}
+            {m.reply_to && (
+              <div className={`wa-reply-quote wa-reply-quote--${isMe ? 'mine' : 'theirs'}`}>
+                <span className="wa-reply-quote-name">{m.reply_to.deleted_at ? 'Deleted message' : m.reply_to.sender_name}</span>
+                <span className="wa-reply-quote-text">{m.reply_to.deleted_at ? '🚫 This message was deleted' : m.reply_to.content.slice(0, 80)}</span>
+              </div>
+            )}
+
+            {isDeleted ? (
+              <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'} wa-bubble--deleted`}>
+                🚫 This message was deleted
+              </div>
+            ) : m.file_url ? (
+              <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+                <Paperclip size={12} /> {m.file_name || m.content}
+              </a>
+            ) : (
+              <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+                {m.content}
+                <div className="wa-bubble-footer">
+                  {m.edited_at && <span className="wa-edited">edited</span>}
+                  <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                  {isMe && (
+                    <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}>
+                      <CheckCheck size={14} />
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Reactions */}
+            {Object.keys(reactionMap).length > 0 && (
+              <div className="wa-reactions">
+                {Object.entries(reactionMap).map(([emoji, data]) => (
+                  <button
+                    key={emoji}
+                    className={`wa-reaction-chip${data.mine ? ' mine' : ''}`}
+                    title={data.names.join(', ')}
+                    onClick={() => handleReact(m.id, emoji)}
+                  >
+                    {emoji} {data.count > 1 && <span>{data.count}</span>}
+                  </button>
+                ))}
+                <button className="wa-reaction-chip wa-reaction-add" onClick={e => { e.stopPropagation(); setShowEmojiPicker(showEmojiPicker === m.id ? null : m.id); }}>
+                  <Smile size={11} />
+                </button>
+              </div>
+            )}
+
+            {/* Emoji quick picker */}
+            {showEmojiPicker === m.id && (
+              <div className={`wa-emoji-picker wa-emoji-picker--${isMe ? 'mine' : 'theirs'}`} onClick={e => e.stopPropagation()}>
+                {QUICK_EMOJIS.map(e => (
+                  <button key={e} className="wa-emoji-opt" onClick={() => handleReact(m.id, e)}>{e}</button>
+                ))}
+              </div>
+            )}
           </div>
-        );
+        </div>
+      );
+    });
+  };
+
+  const renderClientBubbles = (msgs: Message[]) => {
+    const items = withDividers(msgs);
+    return items.map((item, idx) => {
+      if ('__divider' in item) {
+        return <div key={`div-${idx}`} className="wa-date-divider"><span>{(item as any).__divider}</span></div>;
       }
       const m = item as any;
       const isMe = m.sender_id === user?.id;
-      const content = isInternalMsgs ? m.content : m.message;
-      const fileUrl = m.file_url;
-      const fileName = m.file_name;
-      const senderName = m.sender_name;
       return (
         <div key={m.id} className={`wa-bubble-wrap wa-bubble-wrap--${isMe ? 'mine' : 'theirs'}`}>
-          {!isMe && <p className="wa-sender-name">{senderName?.split(' ')[0]}</p>}
-          {fileUrl ? (
-            <a href={fileUrl} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
-              <Paperclip size={12} /> {fileName || content}
+          {!isMe && <p className="wa-sender-name">{m.sender_name?.split(' ')[0]}</p>}
+          {m.file_url ? (
+            <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+              <Paperclip size={12} /> {m.file_name || m.message}
             </a>
           ) : (
             <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
-              {content}
+              {m.message}
               <div className="wa-bubble-footer">
                 <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
                 {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
@@ -251,7 +410,63 @@ export default function Messages() {
 
   return (
     <Layout>
-      <div style={{ padding: '0 0 0 0' }}>
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="wa-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={e => e.stopPropagation()}
+        >
+          {/* React row */}
+          <div className="wa-context-emojis">
+            {QUICK_EMOJIS.map(e => (
+              <button key={e} className="wa-emoji-opt" onClick={() => { handleReact(contextMenu.msg.id, e); setContextMenu(null); }}>{e}</button>
+            ))}
+          </div>
+          <div className="wa-context-divider" />
+          <button className="wa-context-item" onClick={() => { setReplyTo(contextMenu.msg); setContextMenu(null); inputRef.current?.focus(); }}>
+            <Reply size={14} /> Reply
+          </button>
+          {contextMenu.msg.sender_id === user?.id && (
+            <button className="wa-context-item" onClick={() => { setEditingMsg(contextMenu.msg); setEditText(contextMenu.msg.content); setContextMenu(null); }}>
+              <Pencil size={14} /> Edit
+            </button>
+          )}
+          <button className="wa-context-item" onClick={() => { setForwardMsg(contextMenu.msg); setContextMenu(null); }}>
+            <Forward size={14} /> Forward
+          </button>
+          {contextMenu.msg.sender_id === user?.id && (
+            <button className="wa-context-item wa-context-item--danger" onClick={() => { handleDelete(contextMenu.msg); setContextMenu(null); }}>
+              <Trash2 size={14} /> Delete
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Forward modal */}
+      {forwardMsg && (
+        <div className="wa-modal-overlay" onClick={() => setForwardMsg(null)}>
+          <div className="wa-modal" onClick={e => e.stopPropagation()}>
+            <div className="wa-modal-header">
+              <span>Forward message</span>
+              <button className="wa-icon-btn" onClick={() => setForwardMsg(null)}><X size={16} /></button>
+            </div>
+            <div className="wa-modal-body">
+              <p className="wa-modal-preview">"{forwardMsg.content.slice(0, 80)}{forwardMsg.content.length > 80 ? '…' : ''}"</p>
+              <div className="wa-member-list">
+                {chats.filter(c => c.id !== activeChat?.id).map(c => (
+                  <div key={c.id} className="wa-member-row" onClick={() => handleForwardTo(c.id)}>
+                    <WaAvatar name={getChatLabel(c)} color="#00a884" size={30} />
+                    <span className="wa-member-name">{getChatLabel(c)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: 0 }}>
         <div className="wa-wrap">
 
           {/* ── SIDEBAR ─────────────────────────────── */}
@@ -267,7 +482,6 @@ export default function Messages() {
               </div>
             </div>
 
-            {/* Tab bar */}
             {!isClient && (
               <div className="wa-tabs">
                 <button className={`wa-tab${tab === 'internal' ? ' wa-tab--active' : ''}`} onClick={() => setTab('internal')}>Team</button>
@@ -275,7 +489,6 @@ export default function Messages() {
               </div>
             )}
 
-            {/* Search */}
             <div className="wa-search-wrap">
               <div className="wa-search">
                 <Search size={14} />
@@ -321,17 +534,35 @@ export default function Messages() {
                       const other = getChatOther(chat);
                       const last = chat.last_message;
                       return (
-                        <div key={chat.id} className={`wa-chat-item${activeChat?.id === chat.id ? ' wa-chat-item--active' : ''}`} onClick={() => setActiveChat(chat)}>
+                        <div
+                          key={chat.id}
+                          className={`wa-chat-item${activeChat?.id === chat.id ? ' wa-chat-item--active' : ''}`}
+                          onClick={() => setActiveChat(chat)}
+                        >
                           {chat.type === 'direct' && other
-                            ? <WaAvatar name={other.name} color={other.avatar_color} avatarUrl={(other as any).avatar_url} />
-                            : (chat as any).avatar_url
-                              ? <div className="wa-avatar wa-avatar--group"><img src={(chat as any).avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+                            ? <WaAvatar name={other.name} color={other.avatar_color} avatarUrl={other.avatar_url} />
+                            : chat.avatar_url
+                              ? <div className="wa-avatar wa-avatar--group"><img src={chat.avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
                               : <div className="wa-avatar wa-avatar--group"><Users size={20} /></div>}
                           <div className="wa-chat-info">
-                            <p className="wa-chat-name">{getChatLabel(chat)}</p>
+                            <div className="wa-chat-name-row">
+                              <p className="wa-chat-name">{getChatLabel(chat)}</p>
+                              {chat.is_pinned && <Pin size={10} color="#00a884" />}
+                            </div>
                             <p className="wa-chat-preview">{last ? last.content.slice(0, 35) + (last.content.length > 35 ? '…' : '') : 'No messages yet'}</p>
                           </div>
-                          {last && <div className="wa-chat-meta"><span className="wa-chat-time">{formatMsgDate(last.created_at)}</span></div>}
+                          <div className="wa-chat-meta">
+                            {last && <span className="wa-chat-time">{formatMsgDate(last.created_at)}</span>}
+                            {chat.unread_count > 0 && <span className="wa-unread-badge">{chat.unread_count}</span>}
+                          </div>
+                          {/* Pin/unpin context */}
+                          <button
+                            className="wa-chat-pin-btn"
+                            title={chat.is_pinned ? 'Unpin' : 'Pin'}
+                            onClick={e => { e.stopPropagation(); handlePin(chat); }}
+                          >
+                            {chat.is_pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                          </button>
                         </div>
                       );
                     })
@@ -356,7 +587,6 @@ export default function Messages() {
 
           {/* ── CHAT PANEL ──────────────────────────── */}
           <div className="wa-chat-panel">
-            {/* No conversation selected */}
             {((tab === 'internal' && !activeChat) || (tab === 'client' && !selectedProject)) && (
               <div className="wa-empty-state">
                 <div className="wa-empty-icon"><MessageCircle size={36} color="#00a884" /></div>
@@ -364,63 +594,53 @@ export default function Messages() {
               </div>
             )}
 
-            {/* Active conversation */}
             {((tab === 'internal' && activeChat) || ((tab === 'client' || isClient) && selectedProject)) && (
               <>
                 {/* Header */}
                 <div className="wa-chat-header">
                   <input ref={groupAvatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleGroupAvatarChange} />
                   {headerAvatar
-                    ? <WaAvatar name={headerAvatar.name} color={headerAvatar.avatar_color} avatarUrl={(headerAvatar as any).avatar_url} />
+                    ? <WaAvatar name={headerAvatar.name} color={headerAvatar.avatar_color} avatarUrl={headerAvatar.avatar_url} />
                     : tab === 'internal' && activeChat?.type === 'group'
-                      ? <div
-                          className="wa-avatar wa-avatar--group"
-                          style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
-                          title="Click to change group photo"
-                          onClick={() => groupAvatarRef.current?.click()}
-                        >
-                          {(activeChat as any).avatar_url
-                            ? <img src={(activeChat as any).avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ? <div className="wa-avatar wa-avatar--group wa-group-avatar-btn" title="Change group photo" onClick={() => groupAvatarRef.current?.click()}>
+                          {activeChat.avatar_url
+                            ? <img src={activeChat.avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             : <Users size={20} />}
-                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.15s' }}
-                            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                            onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
-                            <Paperclip size={14} color="#fff" />
-                          </div>
+                          <div className="wa-group-avatar-overlay"><Paperclip size={14} color="#fff" /></div>
                         </div>
                       : <div className="wa-avatar" style={{ background: tab === 'client' ? '#5b8dee' : '#00a884', fontSize: 17, fontWeight: 700, color: '#fff' }}>
                           {headerName[0]?.toUpperCase()}
                         </div>}
                   <div className="wa-chat-header-info">
                     {tab === 'internal' && activeChat?.type === 'group' && editingName
-                      ? <input
-                          autoFocus
-                          className="wa-new-input"
-                          style={{ padding: '4px 8px', fontSize: 14, fontWeight: 700, width: '100%' }}
-                          value={renameVal}
-                          onChange={e => setRenameVal(e.target.value)}
+                      ? <input autoFocus className="wa-new-input" style={{ padding: '4px 8px', fontSize: 14, fontWeight: 700, width: '100%' }}
+                          value={renameVal} onChange={e => setRenameVal(e.target.value)}
                           onBlur={saveRename}
-                          onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditingName(false); }}
-                        />
-                      : <p
-                          className="wa-chat-header-name"
+                          onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditingName(false); }} />
+                      : <p className="wa-chat-header-name"
                           style={tab === 'internal' && activeChat?.type === 'group' ? { cursor: 'pointer' } : undefined}
                           title={tab === 'internal' && activeChat?.type === 'group' ? 'Click to rename' : undefined}
-                          onClick={() => {
-                            if (tab === 'internal' && activeChat?.type === 'group') {
-                              setRenameVal(getChatLabel(activeChat));
-                              setEditingName(true);
-                            }
-                          }}
+                          onClick={() => { if (tab === 'internal' && activeChat?.type === 'group') { setRenameVal(getChatLabel(activeChat)); setEditingName(true); } }}
                         >{headerName}</p>
                     }
                     <p className="wa-chat-header-sub">{headerSub}</p>
                   </div>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {tab === 'internal' && activeChat?.type === 'group' && (
-                      <button className="wa-icon-btn" title="Add member" onClick={() => { setShowAddMember(v => !v); setAddMemberIds([]); }}>
-                        {showAddMember ? <X size={18} /> : <UserPlus size={18} />}
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    {/* Search within chat */}
+                    {tab === 'internal' && (
+                      <button className="wa-icon-btn" title="Search messages" onClick={() => { setShowMsgSearch(v => !v); if (showMsgSearch) setMsgSearch(''); }}>
+                        <Search size={18} />
                       </button>
+                    )}
+                    {tab === 'internal' && activeChat?.type === 'group' && (
+                      <>
+                        <button className="wa-icon-btn" title="Add member" onClick={() => { setShowAddMember(v => !v); setAddMemberIds([]); }}>
+                          {showAddMember ? <X size={18} /> : <UserPlus size={18} />}
+                        </button>
+                        <button className="wa-icon-btn wa-icon-btn--danger" title="Leave group" onClick={handleLeave}>
+                          <LogOut size={18} />
+                        </button>
+                      </>
                     )}
                     {tab === 'internal' && (
                       <button className="wa-icon-btn" title="Attach file" onClick={() => fileInputRef.current?.click()}>
@@ -434,6 +654,20 @@ export default function Messages() {
                     )}
                   </div>
                 </div>
+
+                {/* Message search bar */}
+                {showMsgSearch && tab === 'internal' && (
+                  <div className="wa-msg-search-bar">
+                    <Search size={13} color="#667781" />
+                    <input
+                      autoFocus
+                      placeholder="Search in conversation…"
+                      value={msgSearch}
+                      onChange={e => setMsgSearch(e.target.value)}
+                    />
+                    {msgSearch && <button onClick={() => setMsgSearch('')}><X size={13} /></button>}
+                  </div>
+                )}
 
                 {/* Add member panel */}
                 {showAddMember && tab === 'internal' && activeChat?.type === 'group' && (
@@ -457,36 +691,73 @@ export default function Messages() {
                   </div>
                 )}
 
-                {/* Messages */}
+                {/* Messages body */}
                 <div className="wa-body">
                   {tab === 'internal' && activeChat && (
                     internalMsgs.length === 0
-                      ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}><p>No messages yet — say hello! 👋</p></div>
-                      : renderBubbles(internalMsgs, true)
+                      ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}>
+                          <p>{msgSearch ? 'No messages match your search' : 'No messages yet — say hello! 👋'}</p>
+                        </div>
+                      : renderInternalBubbles(internalMsgs)
                   )}
                   {(tab === 'client' || isClient) && selectedProject && (
                     clientMsgs.length === 0
                       ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}><p>No messages yet — say hello! 👋</p></div>
-                      : renderBubbles(clientMsgs, false)
+                      : renderClientBubbles(clientMsgs)
                   )}
                   <div ref={bottomRef} />
                 </div>
 
+                {/* Edit mode bar */}
+                {editingMsg && (
+                  <div className="wa-reply-bar">
+                    <div className="wa-reply-bar-inner">
+                      <Pencil size={14} color="#00a884" />
+                      <div>
+                        <p className="wa-reply-bar-title">Edit message</p>
+                        <p className="wa-reply-bar-text">{editingMsg.content.slice(0, 60)}</p>
+                      </div>
+                    </div>
+                    <button className="wa-icon-btn" onClick={() => { setEditingMsg(null); setEditText(''); }}><X size={14} /></button>
+                  </div>
+                )}
+
+                {/* Reply bar */}
+                {replyTo && !editingMsg && (
+                  <div className="wa-reply-bar">
+                    <div className="wa-reply-bar-inner">
+                      <Reply size={14} color="#00a884" />
+                      <div>
+                        <p className="wa-reply-bar-title">{replyTo.sender_name}</p>
+                        <p className="wa-reply-bar-text">{replyTo.content.slice(0, 60)}</p>
+                      </div>
+                    </div>
+                    <button className="wa-icon-btn" onClick={() => setReplyTo(null)}><X size={14} /></button>
+                  </div>
+                )}
+
                 {/* Input bar */}
                 <form
-                  onSubmit={tab === 'internal' ? sendInternal : sendClient}
+                  onSubmit={editingMsg
+                    ? async (e) => { e.preventDefault(); await handleEditSave(); }
+                    : tab === 'internal' ? sendInternal : sendClient}
                   className="wa-input-bar"
                 >
                   <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileUpload} />
                   <input type="file" ref={clientFileRef} style={{ display: 'none' }} onChange={handleClientFileUpload} />
                   <input
+                    ref={inputRef}
                     className="wa-input"
-                    placeholder="Type a message"
-                    value={tab === 'internal' ? internalText : clientText}
-                    onChange={e => tab === 'internal' ? setInternalText(e.target.value) : setClientText(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (tab === 'internal' ? sendInternal(e as any) : sendClient(e as any))}
+                    placeholder={editingMsg ? 'Edit message…' : 'Type a message'}
+                    value={editingMsg ? editText : (tab === 'internal' ? internalText : clientText)}
+                    onChange={e => editingMsg ? setEditText(e.target.value) : (tab === 'internal' ? setInternalText(e.target.value) : setClientText(e.target.value))}
+                    onKeyDown={e => {
+                      if (e.key === 'Escape' && editingMsg) { setEditingMsg(null); setEditText(''); }
+                      if (e.key === 'Escape' && replyTo) setReplyTo(null);
+                    }}
                   />
-                  <button type="submit" className="wa-send-btn" disabled={tab === 'internal' ? !internalText.trim() : !clientText.trim()}>
+                  <button type="submit" className="wa-send-btn"
+                    disabled={editingMsg ? !editText.trim() : (tab === 'internal' ? !internalText.trim() : !clientText.trim())}>
                     <Send size={18} />
                   </button>
                 </form>

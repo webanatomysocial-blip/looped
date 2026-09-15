@@ -45,22 +45,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const chats = await db('internal_chats as ic')
       .join('internal_chat_members as icm', 'ic.id', 'icm.chat_id')
       .where('icm.user_id', userId)
-      .select('ic.*')
-      .orderBy('ic.created_at', 'desc');
+      .select('ic.*', 'icm.is_pinned')
+      .orderBy([{ column: 'icm.is_pinned', order: 'desc' }, { column: 'ic.created_at', order: 'desc' }]);
 
-    // For each chat, attach members and last message
     const enriched = await Promise.all(chats.map(async (chat: any) => {
       const members = await db('internal_chat_members as icm')
         .join('users as u', 'icm.user_id', 'u.id')
         .where('icm.chat_id', chat.id)
-        .select('u.id', 'u.name', 'u.avatar_color', 'u.role');
+        .select('u.id', 'u.name', 'u.avatar_color', 'u.role', 'u.avatar_url');
 
       const lastMsg = await db('internal_messages')
         .where({ chat_id: chat.id })
+        .whereNull('deleted_at')
         .orderBy('created_at', 'desc')
         .first();
 
-      return { ...chat, members, last_message: lastMsg || null };
+      // unread count
+      const readRow = await db('message_reads').where({ user_id: userId, chat_id: chat.id }).first();
+      const unreadCount = readRow
+        ? await db('internal_messages').where('chat_id', chat.id).whereNull('deleted_at').where('created_at', '>', readRow.last_read_at).whereNot('sender_id', userId).count('id as n').first()
+        : await db('internal_messages').where('chat_id', chat.id).whereNull('deleted_at').whereNot('sender_id', userId).count('id as n').first();
+
+      return { ...chat, members, last_message: lastMsg || null, unread_count: Number((unreadCount as any)?.n ?? 0) };
     }));
 
     res.json(enriched);
@@ -120,32 +126,69 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// GET messages for a specific chat
+// GET messages for a specific chat (supports ?search=)
 router.get('/:chatId/messages', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const userId = req.user!.id;
+    const search = (req.query.search as string | undefined)?.trim();
 
-    // Verify user is a member
     const member = await db('internal_chat_members')
       .where({ chat_id: req.params.chatId, user_id: userId }).first();
     if (!member) { res.status(403).json({ error: 'Not a member of this chat' }); return; }
 
-    const messages = await db('internal_messages as im')
+    let q = db('internal_messages as im')
       .join('users as u', 'im.sender_id', 'u.id')
       .where('im.chat_id', req.params.chatId)
-      .select('im.*', 'u.name as sender_name', 'u.avatar_color as sender_color', 'u.role as sender_role')
+      .select('im.*', 'u.name as sender_name', 'u.avatar_color as sender_color', 'u.role as sender_role', 'u.avatar_url as sender_avatar')
       .orderBy('im.created_at', 'asc');
 
-    res.json(messages);
-  } catch {
+    if (search) q = q.whereNull('im.deleted_at').whereILike('im.content', `%${search}%`);
+
+    const messages = await q;
+
+    // Enrich with reactions and reply_to snippet
+    const enriched = await Promise.all(messages.map(async (m: any) => {
+      const reactions = await db('internal_message_reactions as r')
+        .join('users as u', 'r.user_id', 'u.id')
+        .where('r.message_id', m.id)
+        .select('r.emoji', 'r.user_id', 'u.name as user_name');
+
+      let reply_to = null;
+      if (m.reply_to_id) {
+        const rt = await db('internal_messages as im').join('users as u', 'im.sender_id', 'u.id')
+          .where('im.id', m.reply_to_id).select('im.id', 'im.content', 'im.deleted_at', 'u.name as sender_name').first();
+        reply_to = rt || null;
+      }
+
+      // read receipt for direct chats: check if other user has read past this message
+      let read_by_other = false;
+      const chatInfo = await db('internal_chats').where({ id: m.chat_id }).first();
+      if (chatInfo?.type === 'direct' && m.sender_id === userId) {
+        const others = await db('internal_chat_members').where('chat_id', m.chat_id).whereNot('user_id', userId).select('user_id');
+        for (const o of others) {
+          const rr = await db('message_reads').where({ user_id: o.user_id, chat_id: m.chat_id }).first();
+          if (rr && new Date(rr.last_read_at) >= new Date(m.created_at)) { read_by_other = true; break; }
+        }
+      }
+
+      return { ...m, reactions, reply_to, read_by_other };
+    }));
+
+    // Mark as read
+    await db('message_reads').insert({ user_id: userId, chat_id: req.params.chatId, last_read_at: new Date() })
+      .onConflict(['user_id', 'chat_id']).merge({ last_read_at: new Date() });
+
+    res.json(enriched);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST send a text message
+// POST send a text message (supports reply_to_id, forwarded_from_id)
 router.post('/:chatId/messages', async (req: AuthRequest, res: Response) => {
-  const { content } = req.body;
+  const { content, reply_to_id, forwarded_from_id } = req.body;
   if (!content?.trim()) { res.status(400).json({ error: 'Content required' }); return; }
   try {
     const db = getDB();
@@ -159,13 +202,12 @@ router.post('/:chatId/messages', async (req: AuthRequest, res: Response) => {
       chat_id: req.params.chatId,
       sender_id: userId,
       content: content.trim(),
+      reply_to_id: reply_to_id || null,
+      forwarded_from_id: forwarded_from_id || null,
     });
 
-    // Notify other members
     const others = await db('internal_chat_members')
-      .where('chat_id', req.params.chatId)
-      .whereNot('user_id', userId)
-      .select('user_id');
+      .where('chat_id', req.params.chatId).whereNot('user_id', userId).select('user_id');
     for (const o of others) {
       await createNotification(o.user_id, `New message from ${req.user!.name}`, 'message');
     }
@@ -215,6 +257,97 @@ router.post('/:chatId/members', async (req: AuthRequest, res: Response) => {
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// PATCH edit own message
+router.patch('/:chatId/messages/:msgId', async (req: AuthRequest, res: Response) => {
+  const { content } = req.body;
+  if (!content?.trim()) { res.status(400).json({ error: 'content required' }); return; }
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const msg = await db('internal_messages').where({ id: req.params.msgId, sender_id: userId, chat_id: req.params.chatId }).first();
+    if (!msg) { res.status(404).json({ error: 'Not found or not yours' }); return; }
+    await db('internal_messages').where({ id: req.params.msgId }).update({ content: content.trim(), edited_at: new Date() });
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// DELETE soft-delete own message
+router.delete('/:chatId/messages/:msgId', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const msg = await db('internal_messages').where({ id: req.params.msgId, sender_id: userId, chat_id: req.params.chatId }).first();
+    if (!msg) { res.status(404).json({ error: 'Not found or not yours' }); return; }
+    await db('internal_messages').where({ id: req.params.msgId }).update({ deleted_at: new Date() });
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST toggle reaction on a message
+router.post('/:chatId/messages/:msgId/react', async (req: AuthRequest, res: Response) => {
+  const { emoji } = req.body;
+  if (!emoji) { res.status(400).json({ error: 'emoji required' }); return; }
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const existing = await db('internal_message_reactions').where({ message_id: req.params.msgId, user_id: userId, emoji }).first();
+    if (existing) {
+      await db('internal_message_reactions').where({ id: existing.id }).delete();
+      res.json({ action: 'removed' });
+    } else {
+      await db('internal_message_reactions').insert({ message_id: req.params.msgId, user_id: userId, emoji });
+      res.json({ action: 'added' });
+    }
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST forward a message to another chat
+router.post('/:chatId/messages/:msgId/forward', async (req: AuthRequest, res: Response) => {
+  const { to_chat_id } = req.body;
+  if (!to_chat_id) { res.status(400).json({ error: 'to_chat_id required' }); return; }
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const orig = await db('internal_messages').where({ id: req.params.msgId }).first();
+    if (!orig) { res.status(404).json({ error: 'Message not found' }); return; }
+    const isMember = await db('internal_chat_members').where({ chat_id: to_chat_id, user_id: userId }).first();
+    if (!isMember) { res.status(403).json({ error: 'Not a member of target chat' }); return; }
+    const [id] = await db('internal_messages').insert({
+      chat_id: to_chat_id,
+      sender_id: userId,
+      content: orig.content,
+      file_url: orig.file_url,
+      file_name: orig.file_name,
+      forwarded_from_id: orig.id,
+    });
+    res.status(201).json({ id });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// PATCH toggle pin for current user
+router.patch('/:chatId/pin', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const row = await db('internal_chat_members').where({ chat_id: req.params.chatId, user_id: userId }).first();
+    if (!row) { res.status(404).json({ error: 'Not a member' }); return; }
+    await db('internal_chat_members').where({ chat_id: req.params.chatId, user_id: userId }).update({ is_pinned: !row.is_pinned });
+    res.json({ is_pinned: !row.is_pinned });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST leave a group chat
+router.post('/:chatId/leave', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const userId = req.user!.id;
+    const chat = await db('internal_chats').where({ id: req.params.chatId, type: 'group' }).first();
+    if (!chat) { res.status(404).json({ error: 'Group chat not found' }); return; }
+    await db('internal_chat_members').where({ chat_id: req.params.chatId, user_id: userId }).delete();
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 // POST upload group avatar

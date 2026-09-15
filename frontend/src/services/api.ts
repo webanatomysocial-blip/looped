@@ -129,13 +129,21 @@ export const internalChatApi = {
   listChats: () => api.get('/internal-chat'),
   createChat: (data: { type: 'direct' | 'group'; name?: string; member_ids: number[] }) =>
     api.post('/internal-chat', data),
-  getMessages: (chatId: number) => api.get(`/internal-chat/${chatId}/messages`),
-  sendMessage: (chatId: number, content: string) => api.post(`/internal-chat/${chatId}/messages`, { content }),
+  getMessages: (chatId: number, search?: string) =>
+    api.get(`/internal-chat/${chatId}/messages`, { params: search ? { search } : {} }),
+  sendMessage: (chatId: number, content: string, reply_to_id?: number | null) =>
+    api.post(`/internal-chat/${chatId}/messages`, { content, reply_to_id: reply_to_id ?? undefined }),
   uploadFile: (chatId: number, formData: FormData) =>
     api.post(`/internal-chat/${chatId}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   addMember: (chatId: number, userId: number) => api.post(`/internal-chat/${chatId}/members`, { user_id: userId }),
   renameChat: (chatId: number, name: string) => api.patch(`/internal-chat/${chatId}/name`, { name }),
   uploadGroupAvatar: (chatId: number, fd: FormData) => api.post(`/internal-chat/${chatId}/avatar`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  editMessage: (chatId: number, msgId: number, content: string) => api.patch(`/internal-chat/${chatId}/messages/${msgId}`, { content }),
+  deleteMessage: (chatId: number, msgId: number) => api.delete(`/internal-chat/${chatId}/messages/${msgId}`),
+  reactMessage: (chatId: number, msgId: number, emoji: string) => api.post(`/internal-chat/${chatId}/messages/${msgId}/react`, { emoji }),
+  forwardMessage: (chatId: number, msgId: number, to_chat_id: number) => api.post(`/internal-chat/${chatId}/messages/${msgId}/forward`, { to_chat_id }),
+  pinChat: (chatId: number) => api.patch(`/internal-chat/${chatId}/pin`, {}),
+  leaveGroup: (chatId: number) => api.post(`/internal-chat/${chatId}/leave`, {}),
 };
 
 export const mailApi = {

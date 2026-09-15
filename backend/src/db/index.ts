@@ -1215,6 +1215,36 @@ async function createSchema(): Promise<void> {
   const hasChatAvatar = await db.schema.hasColumn('internal_chats', 'avatar_url');
   if (!hasChatAvatar) await db.schema.table('internal_chats', t => { t.string('avatar_url', 500).nullable(); });
 
+  // internal_messages extra columns
+  const [hasMsgReplyTo, hasMsgEditedAt, hasMsgDeletedAt, hasMsgForwardedFrom] = await Promise.all([
+    db.schema.hasColumn('internal_messages', 'reply_to_id'),
+    db.schema.hasColumn('internal_messages', 'edited_at'),
+    db.schema.hasColumn('internal_messages', 'deleted_at'),
+    db.schema.hasColumn('internal_messages', 'forwarded_from_id'),
+  ]);
+  if (!hasMsgReplyTo) await db.schema.table('internal_messages', t => { t.integer('reply_to_id').nullable().references('id').inTable('internal_messages').onDelete('SET NULL'); });
+  if (!hasMsgEditedAt) await db.schema.table('internal_messages', t => { t.timestamp('edited_at').nullable(); });
+  if (!hasMsgDeletedAt) await db.schema.table('internal_messages', t => { t.timestamp('deleted_at').nullable(); });
+  if (!hasMsgForwardedFrom) await db.schema.table('internal_messages', t => { t.integer('forwarded_from_id').nullable(); });
+
+  // internal_message_reactions
+  await db.schema.hasTable('internal_message_reactions').then(async exists => {
+    if (!exists) {
+      await db.schema.createTable('internal_message_reactions', t => {
+        t.increments('id').primary();
+        t.integer('message_id').notNullable().references('id').inTable('internal_messages').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('emoji', 10).notNullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+        t.unique(['message_id', 'user_id', 'emoji']);
+      });
+    }
+  });
+
+  // is_pinned on internal_chat_members
+  const hasChatPin = await db.schema.hasColumn('internal_chat_members', 'is_pinned');
+  if (!hasChatPin) await db.schema.table('internal_chat_members', t => { t.boolean('is_pinned').notNullable().defaultTo(false); });
+
   await db.schema.hasTable('task_share_tokens').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('task_share_tokens', (t) => {
