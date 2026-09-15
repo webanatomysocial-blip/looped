@@ -70,6 +70,7 @@ export default function Messages() {
   const [editText, setEditText] = useState('');
   const [contextMenu, setContextMenu] = useState<{ msg: InternalMessage; x: number; y: number } | null>(null);
   const [forwardMsg, setForwardMsg] = useState<InternalMessage | null>(null);
+  const [forwardSearch, setForwardSearch] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState<number | null>(null); // msgId
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -445,21 +446,46 @@ export default function Messages() {
 
       {/* Forward modal */}
       {forwardMsg && (
-        <div className="wa-modal-overlay" onClick={() => setForwardMsg(null)}>
+        <div className="wa-modal-overlay" onClick={() => { setForwardMsg(null); setForwardSearch(''); }}>
           <div className="wa-modal" onClick={e => e.stopPropagation()}>
             <div className="wa-modal-header">
-              <span>Forward message</span>
-              <button className="wa-icon-btn" onClick={() => setForwardMsg(null)}><X size={16} /></button>
+              <span>Forward to…</span>
+              <button className="wa-icon-btn" onClick={() => { setForwardMsg(null); setForwardSearch(''); }}><X size={16} /></button>
             </div>
             <div className="wa-modal-body">
               <p className="wa-modal-preview">"{forwardMsg.content.slice(0, 80)}{forwardMsg.content.length > 80 ? '…' : ''}"</p>
-              <div className="wa-member-list">
-                {chats.filter(c => c.id !== activeChat?.id).map(c => (
-                  <div key={c.id} className="wa-member-row" onClick={() => handleForwardTo(c.id)}>
-                    <WaAvatar name={getChatLabel(c)} color="#00a884" size={30} />
-                    <span className="wa-member-name">{getChatLabel(c)}</span>
-                  </div>
-                ))}
+              {/* Search */}
+              <div className="wa-search" style={{ marginBottom: 8 }}>
+                <Search size={13} />
+                <input
+                  autoFocus
+                  placeholder="Search conversations…"
+                  value={forwardSearch}
+                  onChange={e => setForwardSearch(e.target.value)}
+                />
+              </div>
+              <div className="wa-member-list" style={{ maxHeight: 280 }}>
+                {chats
+                  .filter(c => c.id !== activeChat?.id && getChatLabel(c).toLowerCase().includes(forwardSearch.toLowerCase()))
+                  .map(c => {
+                    const other = getChatOther(c);
+                    return (
+                      <div key={c.id} className="wa-member-row" onClick={() => { handleForwardTo(c.id); setForwardSearch(''); }}>
+                        {c.type === 'direct' && other
+                          ? <WaAvatar name={other.name} color={other.avatar_color} avatarUrl={other.avatar_url} size={36} />
+                          : c.avatar_url
+                            ? <div className="wa-avatar wa-avatar--group" style={{ width: 36, height: 36 }}><img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+                            : <div className="wa-avatar wa-avatar--group" style={{ width: 36, height: 36, fontSize: 14 }}><Users size={16} /></div>}
+                        <div>
+                          <p className="wa-member-name" style={{ marginBottom: 1 }}>{getChatLabel(c)}</p>
+                          <p className="wa-member-role">{c.type === 'group' ? `${c.members.length} members` : 'Direct'}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {chats.filter(c => c.id !== activeChat?.id && getChatLabel(c).toLowerCase().includes(forwardSearch.toLowerCase())).length === 0 && (
+                  <p style={{ textAlign: 'center', fontSize: 12, color: 'var(--ink-muted)', padding: '16px 0' }}>No conversations found</p>
+                )}
               </div>
             </div>
           </div>
