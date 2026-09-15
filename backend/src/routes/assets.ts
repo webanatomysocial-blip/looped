@@ -41,9 +41,17 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const { project_id, folder_id } = req.query;
 
+    const { role, id: userId } = req.user!;
+
+    // For employees: only show projects they are a member of
+    const memberProjectIds: number[] | null =
+      role === 'employee'
+        ? (await db('project_members').where({ user_id: userId }).select('project_id')).map((r: any) => r.project_id)
+        : null;
+
     // If no project_id — return project list with file counts (root view)
     if (!project_id) {
-      const projects = await db('projects as p')
+      let projectQ = db('projects as p')
         .leftJoin('assets as a', 'a.project_id', 'p.id')
         .leftJoin('asset_folders as af', 'af.project_id', 'p.id')
         .select('p.id', 'p.name')
@@ -51,8 +59,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         .groupBy('p.id', 'p.name')
         .orderBy('p.name');
 
-      // Also include "No project" bucket
-      const noProject = await db('assets').whereNull('project_id').count('id as file_count').first();
+      if (memberProjectIds) projectQ = projectQ.whereIn('p.id', memberProjectIds);
+
+      const projects = await projectQ;
+
+      // "No project" bucket — employees don't see it
+      const noProject = memberProjectIds
+        ? { file_count: 0 }
+        : await db('assets').whereNull('project_id').count('id as file_count').first();
 
       return res.json({
         type: 'root',
@@ -62,6 +76,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
 
     const pid = project_id === 'none' ? null : Number(project_id);
+
+    // Employee access check for a specific project
+    if (memberProjectIds && pid !== null && !memberProjectIds.includes(pid)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     const fid = folder_id ? Number(folder_id) : null;
 
     // Subfolders at this level
