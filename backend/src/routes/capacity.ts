@@ -215,6 +215,21 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         : []
     );
 
+    // Fetch latest rejection comment for XLR8 pending_assignee tasks so the banner can show why it was sent back
+    const pendingAssigneeIds = allTasks.filter((t: any) => t.xlr8_status === 'pending_assignee' && t.ticket_type_id).map((t: any) => t.id);
+    const rejectionLogs: Record<number, { actor: string; comment: string }> = {};
+    if (pendingAssigneeIds.length) {
+      const logs = await db('xlr8_ticket_log as l')
+        .join('users as u', 'l.actor_id', 'u.id')
+        .whereIn('l.task_id', pendingAssigneeIds)
+        .whereIn('l.action', ['manager_declined', 'admin_declined'])
+        .orderBy('l.created_at', 'desc')
+        .select('l.task_id', 'l.comment', 'u.name as actor');
+      for (const row of logs) {
+        if (!rejectionLogs[row.task_id]) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment };
+      }
+    }
+
     const tasks = allTasks.map((task: any) => {
       const ts = taskSessions.filter((s: any) => s.task_id === task.id);
       let taskSeconds = 0;
@@ -227,7 +242,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         if (!s.ended_at) timerRunning = true;
       }
 
-      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)) };
+      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)), rejection_log: rejectionLogs[task.id] ?? null };
     });
 
     // Merge completed tasks (dedup by id)

@@ -175,9 +175,14 @@ router.get('/:chatId/messages', async (req: AuthRequest, res: Response) => {
       return { ...m, reactions, reply_to, read_by_other };
     }));
 
-    // Mark as read
-    await db('message_reads').insert({ user_id: userId, chat_id: req.params.chatId, last_read_at: new Date() })
-      .onConflict(['user_id', 'chat_id']).merge({ last_read_at: new Date() });
+    // Mark as read (explicit upsert to avoid SQLite NULL-in-unique-index issues)
+    const chatId = Number(req.params.chatId);
+    const existingRead = await db('message_reads').where({ user_id: userId, chat_id: chatId }).first();
+    if (existingRead) {
+      await db('message_reads').where({ user_id: userId, chat_id: chatId }).update({ last_read_at: new Date() });
+    } else {
+      await db('message_reads').insert({ user_id: userId, chat_id: chatId, last_read_at: new Date() });
+    }
 
     res.json(enriched);
   } catch (err) {

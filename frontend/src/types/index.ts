@@ -189,6 +189,7 @@ export interface CapacityTask {
   ticket_type_id?: number | null;
   xlr8_status?: string | null;
   xlr8_assignee_id?: number | null;
+  rejection_log?: { actor: string; comment: string | null } | null;
 }
 
 export interface CapacityData {

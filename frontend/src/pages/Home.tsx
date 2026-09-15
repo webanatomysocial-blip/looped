@@ -60,6 +60,7 @@ export default function Home() {
   // already-baked tracked_seconds values so nothing is counted twice.
   const [elapsed, setElapsed] = useState(0);
   const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'accepted' | 'overdue'>('all');
+  const [toast, setToast] = useState<string | null>(null);
   const [declineModal, setDeclineModal] = useState<{ task: CapacityTask } | null>(null);
   const [declineComment, setDeclineComment] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
@@ -174,6 +175,8 @@ export default function Home() {
     }
     setDeclineModal(null);
     setDeclineComment('');
+    setToast('Task declined');
+    setTimeout(() => setToast(null), 3000);
     load();
     if (user?.role === 'admin' || user?.role === 'manager') {
       capacityApi.declinedStages().then((r) => setDeclinedStages(r.data)).catch(() => {});
@@ -307,6 +310,18 @@ export default function Home() {
 
   return (
     <Layout>
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 9999, background: '#1f2937', color: '#fff',
+          padding: '10px 20px', borderRadius: 10, fontSize: 13, fontWeight: 500,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
+          display: 'flex', alignItems: 'center', gap: 8,
+          animation: 'fadeInUp 0.2s ease',
+        }}>
+          ✓ {toast}
+        </div>
+      )}
       <div className="page-wrap">
         {/* <div style={{ marginBottom: 20 }}>
           <h2 className="page-title">Home</h2>
@@ -435,15 +450,26 @@ export default function Home() {
                     background: 'var(--surface)', borderRadius: 8, padding: '10px 14px',
                     border: '1px solid var(--sand-border)',
                   }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title}</div>
-                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
-                        {task.project_name}
-                        {task.due_date ? ` · Due ${task.due_date}` : ''}
-                        {task.xlr8_status && task.xlr8_status !== 'pending_assignee'
-                          ? <span style={{ marginLeft: 6, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>Future stage</span>
-                          : null}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title}</span>
+                        {task.rejection_log && (
+                          <span style={{ fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 4, padding: '1px 7px', fontWeight: 600, flexShrink: 0 }}>
+                            Returned by {task.rejection_log.actor}
+                          </span>
+                        )}
+                        {task.xlr8_status && task.xlr8_status !== 'pending_assignee' && (
+                          <span style={{ fontSize: 11, background: 'rgba(59,130,246,0.1)', color: 'var(--blue)', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>Future stage</span>
+                        )}
                       </div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
+                        {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}
+                      </div>
+                      {task.rejection_log?.comment && (
+                        <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>
+                          "{task.rejection_log.comment}"
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                       <button

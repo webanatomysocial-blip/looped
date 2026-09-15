@@ -530,6 +530,56 @@ router.get('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Re
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// GET employee profile stats — pod manager, overdue tasks, achievements
+router.get('/:id/profile', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const uid = Number(req.params.id);
+
+    const user = await db('users').where({ id: uid })
+      .select('id', 'name', 'role', 'avatar_color', 'avatar_url', 'pod').first();
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    // Categories
+    const catRows = await db('user_categories as uc')
+      .join('employee_categories as ec', 'uc.category_id', 'ec.id')
+      .where('uc.user_id', uid).select('ec.name');
+    const categories = catRows.map((r: any) => r.name).join(', ') || null;
+
+    // Pod manager
+    let pod_manager: string | null = null;
+    if (user.pod) {
+      const mgr = await db('users').where({ role: 'manager', pod: user.pod }).select('name').first();
+      pod_manager = mgr?.name ?? null;
+    }
+
+    // Overdue tasks
+    const overdueRow = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .where('ta.user_id', uid).where('t.status', 'overdue')
+      .count('t.id as n').first();
+    const overdue_tasks = Number((overdueRow as any)?.n ?? 0);
+
+    // Achievements: completed tasks where logged hours < estimated_hours
+    const achieveRow = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .where('ta.user_id', uid)
+      .where('t.status', 'completed')
+      .whereNotNull('t.estimated_hours')
+      .where('t.estimated_hours', '>', 0)
+      .whereRaw(
+        `(SELECT COALESCE(SUM(tl.hours),0) FROM time_logs tl WHERE tl.task_id = t.id AND tl.user_id = ${uid}) < t.estimated_hours`
+      )
+      .count('t.id as n').first();
+    const achievements = Number((achieveRow as any)?.n ?? 0);
+
+    res.json({ ...user, categories, pod_manager, overdue_tasks, achievements, certificates: [], awards: [] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // PUT set page permissions for a user (admin only)
 router.put('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
   const { pages } = req.body;

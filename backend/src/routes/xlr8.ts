@@ -497,6 +497,7 @@ router.post('/tickets/:id/employee-decline', async (req: AuthRequest, res: Respo
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not assigned to you' }); return; }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_assignee_id: null, assigned_to: null, status: 'todo' });
+  await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).update({ acceptance_status: 'declined' });
   await appendLog(ticket.id, req.user!, 'employee_declined', 'pending_assignee', 'pending_manager', req.body.comment || null);
 
   const managers = await db('users').where({ role: 'manager' }).orWhere({ role: 'admin' }).select('id');
@@ -570,11 +571,29 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
 
   if (action === 'decline') {
     await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
-    await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', status: 'in_progress' });
     await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+
+    // Find the previous employee stage to send back to
+    let prevEmpIdx = currentStageIdx - 1;
+    while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
+    const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
+    const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).first();
+    const prevAssigneeId = prevAssignee?.user_id ?? null;
+
+    await db('tasks').where({ id: ticket.id }).update({
+      xlr8_status: 'pending_assignee',
+      xlr8_stage_idx: targetIdx,
+      xlr8_assignee_id: prevAssigneeId,
+      assigned_to: prevAssigneeId,
+      status: 'in_progress',
+    });
+    // Reset assignee acceptance so the home banner reappears for them
+    if (prevAssigneeId) {
+      await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId }).update({ acceptance_status: 'pending' });
+    }
     await appendLog(ticket.id, req.user!, 'manager_declined', 'pending_manager', 'pending_assignee', comment);
-    if (ticket.xlr8_assignee_id) {
-      await createNotification(ticket.xlr8_assignee_id, `Ticket "${ticket.title}" was declined: ${comment || 'No reason given'}`, 'task', ticket.project_id);
+    if (prevAssigneeId) {
+      await createNotification(prevAssigneeId, `Ticket "${ticket.title}" was declined — please redo and resubmit${comment ? ': ' + comment : ''}`, 'task', ticket.project_id);
     }
     res.json({ ok: true }); return;
   }
@@ -643,6 +662,10 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
   await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'pending_assignee', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
   await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+  // Reset assignee acceptance so the home banner reappears for them
+  if (prevAssigneeId) {
+    await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId }).update({ acceptance_status: 'pending' });
+  }
   await appendLog(ticket.id, req.user!, 'admin_declined', 'pending_admin', 'pending_assignee', req.body.comment);
 
   if (prevAssigneeId) {

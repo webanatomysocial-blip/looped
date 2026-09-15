@@ -6,7 +6,7 @@ import Layout from '../components/Layout/Layout';
 import Avatar from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { projectsApi, usersApi, categoriesApi, assetsApi } from '../services/api';
+import { projectsApi, usersApi, categoriesApi } from '../services/api';
 import { Project, User, ClientCompany, EmployeeCategory } from '../types';
 import '../css/pages/Projects.css';
 
@@ -93,8 +93,6 @@ export default function Projects() {
     briefing_doc: '', project_drive_doc: '',
   });
 
-  const [briefingFileName, setBriefingFileName] = useState('');
-  const [driveFileName, setDriveFileName] = useState('');
   const [showAddClient, setShowAddClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: '', email: '', password: '', company_name: '', send_welcome_email: false });
   const [addingClient, setAddingClient] = useState(false);
@@ -142,8 +140,6 @@ export default function Projects() {
       service_type: 'per_project', budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
       monthly_hours_bucket: '', billing_cycle_start_day: '1',
       pod: 'pod1', briefing_doc: '', project_drive_doc: '' });
-    setBriefingFileName('');
-    setDriveFileName('');
     setMemberTab('admins');
     setEmpSubTab('all');
     // Refresh companies so newly created clients (with pod) show up
@@ -820,52 +816,24 @@ export default function Projects() {
                       })}
                     </div>
                   </div>
-                  {(['briefing', 'drive'] as const).map((kind) => {
-                    const isRequired = kind === 'briefing';
-                    const label = kind === 'briefing' ? 'Briefing doc' : 'Project drive doc';
-                    const fileName = kind === 'briefing' ? briefingFileName : driveFileName;
-                    const fieldKey = kind === 'briefing' ? 'briefing_doc' : 'project_drive_doc';
-                    const hasFile = !!form[fieldKey];
+                  {/* Briefing doc — text area */}
+                  {(() => {
+                    const companyName = form.name.trim();
+                    const label = companyName ? `About ${companyName} *` : 'Briefing doc *';
                     return (
-                      <div key={kind}>
-                        <label className="form-label">
-                          {label}{isRequired ? ' *' : <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}> (optional)</span>}
-                        </label>
-                        <label style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                          gap: 8, padding: '20px 16px', marginTop: 4,
-                          border: `2px dashed ${hasFile ? 'var(--brand)' : 'var(--border)'}`,
-                          borderRadius: 10, cursor: 'pointer',
-                          background: hasFile ? 'var(--brand-light,#eff6ff)' : 'var(--surface-2,transparent)',
-                          transition: 'border-color 0.15s, background 0.15s',
-                        }}>
-                          <input type="file" style={{ display: 'none' }} onChange={async (e) => {
-                            const file = e.target.files?.[0]; if (!file) return;
-                            const fd = new FormData(); fd.append('file', file); fd.append('name', file.name);
-                            try {
-                              const res = await assetsApi.upload(fd);
-                              setForm((f) => ({ ...f, [fieldKey]: assetsApi.downloadUrl(res.data.id) }));
-                              kind === 'briefing' ? setBriefingFileName(file.name) : setDriveFileName(file.name);
-                            } catch { alert('Upload failed'); }
-                            e.target.value = '';
-                          }} />
-                          {hasFile ? (
-                            <>
-                              <span style={{ fontSize: 22 }}>📄</span>
-                              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', textAlign: 'center', wordBreak: 'break-all' }}>{fileName}</span>
-                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Click to replace</span>
-                            </>
-                          ) : (
-                            <>
-                              <span style={{ fontSize: 22 }}>☁️</span>
-                              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-2,var(--ink-muted))' }}>Click to upload</span>
-                              <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>PDF, image, or any doc</span>
-                            </>
-                          )}
-                        </label>
+                      <div>
+                        <label className="form-label">{label}</label>
+                        <textarea
+                          className="form-input"
+                          rows={5}
+                          placeholder={companyName ? `Write about ${companyName}…` : 'Write a brief about this project…'}
+                          value={form.briefing_doc}
+                          onChange={e => setForm(f => ({ ...f, briefing_doc: e.target.value }))}
+                          style={{ resize: 'vertical', lineHeight: 1.6 }}
+                        />
                       </div>
                     );
-                  })}
+                  })()}
                 </>
               ) : (
                 <>

@@ -132,7 +132,10 @@ export default function Messages() {
 
   const refreshChats = async () => {
     const r = await internalChatApi.listChats();
-    setChats(r.data);
+    // Keep unread_count=0 for the active chat so the badge doesn't flicker back
+    setChats(r.data.map((c: InternalChat) =>
+      activeChat && c.id === activeChat.id ? { ...c, unread_count: 0 } : c
+    ));
     return r.data as InternalChat[];
   };
 

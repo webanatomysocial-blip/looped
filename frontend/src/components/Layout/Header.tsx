@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Bell, Settings, Plus, X } from 'lucide-react';
+import { Search, Bell, Settings, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { notificationsApi, tasksApi, projectsApi } from '../../services/api';
+import { notificationsApi, tasksApi, projectsApi, usersApi } from '../../services/api';
 import IdCardModal from '../UI/IdCardModal';
+import EmployeeProfileModal from '../UI/EmployeeProfileModal';
 import '../../css/Layout/Header.css';
 
 interface HeaderProps {
@@ -23,13 +24,13 @@ export default function Header({ action }: HeaderProps) {
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
   const prevUnread = useRef(-1);
-  const [alerts, setAlerts] = useState<{ id: number; message: string }[]>([]);
   const audioCtx = useRef<AudioContext | null>(null);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<{ type: 'task' | 'project'; id: number; title: string; sub: string }[]>([]);
+  const [results, setResults] = useState<{ type: 'task' | 'project' | 'employee'; id: number; title: string; sub: string }[]>([]);
   const [showDrop, setShowDrop] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [profileUserId, setProfileUserId] = useState<number | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Create AudioContext lazily on first user gesture
@@ -81,24 +82,6 @@ export default function Header({ action }: HeaderProps) {
     return () => clearInterval(id);
   }, [user]);
 
-  // Show alert banners for admin/manager on new notifications
-  useEffect(() => {
-    if (!user || (user.role !== 'admin' && user.role !== 'manager')) return;
-    const handler = () => {
-      notificationsApi.list().then((r) => {
-        const unreadItems: any[] = (r.data || []).filter((n: any) => !n.read);
-        setAlerts(unreadItems.map((n: any) => ({ id: n.id, message: n.message })));
-      }).catch(() => {});
-    };
-    window.addEventListener('wd:new-notification', handler);
-    return () => window.removeEventListener('wd:new-notification', handler);
-  }, [user]);
-
-  const dismissAlert = (id: number) => {
-    notificationsApi.markRead(id).catch(() => {});
-    setAlerts(prev => prev.filter(a => a.id !== id));
-  };
-
   // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -113,7 +96,7 @@ export default function Header({ action }: HeaderProps) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!q.trim()) { setResults([]); setShowDrop(false); return; }
     debounceRef.current = setTimeout(async () => {
-      const [tasksRes, projectsRes] = await Promise.allSettled([tasksApi.list(), projectsApi.list()]);
+      const [tasksRes, projectsRes, teamRes] = await Promise.allSettled([tasksApi.list(), projectsApi.list(), usersApi.team()]);
       const q2 = q.toLowerCase();
       const taskItems = tasksRes.status === 'fulfilled'
         ? (tasksRes.value.data as any[])
@@ -127,7 +110,13 @@ export default function Header({ action }: HeaderProps) {
             .slice(0, 5)
             .map((p: any) => ({ type: 'project' as const, id: p.id, title: p.name, sub: p.client_name || '' }))
         : [];
-      setResults([...taskItems, ...projectItems]);
+      const employeeItems = teamRes.status === 'fulfilled'
+        ? (teamRes.value.data as any[])
+            .filter((u: any) => u.name?.toLowerCase().includes(q2) || u.email?.toLowerCase().includes(q2))
+            .slice(0, 4)
+            .map((u: any) => ({ type: 'employee' as const, id: u.id, title: u.name, sub: u.role }))
+        : [];
+      setResults([...employeeItems, ...taskItems, ...projectItems]);
       setShowDrop(true);
     }, 300);
   };
@@ -136,6 +125,7 @@ export default function Header({ action }: HeaderProps) {
     setShowDrop(false);
     setQuery('');
     setResults([]);
+    if (item.type === 'employee') { setProfileUserId(item.id); return; }
     if (item.type === 'task') navigate('/tasks');
     else navigate('/projects');
   };
@@ -147,19 +137,6 @@ export default function Header({ action }: HeaderProps) {
 
   return (
     <>
-    {alerts.length > 0 && (
-      <div style={{ position: 'fixed', top: 16, right: 20, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360, width: '90vw' }}>
-        {alerts.map(alert => (
-          <div key={alert.id} style={{ background: 'var(--surface)', border: '1.5px solid var(--sand-border)', borderLeft: '4px solid #3b82f6', borderRadius: 10, padding: '12px 14px', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <Bell size={15} color="#3b82f6" style={{ flexShrink: 0, marginTop: 1 }} />
-            <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)', lineHeight: 1.4 }}>{alert.message}</span>
-            <button onClick={() => dismissAlert(alert.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-muted)', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-              <X size={14} />
-            </button>
-          </div>
-        ))}
-      </div>
-    )}
     <header className="app-header">
       <div className="app-header__left">
         <h1 className="app-header__greeting">Welcome, {firstName}</h1>
@@ -185,7 +162,7 @@ export default function Header({ action }: HeaderProps) {
             <div className="app-header__search-drop">
               {results.map((item, i) => (
                 <div key={i} className="app-header__search-item" onClick={() => goTo(item)}>
-                  <span className="app-header__search-type">{item.type}</span>
+                  <span className="app-header__search-type" style={item.type === 'employee' ? { background: '#1e3a2e', color: '#4ade80' } : undefined}>{item.type}</span>
                   <span className="app-header__search-title">{item.title}</span>
                   {item.sub && <span className="app-header__search-sub">{item.sub}</span>}
                 </div>
@@ -241,6 +218,9 @@ export default function Header({ action }: HeaderProps) {
 
     {showAvatarModal && user.avatar_url && (
       <IdCardModal name={user.name} role={user.categories?.[0]?.name ?? user.role} avatarUrl={user.avatar_url} onClose={() => setShowAvatarModal(false)} />
+    )}
+    {profileUserId !== null && (
+      <EmployeeProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
     )}
     </>
   );

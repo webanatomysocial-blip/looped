@@ -127,21 +127,51 @@ export default function Sidebar() {
 
   if (!user) return null;
 
-  // If user has custom page permissions set by admin, filter nav by those; else use role defaults
   const perms = user.page_permissions;
-  const allowed = (item: NavItem) => !perms || perms.includes(item.to);
 
-  const { top: rawTop } = NAV[user.role];
-  const rawMore = NAV[user.role].more;
+  // Master list of all possible nav items (union of all roles), preserving icon + section
+  const MASTER_NAV: (NavItem & { section: 'top' | 'more' })[] = [
+    { to: '/dashboard',          icon: RiDashboardLine,      label: 'Dashboard',      section: 'top' },
+    { to: '/projects',           icon: RiFolderOpenLine,     label: 'Projects',       section: 'top' },
+    { to: '/tasks',              icon: RiCheckboxLine,       label: 'Tasks',          section: 'top' },
+    { to: '/team-capacity',      icon: RiHeartPulseLine,     label: 'Team Capacity',  section: 'top' },
+    { to: '/calendar',           icon: RiCalendarLine,       label: 'Calendar',       section: 'top' },
+    { to: '/approvals',          icon: RiThumbUpLine,        label: 'Approvals',      section: 'top' },
+    { to: '/assets',             icon: RiArchiveLine,        label: 'Assets',         section: 'top' },
+    { to: '/messages',           icon: RiChat1Line,          label: 'Messages',       section: 'top' },
+    { to: '/reports',            icon: RiBarChart2Line,      label: 'Reports',        section: 'more' },
+    { to: '/project-reports',    icon: RiLayoutGridLine,     label: 'Project Costs',  section: 'more' },
+    { to: '/xlr8',               icon: RiLightbulbFlashLine, label: 'XLR8',           section: 'more' },
+    { to: '/seo',                icon: RiSearchEyeLine,      label: 'SEO',            section: 'more' },
+    { to: '/local-seo',          icon: RiMapPin2Line,        label: 'Local SEO',      section: 'more' },
+    { to: '/ads',                icon: RiMegaphoneLine,      label: 'Ads',            section: 'more' },
+    { to: '/content',            icon: RiMagicLine,          label: 'Content AI',     section: 'more' },
+    { to: '/admin/users',        icon: RiGroupLine,          label: 'Users',          section: 'more' },
+    { to: '/admin/ticket-types', icon: RiTicket2Line,        label: 'Ticket Types',   section: 'more' },
+    { to: '/contact-forms',      icon: RiMailAddLine,        label: 'Contact Forms',  section: 'more' },
+    { to: '/regularisation',     icon: RiTimeLine,           label: 'Regularisation', section: 'more' },
+  ];
 
-  const top = rawTop.filter(allowed);
-  const more = rawMore.filter(allowed);
+  let top: NavItem[];
+  let more: NavItem[];
+
+  if (perms && user.role !== 'admin' && user.role !== 'client') {
+    // Use master list filtered by saved permissions
+    const allowed = MASTER_NAV.filter(n => perms.includes(n.to));
+    top  = allowed.filter(n => n.section === 'top');
+    more = allowed.filter(n => n.section === 'more');
+  } else {
+    // Fall back to role defaults
+    top  = NAV[user.role].top;
+    more = NAV[user.role].more;
+  }
   const initials = user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
   const renderItem = ({ to, icon: Icon, label }: NavItem) => {
     const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
     const hasNotif = label === 'Notifications' && unread > 0;
-    const hasMsg = label === 'Messages' && unreadMsg > 0;
+    const onMessages = location.pathname.startsWith('/messages');
+    const hasMsg = label === 'Messages' && unreadMsg > 0 && !onMessages;
     return (
       <div
         key={to}

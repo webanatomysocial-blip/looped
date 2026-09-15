@@ -684,6 +684,19 @@ async function createSchema(): Promise<void> {
   });
 
   // assets
+  await db.schema.hasTable('asset_folders').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('asset_folders', (t) => {
+        t.increments('id').primary();
+        t.string('name').notNullable();
+        t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE');
+        t.integer('parent_id').nullable(); // null = root of project
+        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.timestamp('created_at').defaultTo(db.fn.now());
+      });
+    }
+  });
+
   await db.schema.hasTable('assets').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('assets', (t) => {
@@ -693,9 +706,13 @@ async function createSchema(): Promise<void> {
         t.string('file_path').nullable();
         t.bigInteger('file_size').nullable();
         t.integer('project_id').nullable().references('id').inTable('projects');
+        t.integer('folder_id').nullable();
         t.integer('uploaded_by').notNullable().references('id').inTable('users');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
+    } else {
+      const hasFolderId = await db.schema.hasColumn('assets', 'folder_id');
+      if (!hasFolderId) await db.schema.table('assets', t => t.integer('folder_id').nullable());
     }
   });
 

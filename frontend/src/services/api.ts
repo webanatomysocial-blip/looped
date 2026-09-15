@@ -44,6 +44,7 @@ export const usersApi = {
   myClients: () => api.get('/users/my-clients'),
   getNotifPrefs: (clientUserId: number | null) =>
     api.get('/users/notification-preferences', { params: clientUserId !== null ? { client_user_id: clientUserId } : {} }),
+  getProfile: (id: number) => api.get(`/users/${id}/profile`),
   getPages: (id: number) => api.get(`/users/${id}/pages`),
   setPages: (id: number, pages: string[]) => api.put(`/users/${id}/pages`, { pages }),
   saveNotifPrefs: (clientUserId: number | null, prefs: Record<string, boolean>) =>
@@ -105,10 +106,16 @@ export const approvalsApi = {
 };
 
 export const assetsApi = {
+  browse: (projectId?: string | null, folderId?: number | null) =>
+    api.get('/assets', { params: { ...(projectId ? { project_id: projectId } : {}), ...(folderId != null ? { folder_id: folderId } : {}) } }),
   list: (projectId?: number) => api.get('/assets', { params: projectId ? { project_id: projectId } : {} }),
   upload: (formData: FormData) => api.post('/assets', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   delete: (id: number) => api.delete(`/assets/${id}`),
   downloadUrl: (id: number) => `/api/assets/${id}/download`,
+  createFolder: (name: string, projectId?: string | null, parentId?: number | null) =>
+    api.post('/assets/folders', { name, project_id: projectId || null, parent_id: parentId || null }),
+  renameFolder: (id: number, name: string) => api.patch(`/assets/folders/${id}`, { name }),
+  deleteFolder: (id: number) => api.delete(`/assets/folders/${id}`),
 };
 
 export const notificationsApi = {
