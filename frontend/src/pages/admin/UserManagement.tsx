@@ -82,8 +82,11 @@ export default function UserManagement() {
     });
     setShowPagePerms(false);
     setError('');
-    // Load existing permissions
-    usersApi.getPages(u.id).then(r => setPagePerms(r.data.pages || []));
+    // Load existing permissions; fall back to role defaults if none saved yet
+    usersApi.getPages(u.id).then(r => {
+      const pages: string[] = r.data.pages || [];
+      setPagePerms(pages.length ? pages : defaultPagePermsForRole(u.role));
+    });
     setShowModal(true);
   };
 
