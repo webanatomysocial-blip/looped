@@ -96,12 +96,12 @@ router.get('/unread-count', async (req: AuthRequest, res: Response) => {
     let projectUnread = 0;
     if (projectIds.length) {
       const reads = await db('message_reads').where({ user_id: userId }).whereNotNull('project_id').select('project_id', 'last_read_at');
-      const readMap: Record<number, Date> = {};
-      for (const r of reads) readMap[r.project_id] = new Date(r.last_read_at);
+      const readMap: Record<number, string> = {};
+      for (const r of reads) readMap[r.project_id] = r.last_read_at;
       for (const pid of projectIds) {
         const since = readMap[pid];
         const q = db('messages').where('project_id', pid).whereNot('sender_id', userId);
-        if (since) q.where('created_at', '>', since);
+        if (since) q.whereRaw('created_at > ?', [since]);
         const [{ count }] = await q.count('id as count');
         projectUnread += Number(count);
       }
@@ -113,12 +113,12 @@ router.get('/unread-count', async (req: AuthRequest, res: Response) => {
     let chatUnread = 0;
     if (chatIds.length) {
       const reads = await db('message_reads').where({ user_id: userId }).whereNotNull('chat_id').select('chat_id', 'last_read_at');
-      const readMap: Record<number, Date> = {};
-      for (const r of reads) readMap[r.chat_id] = new Date(r.last_read_at);
+      const readMap: Record<number, string> = {};
+      for (const r of reads) readMap[r.chat_id] = r.last_read_at;
       for (const cid of chatIds) {
         const since = readMap[cid];
         const q = db('internal_messages').where('chat_id', cid).whereNot('sender_id', userId);
-        if (since) q.where('created_at', '>', since);
+        if (since) q.whereRaw('created_at > ?', [since]);
         const [{ count }] = await q.count('id as count');
         chatUnread += Number(count);
       }

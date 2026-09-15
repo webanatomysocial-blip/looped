@@ -63,7 +63,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       // unread count
       const readRow = await db('message_reads').where({ user_id: userId, chat_id: chat.id }).first();
       const unreadCount = readRow
-        ? await db('internal_messages').where('chat_id', chat.id).whereNull('deleted_at').where('created_at', '>', readRow.last_read_at).whereNot('sender_id', userId).count('id as n').first()
+        ? await db('internal_messages').where('chat_id', chat.id).whereNull('deleted_at').whereRaw('created_at > ?', [readRow.last_read_at]).whereNot('sender_id', userId).count('id as n').first()
         : await db('internal_messages').where('chat_id', chat.id).whereNull('deleted_at').whereNot('sender_id', userId).count('id as n').first();
 
       return { ...chat, members, last_message: lastMsg || null, unread_count: Number((unreadCount as any)?.n ?? 0) };
@@ -175,13 +175,15 @@ router.get('/:chatId/messages', async (req: AuthRequest, res: Response) => {
       return { ...m, reactions, reply_to, read_by_other };
     }));
 
-    // Mark as read (explicit upsert to avoid SQLite NULL-in-unique-index issues)
+    // Mark as read — use the latest message's created_at to avoid JS/SQLite timestamp format mismatches
     const chatId = Number(req.params.chatId);
+    const latestMsg = await db('internal_messages').where({ chat_id: chatId }).whereNull('deleted_at').orderBy('created_at', 'desc').first();
+    const readAt = latestMsg?.created_at ?? new Date();
     const existingRead = await db('message_reads').where({ user_id: userId, chat_id: chatId }).first();
     if (existingRead) {
-      await db('message_reads').where({ user_id: userId, chat_id: chatId }).update({ last_read_at: new Date() });
+      await db('message_reads').where({ user_id: userId, chat_id: chatId }).update({ last_read_at: readAt });
     } else {
-      await db('message_reads').insert({ user_id: userId, chat_id: chatId, last_read_at: new Date() });
+      await db('message_reads').insert({ user_id: userId, chat_id: chatId, last_read_at: readAt });
     }
 
     res.json(enriched);
