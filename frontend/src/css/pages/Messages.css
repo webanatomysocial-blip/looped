@@ -271,7 +271,8 @@
 .wa-bubble-wrap--theirs { align-items: flex-start; }
 
 .wa-bubble {
-  max-width: 62%; padding: 7px 10px 4px;
+  max-width: fit-content;
+   padding: 7px 10px 4px;
   border-radius: 8px; position: relative;
   word-break: break-word; font-size: 14px; line-height: 1.45;
   box-shadow: 0 1px 1px rgba(0,0,0,0.08);
@@ -399,6 +400,7 @@
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.14);
   min-width: 160px;
+  max-width: 200px;
   overflow: hidden;
 }
 .wa-context-emojis {

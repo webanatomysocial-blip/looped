@@ -305,7 +305,14 @@ export default function Messages() {
             {!isDeleted && (
               <button
                 className="wa-ctx-btn"
-                onClick={e => { e.stopPropagation(); setContextMenu({ msg: m, x: e.clientX, y: e.clientY }); setShowEmojiPicker(null); }}
+                onClick={e => {
+                  e.stopPropagation();
+                  const menuW = 170, menuH = 220;
+                  const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+                  const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY;
+                  setContextMenu({ msg: m, x, y });
+                  setShowEmojiPicker(null);
+                }}
               >
                 <MoreVertical size={13} />
               </button>
