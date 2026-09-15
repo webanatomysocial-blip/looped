@@ -617,7 +617,6 @@ export default function Projects() {
                     <input className="form-input" placeholder="Full name *" autoComplete="off" value={newClientForm.name} onChange={(e) => setNewClientForm((f) => ({ ...f, name: e.target.value }))} autoFocus />
                     <input className="form-input" placeholder="Email *" type="email" autoComplete="new-password" value={newClientForm.email} onChange={(e) => setNewClientForm((f) => ({ ...f, email: e.target.value }))} />
                     <input className="form-input" placeholder="Password *" type="password" autoComplete="new-password" value={newClientForm.password} onChange={(e) => setNewClientForm((f) => ({ ...f, password: e.target.value }))} />
-                    <input className="form-input" placeholder="Company name" autoComplete="off" value={newClientForm.company_name} onChange={(e) => setNewClientForm((f) => ({ ...f, company_name: e.target.value }))} />
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>Send welcome email</span>
                       <button type="button"

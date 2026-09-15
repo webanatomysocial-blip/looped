@@ -299,10 +299,6 @@ export default function UserManagement() {
               )}
               {form.role === 'client' && (
                 <>
-                  <div>
-                    <label className="form-label">Company name</label>
-                    <input className="form-input" placeholder="Client company" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-                  </div>
                   {!editUser && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <label style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>Send welcome email</label>
