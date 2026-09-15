@@ -93,7 +93,11 @@ export default function Messages() {
   }, []);
 
   const loadMessages = (chatId: number, search?: string) =>
-    internalChatApi.getMessages(chatId, search || undefined).then(r => setInternalMsgs(r.data));
+    internalChatApi.getMessages(chatId, search || undefined).then(r => {
+      setInternalMsgs(r.data);
+      // clear unread badge locally after backend marks read
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, unread_count: 0 } : c));
+    });
 
   useEffect(() => {
     if (!activeChat) return;
@@ -605,7 +609,7 @@ export default function Messages() {
                         <div
                           key={chat.id}
                           className={`wa-chat-item${activeChat?.id === chat.id ? ' wa-chat-item--active' : ''}`}
-                          onClick={() => setActiveChat(chat)}
+                          onClick={() => { setActiveChat(chat); setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unread_count: 0 } : c)); }}
                         >
                           {chat.type === 'direct' && other
                             ? <WaAvatar name={other.name} color={other.avatar_color} avatarUrl={other.avatar_url} />
