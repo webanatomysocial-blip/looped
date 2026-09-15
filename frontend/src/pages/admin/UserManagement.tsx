@@ -66,7 +66,7 @@ export default function UserManagement() {
     setEditUser(null);
     setForm({ ...defaultForm, role });
     setPagePerms(defaultPagePermsForRole(role));
-    setShowPagePerms(false);
+    setShowPagePerms(true);
     setError('');
     setShowModal(true);
   };
@@ -80,7 +80,7 @@ export default function UserManagement() {
       monthly_salary: u.monthly_salary != null ? String(u.monthly_salary) : '',
       send_welcome_email: false,
     });
-    setShowPagePerms(false);
+    setShowPagePerms(true);
     setError('');
     // Load existing permissions; fall back to role defaults if none saved yet
     usersApi.getPages(u.id).then(r => {
