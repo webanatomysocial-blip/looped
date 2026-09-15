@@ -51,6 +51,8 @@ export default function Messages() {
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [showAddMember, setShowAddMember] = useState(false);
   const [addMemberIds, setAddMemberIds] = useState<number[]>([]);
+  const [editingName, setEditingName] = useState(false);
+  const [renameVal, setRenameVal] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Client chat state
@@ -158,7 +160,19 @@ export default function Messages() {
   const getChatOther = (chat: InternalChat) => chat.type === 'direct' ? chat.members.find(m => m.id !== user?.id) : null;
 
   const toggleMember = (id: number) => setSelectedMembers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const allSelected = teamUsers.length > 0 && teamUsers.every(u => selectedMembers.includes(u.id));
+  const toggleAll = () => allSelected ? setSelectedMembers([]) : setSelectedMembers(teamUsers.map(u => u.id));
   const nonMembers = teamUsers.filter(u => !activeChat?.members.some(m => m.id === u.id));
+
+  const saveRename = async () => {
+    if (!activeChat || !renameVal.trim()) return;
+    await internalChatApi.renameChat(activeChat.id, renameVal.trim());
+    const refreshed = await internalChatApi.listChats();
+    setChats(refreshed.data);
+    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    if (found) setActiveChat(found);
+    setEditingName(false);
+  };
 
   // Inject date dividers into message list
   function withDividers<T extends { created_at: string }>(msgs: T[]) {
@@ -267,6 +281,11 @@ export default function Messages() {
                 {newChatType === 'group' && (
                   <input className="wa-new-input" placeholder="Group name…" value={newChatName} onChange={e => setNewChatName(e.target.value)} />
                 )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button style={{ fontSize: 11, color: '#00a884', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: '2px 4px' }} onClick={toggleAll}>
+                    {allSelected ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
                 <div className="wa-member-list">
                   {teamUsers.map(u => (
                     <div key={u.id} className={`wa-member-row${selectedMembers.includes(u.id) ? ' selected' : ''}`} onClick={() => toggleMember(u.id)}>
@@ -342,7 +361,28 @@ export default function Messages() {
                         {headerName[0]?.toUpperCase()}
                       </div>}
                   <div className="wa-chat-header-info">
-                    <p className="wa-chat-header-name">{headerName}</p>
+                    {tab === 'internal' && activeChat?.type === 'group' && editingName
+                      ? <input
+                          autoFocus
+                          className="wa-new-input"
+                          style={{ padding: '4px 8px', fontSize: 14, fontWeight: 700, width: '100%' }}
+                          value={renameVal}
+                          onChange={e => setRenameVal(e.target.value)}
+                          onBlur={saveRename}
+                          onKeyDown={e => { if (e.key === 'Enter') saveRename(); if (e.key === 'Escape') setEditingName(false); }}
+                        />
+                      : <p
+                          className="wa-chat-header-name"
+                          style={tab === 'internal' && activeChat?.type === 'group' ? { cursor: 'pointer' } : undefined}
+                          title={tab === 'internal' && activeChat?.type === 'group' ? 'Click to rename' : undefined}
+                          onClick={() => {
+                            if (tab === 'internal' && activeChat?.type === 'group') {
+                              setRenameVal(getChatLabel(activeChat));
+                              setEditingName(true);
+                            }
+                          }}
+                        >{headerName}</p>
+                    }
                     <p className="wa-chat-header-sub">{headerSub}</p>
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
