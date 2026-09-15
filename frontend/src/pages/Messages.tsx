@@ -308,7 +308,7 @@ export default function Messages() {
                 onClick={e => {
                   e.stopPropagation();
                   const menuW = 170, menuH = 220;
-                  const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+                  const x = Math.min(e.clientX, window.innerWidth - menuW - 25);
                   const y = e.clientY + menuH > window.innerHeight ? e.clientY - menuH : e.clientY;
                   setContextMenu({ msg: m, x, y });
                   setShowEmojiPicker(null);
@@ -580,7 +580,7 @@ export default function Messages() {
                           <div className="wa-chat-info">
                             <div className="wa-chat-name-row">
                               <p className="wa-chat-name">{getChatLabel(chat)}</p>
-                              {chat.is_pinned && <Pin size={10} color="#00a884" />}
+                              {!!chat.is_pinned && <Pin size={10} color="#00a884" />}
                             </div>
                             <p className="wa-chat-preview">{last ? last.content.slice(0, 35) + (last.content.length > 35 ? '…' : '') : 'No messages yet'}</p>
                           </div>
