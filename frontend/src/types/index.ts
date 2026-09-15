@@ -55,6 +55,7 @@ export interface User {
   categories?: EmployeeCategory[];
   monthly_salary?: number | null;
   client_company_id?: number | null;
+  page_permissions?: string[] | null;
 }
 
 export interface ClientCompany {

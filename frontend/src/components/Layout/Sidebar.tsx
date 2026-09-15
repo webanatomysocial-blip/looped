@@ -127,17 +127,15 @@ export default function Sidebar() {
 
   if (!user) return null;
 
-  const isSeoEmployee = user.role === 'employee'
-    ? (user.categories?.some((c) => /seo/i.test(c.name)) ?? false)
-    : true;
-  const isAdsEmployee = user.role === 'employee'
-    ? (user.categories?.some((c) => /ads/i.test(c.name)) ?? false)
-    : true;
+  // If user has custom page permissions set by admin, filter nav by those; else use role defaults
+  const perms = user.page_permissions;
+  const allowed = (item: NavItem) => !perms || perms.includes(item.to);
 
-  const { top } = NAV[user.role];
-  const more = NAV[user.role].more.filter(
-    (item) => (item.to !== '/seo' || isSeoEmployee) && (item.to !== '/ads' || isAdsEmployee)
-  );
+  const { top: rawTop } = NAV[user.role];
+  const rawMore = NAV[user.role].more;
+
+  const top = rawTop.filter(allowed);
+  const more = rawMore.filter(allowed);
   const initials = user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
   const renderItem = ({ to, icon: Icon, label }: NavItem) => {

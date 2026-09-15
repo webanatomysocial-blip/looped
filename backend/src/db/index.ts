@@ -1211,6 +1211,18 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // user_page_permissions — per-user page access control
+  await db.schema.hasTable('user_page_permissions').then(async exists => {
+    if (!exists) {
+      await db.schema.createTable('user_page_permissions', t => {
+        t.increments('id').primary();
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('page_slug', 100).notNullable();
+        t.unique(['user_id', 'page_slug']);
+      });
+    }
+  });
+
   // Add avatar_url to internal_chats (group photo)
   const hasChatAvatar = await db.schema.hasColumn('internal_chats', 'avatar_url');
   if (!hasChatAvatar) await db.schema.table('internal_chats', t => { t.string('avatar_url', 500).nullable(); });

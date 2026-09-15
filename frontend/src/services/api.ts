@@ -44,6 +44,8 @@ export const usersApi = {
   myClients: () => api.get('/users/my-clients'),
   getNotifPrefs: (clientUserId: number | null) =>
     api.get('/users/notification-preferences', { params: clientUserId !== null ? { client_user_id: clientUserId } : {} }),
+  getPages: (id: number) => api.get(`/users/${id}/pages`),
+  setPages: (id: number, pages: string[]) => api.put(`/users/${id}/pages`, { pages }),
   saveNotifPrefs: (clientUserId: number | null, prefs: Record<string, boolean>) =>
     api.put('/users/notification-preferences', { client_user_id: clientUserId, prefs }),
 };

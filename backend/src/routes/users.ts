@@ -7,6 +7,56 @@ import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 
+// All grantable pages (admin always sees all, client is fixed)
+export const ALL_PAGES: { slug: string; label: string; section: 'top' | 'more' }[] = [
+  { slug: '/dashboard',       label: 'Dashboard',      section: 'top' },
+  { slug: '/projects',        label: 'Projects',        section: 'top' },
+  { slug: '/tasks',           label: 'Tasks',           section: 'top' },
+  { slug: '/team-capacity',   label: 'Team Capacity',   section: 'top' },
+  { slug: '/calendar',        label: 'Calendar',        section: 'top' },
+  { slug: '/approvals',       label: 'Approvals',       section: 'top' },
+  { slug: '/assets',          label: 'Assets',          section: 'top' },
+  { slug: '/messages',        label: 'Messages',        section: 'top' },
+  { slug: '/reports',         label: 'Reports',         section: 'more' },
+  { slug: '/project-reports', label: 'Project Costs',   section: 'more' },
+  { slug: '/xlr8',            label: 'XLR8',            section: 'more' },
+  { slug: '/seo',             label: 'SEO',             section: 'more' },
+  { slug: '/local-seo',       label: 'Local SEO',       section: 'more' },
+  { slug: '/ads',             label: 'Ads',             section: 'more' },
+  { slug: '/content',         label: 'Content AI',      section: 'more' },
+  { slug: '/contact-forms',   label: 'Contact Forms',   section: 'more' },
+  { slug: '/regularisation',  label: 'Regularisation',  section: 'more' },
+];
+
+function defaultPages(role: string, categoryNames: string[]): string[] {
+  const cats = categoryNames.map(c => c.toLowerCase());
+  const base = ['/dashboard', '/tasks', '/calendar', '/approvals', '/assets', '/messages'];
+  if (role === 'admin') return ALL_PAGES.map(p => p.slug);
+  if (role === 'client') return ['/dashboard', '/projects', '/approvals', '/messages'];
+  if (role === 'manager') return [...base, '/projects', '/team-capacity', '/seo', '/local-seo', '/ads', '/content', '/contact-forms', '/regularisation'];
+  // employee — grant based on categories
+  const extra: string[] = ['/contact-forms'];
+  if (cats.some(c => c.includes('seo'))) extra.push('/seo', '/local-seo');
+  if (cats.some(c => c.includes('ads'))) extra.push('/ads');
+  if (cats.some(c => c.includes('content'))) extra.push('/content');
+  if (cats.some(c => c.includes('xlr8'))) extra.push('/xlr8');
+  return [...base, ...extra];
+}
+
+async function savePagePermissions(userId: number, pages: string[]): Promise<void> {
+  const db = getDB();
+  await db('user_page_permissions').where({ user_id: userId }).delete();
+  if (pages.length) {
+    await db('user_page_permissions').insert(pages.map(p => ({ user_id: userId, page_slug: p })));
+  }
+}
+
+async function getPagePermissions(userId: number): Promise<string[]> {
+  const db = getDB();
+  const rows = await db('user_page_permissions').where({ user_id: userId }).select('page_slug');
+  return rows.map((r: any) => r.page_slug);
+}
+
 const uploadDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
@@ -207,10 +257,16 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
       await db('users').where({ id }).update({ client_company_id: clientCompanyId });
     }
 
+    let categoryNames: string[] = [];
     if (role === 'employee' && Array.isArray(category_ids) && category_ids.length) {
       const rows = category_ids.map((cid: number) => ({ user_id: id, category_id: cid }));
       await db('user_categories').insert(rows);
+      const cats = await db('employee_categories').whereIn('id', category_ids).select('name');
+      categoryNames = cats.map((c: any) => c.name);
     }
+
+    // Set default page permissions based on role + categories
+    await savePagePermissions(id, defaultPages(role, categoryNames));
 
     res.status(201).json({ id, name, email, role, avatar_color: color });
 
@@ -464,6 +520,24 @@ router.put('/notification-preferences', async (req: AuthRequest, res: Response) 
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// GET page permissions for a user (admin only)
+router.get('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pages = await getPagePermissions(Number(req.params.id));
+    res.json({ pages, all_pages: ALL_PAGES });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// PUT set page permissions for a user (admin only)
+router.put('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  const { pages } = req.body;
+  if (!Array.isArray(pages)) { res.status(400).json({ error: 'pages array required' }); return; }
+  try {
+    await savePagePermissions(Number(req.params.id), pages);
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 export default router;

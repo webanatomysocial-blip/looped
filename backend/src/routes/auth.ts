@@ -64,7 +64,9 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     const user = await db('users').where({ id: req.user!.id }).first();
     if (!user) { res.status(404).json({ error: 'User not found' }); return; }
     const categories = await getUserCategories(user.id);
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null, categories });
+    const pageRows = await db('user_page_permissions').where({ user_id: user.id }).select('page_slug');
+    const page_permissions = pageRows.length ? pageRows.map((r: any) => r.page_slug) : null;
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null, categories, page_permissions });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

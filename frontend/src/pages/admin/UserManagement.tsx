@@ -12,6 +12,26 @@ import '../../css/admin/UserManagement.css';
 const ROLE_OPTIONS: Role[] = ['admin', 'manager', 'employee', 'client'];
 const defaultForm = { name: '', email: '', password: '', role: 'employee' as Role, company_name: '', category_ids: [] as number[], pod: '' as 'pod1' | 'pod2' | '', monthly_salary: '', send_welcome_email: false };
 
+const ALL_PAGES = [
+  { slug: '/dashboard',       label: 'Dashboard',      group: 'Core' },
+  { slug: '/projects',        label: 'Projects',        group: 'Core' },
+  { slug: '/tasks',           label: 'Tasks',           group: 'Core' },
+  { slug: '/team-capacity',   label: 'Team Capacity',   group: 'Core' },
+  { slug: '/calendar',        label: 'Calendar',        group: 'Core' },
+  { slug: '/approvals',       label: 'Approvals',       group: 'Core' },
+  { slug: '/assets',          label: 'Assets',          group: 'Core' },
+  { slug: '/messages',        label: 'Messages',        group: 'Core' },
+  { slug: '/reports',         label: 'Reports',         group: 'Tools' },
+  { slug: '/project-reports', label: 'Project Costs',   group: 'Tools' },
+  { slug: '/xlr8',            label: 'XLR8',            group: 'Tools' },
+  { slug: '/seo',             label: 'SEO',             group: 'Specialised' },
+  { slug: '/local-seo',       label: 'Local SEO',       group: 'Specialised' },
+  { slug: '/ads',             label: 'Ads',             group: 'Specialised' },
+  { slug: '/content',         label: 'Content AI',      group: 'Specialised' },
+  { slug: '/contact-forms',   label: 'Contact Forms',   group: 'Tools' },
+  { slug: '/regularisation',  label: 'Regularisation',  group: 'Tools' },
+];
+
 export default function UserManagement() {
   const [users, setUsers]         = useState<User[]>([]);
   const [categories, setCategories] = useState<EmployeeCategory[]>([]);
@@ -21,6 +41,8 @@ export default function UserManagement() {
   const [form, setForm]           = useState(defaultForm);
   const [error, setError]         = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
+  const [pagePerms, setPagePerms] = useState<string[]>([]);
+  const [showPagePerms, setShowPagePerms] = useState(false);
   // Category management panel
   const [showCatPanel, setShowCatPanel] = useState(false);
   const [newCatName, setNewCatName] = useState('');
@@ -33,9 +55,18 @@ export default function UserManagement() {
 
   useEffect(() => { load(); loadCats(); }, []);
 
+  const defaultPagePermsForRole = (role: Role) => {
+    if (role === 'admin' || role === 'client') return [];
+    if (role === 'manager') return ['/dashboard','/projects','/tasks','/team-capacity','/calendar','/approvals','/assets','/messages','/seo','/local-seo','/ads','/content','/contact-forms','/regularisation'];
+    return ['/dashboard','/tasks','/calendar','/approvals','/assets','/messages','/contact-forms'];
+  };
+
   const openCreate = (presetRole?: Role) => {
+    const role = presetRole ?? 'employee';
     setEditUser(null);
-    setForm({ ...defaultForm, role: presetRole ?? 'employee' });
+    setForm({ ...defaultForm, role });
+    setPagePerms(defaultPagePermsForRole(role));
+    setShowPagePerms(false);
     setError('');
     setShowModal(true);
   };
@@ -49,7 +80,10 @@ export default function UserManagement() {
       monthly_salary: u.monthly_salary != null ? String(u.monthly_salary) : '',
       send_welcome_email: false,
     });
+    setShowPagePerms(false);
     setError('');
+    // Load existing permissions
+    usersApi.getPages(u.id).then(r => setPagePerms(r.data.pages || []));
     setShowModal(true);
   };
 
@@ -60,6 +94,12 @@ export default function UserManagement() {
         ? f.category_ids.filter((x) => x !== id)
         : [...f.category_ids, id],
     }));
+
+  const togglePage = (slug: string) =>
+    setPagePerms(prev => prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug]);
+
+  const pageGroups = ['Core', 'Tools', 'Specialised'];
+  const groupPages = (group: string) => ALL_PAGES.filter(p => p.group === group);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +114,7 @@ export default function UserManagement() {
         if (form.role === 'employee') payload.category_ids = form.category_ids;
         if (form.role === 'client' && form.company_name) payload.company_name = form.company_name;
         await usersApi.update(editUser.id, payload);
+        if (form.role !== 'admin') await usersApi.setPages(editUser.id, pagePerms);
       } else {
         if (!form.password) { setError('Password is required'); return; }
         const payload: any = { name: form.name, email: form.email, password: form.password, role: form.role, company_name: form.company_name, pod: form.pod || null };
@@ -82,7 +123,8 @@ export default function UserManagement() {
         }
         if (form.role === 'employee') payload.category_ids = form.category_ids;
         if (form.role === 'client') payload.send_welcome_email = form.send_welcome_email;
-        await usersApi.create(payload);
+        const created = await usersApi.create(payload);
+        if (form.role !== 'admin') await usersApi.setPages(created.data.id, pagePerms);
       }
       setShowModal(false);
       load();
@@ -252,7 +294,7 @@ export default function UserManagement() {
                     {ROLE_OPTIONS.map((r) => (
                       <button
                         key={r} type="button"
-                        onClick={() => setForm({ ...form, role: r })}
+                        onClick={() => { setForm({ ...form, role: r }); if (!editUser) setPagePerms(defaultPagePermsForRole(r)); }}
                         className={`role-btn role-btn--${r}${form.role === r ? ' role-btn--selected' : ''}`}
                       >
                         {r}
@@ -332,6 +374,43 @@ export default function UserManagement() {
                   </div>
                 </div>
               )}
+              {/* Page Access Permissions — not shown for admin (always all) or client (fixed) */}
+              {form.role !== 'admin' && form.role !== 'client' && (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPagePerms(v => !v)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 6 }}
+                  >
+                    <span className="form-label" style={{ margin: 0, cursor: 'pointer' }}>Page Access</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>({pagePerms.length} pages) {showPagePerms ? '▲' : '▼'}</span>
+                  </button>
+                  {showPagePerms && (
+                    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button type="button" style={{ fontSize: 11, color: '#00a884', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          onClick={() => setPagePerms(ALL_PAGES.map(p => p.slug))}>Select all</button>
+                        <button type="button" style={{ fontSize: 11, color: 'var(--ink-muted)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          onClick={() => setPagePerms([])}>Clear</button>
+                      </div>
+                      {pageGroups.map(group => (
+                        <div key={group}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px' }}>{group}</p>
+                          <div className="cat-checkbox-grid">
+                            {groupPages(group).map(p => (
+                              <label key={p.slug} className={`cat-checkbox-item${pagePerms.includes(p.slug) ? ' selected' : ''}`}>
+                                <input type="checkbox" checked={pagePerms.includes(p.slug)} onChange={() => togglePage(p.slug)} style={{ display: 'none' }} />
+                                {p.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="modal-info" style={{ fontSize: 12 }}>
                 <strong>Admin</strong> — full access, create users<br />
                 <strong>Manager</strong> — projects, tasks, approve step 1<br />
