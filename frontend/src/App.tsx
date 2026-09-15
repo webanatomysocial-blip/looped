@@ -18,7 +18,6 @@ import ContactFormProjectDetail from './pages/admin/ContactFormProjectDetail';
 import ContactFormSubmissions from './pages/admin/ContactFormSubmissions';
 import ContactFormEdit from './pages/admin/ContactFormEdit';
 import ContactFormTest from './pages/admin/ContactFormTest';
-import Mail from './pages/Mail';
 import ContentAutomation from './pages/ContentAutomation';
 import SEO from './pages/SEO';
 import LocalSEO from './pages/LocalSEO';
@@ -145,12 +144,6 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* Mail — admin, manager, employee */}
-      <Route path="/mail" element={
-        <PrivateRoute roles={['admin', 'manager', 'employee']}>
-          <Mail />
-        </PrivateRoute>
-      } />
 
       {/* SEO Analytics — admin, manager, and SEO-category employees only */}
       <Route path="/seo" element={

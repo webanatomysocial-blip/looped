@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RiDashboardLine, RiFolderOpenLine, RiCheckboxLine, RiThumbUpLine,
   RiArchiveLine, RiBarChart2Line, RiBellLine, RiChat1Line,
-  RiGroupLine, RiSettings4Line, RiLogoutBoxRLine, RiMailLine,
+  RiGroupLine, RiSettings4Line, RiLogoutBoxRLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
   RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiCalendarLine, RiTimeLine,
@@ -36,7 +36,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
-      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
@@ -58,7 +57,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
-      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
       { to: '/regularisation',     icon: RiTimeLine,       label: 'Regularisation' },
@@ -76,7 +74,6 @@ const NAV: Record<Role, NavGroup> = {
     more: [
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
-      { to: '/mail',               icon: RiMailLine,       label: 'Mail' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
     ],
