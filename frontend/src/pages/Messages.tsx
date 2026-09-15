@@ -61,6 +61,7 @@ export default function Messages() {
   const [renameVal, setRenameVal] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupAvatarRef = useRef<HTMLInputElement>(null);
+  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string } | null>(null);
 
   // New feature state
   const [msgSearch, setMsgSearch] = useState('');
@@ -147,12 +148,30 @@ export default function Messages() {
     messagesApi.list(selectedProject.id).then(r => setClientMsgs(r.data));
   };
 
+  const isImageFile = (name: string | null | undefined) =>
+    /\.(jpg|jpeg|png|gif|webp)$/i.test(name || '');
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !activeChat) return;
-    const fd = new FormData(); fd.append('file', e.target.files[0]);
-    await internalChatApi.uploadFile(activeChat.id, fd);
-    loadMessages(activeChat.id);
+    const file = e.target.files[0];
+    if (isImageFile(file.name)) {
+      const preview = URL.createObjectURL(file);
+      setPendingFile({ file, preview });
+    } else {
+      const fd = new FormData(); fd.append('file', file);
+      await internalChatApi.uploadFile(activeChat.id, fd);
+      loadMessages(activeChat.id);
+    }
     e.target.value = '';
+  };
+
+  const sendPendingFile = async () => {
+    if (!pendingFile || !activeChat) return;
+    const fd = new FormData(); fd.append('file', pendingFile.file);
+    await internalChatApi.uploadFile(activeChat.id, fd);
+    URL.revokeObjectURL(pendingFile.preview);
+    setPendingFile(null);
+    loadMessages(activeChat.id);
   };
 
   const handleClientFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -335,6 +354,14 @@ export default function Messages() {
               <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'} wa-bubble--deleted`}>
                 🚫 This message was deleted
               </div>
+            ) : m.file_url && isImageFile(m.file_name) ? (
+              <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+                <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
+                <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
+                  <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                  {isMe && <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}><CheckCheck size={14} /></span>}
+                </div>
+              </a>
             ) : m.file_url ? (
               <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
                 <Paperclip size={12} /> {m.file_name || m.content}
@@ -398,7 +425,15 @@ export default function Messages() {
       return (
         <div key={m.id} className={`wa-bubble-wrap wa-bubble-wrap--${isMe ? 'mine' : 'theirs'}`}>
           {!isMe && <p className="wa-sender-name">{m.sender_name?.split(' ')[0]}</p>}
-          {m.file_url ? (
+          {m.file_url && isImageFile(m.file_name) ? (
+            <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+              <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
+              <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
+                <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
+              </div>
+            </a>
+          ) : m.file_url ? (
             <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
               <Paperclip size={12} /> {m.file_name || m.message}
             </a>
@@ -740,6 +775,23 @@ export default function Messages() {
                   )}
                   <div ref={bottomRef} />
                 </div>
+
+                {/* Image pre-send preview */}
+                {pendingFile && (
+                  <div className="wa-reply-bar">
+                    <div className="wa-reply-bar-inner" style={{ alignItems: 'center' }}>
+                      <img src={pendingFile.preview} alt="preview" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                      <div>
+                        <p className="wa-reply-bar-title">Send image</p>
+                        <p className="wa-reply-bar-text">{pendingFile.file.name}</p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="wa-start-btn" style={{ padding: '6px 14px', fontSize: 12 }} onClick={sendPendingFile}>Send</button>
+                      <button className="wa-icon-btn" onClick={() => { URL.revokeObjectURL(pendingFile.preview); setPendingFile(null); }}><X size={14} /></button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Edit mode bar */}
                 {editingMsg && (
