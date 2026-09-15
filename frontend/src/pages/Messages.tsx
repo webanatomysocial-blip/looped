@@ -30,7 +30,7 @@ function dateDivider(d: string | Date) {
 }
 
 function renderWithMentions(text: string) {
-  const parts = text.split(/(@\w[\w\s]*?)(?=\s|$|@)/g);
+  const parts = text.split(/(@[A-Za-z][A-Za-z0-9 ]*)/g);
   return parts.map((p, i) =>
     p.startsWith('@')
       ? <strong key={i} style={{ color: '#00a884' }}>{p}</strong>
@@ -210,11 +210,12 @@ export default function Messages() {
 
   const handleInternalTextChange = (val: string) => {
     setInternalText(val);
-    // Detect @mention trigger
     const atIdx = val.lastIndexOf('@');
     if (atIdx !== -1) {
       const after = val.slice(atIdx + 1);
-      if (!after.includes(' ')) { setMentionQuery(after); setMentionIndex(0); return; }
+      // keep dropdown open while typed portion still has a match (supports multi-word names)
+      const hasMatch = chatMembers.some(m => m.name.toLowerCase().startsWith(after.toLowerCase()));
+      if (hasMatch || after === '') { setMentionQuery(after); setMentionIndex(0); return; }
     }
     setMentionQuery(null);
   };
@@ -834,19 +835,73 @@ export default function Messages() {
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                     borderRadius: 12,
                   }}>
-                    <button onClick={() => { URL.revokeObjectURL(pendingFile.preview); setPendingFile(null); }}
+                    <button onClick={() => { URL.revokeObjectURL(pendingFile.preview); setPendingFile(null); setMentionQuery(null); }}
                       style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 34, height: 34, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
                       <X size={16} />
                     </button>
                     <img src={pendingFile.preview} alt="preview"
                       style={{ maxWidth: '75%', maxHeight: '55vh', objectFit: 'contain', borderRadius: 10, marginBottom: 24, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
+
+                    {/* @mention dropdown inside caption modal */}
+                    {mentionQuery !== null && mentionSuggestions.length > 0 && (
+                      <div style={{
+                        width: '70%', marginBottom: 8,
+                        background: '#1f2937', border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 10, overflow: 'hidden',
+                      }}>
+                        {mentionSuggestions.map((m, i) => (
+                          <button key={m.id} onMouseDown={() => {
+                            const atIdx = pendingFile.caption.lastIndexOf('@');
+                            const newCaption = pendingFile.caption.slice(0, atIdx) + '@' + m.name + ' ';
+                            setPendingFile(f => f ? { ...f, caption: newCaption } : f);
+                            setMentionQuery(null);
+                          }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                              padding: '8px 14px', background: i === mentionIndex ? 'rgba(255,255,255,0.08)' : 'none',
+                              border: 'none', cursor: 'pointer',
+                            }}>
+                            <WaAvatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size={28} />
+                            <span style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>{m.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     <div style={{ width: '70%', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 24, padding: '10px 16px' }}>
                       <input
                         autoFocus
-                        placeholder="Add a caption…"
+                        placeholder="Add a caption… (type @ to mention)"
                         value={pendingFile.caption}
-                        onChange={e => setPendingFile(f => f ? { ...f, caption: e.target.value } : f)}
-                        onKeyDown={e => { if (e.key === 'Enter') sendPendingFile(); }}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setPendingFile(f => f ? { ...f, caption: val } : f);
+                          // detect @mention
+                          const atIdx = val.lastIndexOf('@');
+                          if (atIdx !== -1) {
+                            const after = val.slice(atIdx + 1);
+                            const hasMatch = chatMembers.some(m => m.name.toLowerCase().startsWith(after.toLowerCase()));
+                            if (hasMatch || after === '') { setMentionQuery(after); setMentionIndex(0); }
+                            else setMentionQuery(null);
+                          } else {
+                            setMentionQuery(null);
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (mentionQuery !== null && mentionSuggestions.length > 0) {
+                            if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionSuggestions.length - 1)); return; }
+                            if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return; }
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const atIdx = pendingFile.caption.lastIndexOf('@');
+                              setPendingFile(f => f ? { ...f, caption: f.caption.slice(0, atIdx) + '@' + mentionSuggestions[mentionIndex].name + ' ' } : f);
+                              setMentionQuery(null);
+                              return;
+                            }
+                          }
+                          if (e.key === 'Enter') sendPendingFile();
+                          if (e.key === 'Escape') setMentionQuery(null);
+                        }}
                         style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
                       />
                       <button onClick={sendPendingFile}
@@ -889,7 +944,7 @@ export default function Messages() {
                 {mentionQuery !== null && mentionSuggestions.length > 0 && (
                   <div style={{
                     position: 'absolute', bottom: 64, left: 16, zIndex: 20,
-                    background: 'var(--surface)', border: '1px solid var(--sand-border)',
+                    background: '#fff', border: '1px solid #e5e7eb',
                     borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
                     minWidth: 180, maxHeight: 200, overflowY: 'auto',
                   }}>
@@ -897,11 +952,11 @@ export default function Messages() {
                       <button key={m.id} onMouseDown={() => insertMention(m.name)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                          padding: '8px 14px', background: i === mentionIndex ? 'var(--surface-2,rgba(0,0,0,0.05))' : 'none',
+                          padding: '8px 14px', background: i === mentionIndex ? '#f3f4f6' : 'none',
                           border: 'none', cursor: 'pointer', textAlign: 'left',
                         }}>
                         <WaAvatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size={28} />
-                        <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{m.name}</span>
+                        <span style={{ fontSize: 13, color: '#111827', fontWeight: 500 }}>{m.name}</span>
                       </button>
                     ))}
                   </div>

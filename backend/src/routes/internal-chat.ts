@@ -147,33 +147,50 @@ router.get('/:chatId/messages', async (req: AuthRequest, res: Response) => {
 
     const messages = await q;
 
-    // Enrich with reactions and reply_to snippet
-    const enriched = await Promise.all(messages.map(async (m: any) => {
-      const reactions = await db('internal_message_reactions as r')
-        .join('users as u', 'r.user_id', 'u.id')
-        .where('r.message_id', m.id)
-        .select('r.emoji', 'r.user_id', 'u.name as user_name');
+    // Batch-fetch all reactions, reply snippets, and read receipts in 4 queries total
+    const msgIds = messages.map((m: any) => m.id);
+    const chatIdNum = Number(req.params.chatId);
 
-      let reply_to = null;
-      if (m.reply_to_id) {
-        const rt = await db('internal_messages as im').join('users as u', 'im.sender_id', 'u.id')
-          .where('im.id', m.reply_to_id).select('im.id', 'im.content', 'im.deleted_at', 'u.name as sender_name').first();
-        reply_to = rt || null;
-      }
+    const [allReactions, replyIds, chatInfo, otherReads] = await Promise.all([
+      msgIds.length
+        ? db('internal_message_reactions as r').join('users as u', 'r.user_id', 'u.id')
+            .whereIn('r.message_id', msgIds).select('r.message_id', 'r.emoji', 'r.user_id', 'u.name as user_name')
+        : Promise.resolve([]),
+      (() => {
+        const ids = messages.filter((m: any) => m.reply_to_id).map((m: any) => m.reply_to_id);
+        return ids.length
+          ? db('internal_messages as im').join('users as u', 'im.sender_id', 'u.id')
+              .whereIn('im.id', ids).select('im.id', 'im.content', 'im.deleted_at', 'u.name as sender_name')
+          : Promise.resolve([]);
+      })(),
+      db('internal_chats').where({ id: chatIdNum }).first(),
+      db('message_reads').where('chat_id', chatIdNum).whereNot('user_id', userId).select('user_id', 'last_read_at'),
+    ]);
 
-      // read receipt for direct chats: check if other user has read past this message
-      let read_by_other = false;
-      const chatInfo = await db('internal_chats').where({ id: m.chat_id }).first();
-      if (chatInfo?.type === 'direct' && m.sender_id === userId) {
-        const others = await db('internal_chat_members').where('chat_id', m.chat_id).whereNot('user_id', userId).select('user_id');
-        for (const o of others) {
-          const rr = await db('message_reads').where({ user_id: o.user_id, chat_id: m.chat_id }).first();
-          if (rr && new Date(rr.last_read_at) >= new Date(m.created_at)) { read_by_other = true; break; }
-        }
-      }
+    const reactionsByMsg: Record<number, any[]> = {};
+    for (const r of allReactions) {
+      (reactionsByMsg[r.message_id] ||= []).push({ emoji: r.emoji, user_id: r.user_id, user_name: r.user_name });
+    }
+    const replyById: Record<number, any> = {};
+    for (const r of replyIds) replyById[r.id] = r;
 
-      return { ...m, reactions, reply_to, read_by_other };
-    }));
+    // For direct chats compute the latest read_at of the other user once
+    let otherReadAt: Date | null = null;
+    if (chatInfo?.type === 'direct' && otherReads.length) {
+      otherReadAt = new Date(otherReads[0].last_read_at);
+    }
+
+    const enriched = messages.map((m: any) => {
+      const read_by_other = chatInfo?.type === 'direct' && m.sender_id === userId && otherReadAt
+        ? otherReadAt >= new Date(m.created_at)
+        : false;
+      return {
+        ...m,
+        reactions: reactionsByMsg[m.id] || [],
+        reply_to: m.reply_to_id ? (replyById[m.reply_to_id] || null) : null,
+        read_by_other,
+      };
+    });
 
     // Mark as read — use the latest message's created_at to avoid JS/SQLite timestamp format mismatches
     const chatId = Number(req.params.chatId);
