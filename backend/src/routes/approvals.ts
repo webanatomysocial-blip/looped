@@ -225,7 +225,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
             SELECT 1 FROM task_assignees ta
             JOIN xlr8_ticket_types xtt2 ON xtt2.id = t.ticket_type_id
             WHERE ta.task_id = t.id AND ta.user_id = ?
-            AND json_extract(json(xtt2.stages), '$[' || t.xlr8_stage_idx || '].reviewer') = 1
+            AND xtt2.stages IS NOT NULL AND t.xlr8_stage_idx IS NOT NULL
+            AND json_extract(xtt2.stages, '$[' || CAST(t.xlr8_stage_idx AS TEXT) || '].reviewer') = 1
           ))`, [userId, userId]);
       });
     }

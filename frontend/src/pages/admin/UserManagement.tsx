@@ -42,7 +42,7 @@ export default function UserManagement() {
   const [error, setError]         = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
   const [pagePerms, setPagePerms] = useState<string[]>([]);
-  const [showPagePerms, setShowPagePerms] = useState(false);
+  const [showPagePerms, setShowPagePerms] = useState(true);
   // Category management panel
   const [showCatPanel, setShowCatPanel] = useState(false);
   const [newCatName, setNewCatName] = useState('');
