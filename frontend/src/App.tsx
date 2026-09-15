@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 import Login from './pages/Login';
@@ -36,10 +36,13 @@ import RegularisationPage from './pages/Regularisation';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />;
-  if (guard && !guard(user)) return <Navigate to="/dashboard" replace />;
+  // If user has explicit page_permissions, grant access even if role wouldn't normally allow it
+  const hasExplicitPermission = user.page_permissions?.includes(location.pathname) ?? false;
+  if (roles && !roles.includes(user.role) && !hasExplicitPermission) return <Navigate to="/dashboard" replace />;
+  if (guard && !hasExplicitPermission && !guard(user)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
