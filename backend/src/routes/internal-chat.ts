@@ -237,10 +237,11 @@ router.post('/:chatId/upload', upload.single('file'), async (req: AuthRequest, r
     if (!member) { res.status(403).json({ error: 'Not a member' }); return; }
 
     const fileUrl = `/uploads/chat/${req.file.filename}`;
+    const caption = (req.body.caption || '').trim();
     const [id] = await db('internal_messages').insert({
       chat_id: req.params.chatId,
       sender_id: userId,
-      content: req.file.originalname,
+      content: caption || req.file.originalname,
       file_url: fileUrl,
       file_name: req.file.originalname,
     });

@@ -29,6 +29,15 @@ function dateDivider(d: string | Date) {
   return format(dt, 'MMMM d, yyyy');
 }
 
+function renderWithMentions(text: string) {
+  const parts = text.split(/(@\w[\w\s]*?)(?=\s|$|@)/g);
+  return parts.map((p, i) =>
+    p.startsWith('@')
+      ? <strong key={i} style={{ color: '#00a884' }}>{p}</strong>
+      : <span key={i}>{p}</span>
+  );
+}
+
 function WaAvatar({ name, color, avatarUrl, size = 46 }: { name: string; color?: string; avatarUrl?: string | null; size?: number }) {
   const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   const bg = color || '#00a884';
@@ -61,7 +70,9 @@ export default function Messages() {
   const [renameVal, setRenameVal] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupAvatarRef = useRef<HTMLInputElement>(null);
-  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<{ file: File; preview: string; caption: string } | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = closed
+  const [mentionIndex, setMentionIndex] = useState(0);
 
   // New feature state
   const [msgSearch, setMsgSearch] = useState('');
@@ -163,7 +174,7 @@ export default function Messages() {
     const file = e.target.files[0];
     if (isImageFile(file.name)) {
       const preview = URL.createObjectURL(file);
-      setPendingFile({ file, preview });
+      setPendingFile({ file, preview, caption: '' });
     } else {
       const fd = new FormData(); fd.append('file', file);
       await internalChatApi.uploadFile(activeChat.id, fd);
@@ -174,7 +185,9 @@ export default function Messages() {
 
   const sendPendingFile = async () => {
     if (!pendingFile || !activeChat) return;
-    const fd = new FormData(); fd.append('file', pendingFile.file);
+    const fd = new FormData();
+    fd.append('file', pendingFile.file);
+    if (pendingFile.caption.trim()) fd.append('caption', pendingFile.caption.trim());
     await internalChatApi.uploadFile(activeChat.id, fd);
     URL.revokeObjectURL(pendingFile.preview);
     setPendingFile(null);
@@ -187,6 +200,31 @@ export default function Messages() {
     await messagesApi.uploadFile(selectedProject.id, fd);
     messagesApi.list(selectedProject.id).then(r => setClientMsgs(r.data));
     e.target.value = '';
+  };
+
+  // @mention helpers
+  const chatMembers = activeChat?.members.filter(m => m.id !== user?.id) ?? [];
+  const mentionSuggestions = mentionQuery !== null
+    ? chatMembers.filter(m => m.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
+    : [];
+
+  const handleInternalTextChange = (val: string) => {
+    setInternalText(val);
+    // Detect @mention trigger
+    const atIdx = val.lastIndexOf('@');
+    if (atIdx !== -1) {
+      const after = val.slice(atIdx + 1);
+      if (!after.includes(' ')) { setMentionQuery(after); setMentionIndex(0); return; }
+    }
+    setMentionQuery(null);
+  };
+
+  const insertMention = (name: string) => {
+    const atIdx = internalText.lastIndexOf('@');
+    const newText = internalText.slice(0, atIdx) + '@' + name + ' ';
+    setInternalText(newText);
+    setMentionQuery(null);
+    inputRef.current?.focus();
   };
 
   const addMembersToGroup = async () => {
@@ -362,20 +400,25 @@ export default function Messages() {
                 🚫 This message was deleted
               </div>
             ) : m.file_url && isImageFile(m.file_name) ? (
-              <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
-                <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
+              <div className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
+                <a href={m.file_url} target="_blank" rel="noreferrer">
+                  <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
+                </a>
+                {m.content && m.content !== m.file_name && (
+                  <div style={{ padding: '4px 6px 2px', fontSize: 13 }}>{renderWithMentions(m.content)}</div>
+                )}
                 <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
                   <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
                   {isMe && <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}><CheckCheck size={14} /></span>}
                 </div>
-              </a>
+              </div>
             ) : m.file_url ? (
               <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--file wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
                 <Paperclip size={12} /> {m.file_name || m.content}
               </a>
             ) : (
               <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
-                {m.content}
+                {renderWithMentions(m.content)}
                 <div className="wa-bubble-footer">
                   {m.edited_at && <span className="wa-edited">edited</span>}
                   <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
@@ -783,19 +826,33 @@ export default function Messages() {
                   <div ref={bottomRef} />
                 </div>
 
-                {/* Image pre-send preview */}
+                {/* Image caption modal */}
                 {pendingFile && (
-                  <div className="wa-reply-bar">
-                    <div className="wa-reply-bar-inner" style={{ alignItems: 'center' }}>
-                      <img src={pendingFile.preview} alt="preview" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-                      <div>
-                        <p className="wa-reply-bar-title">Send image</p>
-                        <p className="wa-reply-bar-text">{pendingFile.file.name}</p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="wa-start-btn" style={{ padding: '6px 14px', fontSize: 12 }} onClick={sendPendingFile}>Send</button>
-                      <button className="wa-icon-btn" onClick={() => { URL.revokeObjectURL(pendingFile.preview); setPendingFile(null); }}><X size={14} /></button>
+                  <div style={{
+                    position: 'absolute', inset: 0, zIndex: 50,
+                    background: 'rgba(0,0,0,0.92)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: 12,
+                  }}>
+                    <button onClick={() => { URL.revokeObjectURL(pendingFile.preview); setPendingFile(null); }}
+                      style={{ position: 'absolute', top: 14, right: 14, background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '50%', width: 34, height: 34, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                      <X size={16} />
+                    </button>
+                    <img src={pendingFile.preview} alt="preview"
+                      style={{ maxWidth: '75%', maxHeight: '55vh', objectFit: 'contain', borderRadius: 10, marginBottom: 24, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
+                    <div style={{ width: '70%', display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 24, padding: '10px 16px' }}>
+                      <input
+                        autoFocus
+                        placeholder="Add a caption…"
+                        value={pendingFile.caption}
+                        onChange={e => setPendingFile(f => f ? { ...f, caption: e.target.value } : f)}
+                        onKeyDown={e => { if (e.key === 'Enter') sendPendingFile(); }}
+                        style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
+                      />
+                      <button onClick={sendPendingFile}
+                        style={{ background: '#00a884', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                        <Send size={16} color="#fff" />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -828,6 +885,28 @@ export default function Messages() {
                   </div>
                 )}
 
+                {/* @mention dropdown */}
+                {mentionQuery !== null && mentionSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', bottom: 64, left: 16, zIndex: 20,
+                    background: 'var(--surface)', border: '1px solid var(--sand-border)',
+                    borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                    minWidth: 180, maxHeight: 200, overflowY: 'auto',
+                  }}>
+                    {mentionSuggestions.map((m, i) => (
+                      <button key={m.id} onMouseDown={() => insertMention(m.name)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                          padding: '8px 14px', background: i === mentionIndex ? 'var(--surface-2,rgba(0,0,0,0.05))' : 'none',
+                          border: 'none', cursor: 'pointer', textAlign: 'left',
+                        }}>
+                        <WaAvatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size={28} />
+                        <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{m.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Input bar */}
                 <form
                   onSubmit={editingMsg
@@ -842,10 +921,20 @@ export default function Messages() {
                     className="wa-input"
                     placeholder={editingMsg ? 'Edit message…' : 'Type a message'}
                     value={editingMsg ? editText : (tab === 'internal' ? internalText : clientText)}
-                    onChange={e => editingMsg ? setEditText(e.target.value) : (tab === 'internal' ? setInternalText(e.target.value) : setClientText(e.target.value))}
+                    onChange={e => {
+                      if (editingMsg) { setEditText(e.target.value); }
+                      else if (tab === 'internal') { handleInternalTextChange(e.target.value); }
+                      else { setClientText(e.target.value); }
+                    }}
                     onKeyDown={e => {
                       if (e.key === 'Escape' && editingMsg) { setEditingMsg(null); setEditText(''); }
                       if (e.key === 'Escape' && replyTo) setReplyTo(null);
+                      if (e.key === 'Escape' && mentionQuery !== null) setMentionQuery(null);
+                      if (mentionQuery !== null && mentionSuggestions.length > 0) {
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionSuggestions.length - 1)); }
+                        if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); }
+                        if (e.key === 'Enter') { e.preventDefault(); insertMention(mentionSuggestions[mentionIndex].name); }
+                      }
                     }}
                   />
                   <button type="submit" className="wa-send-btn"
