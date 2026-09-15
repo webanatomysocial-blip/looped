@@ -134,6 +134,8 @@ export const internalChatApi = {
   uploadFile: (chatId: number, formData: FormData) =>
     api.post(`/internal-chat/${chatId}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
   addMember: (chatId: number, userId: number) => api.post(`/internal-chat/${chatId}/members`, { user_id: userId }),
+  renameChat: (chatId: number, name: string) => api.patch(`/internal-chat/${chatId}/name`, { name }),
+  uploadGroupAvatar: (chatId: number, fd: FormData) => api.post(`/internal-chat/${chatId}/avatar`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }),
 };
 
 export const mailApi = {

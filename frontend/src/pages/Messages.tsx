@@ -54,6 +54,7 @@ export default function Messages() {
   const [editingName, setEditingName] = useState(false);
   const [renameVal, setRenameVal] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const groupAvatarRef = useRef<HTMLInputElement>(null);
 
   // Client chat state
   const [clientMsgs, setClientMsgs] = useState<Message[]>([]);
@@ -172,6 +173,17 @@ export default function Messages() {
     const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
     if (found) setActiveChat(found);
     setEditingName(false);
+  };
+
+  const handleGroupAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0] || !activeChat) return;
+    const fd = new FormData(); fd.append('avatar', e.target.files[0]);
+    await internalChatApi.uploadGroupAvatar(activeChat.id, fd);
+    const refreshed = await internalChatApi.listChats();
+    setChats(refreshed.data);
+    const found = refreshed.data.find((c: InternalChat) => c.id === activeChat.id);
+    if (found) setActiveChat(found);
+    e.target.value = '';
   };
 
   // Inject date dividers into message list
@@ -312,7 +324,9 @@ export default function Messages() {
                         <div key={chat.id} className={`wa-chat-item${activeChat?.id === chat.id ? ' wa-chat-item--active' : ''}`} onClick={() => setActiveChat(chat)}>
                           {chat.type === 'direct' && other
                             ? <WaAvatar name={other.name} color={other.avatar_color} avatarUrl={(other as any).avatar_url} />
-                            : <div className="wa-avatar wa-avatar--group"><Users size={20} /></div>}
+                            : (chat as any).avatar_url
+                              ? <div className="wa-avatar wa-avatar--group"><img src={(chat as any).avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>
+                              : <div className="wa-avatar wa-avatar--group"><Users size={20} /></div>}
                           <div className="wa-chat-info">
                             <p className="wa-chat-name">{getChatLabel(chat)}</p>
                             <p className="wa-chat-preview">{last ? last.content.slice(0, 35) + (last.content.length > 35 ? '…' : '') : 'No messages yet'}</p>
@@ -355,11 +369,28 @@ export default function Messages() {
               <>
                 {/* Header */}
                 <div className="wa-chat-header">
+                  <input ref={groupAvatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleGroupAvatarChange} />
                   {headerAvatar
                     ? <WaAvatar name={headerAvatar.name} color={headerAvatar.avatar_color} avatarUrl={(headerAvatar as any).avatar_url} />
-                    : <div className="wa-avatar" style={{ background: tab === 'client' ? '#5b8dee' : '#00a884', fontSize: 17, fontWeight: 700, color: '#fff' }}>
-                        {headerName[0]?.toUpperCase()}
-                      </div>}
+                    : tab === 'internal' && activeChat?.type === 'group'
+                      ? <div
+                          className="wa-avatar wa-avatar--group"
+                          style={{ cursor: 'pointer', position: 'relative', overflow: 'hidden' }}
+                          title="Click to change group photo"
+                          onClick={() => groupAvatarRef.current?.click()}
+                        >
+                          {(activeChat as any).avatar_url
+                            ? <img src={(activeChat as any).avatar_url} alt="group" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <Users size={20} />}
+                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.15s' }}
+                            onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                            onMouseLeave={e => (e.currentTarget.style.opacity = '0')}>
+                            <Paperclip size={14} color="#fff" />
+                          </div>
+                        </div>
+                      : <div className="wa-avatar" style={{ background: tab === 'client' ? '#5b8dee' : '#00a884', fontSize: 17, fontWeight: 700, color: '#fff' }}>
+                          {headerName[0]?.toUpperCase()}
+                        </div>}
                   <div className="wa-chat-header-info">
                     {tab === 'internal' && activeChat?.type === 'group' && editingName
                       ? <input

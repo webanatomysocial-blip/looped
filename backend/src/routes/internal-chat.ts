@@ -217,4 +217,32 @@ router.post('/:chatId/members', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// POST upload group avatar
+router.post('/:chatId/avatar', upload.single('avatar'), async (req: AuthRequest, res: Response) => {
+  if (!req.file) { res.status(400).json({ error: 'File required' }); return; }
+  try {
+    const db = getDB();
+    const chat = await db('internal_chats').where({ id: req.params.chatId, type: 'group' }).first();
+    if (!chat) { res.status(404).json({ error: 'Group chat not found' }); return; }
+    const avatarUrl = `/uploads/chat/${req.file.filename}`;
+    await db('internal_chats').where({ id: req.params.chatId }).update({ avatar_url: avatarUrl });
+    res.json({ avatar_url: avatarUrl });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PATCH rename a group chat
+router.patch('/:chatId/name', async (req: AuthRequest, res: Response) => {
+  const { name } = req.body;
+  if (!name?.trim()) { res.status(400).json({ error: 'name required' }); return; }
+  try {
+    const db = getDB();
+    await db('internal_chats').where({ id: req.params.chatId, type: 'group' }).update({ name: name.trim() });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 export default router;

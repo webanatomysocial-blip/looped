@@ -1211,6 +1211,10 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // Add avatar_url to internal_chats (group photo)
+  const hasChatAvatar = await db.schema.hasColumn('internal_chats', 'avatar_url');
+  if (!hasChatAvatar) await db.schema.table('internal_chats', t => { t.string('avatar_url', 500).nullable(); });
+
   await db.schema.hasTable('task_share_tokens').then(async (exists) => {
     if (!exists) {
       await db.schema.createTable('task_share_tokens', (t) => {
