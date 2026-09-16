@@ -496,9 +496,12 @@ router.post('/tickets/:id/employee-decline', async (req: AuthRequest, res: Respo
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_assignee', xlr8_assignee_id: req.user!.id }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not assigned to you' }); return; }
 
-  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_assignee_id: null, assigned_to: null, status: 'todo' });
+  // Set to needs_reassignment — keeps it out of manager approval queue but visible in declined-stages alert
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'needs_reassignment', xlr8_assignee_id: null, assigned_to: null, status: 'todo' });
   await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).update({ acceptance_status: 'declined' });
-  await appendLog(ticket.id, req.user!, 'employee_declined', 'pending_assignee', 'pending_manager', req.body.comment || null);
+  // Close any open approval record so it doesn't appear in the manager's approval queue
+  await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+  await appendLog(ticket.id, req.user!, 'employee_declined', 'pending_assignee', 'needs_reassignment', req.body.comment || null);
 
   const managers = await db('users').where({ role: 'manager' }).orWhere({ role: 'admin' }).select('id');
   for (const m of managers) {

@@ -307,7 +307,7 @@ router.get('/declined-stages', requireRoles('admin', 'manager'), async (req: Aut
       .join('tasks as t', 't.id', 'ta.task_id')
       .join('users as u', 'u.id', 'ta.user_id')
       .leftJoin(
-        db('xlr8_ticket_log').where('action', 'stage_pre_declined').orderBy('created_at', 'desc').as('tl'),
+        db('xlr8_ticket_log').whereIn('action', ['stage_pre_declined', 'employee_declined']).orderBy('created_at', 'desc').as('tl'),
         function() { this.on('tl.task_id', 'ta.task_id').on('tl.actor_id', 'ta.user_id'); }
       )
       .where('ta.acceptance_status', 'declined')
