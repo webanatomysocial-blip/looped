@@ -17,7 +17,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!user) return;
-    const s = io('http://localhost:4001', {
+    const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:4001' : window.location.origin;
+    const s = io(socketUrl, {
       transports: ['websocket'],
     });
     socketRef.current = s;
