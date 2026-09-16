@@ -32,12 +32,14 @@ export default function CallManager() {
     setCall({ phase: 'idle' });
   };
 
+  const remoteStreamRef = useRef<MediaStream>(new MediaStream());
+
   const makePC = () => {
+    remoteStreamRef.current = new MediaStream();
     const p = new RTCPeerConnection(STUN);
-    const rs = new MediaStream();
     p.ontrack = e => {
-      e.streams[0]?.getTracks().forEach(t => rs.addTrack(t));
-      setRemoteStream(new MediaStream(rs.getTracks()));
+      remoteStreamRef.current.addTrack(e.track);
+      setRemoteStream(new MediaStream(remoteStreamRef.current.getTracks()));
     };
     p.onicecandidate = e => {
       if (!e.candidate || !socket || !remoteIdRef.current) return;

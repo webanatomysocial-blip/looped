@@ -20,7 +20,9 @@ export default function CallModal({ mode, callType, remoteName, localStream, rem
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) remoteVideoRef.current.srcObject = remoteStream;
+    if (!remoteVideoRef.current || !remoteStream) return;
+    remoteVideoRef.current.srcObject = remoteStream;
+    remoteVideoRef.current.play().catch(() => {});
   }, [remoteStream]);
 
   useEffect(() => {
@@ -56,11 +58,11 @@ export default function CallModal({ mode, callType, remoteName, localStream, rem
       background: callType === 'video' && mode === 'active' ? 'transparent' : 'rgba(10,10,10,0.92)',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     }}>
-      {/* Remote video background */}
-      {callType === 'video' && mode === 'active' && (
-        <video ref={remoteVideoRef} autoPlay playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#111' }} />
-      )}
+      {/* Remote video/audio — always in DOM so srcObject assignment never misses */}
+      <video ref={remoteVideoRef} autoPlay playsInline
+        style={callType === 'video' && mode === 'active'
+          ? { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#111' }
+          : { display: 'none' }} />
 
       {/* Overlay content */}
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
@@ -79,8 +81,6 @@ export default function CallModal({ mode, callType, remoteName, localStream, rem
             style={{ width: 120, height: 90, borderRadius: 10, objectFit: 'cover', background: '#000', border: '2px solid #334155' }} />
         )}
 
-        {/* Audio remote (hidden video element) */}
-        {callType === 'audio' && <video ref={remoteVideoRef} autoPlay playsInline style={{ display: 'none' }} />}
 
         {/* Buttons */}
         <div style={{ display: 'flex', gap: 16, marginTop: 8 }}>
