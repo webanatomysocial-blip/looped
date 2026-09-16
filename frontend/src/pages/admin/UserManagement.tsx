@@ -381,9 +381,9 @@ export default function UserManagement() {
               {form.role === 'employee' && (
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <label className="form-label" style={{ margin: 0 }}>Specializations</label>
+                    <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-muted)' }}>Specializations</span>
                     <button type="button" onClick={() => { setShowInlineCat(v => !v); setInlineCatName(''); }}
-                      style={{ width: 22, height: 22, borderRadius: '50%', border: '1.5px solid var(--ink-muted)', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 16, lineHeight: 1, padding: 0 }}>
+                      style={{ width: 20, height: 20, borderRadius: '50%', border: '1.5px solid var(--ink-muted)', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>
                       +
                     </button>
                   </div>
