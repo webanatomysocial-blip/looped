@@ -47,6 +47,8 @@ export default function UserManagement() {
   const [showCatPanel, setShowCatPanel] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [catError, setCatError] = useState('');
+  const [showInlineCat, setShowInlineCat] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState('');
 
   const load = () => {
     usersApi.list().then((r) => setUsers(r.data)).finally(() => setLoading(false));
@@ -148,6 +150,19 @@ export default function UserManagement() {
       setNewCatName('');
       loadCats();
     } catch (err: any) { setCatError(err.response?.data?.error || 'Error'); }
+  };
+
+  const addInlineCategory = async () => {
+    if (!inlineCatName.trim()) return;
+    try {
+      const r = await categoriesApi.create(inlineCatName.trim());
+      setInlineCatName('');
+      setShowInlineCat(false);
+      await loadCats();
+      // auto-select the new category
+      const newId = r.data?.id;
+      if (newId) setForm(f => ({ ...f, category_ids: [...f.category_ids, newId] }));
+    } catch { /* ignore */ }
   };
 
   const deleteCategory = async (id: number) => {
@@ -365,8 +380,28 @@ export default function UserManagement() {
               )}
               {form.role === 'employee' && (
                 <div>
-                  <label className="form-label">Specializations</label>
-                  <div className="cat-checkbox-grid" style={{ marginTop: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <label className="form-label" style={{ margin: 0 }}>Specializations</label>
+                    <button type="button" onClick={() => { setShowInlineCat(v => !v); setInlineCatName(''); }}
+                      style={{ width: 22, height: 22, borderRadius: '50%', border: '1.5px solid var(--ink-muted)', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 16, lineHeight: 1, padding: 0 }}>
+                      +
+                    </button>
+                  </div>
+                  {showInlineCat && (
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      <input
+                        autoFocus
+                        className="form-input"
+                        style={{ flex: 1, padding: '6px 10px', fontSize: 13 }}
+                        placeholder="New category name…"
+                        value={inlineCatName}
+                        onChange={e => setInlineCatName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') addInlineCategory(); if (e.key === 'Escape') setShowInlineCat(false); }}
+                      />
+                      <button type="button" className="btn-primary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={addInlineCategory}>Add</button>
+                    </div>
+                  )}
+                  <div className="cat-checkbox-grid">
                     {categories.map((cat) => (
                       <label key={cat.id} className={`cat-checkbox-item${form.category_ids.includes(cat.id) ? ' selected' : ''}`}>
                         <input type="checkbox" checked={form.category_ids.includes(cat.id)} onChange={() => toggleCategory(cat.id)} style={{ display: 'none' }} />
