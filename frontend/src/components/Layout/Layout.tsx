@@ -47,7 +47,7 @@ function GlobalTimer() {
   // Don't show on home page (already has the flip clock)
   if (!activeTask || location.pathname === '/dashboard') return null;
 
-  const liveSec = activeTask.tracked + elapsed;
+  const liveSec = Math.floor(activeTask.tracked + elapsed);
 
   return (
     <div
