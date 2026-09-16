@@ -784,12 +784,20 @@ export default function Home() {
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#e8e8e8', marginBottom: 4 }}>{running.title}</div>
                     <div style={{ fontSize: 12, color: '#888' }}>{running.project_name}</div>
-                    <button
-                      onClick={() => handleTimer(running.id, 'pause')}
-                      style={{ marginTop: 16, background: '#ea580c', border: 'none', borderRadius: 24, padding: '8px 24px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, margin: '16px auto 0' }}
-                    >
-                      <Pause size={14} /> Pause
-                    </button>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                      <button
+                        onClick={() => handleTimer(running.id, 'pause')}
+                        style={{ background: '#ea580c', border: 'none', borderRadius: 24, padding: '8px 22px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <Pause size={14} /> Pause
+                      </button>
+                      <button
+                        onClick={() => handleTimer(running.id, 'done', running)}
+                        style={{ background: '#16a34a', border: 'none', borderRadius: 24, padding: '8px 22px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <Check size={14} /> Done
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div style={{ fontSize: 13, color: '#666', textAlign: 'center' }}>No timer running</div>
