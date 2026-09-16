@@ -7,11 +7,14 @@ const STUN = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // Free TURN relay — fallback for Windows firewall / same-LAN hairpin NAT
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    // TURN relay — TCP on port 80/443 bypasses Windows Firewall UDP block
+    { urls: 'turn:openrelay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turns:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 type CallState =
@@ -55,8 +58,11 @@ export default function CallManager() {
       socket.emit('ice-candidate', { to: remoteIdRef.current, candidate: e.candidate });
     };
     p.onconnectionstatechange = () => {
+      console.log('[WebRTC] connection state:', p.connectionState);
       if (p.connectionState === 'disconnected' || p.connectionState === 'failed') cleanup();
     };
+    p.oniceconnectionstatechange = () => console.log('[WebRTC] ICE state:', p.iceConnectionState);
+    p.onicegatheringstatechange = () => console.log('[WebRTC] ICE gathering:', p.iceGatheringState);
     return p;
   };
 
