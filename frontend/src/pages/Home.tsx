@@ -533,7 +533,7 @@ export default function Home() {
 
         <div className="home-grid">
           {/* Today's Priorities — swiper with flip-clock */}
-          <div className="home-section card" style={{ overflow: 'hidden', position: 'relative' }}
+          <div className="home-section card" style={{ overflow: 'hidden', position: 'relative', display: 'flex', flexDirection: 'column' }}
             onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
             onTouchEnd={e => {
               if (touchStartX.current === null) return;
@@ -545,12 +545,12 @@ export default function Home() {
           >
           {/* Slide track */}
           <div style={{
-            display: 'flex', width: '200%',
+            display: 'flex', width: '200%', flex: 1,
             transform: `translateX(${clockSlide === 1 ? '-50%' : '0%'})`,
             transition: 'transform 0.4s cubic-bezier(0.4,0,0.2,1)',
           }}>
           {/* Slide 0: task list */}
-          <div style={{ width: '50%', minWidth: '50%' }}>
+          <div style={{ width: '50%', minWidth: '50%', display: 'flex', flexDirection: 'column' }}>
             <div className="home-section__header">
               <div>
                 <div className="home-section__title">Today's Priorities</div>
@@ -771,7 +771,7 @@ export default function Home() {
               </div>
             );
             return (
-              <div style={{ width: '50%', minWidth: '50%', background: '#1a1a1a', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 28, padding: '32px 20px', position: 'relative', minHeight: 320 }}>
+              <div style={{ width: '50%', minWidth: '50%', background: '#1a1a1a', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 28, padding: '32px 20px', position: 'relative', alignSelf: 'stretch' }}>
                 <button onClick={() => setClockSlide(0)} style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
                 <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                   <Tile value={pad(hh)} label="Hours" />
