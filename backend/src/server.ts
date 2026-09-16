@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import path from 'path';
 import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { io } from './socket';
 dotenv.config();
 
 import { initDB } from './db';
@@ -33,6 +35,35 @@ import regularisationRoutes from './routes/regularisation';
 import { startEmailScheduler, startRecurringTaskScheduler } from './services/scheduler';
 
 const app = express();
+const httpServer = createServer(app);
+io.attach(httpServer);
+
+// Socket.io: user joins their own room by user id, and chat rooms by chat id
+io.on('connection', (socket) => {
+  socket.on('join', ({ userId, chatIds }: { userId: number; chatIds: number[] }) => {
+    socket.join(`user:${userId}`);
+    for (const id of chatIds) socket.join(`chat:${id}`);
+  });
+  socket.on('join-chat', ({ chatId }: { chatId: number }) => socket.join(`chat:${chatId}`));
+
+  // WebRTC call signaling
+  socket.on('call-offer', ({ to, from, offer, chatId, callerName, callType }) => {
+    io.to(`user:${to}`).emit('call-incoming', { from, offer, chatId, callerName, callType });
+  });
+  socket.on('call-answer', ({ to, answer }) => {
+    io.to(`user:${to}`).emit('call-answered', { answer });
+  });
+  socket.on('ice-candidate', ({ to, candidate }) => {
+    io.to(`user:${to}`).emit('ice-candidate', { candidate });
+  });
+  socket.on('call-end', ({ to }) => {
+    io.to(`user:${to}`).emit('call-ended');
+  });
+  socket.on('call-reject', ({ to }) => {
+    io.to(`user:${to}`).emit('call-rejected');
+  });
+});
+
 const PORT = process.env.PORT || 5000;
 
 app.use(express.json());
@@ -117,8 +148,8 @@ initDB()
   .then(() => {
     startEmailScheduler();
     startRecurringTaskScheduler();
-    const server = app.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
-    server.setTimeout(120000); // 120s for long geogrid requests
+    httpServer.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
+    httpServer.setTimeout(120000);
   })
   .catch((err) => {
     console.error('DB init failed:', err);

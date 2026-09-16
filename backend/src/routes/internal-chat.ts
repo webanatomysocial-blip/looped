@@ -1,4 +1,5 @@
 import { Router, Response } from 'express';
+import { io } from '../socket';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -229,6 +230,14 @@ router.post('/:chatId/messages', async (req: AuthRequest, res: Response) => {
       reply_to_id: reply_to_id || null,
       forwarded_from_id: forwarded_from_id || null,
     });
+
+    const msg = await db('internal_messages as m')
+      .join('users as u', 'u.id', 'm.sender_id')
+      .where('m.id', id)
+      .select('m.*', 'u.name as sender_name', 'u.avatar_color', 'u.avatar_url')
+      .first();
+
+    io.to(`chat:${req.params.chatId}`).emit('new_message', { chatId: Number(req.params.chatId), message: msg });
 
     const others = await db('internal_chat_members')
       .where('chat_id', req.params.chatId).whereNot('user_id', userId).select('user_id');

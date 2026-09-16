@@ -3,10 +3,11 @@ import { format, isToday, isYesterday } from 'date-fns';
 import {
   Send, MessageCircle, Plus, Users, User as UserIcon, Paperclip, UserPlus, X,
   Search, Check, CheckCheck, Pin, PinOff, LogOut, MoreVertical, Reply,
-  Pencil, Trash2, Forward, Smile,
+  Pencil, Trash2, Forward, Smile, Phone, Video,
 } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
+import { useSocket } from '../contexts/SocketContext';
 import { messagesApi, projectsApi, internalChatApi, usersApi } from '../services/api';
 import { Message, Project, InternalChat, InternalMessage, User } from '../types';
 import '../css/pages/Messages.css';
@@ -50,6 +51,7 @@ function WaAvatar({ name, color, avatarUrl, size = 46 }: { name: string; color?:
 
 export default function Messages() {
   const { user } = useAuth();
+  const { socket, joinChat } = useSocket();
   const isClient = user?.role === 'client';
   const [tab, setTab] = useState<Tab>(isClient ? 'client' : 'internal');
   const [search, setSearch] = useState('');
@@ -113,9 +115,26 @@ export default function Messages() {
   useEffect(() => {
     if (!activeChat) return;
     loadMessages(activeChat.id, msgSearch || undefined);
-    const iv = setInterval(() => loadMessages(activeChat.id, msgSearch || undefined), 5000);
+    joinChat(activeChat.id);
+    // Fallback poll every 15s in case socket misses something
+    const iv = setInterval(() => loadMessages(activeChat.id, msgSearch || undefined), 15000);
     return () => clearInterval(iv);
   }, [activeChat, msgSearch]);
+
+  // Real-time: push new messages via socket
+  useEffect(() => {
+    if (!socket) return;
+    const handler = ({ chatId, message }: { chatId: number; message: any }) => {
+      if (activeChat?.id === chatId) {
+        setInternalMsgs(prev => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, last_message: message.content, last_message_at: message.created_at } : c));
+      } else {
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, unread_count: (c.unread_count || 0) + 1, last_message: message.content, last_message_at: message.created_at } : c));
+      }
+    };
+    socket.on('new_message', handler);
+    return () => { socket.off('new_message', handler); };
+  }, [socket, activeChat?.id]);
 
   useEffect(() => {
     projectsApi.list().then(r => {
@@ -745,6 +764,22 @@ export default function Messages() {
                     <p className="wa-chat-header-sub">{headerSub}</p>
                   </div>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    {/* Call buttons — DM only */}
+                    {tab === 'internal' && activeChat?.type === 'direct' && (() => {
+                      const other = activeChat.members?.find((m: any) => m.id !== user?.id);
+                      if (!other) return null;
+                      const startCall = (type: 'audio' | 'video') => (window as any).__startCall?.(other.id, other.name, type);
+                      return (
+                        <>
+                          <button className="wa-icon-btn" title="Audio call" onClick={() => startCall('audio')}>
+                            <Phone size={18} />
+                          </button>
+                          <button className="wa-icon-btn" title="Video call" onClick={() => startCall('video')}>
+                            <Video size={18} />
+                          </button>
+                        </>
+                      );
+                    })()}
                     {/* Search within chat */}
                     {tab === 'internal' && (
                       <button className="wa-icon-btn" title="Search messages" onClick={() => { setShowMsgSearch(v => !v); if (showMsgSearch) setMsgSearch(''); }}>

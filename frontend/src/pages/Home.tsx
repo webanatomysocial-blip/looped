@@ -369,9 +369,6 @@ export default function Home() {
                 style={{ width: `${Math.min(trackedPct, 100)}%` }}
               />
             </div>
-            <div className="cap-header__bar-note">
-              Capacity based on 7 productive hrs/day (9 total − 1 lunch − 1 meetings)
-            </div>
           </div>
         </div>
 

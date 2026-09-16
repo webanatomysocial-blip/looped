@@ -1,6 +1,7 @@
 import React from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import CallManager from '../UI/CallManager';
 import '../../css/Layout/Layout.css';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -11,6 +12,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <Header />
         <main className="layout__main">{children}</main>
       </div>
+      <CallManager />
     </div>
   );
 }

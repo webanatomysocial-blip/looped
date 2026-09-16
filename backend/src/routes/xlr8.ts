@@ -127,8 +127,8 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
   }
   const isDraft = !!draft;
   const db = getDB();
-  const project = await db('projects').where({ id: project_id, service_type: 'xlr8' }).first();
-  if (!project) { res.status(400).json({ error: 'Project is not an XLR8 project' }); return; }
+  const project = await db('projects').where({ id: project_id }).first();
+  if (!project) { res.status(400).json({ error: 'Project not found' }); return; }
 
   // For drafts, just save and return
   if (isDraft) {
@@ -386,7 +386,7 @@ router.post('/tickets/:id/assign', async (req: AuthRequest, res: Response) => {
   if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Manager only' }); return; }
 
   const db = getDB();
-  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_manager' }).whereNull('xlr8_assignee_id').first();
+  const ticket = await db('tasks').where({ id: req.params.id }).whereIn('xlr8_status', ['pending_manager', 'needs_reassignment']).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not pending assignment' }); return; }
 
   const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
@@ -406,7 +406,7 @@ async function assignToEmployee(db: any, ticket: any, assignee: any, actor: any,
     xlr8_assignee_id: assignee.id,
     assigned_to: assignee.id,
   });
-  await appendLog(ticket.id, actor, 'assigned', 'pending_manager', 'pending_assignee',
+  await appendLog(ticket.id, actor, 'assigned', ticket.xlr8_status, 'pending_assignee',
     `${mode === 'auto' ? 'Auto-assigned' : 'Assigned'} to ${assignee.name} (${stage?.category_name || 'unknown role'})`);
   await createNotification(assignee.id, `Ticket "${ticket.title}" has been assigned to you`, 'task', ticket.project_id);
   if (ticket.created_by !== actor.id) {
@@ -598,6 +598,8 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
     if (prevAssigneeId) {
       await createNotification(prevAssigneeId, `Ticket "${ticket.title}" was declined — please redo and resubmit${comment ? ': ' + comment : ''}`, 'task', ticket.project_id);
     }
+    const admins = await db('users').where({ role: 'admin' }).select('id');
+    for (const a of admins) await createNotification(a.id, `${req.user!.name} rejected ticket "${ticket.title}"${comment ? ': ' + comment : ''}`, 'task', ticket.project_id);
     res.json({ ok: true }); return;
   }
 

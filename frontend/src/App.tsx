@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SocketProvider } from './contexts/SocketContext';
 
 import Login from './pages/Login';
 import Home from './pages/Home';
@@ -254,7 +255,9 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
-        <AppRoutes />
+        <SocketProvider>
+          <AppRoutes />
+        </SocketProvider>
       </AuthProvider>
     </BrowserRouter>
   );

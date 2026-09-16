@@ -73,6 +73,7 @@ export default function Tasks() {
   const [approvalTitle, setApprovalTitle]       = useState('');
   const [filterStatus, setFilterStatus]         = useState('all');
   const [editTask, setEditTask]                 = useState<Task | null>(null);
+  const [editTab, setEditTab]                   = useState<'edit' | 'history'>('edit');
   const [taskLog, setTaskLog]                   = useState<any[]>([]);
   const [expandedTaskId, setExpandedTaskId]     = useState<number | null>(null);
   const [expandedLog, setExpandedLog]           = useState<Record<number, any[]>>({});
@@ -416,7 +417,7 @@ export default function Tasks() {
     const employeeAssignee = task.assignees?.find(a => a.assignee_role === 'employee' || a.assignee_role === 'worker' as any);
     const managerAssignee  = task.assignees?.find(a => a.assignee_role === 'manager');
     setEditTask(task);
-
+    setEditTab('edit');
     setEditRoleTab('employee');
     setEditForm({
       title:             task.title,
@@ -1262,9 +1263,51 @@ export default function Tasks() {
                   />
                   <button type="button" className="drawer-close" onClick={() => setEditTask(null)}>×</button>
                 </div>
+                <div style={{ display: 'flex', marginTop: 14, gap: 0, borderBottom: '1.5px solid var(--bg-sand)', marginBottom: -18 }}>
+                  {(['edit', 'history'] as const).map(t => (
+                    <button key={t} type="button" onClick={() => setEditTab(t)} style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '6px 16px 10px',
+                      fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      color: editTab === t ? 'var(--ink)' : 'var(--ink-muted)',
+                      borderBottom: editTab === t ? '2px solid var(--ink)' : '2px solid transparent',
+                      marginBottom: -1.5,
+                    }}>
+                      {t === 'edit' ? 'Edit' : 'History'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="drawer-body">
+
+              {editTab === 'history' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0' }}>
+                  {taskLog.length > 0 ? taskLog.map((entry: any, i: number) => {
+                    const actionLabels: Record<string, string> = {
+                      created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted', employee_declined: 'Declined',
+                      work_done: 'Marked done', manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
+                      next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin', admin_approved: 'Admin approved',
+                      admin_skip_client: 'Skipped client, completed', admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
+                      stage_pre_declined: 'Pre-declined stage', needs_reassignment: 'Needs reassignment',
+                    };
+                    const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
+                    return (
+                      <div key={i} style={{ fontSize: 12, padding: '8px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                          <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{actionLabels[entry.action] || entry.action}</span></span>
+                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
+                        </div>
+                        {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}
+                      </div>
+                    );
+                  }) : (
+                    <div style={{ fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic' }}>No history yet.</div>
+                  )}
+                </div>
+              )}
+
+              {editTab === 'edit' && <>
 
                 {/* Info card */}
                 <div className="drawer-info-card">
@@ -1639,42 +1682,18 @@ export default function Tasks() {
                   );
                 })()}
 
+              </>}{/* end editTab === 'edit' */}
+
               </div>
 
-              {/* Workflow history for ticket tasks */}
-              {taskLog.length > 0 && (
-                <div style={{ padding: '0 20px 16px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 8 }}>
-                    Workflow History
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {taskLog.map((entry: any, i: number) => {
-                      const actionLabels: Record<string, string> = {
-                        created: 'Created', assigned: 'Assigned to employee', employee_accepted: 'Accepted', employee_declined: 'Declined',
-                        work_done: 'Marked done', manager_approved: 'Manager approved', manager_declined: 'Returned to employee',
-                        next_stage: 'Moved to next stage', sent_to_admin: 'Sent to admin', admin_approved: 'Admin approved',
-                        admin_skip_client: 'Skipped client, completed', admin_skipped: 'Admin skipped', client_approved: 'Client approved', completed: 'Completed',
-                      };
-                      const isDanger = entry.action.includes('declined') || entry.action.includes('reject');
-                      return (
-                        <div key={i} style={{ fontSize: 12, padding: '7px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)' }}>
-                          <span style={{ fontWeight: 600 }}>{entry.actor_name}</span>
-                          <span style={{ color: 'var(--ink-muted)' }}> · {actionLabels[entry.action] || entry.action}</span>
-                          {entry.comment && <span style={{ color: 'var(--ink-muted)' }}> — {entry.comment}</span>}
-                          <span style={{ display: 'block', fontSize: 10, color: 'var(--ink-muted)', marginTop: 2, opacity: 0.7 }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+              {editTab === 'edit' && (
+                <div className="drawer-footer">
+                  <button type="submit" className="drawer-submit">
+                    <Check size={15} /> Save Changes
+                  </button>
+                  <button type="button" className="drawer-cancel" onClick={() => setEditTask(null)}>Cancel</button>
                 </div>
               )}
-
-              <div className="drawer-footer">
-                <button type="submit" className="drawer-submit">
-                  <Check size={15} /> Save Changes
-                </button>
-                <button type="button" className="drawer-cancel" onClick={() => setEditTask(null)}>Cancel</button>
-              </div>
 
             </form>
           </div>
