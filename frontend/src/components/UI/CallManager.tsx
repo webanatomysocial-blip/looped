@@ -18,27 +18,51 @@ export default function CallManager() {
   const pc = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  // Use ref so onicecandidate always has the current remote user id
+  const remoteIdRef = useRef<number | null>(null);
+  // Buffer ICE candidates that arrive before remote description is set
+  const iceBuf = useRef<RTCIceCandidateInit[]>([]);
 
   const cleanup = () => {
     pc.current?.close(); pc.current = null;
     localStream.current?.getTracks().forEach(t => t.stop()); localStream.current = null;
     setRemoteStream(null);
+    remoteIdRef.current = null;
+    iceBuf.current = [];
     setCall({ phase: 'idle' });
   };
 
   const makePC = () => {
     const p = new RTCPeerConnection(STUN);
     const rs = new MediaStream();
-    p.ontrack = e => { rs.addTrack(e.track); setRemoteStream(new MediaStream(rs.getTracks())); };
+    p.ontrack = e => {
+      e.streams[0]?.getTracks().forEach(t => rs.addTrack(t));
+      setRemoteStream(new MediaStream(rs.getTracks()));
+    };
     p.onicecandidate = e => {
-      if (!e.candidate || !socket) return;
-      const to = call.phase === 'outgoing' ? (call as any).to : (call as any).from;
-      socket.emit('ice-candidate', { to, candidate: e.candidate });
+      if (!e.candidate || !socket || !remoteIdRef.current) return;
+      socket.emit('ice-candidate', { to: remoteIdRef.current, candidate: e.candidate });
     };
     p.onconnectionstatechange = () => {
       if (p.connectionState === 'disconnected' || p.connectionState === 'failed') cleanup();
     };
     return p;
+  };
+
+  const addIceCandidate = async (candidate: RTCIceCandidateInit) => {
+    if (!pc.current) return;
+    if (pc.current.remoteDescription) {
+      await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
+    } else {
+      iceBuf.current.push(candidate);
+    }
+  };
+
+  const flushIceBuf = async () => {
+    for (const c of iceBuf.current) {
+      try { await pc.current?.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+    }
+    iceBuf.current = [];
   };
 
   // Listen for signaling events
@@ -53,11 +77,12 @@ export default function CallManager() {
     socket.on('call-answered', async ({ answer }) => {
       if (!pc.current) return;
       await pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+      await flushIceBuf();
       setCall(c => c.phase === 'outgoing' ? { phase: 'active', remoteName: (c as any).remoteName, callType: (c as any).callType } : c);
     });
 
     socket.on('ice-candidate', async ({ candidate }) => {
-      try { await pc.current?.addIceCandidate(new RTCIceCandidate(candidate)); } catch {}
+      await addIceCandidate(candidate);
     });
 
     socket.on('call-ended', cleanup);
@@ -72,25 +97,34 @@ export default function CallManager() {
     };
   }, [socket, call.phase]);
 
+  const getStream = async (callType: 'audio' | 'video'): Promise<{ stream: MediaStream; type: 'audio' | 'video' }> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callType === 'video' });
+      return { stream, type: callType };
+    } catch {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        return { stream, type: 'audio' };
+      } catch {
+        throw new Error('No microphone found. Please connect a microphone and try again.');
+      }
+    }
+  };
+
   const startCall = async (toUserId: number, remoteName: string, callType: 'audio' | 'video') => {
     if (!socket || !user) return;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callType === 'video' });
-    } catch {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        callType = 'audio';
-      } catch {
-        alert('No microphone found. Please connect a microphone and try again.');
-        return;
-      }
-    }
+      const r = await getStream(callType);
+      stream = r.stream; callType = r.type;
+    } catch (e: any) { alert(e.message); return; }
+
+    remoteIdRef.current = toUserId;
     localStream.current = stream;
     const p = makePC();
     pc.current = p;
     stream.getTracks().forEach(t => p.addTrack(t, stream));
-    const offer = await p.createOffer();
+    const offer = await p.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === 'video' });
     await p.setLocalDescription(offer);
     setCall({ phase: 'outgoing', to: toUserId, remoteName, callType });
     socket.emit('call-offer', { to: toUserId, from: user.id, offer, callerName: user.name, callType });
@@ -102,21 +136,17 @@ export default function CallManager() {
     let { callType } = call;
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callType === 'video' });
-    } catch {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        callType = 'audio';
-      } catch {
-        alert('No microphone found. Please connect a microphone and try again.');
-        return;
-      }
-    }
+      const r = await getStream(callType);
+      stream = r.stream; callType = r.type;
+    } catch (e: any) { alert(e.message); return; }
+
+    remoteIdRef.current = from;
     localStream.current = stream;
     const p = makePC();
     pc.current = p;
     stream.getTracks().forEach(t => p.addTrack(t, stream));
     await p.setRemoteDescription(new RTCSessionDescription(offer));
+    await flushIceBuf();
     const answer = await p.createAnswer();
     await p.setLocalDescription(answer);
     socket.emit('call-answer', { to: from, answer });
@@ -131,7 +161,7 @@ export default function CallManager() {
 
   const endCall = () => {
     if (!socket) return;
-    const to = call.phase === 'outgoing' ? (call as any).to : call.phase === 'incoming' ? (call as any).from : null;
+    const to = call.phase === 'outgoing' ? (call as any).to : call.phase === 'incoming' ? (call as any).from : remoteIdRef.current;
     if (to) socket.emit('call-end', { to });
     cleanup();
   };
