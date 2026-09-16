@@ -836,8 +836,10 @@ export default function Home() {
                 </Link>
               </div>
               {(() => {
-                const total = todayTasks.length;
-                const completed = todayTasks.filter(t => t.status === 'completed').length;
+                // Only tasks due today OR worked on today (tracked time > 0 today)
+                const realToday = allTasksRaw.filter(t => t.due_date === today || t.tracked_seconds_today > 0);
+                const total = realToday.length;
+                const completed = realToday.filter(t => t.status === 'completed').length;
                 const pct = total ? Math.round((completed / total) * 100) : 0;
                 const r = 36; const circ = 2 * Math.PI * r;
                 const full = pct === 100;
