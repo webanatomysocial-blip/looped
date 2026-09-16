@@ -76,6 +76,7 @@ export default function Home() {
   const [dismissedRejectedIds, setDismissedRejectedIds] = useState<Set<number>>(
     () => new Set(JSON.parse(localStorage.getItem('dismissed_rejected_ids') || '[]'))
   );
+  const [clockSlide, setClockSlide] = useState(0); // 0 = task list, 1 = flip clock
   const [doneConfirmTask, setDoneConfirmTask] = useState<CapacityTask | null>(null);
   const [regulariseTask, setRegulariseTask] = useState<CapacityTask | null>(null);
   const [regulariseReason, setRegulariseReason] = useState('');
@@ -88,6 +89,7 @@ export default function Home() {
   const [declinedStages, setDeclinedStages] = useState<any[]>([]);
   const [reviewDeliverables, setReviewDeliverables] = useState<Record<number, { deliverables: any[]; checklist: any[] }>>({});
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const touchStartX = useRef<number | null>(null);
 
   const openTaskView = (taskId: number) => {
     setViewTask(taskId);
@@ -100,7 +102,8 @@ export default function Home() {
     try {
       const res = await capacityApi.daily();
       setData(res.data);
-      setElapsed(0); // reset on every fetch — new baseline baked into tracked_seconds
+      setElapsed(0);
+      if (res.data.active_task_id) setClockSlide(1);
     } catch { /* silent */ }
   }, [isCapacityRole]);
 
@@ -211,6 +214,8 @@ export default function Home() {
       }
     }
     await tasksApi.timer(taskId, action);
+    if (action === 'start') setClockSlide(1);
+    if (action === 'pause') setClockSlide(0);
     load();
   };
 
@@ -527,8 +532,25 @@ export default function Home() {
         })()}
 
         <div className="home-grid">
-          {/* Today's Priorities */}
-          <div className="home-section card">
+          {/* Today's Priorities — swiper with flip-clock */}
+          <div className="home-section card" style={{ overflow: 'hidden', position: 'relative' }}
+            onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
+            onTouchEnd={e => {
+              if (touchStartX.current === null) return;
+              const dx = e.changedTouches[0].clientX - touchStartX.current;
+              touchStartX.current = null;
+              if (dx < -50) setClockSlide(1);
+              if (dx > 50) setClockSlide(0);
+            }}
+          >
+          {/* Slide track */}
+          <div style={{
+            display: 'flex', width: '200%',
+            transform: `translateX(${clockSlide === 1 ? '-50%' : '0%'})`,
+            transition: 'transform 0.4s cubic-bezier(0.4,0,0.2,1)',
+          }}>
+          {/* Slide 0: task list */}
+          <div style={{ width: '50%', minWidth: '50%' }}>
             <div className="home-section__header">
               <div>
                 <div className="home-section__title">Today's Priorities</div>
@@ -716,7 +738,80 @@ export default function Home() {
                 >›</button>
               </div>
             )}
-          </div>
+          </div>{/* end slide 0 */}
+
+          {/* Slide 1: flip clock */}
+          {(() => {
+            const running = data?.tasks.find(t => t.timer_running);
+            const liveSec = running ? Math.round(taskLiveSeconds(running)) : 0;
+            const hh = Math.floor(liveSec / 3600);
+            const mm = Math.floor((liveSec % 3600) / 60);
+            const ss = liveSec % 60;
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const Tile = ({ value, label }: { value: string; label: string }) => (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 80, height: 90, background: 'linear-gradient(180deg,#2a2a2a 49%,#1a1a1a 49%)',
+                  borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05)',
+                  position: 'relative', overflow: 'hidden',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: '50%', left: 0, right: 0, height: 1,
+                    background: 'rgba(0,0,0,0.6)', zIndex: 2,
+                  }} />
+                  <span style={{
+                    fontSize: 52, fontWeight: 800, color: '#e8e8e8', fontVariantNumeric: 'tabular-nums',
+                    letterSpacing: -2, lineHeight: 1, zIndex: 1,
+                    textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+                    fontFamily: "'Arial Black', 'Arial', sans-serif",
+                  }}>{value}</span>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, color: '#c8922a', textTransform: 'uppercase' }}>{label}</span>
+              </div>
+            );
+            return (
+              <div style={{ width: '50%', minWidth: '50%', background: '#1a1a1a', borderRadius: 12, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 28, padding: '32px 20px', position: 'relative', minHeight: 320 }}>
+                <button onClick={() => setClockSlide(0)} style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8, color: '#fff', fontSize: 18, cursor: 'pointer', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
+                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                  <Tile value={pad(hh)} label="Hours" />
+                  <span style={{ fontSize: 40, fontWeight: 800, color: '#555', marginBottom: 22, lineHeight: 1 }}>:</span>
+                  <Tile value={pad(mm)} label="Minutes" />
+                  <span style={{ fontSize: 40, fontWeight: 800, color: '#555', marginBottom: 22, lineHeight: 1 }}>:</span>
+                  <Tile value={pad(ss)} label="Seconds" />
+                </div>
+                {running ? (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#e8e8e8', marginBottom: 4 }}>{running.title}</div>
+                    <div style={{ fontSize: 12, color: '#888' }}>{running.project_name}</div>
+                    <button
+                      onClick={() => handleTimer(running.id, 'pause')}
+                      style={{ marginTop: 16, background: '#ea580c', border: 'none', borderRadius: 24, padding: '8px 24px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, margin: '16px auto 0' }}
+                    >
+                      <Pause size={14} /> Pause
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: '#666', textAlign: 'center' }}>No timer running</div>
+                )}
+                {/* slide dots */}
+                <div style={{ display: 'flex', gap: 6, position: 'absolute', bottom: 14 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clockSlide === 0 ? '#c8922a' : '#444', transition: 'background 0.2s' }} onClick={() => setClockSlide(0)} />
+                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clockSlide === 1 ? '#c8922a' : '#444', transition: 'background 0.2s' }} onClick={() => setClockSlide(1)} />
+                </div>
+              </div>
+            );
+          })()}
+          </div>{/* end slide track */}
+
+          {/* slide dots on task list side */}
+          {clockSlide === 0 && (
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'center', padding: '8px 0 10px' }}>
+              <div style={{ width: 6, height: 6, borderRadius: 3, background: '#1a1a1a', cursor: 'pointer' }} />
+              <div style={{ width: 6, height: 6, borderRadius: 3, background: '#ccc', cursor: 'pointer' }} onClick={() => setClockSlide(1)} />
+            </div>
+          )}
+          </div>{/* end home-section card */}
 
           {/* Right column */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
