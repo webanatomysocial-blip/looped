@@ -798,14 +798,12 @@ async function advanceToStage(
     const empAp = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
     if (empAp) await db('approvals').where({ id: empAp.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
     if (pre) {
-      const alreadyAccepted = pre.acceptance_status === 'accepted';
-      const nextXlr8Status = alreadyAccepted ? 'in_progress' : 'pending_assignee';
-      const nextTaskStatus = alreadyAccepted ? 'in_progress' : 'todo';
-      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: nextXlr8Status, xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: nextTaskStatus });
-      await appendLog(ticket.id, actor, 'next_stage', fromState, nextXlr8Status, `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
-      const notifMsg = alreadyAccepted
-        ? `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active`
-        : `Ticket "${ticket.title}" has been assigned to you`;
+      // Always set pending_assignee so the home page alert shows — employee-accept moves it to in_progress
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: 'todo' });
+      // Reset acceptance_status to pending so they see the alert and formally start
+      await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, user_id: pre.user_id }).update({ acceptance_status: 'pending' });
+      await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_assignee', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
+      const notifMsg = `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active. Accept to begin.`;
       await createNotification(pre.user_id, notifMsg, 'task', ticket.project_id);
       // Reschedule the new stage assignee
       import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(pre.user_id, db)).catch(() => {});

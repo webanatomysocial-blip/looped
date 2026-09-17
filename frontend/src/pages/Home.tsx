@@ -144,7 +144,7 @@ export default function Home() {
       return;
     }
     // Only use xlr8 employee-accept if THIS user is the current stage assignee
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || task.xlr8_assignee_id === user?.id || Number(task.xlr8_assignee_id) === user?.id)) {
       try {
         await xlr8Api.employeeAccept(task.id);
       } catch (e: any) {
@@ -169,7 +169,7 @@ export default function Home() {
     // XLR8 current-stage assignee: decline → revert to pending_manager
     // XLR8 pre-assigned future stage: use stage-pre-decline so comment is logged and managers notified
     // Non-XLR8: generic accept/decline
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user?.id) {
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || task.xlr8_assignee_id === user?.id || Number(task.xlr8_assignee_id) === user?.id)) {
       await xlr8Api.employeeDecline(task.id, declineComment);
     } else if (task.ticket_type_id) {
       await xlr8Api.stagePreDecline(task.id, declineComment);
