@@ -517,19 +517,6 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
 
-  // Block only if someone else on the CURRENT active stage hasn't accepted yet
-  const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
-  const pendingStages = await db('task_assignees')
-    .where({ task_id: ticket.id, stage_idx: currentStageIdx, assignee_role: 'employee' })
-    .whereNotNull('user_id')
-    .where('user_id', '!=', req.user!.id)
-    .whereNotIn('acceptance_status', ['accepted', 'declined'])
-    .count('* as n').first();
-  if (Number((pendingStages as any)?.n) > 0) {
-    res.status(400).json({ error: 'Waiting for other stage members to accept before work can begin' });
-    return;
-  }
-
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
   // Mark this stage accepted so scheduler picks it up
   await db('task_assignees')
