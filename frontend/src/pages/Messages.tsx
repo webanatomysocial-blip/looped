@@ -125,12 +125,12 @@ export default function Messages() {
   useEffect(() => {
     if (!socket) return;
     const handler = ({ chatId, message }: { chatId: number; message: any }) => {
-      if (activeChat?.id === chatId) {
-        setInternalMsgs(prev => prev.some(m => m.id === message.id) ? prev : [...prev, message]);
-        setChats(prev => prev.map(c => c.id === chatId ? { ...c, last_message: message.content, last_message_at: message.created_at } : c));
-      } else {
-        setChats(prev => prev.map(c => c.id === chatId ? { ...c, unread_count: (c.unread_count || 0) + 1, last_message: message.content, last_message_at: message.created_at } : c));
-      }
+      // Update chat list preview for all chats
+      setChats(prev => prev.map(c => c.id === chatId
+        ? { ...c, last_message: message.content, last_message_at: message.created_at, unread_count: activeChat?.id === chatId ? 0 : (c.unread_count || 0) + 1 }
+        : c));
+      // For active chat: reload full messages (socket message is missing reactions/reply_to/read fields)
+      if (activeChat?.id === chatId) loadMessages(chatId);
     };
     socket.on('new_message', handler);
     return () => { socket.off('new_message', handler); };
