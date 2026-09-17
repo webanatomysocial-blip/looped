@@ -116,7 +116,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
       .where('ta.acceptance_status', 'pending')
-      .whereNotIn('ta.assignee_role', ['admin', 'client'])
+      .whereNotIn('ta.assignee_role', ['admin', 'client', 'manager'])
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
       .whereNotIn('t.status', ['completed'])
