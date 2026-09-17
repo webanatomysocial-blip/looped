@@ -213,6 +213,13 @@ export default function Home() {
         if (!window.confirm(`You have urgent/high priority task(s) pending: ${names}.\n\nAre you sure you want to work on a lower-priority task instead?`)) return;
       }
     }
+    // Auto-accept returned XLR8 tasks when employee hits Start
+    if (action === 'start') {
+      const t = (data?.tasks ?? []).find((t: any) => t.id === taskId);
+      if (t?.ticket_type_id && t?.rejection_log && t?.acceptance_status === 'pending') {
+        try { await xlr8Api.employeeAccept(taskId); } catch { /* ignore — timer will still start */ }
+      }
+    }
     await tasksApi.timer(taskId, action);
     if (action === 'start') setClockSlide(1);
     if (action === 'pause') setClockSlide(0);
@@ -725,7 +732,7 @@ export default function Home() {
                       </button>
                     )}
 
-                    {(task.acceptance_status === 'accepted' || task.assignee_role === 'review') && task.status !== 'in_review' && (
+                    {(task.acceptance_status === 'accepted' || task.assignee_role === 'review' || (task.ticket_type_id && task.rejection_log)) && task.status !== 'in_review' && (
                       <div className="cap-task-row__timer">
                         {task.assignee_role === 'review' && (
                           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--blue)', background: 'rgba(59,130,246,0.08)', padding: '2px 7px', borderRadius: 10, marginRight: 4 }}>Reviewing</span>
