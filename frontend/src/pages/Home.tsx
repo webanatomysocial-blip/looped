@@ -144,7 +144,7 @@ export default function Home() {
       return;
     }
     // Only use xlr8 employee-accept if THIS user is the current stage assignee
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || task.xlr8_assignee_id === user?.id || Number(task.xlr8_assignee_id) === user?.id)) {
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
       try {
         await xlr8Api.employeeAccept(task.id);
       } catch (e: any) {
@@ -169,7 +169,7 @@ export default function Home() {
     // XLR8 current-stage assignee: decline → revert to pending_manager
     // XLR8 pre-assigned future stage: use stage-pre-decline so comment is logged and managers notified
     // Non-XLR8: generic accept/decline
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || task.xlr8_assignee_id === user?.id || Number(task.xlr8_assignee_id) === user?.id)) {
+    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
       await xlr8Api.employeeDecline(task.id, declineComment);
     } else if (task.ticket_type_id) {
       await xlr8Api.stagePreDecline(task.id, declineComment);
@@ -267,7 +267,7 @@ export default function Home() {
     (effectiveEst(t) > 0 && t.acceptance_status === 'accepted' && liveSeconds(t) > effectiveEst(t))
   ));
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
-  const allTasks = allTasksRaw.filter(t => t.status !== 'completed' && t.acceptance_status !== 'review');
+  const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
   const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
   const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && t.acceptance_status === 'accepted');
 
@@ -423,9 +423,46 @@ export default function Home() {
           </div>
         )}
 
+        {/* XLR8 stage assignment alert — shown until accepted */}
+        {user?.role !== 'admin' && user?.role !== 'client' && (() => {
+          const xlr8Pending = (data?.tasks ?? []).filter(t =>
+            t.ticket_type_id && t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending' && !t.timer_running
+          );
+          if (xlr8Pending.length === 0) return null;
+          return xlr8Pending.map((task: any) => (
+            <div key={task.id} style={{ background: 'rgba(37,99,235,0.06)', border: '1.5px solid rgba(37,99,235,0.3)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertTriangle size={16} color="#2563eb" />
+                <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Action required</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', background: 'rgba(37,99,235,0.1)', borderRadius: 99, padding: '2px 8px' }}>Stage Assignment</span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
+                {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+              </div>
+              {task.stage_est_hours && (
+                <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+                  <Clock size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+                  Estimated: {fmtEstimated(task.stage_est_hours)} for your stage
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')} style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13 }}>
+                  <CheckCircle size={13} /> Accept &amp; Start
+                </button>
+                <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task, 'decline')} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13 }}>
+                  <XCircle size={13} /> Decline
+                </button>
+              </div>
+            </div>
+          ));
+        })()}
+
         {/* Pending task invitation alert */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
-          const pending = (data?.tasks ?? []).filter(t => t.acceptance_status === 'pending');
+          const pending = (data?.tasks ?? []).filter(t =>
+            t.acceptance_status === 'pending' &&
+            !(t.ticket_type_id && t.xlr8_status === 'pending_assignee')
+          );
           if (pending.length === 0) return null;
           return (
             <div style={{
@@ -649,7 +686,7 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {task.acceptance_status === 'pending' && (
+                    {task.acceptance_status === 'pending' && !(task.ticket_type_id && task.xlr8_status === 'pending_assignee') && (
                       <div className="cap-task-row__accept-btns">
                         <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')}>
                           Accept
