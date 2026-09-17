@@ -477,6 +477,36 @@ export default function Home() {
           ));
         })()}
 
+        {/* XLR8 stage-active alert — task advanced to this user's stage, zero time tracked yet */}
+        {user?.role !== 'admin' && user?.role !== 'client' && (() => {
+          const ready = (data?.tasks ?? []).filter((t: any) =>
+            t.ticket_type_id &&
+            t.xlr8_status === 'in_progress' &&
+            t.acceptance_status === 'accepted' &&
+            !t.timer_running &&
+            !t.rejection_log &&
+            t.tracked_seconds_today === 0
+          );
+          if (ready.length === 0) return null;
+          return ready.map((task: any) => (
+            <div key={task.id} style={{ background: 'rgba(22,163,74,0.06)', border: '1.5px solid rgba(22,163,74,0.3)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <CheckCircle size={18} color="#16a34a" style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
+                  {task.stage_approved_by ? `${task.stage_approved_by} approved the previous stage` : 'Previous stage approved'}
+                  {' '}<span style={{ fontWeight: 400, fontSize: 12, color: 'var(--ink-muted)' }}>— your work on <strong>{task.title}</strong> is now active</span>
+                </div>
+                {task.stage_est_hours && (
+                  <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>
+                    <Clock size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />
+                    Estimated: {fmtEstimated(task.stage_est_hours)} for your stage
+                  </div>
+                )}
+              </div>
+            </div>
+          ));
+        })()}
+
         {/* Pending task invitation alert */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const pending = (data?.tasks ?? []).filter(t =>
