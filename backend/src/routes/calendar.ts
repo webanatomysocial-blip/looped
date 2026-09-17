@@ -433,7 +433,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
           'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
 
       for (const task of regularTasks) {
-        const assignedAt = task.assigned_at ? new Date(task.assigned_at) : (task.due_date ? new Date(task.due_date) : new Date());
+        const assignedAt = task.assigned_at ? new Date(task.assigned_at) : new Date();
         const assignedDate = assignedAt.toISOString().slice(0, 10);
         slotRows.push({
           ...task,

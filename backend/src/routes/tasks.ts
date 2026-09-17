@@ -552,7 +552,7 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
 
     await db('task_assignees')
       .where({ task_id: req.params.id, user_id: userId })
-      .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined' });
+      .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined', ...(action === 'accept' ? { assigned_at: new Date() } : {}) });
 
     const task = await db('tasks').where({ id: req.params.id }).first();
     const me = await db('users').where({ id: userId }).first();
