@@ -227,36 +227,47 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 const lastWasRejected = lastLogEntry && !lastLogEntry.action.includes('stage_pre_declined') && (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
 
                 // Build full rejection history from log
-                type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
+                // fromIdx === stages.length means "Admin final approval" (card after all stages)
+                type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string; fromLabel: string; toLabel: string };
                 const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
+                const stageLabelOf = (idx: number) => {
+                  if (idx === stages.length) return 'Admin Approval';
+                  const s = stages[idx];
+                  if (!s) return `Stage ${idx + 1}`;
+                  return s.type === 'admin' ? 'Admin Review' : s.type === 'manager' ? 'Manager Review' : (s.category_name || `Stage ${idx + 1}`);
+                };
                 const declineEvents: DeclineEvent[] = [];
                 let trackedIdx = 0;
-                let lastAdminIdx = -1;
+                let lastAdminInStageIdx = -1; // tracks mid-flow admin stage index
                 let lastManagerIdx = -1;
                 for (const entry of log) {
                   if (entry.action === 'next_stage') {
                     const m = (entry.comment ?? '').match(/^Stage (\d+):/);
                     if (m) {
                       trackedIdx = Number(m[1]) - 1;
-                      if ((entry.comment ?? '').includes('Admin Review')) lastAdminIdx = trackedIdx;
+                      if ((entry.comment ?? '').includes('Admin Review')) lastAdminInStageIdx = trackedIdx;
                       else if ((entry.comment ?? '').includes('Manager Review')) lastManagerIdx = trackedIdx;
                     }
                   } else if (entry.action === 'admin_declined') {
-                    const fromIdx = lastAdminIdx >= 0 ? lastAdminIdx : trackedIdx;
-                    let pi = fromIdx - 1;
+                    // fromIdx: mid-flow admin stage OR final admin approval (stages.length)
+                    const fromIdx = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx : stages.length;
+                    const searchFrom = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx : stages.length - 1;
+                    let pi = searchFrom - 1;
                     while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
-                    declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
-                    trackedIdx = pi >= 0 ? pi : 0;
-                    lastAdminIdx = -1;
+                    const toIdx = pi >= 0 ? pi : 0;
+                    declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
+                    trackedIdx = toIdx;
+                    lastAdminInStageIdx = -1;
                   } else if (entry.action === 'manager_declined') {
                     const fromIdx = lastManagerIdx >= 0 ? lastManagerIdx : trackedIdx;
                     let pi = fromIdx - 1;
                     while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
-                    declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
-                    trackedIdx = pi >= 0 ? pi : 0;
+                    const toIdx = pi >= 0 ? pi : 0;
+                    declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
+                    trackedIdx = toIdx;
                     lastManagerIdx = -1;
                   } else if (entry.action === 'employee_declined') {
-                    declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
+                    declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(trackedIdx), toLabel: stageLabelOf(trackedIdx) });
                   }
                 }
 
@@ -401,21 +412,23 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       </div>
                       {declineEvents.length > 0 && (() => {
                         const cardW = 180, arrowW = 40, unitW = cardW + arrowW;
-                        const totalW = stages.length * cardW + (stages.length - 1) * arrowW;
+                        const stagesW = stages.length * cardW + (stages.length - 1) * arrowW;
+                        // X-center of a stage card; stages.length = admin final approval card
+                        const adminCardX = stagesW + 32 + 80; // 32px connector + half of 160px card
+                        const cardCenterX = (idx: number) => idx === stages.length ? adminCardX : idx * unitW + cardW / 2;
+                        const svgW = declineEvents.some(ev => ev.fromIdx === stages.length) ? adminCardX + 80 : stagesW;
                         const baseArcH = 40, arcStep = 20;
-                        const maxArcH = baseArcH + (declineEvents.length - 1) * arcStep;
-                        // filter out degenerate arcs (same fromIdx/toIdx) for SVG only
                         const realArcs = declineEvents.filter(ev => ev.fromIdx !== ev.toIdx);
+                        const maxArcH = baseArcH + (realArcs.length - 1) * arcStep;
                         return (
                           <div style={{ marginTop: 8 }}>
                             {realArcs.length > 0 && (
-                              <div style={{ position: 'relative', minWidth: totalW }}>
-                                <svg width={totalW} height={maxArcH + 4} viewBox={`0 0 ${totalW} ${maxArcH + 4}`} style={{ display: 'block', overflow: 'visible' }}>
+                              <div style={{ position: 'relative', minWidth: svgW }}>
+                                <svg width={svgW} height={maxArcH + 4} viewBox={`0 0 ${svgW} ${maxArcH + 4}`} style={{ display: 'block', overflow: 'visible' }}>
                                   <defs><marker id="rejArrowHead2" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto-start-reverse"><polygon points="8,4 0,0 0,8" fill="#ef4444" /></marker></defs>
                                   {realArcs.map((ev, ei) => {
-                                    const fromX = ev.fromIdx * unitW + cardW / 2;
-                                    const toX = ev.toIdx * unitW + cardW / 2;
-                                    // oldest = deepest, newest = shallowest
+                                    const fromX = cardCenterX(ev.fromIdx);
+                                    const toX = cardCenterX(ev.toIdx);
                                     const h = maxArcH - ei * arcStep;
                                     const isLast = ei === realArcs.length - 1;
                                     return (
@@ -432,7 +445,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                                 {/* Pill at midpoint of newest arc */}
                                 {(() => {
                                   const last = realArcs[realArcs.length - 1];
-                                  const midX = (last.fromIdx * unitW + cardW / 2 + last.toIdx * unitW + cardW / 2) / 2;
+                                  const midX = (cardCenterX(last.fromIdx) + cardCenterX(last.toIdx)) / 2;
                                   const atStr = last.at ? format(new Date(Number(last.at) || last.at), 'MMM d, h:mm a') : null;
                                   return (
                                     <div style={{ position: 'absolute', top: baseArcH - 10, left: midX, transform: 'translateX(-50%)' }}>
@@ -446,18 +459,27 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                               </div>
                             )}
                             {/* Rejection history list */}
-                            <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
                               {declineEvents.map((ev, ei) => {
                                 const atStr = ev.at ? format(new Date(Number(ev.at) || ev.at), 'MMM d, h:mm a') : null;
                                 const isLast = ei === declineEvents.length - 1;
                                 return (
-                                  <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 11 }}>
+                                  <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, background: isLast ? 'rgba(239,68,68,0.04)' : 'transparent', borderRadius: 8, padding: '6px 8px' }}>
                                     <div style={{ width: 18, height: 18, borderRadius: '50%', background: isLast ? '#ef4444' : '#fca5a5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 800, color: '#fff', flexShrink: 0, marginTop: 1 }}>{ei + 1}</div>
-                                    <div>
-                                      <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
-                                      {ev.actor_name && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>by {ev.actor_name}</span>}
-                                      {atStr && <span style={{ color: 'var(--ink-muted)', marginLeft: 4 }}>· {atStr}</span>}
-                                      {ev.comment && <span style={{ color: '#b91c1c', fontStyle: 'italic', marginLeft: 4 }}>— "{ev.comment}"</span>}
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                        <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
+                                        {ev.actor_name && <span style={{ color: 'var(--ink-muted)' }}>by <strong style={{ color: 'var(--ink)' }}>{ev.actor_name}</strong></span>}
+                                        {atStr && <span style={{ color: 'var(--ink-muted)' }}>· {atStr}</span>}
+                                      </div>
+                                      {ev.fromIdx !== ev.toIdx && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 10, color: 'var(--ink-muted)' }}>
+                                          <span style={{ background: 'rgba(239,68,68,0.1)', color: '#dc2626', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>{ev.fromLabel}</span>
+                                          <span>→ returned to</span>
+                                          <span style={{ background: 'rgba(245,158,11,0.1)', color: '#b45309', borderRadius: 4, padding: '1px 5px', fontWeight: 600 }}>{ev.toLabel}</span>
+                                        </div>
+                                      )}
+                                      {ev.comment && <div style={{ color: '#b91c1c', fontStyle: 'italic', marginTop: 3 }}>"{ev.comment}"</div>}
                                     </div>
                                   </div>
                                 );
