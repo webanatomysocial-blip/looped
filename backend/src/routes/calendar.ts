@@ -574,12 +574,14 @@ router.patch('/slot/:slotId/time', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const slotId = Number(req.params.slotId);
-    const { start_hour } = req.body;
+    const { start_hour, slot_date } = req.body;
     if (typeof start_hour !== 'number') { res.status(400).json({ error: 'start_hour required' }); return; }
     // Verify ownership
     const slot = await db('task_schedule_slots').where({ id: slotId, user_id: req.user!.id }).first();
     if (!slot) { res.status(404).json({ error: 'Slot not found' }); return; }
-    await db('task_schedule_slots').where({ id: slotId }).update({ custom_start_hour: start_hour });
+    const update: Record<string, any> = { custom_start_hour: start_hour };
+    if (slot_date) update.slot_date = slot_date;
+    await db('task_schedule_slots').where({ id: slotId }).update(update);
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e?.message || 'Server error' }); }
 });
