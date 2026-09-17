@@ -16,9 +16,16 @@ type Tab = 'internal' | 'client';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
+function parseTs(d: string | Date | null | undefined): Date {
+  if (!d) return new Date(NaN);
+  if (d instanceof Date) return d;
+  // SQLite returns "YYYY-MM-DD HH:MM:SS" without Z — append Z so it parses as UTC
+  const s = d.includes('T') || d.endsWith('Z') ? d : d.replace(' ', 'T') + 'Z';
+  return new Date(s);
+}
+
 function formatMsgDate(d: string | Date | null | undefined) {
-  if (!d) return '';
-  const dt = new Date(d);
+  const dt = parseTs(d);
   if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return format(dt, 'h:mm a');
   if (isYesterday(dt)) return 'Yesterday';
@@ -27,7 +34,7 @@ function formatMsgDate(d: string | Date | null | undefined) {
 
 function dateDivider(d: string | Date | null | undefined) {
   if (!d) return 'Today';
-  const dt = new Date(d);
+  const dt = parseTs(d);
   if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return 'Today';
   if (isYesterday(dt)) return 'Yesterday';
@@ -433,7 +440,7 @@ export default function Messages() {
                   <div style={{ padding: '4px 6px 2px', fontSize: 13 }}>{renderWithMentions(m.content)}</div>
                 )}
                 <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
-                  <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                  <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                   {isMe && <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}><CheckCheck size={14} /></span>}
                 </div>
               </div>
@@ -446,7 +453,7 @@ export default function Messages() {
                 {renderWithMentions(m.content)}
                 <div className="wa-bubble-footer">
                   {m.edited_at && <span className="wa-edited">edited</span>}
-                  <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                  <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                   {isMe && (
                     <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}>
                       <CheckCheck size={14} />
@@ -504,7 +511,7 @@ export default function Messages() {
             <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
               <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
               <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
-                <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                 {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
               </div>
             </a>
@@ -516,7 +523,7 @@ export default function Messages() {
             <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
               {m.message}
               <div className="wa-bubble-footer">
-                <span className="wa-time">{format(new Date(m.created_at), 'h:mm a')}</span>
+                <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                 {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
               </div>
             </div>
