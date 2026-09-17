@@ -484,10 +484,15 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
       .whereNotIn('t.status', ['completed', 'draft'])
       .whereNotNull('t.due_date')
-      .whereBetween('t.due_date', [weekStart, weekEnd])
+      .where(function(this: any) {
+        // Show if cascade_date falls in this week, OR if due_date falls in this week (fallback)
+        this.whereBetween('ta.cascade_date', [weekStart, weekEnd])
+            .orWhereBetween('t.due_date', [weekStart, weekEnd]);
+      })
       .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
         'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
+        'ta.cascade_date', 'ta.cascade_start_hour',
         db.raw('0 as tracked_seconds'));
 
     // For employees: always re-run scheduler on calendar load so slots stay fresh
@@ -534,11 +539,15 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     for (const d of days) byDay[d] = [];
     for (const t of slotRows) byDay[t.slot_date]?.push({ ...t, event_type: 'task' });
     for (const r of recurring) byDay[r.slot_date]?.push(r);
-    // Add future-stage placeholders on due_date (skip if already has a slot this week)
+    // Add future-stage placeholders — use cascade_date if set, else due_date
     for (const t of futureStageRows) {
       if (scheduledTaskIds.has(t.id)) continue;
       const hrs = Number(t.user_est_hours) || 1;
-      byDay[t.due_date]?.push({ ...t, slot_date: t.due_date, slot_hours: hrs, event_type: 'task', is_placeholder: true });
+      const slotDate = t.cascade_date ?? t.due_date;
+      const customStartHour = t.cascade_start_hour != null ? Number(t.cascade_start_hour) : null;
+      if (byDay[slotDate]) {
+        byDay[slotDate].push({ ...t, slot_date: slotDate, slot_hours: hrs, custom_start_hour: customStartHour, event_type: 'task', is_placeholder: true });
+      }
     }
 
     res.json({ days, byDay });
