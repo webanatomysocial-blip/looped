@@ -251,8 +251,8 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   } else if (entry.action === 'admin_declined') {
                     // fromIdx: mid-flow admin stage OR final admin approval (stages.length)
                     const fromIdx = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx : stages.length;
-                    const searchFrom = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx : stages.length - 1;
-                    let pi = searchFrom - 1;
+                    const searchFrom = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx - 1 : stages.length - 1;
+                    let pi = searchFrom;
                     while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
                     const toIdx = pi >= 0 ? pi : 0;
                     declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
