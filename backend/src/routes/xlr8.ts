@@ -22,7 +22,7 @@ function nextWorkday(s: string): string {
 // Called when the current stage is accepted — starts cascade from now.
 async function cascadeTicketTimes(taskId: number, db: any): Promise<void> {
   const ticket = await db('tasks as t')
-    .join('ticket_types as tt', 't.ticket_type_id', 'tt.id')
+    .join('xlr8_ticket_types as tt', 't.ticket_type_id', 'tt.id')
     .where('t.id', taskId)
     .select('t.xlr8_stage_idx', 'tt.stages')
     .first();
