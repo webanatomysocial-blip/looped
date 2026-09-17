@@ -388,6 +388,39 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // XLR8 tasks currently assigned to this employee — show on assignment date, not due_date
+    if (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'client') {
+      const slottedIds = new Set(slotRows.map((r: any) => r.id));
+      const activeXlr8 = await db('tasks as t')
+        .leftJoin('projects as p', 't.project_id', 'p.id')
+        .where('t.xlr8_assignee_id', user.id)
+        .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
+        .whereNotIn('t.id', [...slottedIds])
+        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
+
+      for (const task of activeXlr8) {
+        // Get the time this employee was last assigned this task
+        const log = await db('xlr8_ticket_log')
+          .where({ task_id: task.id, action: 'assigned' })
+          .orderBy('created_at', 'desc')
+          .select('created_at')
+          .first();
+        const assignedAt = log?.created_at ? new Date(log.created_at) : new Date();
+        const assignedDate = assignedAt.toISOString().slice(0, 10);
+        slotRows.push({
+          ...task,
+          slot_date: assignedDate,
+          slot_hours: task.estimated_hours || 0,
+          scheduled_stage: task.xlr8_stage_idx,
+          user_est_hours: task.estimated_hours || 0,
+          is_overview: false,
+          assigned_on_date: assignedDate,
+        });
+      }
+    }
+
     // Recurring instances for the week (always due_date based — no scheduling needed)
     let recurringQuery = db('recurring_tasks as rt')
       .leftJoin('projects as p', 'rt.project_id', 'p.id')
