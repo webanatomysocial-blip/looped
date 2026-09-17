@@ -401,7 +401,6 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
           'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
 
       for (const task of activeXlr8) {
-        // Get the time this employee was last assigned this task
         const log = await db('xlr8_ticket_log')
           .where({ task_id: task.id, action: 'assigned' })
           .orderBy('created_at', 'desc')
@@ -416,7 +415,33 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
           scheduled_stage: task.xlr8_stage_idx,
           user_est_hours: task.estimated_hours || 0,
           is_overview: false,
-          assigned_on_date: assignedDate,
+        });
+      }
+
+      // Regular project tasks — show on assigned_at date, not due_date
+      const regularTasks = await db('task_assignees as ta')
+        .join('tasks as t', 'ta.task_id', 't.id')
+        .leftJoin('projects as p', 't.project_id', 'p.id')
+        .where('ta.user_id', user.id)
+        .where('ta.assignee_role', 'employee')
+        .whereNull('t.ticket_type_id')
+        .whereNotIn('t.status', ['completed', 'draft'])
+        .whereNotIn('t.id', [...new Set(slotRows.map((r: any) => r.id))])
+        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
+          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
+          'ta.assigned_at',
+          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
+
+      for (const task of regularTasks) {
+        const assignedAt = task.assigned_at ? new Date(task.assigned_at) : (task.due_date ? new Date(task.due_date) : new Date());
+        const assignedDate = assignedAt.toISOString().slice(0, 10);
+        slotRows.push({
+          ...task,
+          slot_date: assignedDate,
+          slot_hours: task.estimated_hours || 0,
+          scheduled_stage: null,
+          user_est_hours: task.estimated_hours || 0,
+          is_overview: false,
         });
       }
     }
