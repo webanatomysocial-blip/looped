@@ -517,9 +517,10 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
 
-  // Block if any other employee stage hasn't pre-accepted yet
+  // Block only if someone else on the CURRENT active stage hasn't accepted yet
+  const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
   const pendingStages = await db('task_assignees')
-    .where({ task_id: ticket.id, assignee_role: 'employee' })
+    .where({ task_id: ticket.id, stage_idx: currentStageIdx, assignee_role: 'employee' })
     .whereNotNull('user_id')
     .where('user_id', '!=', req.user!.id)
     .whereNotIn('acceptance_status', ['accepted', 'declined'])
