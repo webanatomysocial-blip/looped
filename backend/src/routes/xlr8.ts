@@ -6,57 +6,6 @@ import { createNotification } from '../db';
 const router = Router();
 router.use(authMiddleware);
 
-const WORK_START = 9;   // 9am
-const WORK_END   = 18;  // 6pm
-
-function localDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function nextWorkday(s: string): string {
-  const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + 1);
-  while ([0,6].includes(d.getDay())) d.setDate(d.getDate() + 1);
-  return localDateStr(d);
-}
-
-// Compute and store cascade_date/cascade_start_hour for all stages of a ticket.
-// Called when the current stage is accepted — starts cascade from now.
-async function cascadeTicketTimes(taskId: number, db: any): Promise<void> {
-  const ticket = await db('tasks as t')
-    .join('xlr8_ticket_types as tt', 't.ticket_type_id', 'tt.id')
-    .where('t.id', taskId)
-    .select('t.xlr8_stage_idx', 'tt.stages')
-    .first();
-  if (!ticket) return;
-
-  const stages: any[] = pj(ticket.stages, []);
-  const currentStageIdx: number = ticket.xlr8_stage_idx ?? 0;
-  const allAssignees = await db('task_assignees').where({ task_id: taskId }).orderBy('stage_idx').select('*');
-
-  const now = new Date();
-  let curDate = localDateStr(now);
-  let curHour = now.getHours() + now.getMinutes() / 60;
-
-  for (let si = currentStageIdx; si < stages.length; si++) {
-    const rows = allAssignees.filter((a: any) => a.stage_idx === si);
-    if (!rows.length) continue;
-
-    // All assignees at this stage share the same start time
-    for (const row of rows) {
-      await db('task_assignees').where({ id: row.id }).update({ cascade_date: curDate, cascade_start_hour: curHour });
-    }
-
-    // Advance time by the est_hours of this stage (use first non-null est_hours)
-    const estH = Number(rows.find((r: any) => r.est_hours != null)?.est_hours) || 1;
-    curHour += estH;
-
-    // Overflow past end of workday
-    while (curHour >= WORK_END) {
-      curHour = WORK_START + (curHour - WORK_END);
-      curDate = nextWorkday(curDate);
-    }
-  }
-}
-
 function requireAdmin(req: AuthRequest, res: Response): boolean {
   if (req.user!.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return false; }
   return true;
@@ -526,10 +475,6 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
   if (ticket.created_by !== req.user!.id) {
     await createNotification(ticket.created_by, `${req.user!.name} accepted your ticket "${ticket.title}" and has started working`, 'task', ticket.project_id);
   }
-
-  // Compute time cascade for all stages of this ticket
-  await cascadeTicketTimes(ticket.id, db);
-
   res.json({ ok: true });
   import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(req.user!.id, db)).catch(() => {});
 });
@@ -798,12 +743,14 @@ async function advanceToStage(
     const empAp = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
     if (empAp) await db('approvals').where({ id: empAp.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
     if (pre) {
-      // Always set pending_assignee so the home page alert shows — employee-accept moves it to in_progress
-      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_assignee', xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: 'todo' });
-      // Reset acceptance_status to pending so they see the alert and formally start
-      await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, user_id: pre.user_id }).update({ acceptance_status: 'pending' });
-      await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_assignee', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
-      const notifMsg = `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active. Accept to begin.`;
+      const alreadyAccepted = pre.acceptance_status === 'accepted';
+      const nextXlr8Status = alreadyAccepted ? 'in_progress' : 'pending_assignee';
+      const nextTaskStatus = alreadyAccepted ? 'in_progress' : 'todo';
+      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: nextXlr8Status, xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: nextTaskStatus });
+      await appendLog(ticket.id, actor, 'next_stage', fromState, nextXlr8Status, `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
+      const notifMsg = alreadyAccepted
+        ? `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active`
+        : `Ticket "${ticket.title}" has been assigned to you`;
       await createNotification(pre.user_id, notifMsg, 'task', ticket.project_id);
       // Reschedule the new stage assignee
       import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(pre.user_id, db)).catch(() => {});
