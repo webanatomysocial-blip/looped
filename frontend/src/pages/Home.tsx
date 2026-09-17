@@ -433,7 +433,10 @@ export default function Home() {
         {/* XLR8 stage assignment alert — shown until accepted */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const xlr8Pending = (data?.tasks ?? []).filter(t =>
-            t.ticket_type_id && t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending' && !t.timer_running
+            t.ticket_type_id && !t.timer_running && (
+              (t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending') ||
+              (t.rejection_log && t.acceptance_status !== 'review' && t.status !== 'completed')
+            )
           );
           if (xlr8Pending.length === 0) return null;
           return xlr8Pending.map((task: any) => (
@@ -460,7 +463,7 @@ export default function Home() {
                   Estimated: {fmtEstimated(task.stage_est_hours)} for your stage
                 </div>
               )}
-              {!task.rejection_log && (
+              {task.acceptance_status === 'pending' && !task.rejection_log && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')} style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13 }}>
                     <CheckCircle size={13} /> Accept &amp; Start
