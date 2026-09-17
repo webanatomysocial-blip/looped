@@ -16,15 +16,19 @@ type Tab = 'internal' | 'client';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-function formatMsgDate(d: string | Date) {
+function formatMsgDate(d: string | Date | null | undefined) {
+  if (!d) return '';
   const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return format(dt, 'h:mm a');
   if (isYesterday(dt)) return 'Yesterday';
   return format(dt, 'dd/MM/yy');
 }
 
-function dateDivider(d: string | Date) {
+function dateDivider(d: string | Date | null | undefined) {
+  if (!d) return 'Today';
   const dt = new Date(d);
+  if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return 'Today';
   if (isYesterday(dt)) return 'Yesterday';
   return format(dt, 'MMMM d, yyyy');
