@@ -438,21 +438,31 @@ export default function Home() {
               </div>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                 {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+                {task.rejection_log && (
+                  <span style={{ marginLeft: 8, fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>
+                    Returned by {task.rejection_log.actor}
+                  </span>
+                )}
               </div>
+              {task.rejection_log?.comment && (
+                <div style={{ fontSize: 12, color: '#ef4444', fontStyle: 'italic' }}>"{task.rejection_log.comment}"</div>
+              )}
               {task.stage_est_hours && (
                 <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
                   <Clock size={11} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
                   Estimated: {fmtEstimated(task.stage_est_hours)} for your stage
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')} style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13 }}>
-                  <CheckCircle size={13} /> Accept &amp; Start
-                </button>
-                <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task, 'decline')} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13 }}>
-                  <XCircle size={13} /> Decline
-                </button>
-              </div>
+              {!task.rejection_log && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')} style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13 }}>
+                    <CheckCircle size={13} /> Accept &amp; Start
+                  </button>
+                  <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task, 'decline')} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13 }}>
+                    <XCircle size={13} /> Decline
+                  </button>
+                </div>
+              )}
             </div>
           ));
         })()}
