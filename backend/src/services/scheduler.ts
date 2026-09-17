@@ -120,18 +120,8 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
       if (seen.has(key)) { continue; }
       seen.add(key);
 
-      let earliest = today;
-      if (currentStageIdx > 0) {
-        const prev = await db('task_schedule_slots')
-          .where({ task_id: t.task_id })
-          .where('stage_idx', currentStageIdx - 1)
-          .max('slot_date as last_date')
-          .first() as any;
-        if (prev?.last_date) {
-          const after = nextDay(String(prev.last_date));
-          if (after > earliest) earliest = after;
-        }
-      }
+      // Use cascade_date if set (time-based cascade), otherwise schedule from today
+      const earliest = sr.cascade_date ?? today;
 
       items.push({ task_id: t.task_id, user_id: userId, stage_idx: currentStageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest, cascadeDate: sr.cascade_date ?? undefined, cascadeStartHour: sr.cascade_start_hour != null ? Number(sr.cascade_start_hour) : undefined });
     } else {
