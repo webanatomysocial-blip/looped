@@ -490,10 +490,9 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
         db.raw('0 as tracked_seconds'));
 
-    // For employees: if no slots exist this week, trigger scheduler then re-fetch
-    if (user.role !== 'admin' && user.role !== 'manager' && slotRowsRaw.length === 0) {
+    // For employees: always re-run scheduler on calendar load so slots stay fresh
+    if (user.role !== 'admin' && user.role !== 'manager') {
       try {
-        
         const { scheduleUser } = await import('../services/scheduler');
         await scheduleUser(user.id, db);
         const refetched = await db('task_schedule_slots as s')
