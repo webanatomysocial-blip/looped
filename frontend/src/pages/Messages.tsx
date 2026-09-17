@@ -31,6 +31,7 @@ function dateDivider(d: string | Date) {
 }
 
 function renderWithMentions(text: string) {
+  if (!text) return null;
   const parts = text.split(/(@[A-Za-z][A-Za-z0-9 ]*)/g);
   return parts.map((p, i) =>
     p.startsWith('@')
@@ -411,7 +412,7 @@ export default function Messages() {
             {m.reply_to && (
               <div className={`wa-reply-quote wa-reply-quote--${isMe ? 'mine' : 'theirs'}`}>
                 <span className="wa-reply-quote-name">{m.reply_to.deleted_at ? 'Deleted message' : m.reply_to.sender_name}</span>
-                <span className="wa-reply-quote-text">{m.reply_to.deleted_at ? '🚫 This message was deleted' : m.reply_to.content.slice(0, 80)}</span>
+                <span className="wa-reply-quote-text">{m.reply_to.deleted_at ? '🚫 This message was deleted' : (m.reply_to.content || '').slice(0, 80)}</span>
               </div>
             )}
 
@@ -565,7 +566,7 @@ export default function Messages() {
               <button className="wa-icon-btn" onClick={() => { setForwardMsg(null); setForwardSearch(''); }}><X size={16} /></button>
             </div>
             <div className="wa-modal-body">
-              <p className="wa-modal-preview">"{forwardMsg.content.slice(0, 80)}{forwardMsg.content.length > 80 ? '…' : ''}"</p>
+              <p className="wa-modal-preview">"{(forwardMsg.content || '').slice(0, 80)}{(forwardMsg.content || '').length > 80 ? '…' : ''}"</p>
               {/* Search */}
               <div className="wa-search" style={{ marginBottom: 8 }}>
                 <Search size={13} />
@@ -687,7 +688,7 @@ export default function Messages() {
                               <p className="wa-chat-name">{getChatLabel(chat)}</p>
                               {!!chat.is_pinned && <Pin size={10} color="#00a884" />}
                             </div>
-                            <p className="wa-chat-preview">{last ? last.content.slice(0, 35) + (last.content.length > 35 ? '…' : '') : 'No messages yet'}</p>
+                            <p className="wa-chat-preview">{last ? (last.content || '').slice(0, 35) + ((last.content || '').length > 35 ? '…' : '') : 'No messages yet'}</p>
                           </div>
                           <div className="wa-chat-meta">
                             {last && <span className="wa-chat-time">{formatMsgDate(last.created_at)}</span>}
@@ -954,7 +955,7 @@ export default function Messages() {
                       <Pencil size={14} color="#00a884" />
                       <div>
                         <p className="wa-reply-bar-title">Edit message</p>
-                        <p className="wa-reply-bar-text">{editingMsg.content.slice(0, 60)}</p>
+                        <p className="wa-reply-bar-text">{(editingMsg.content || '').slice(0, 60)}</p>
                       </div>
                     </div>
                     <button className="wa-icon-btn" onClick={() => { setEditingMsg(null); setEditText(''); }}><X size={14} /></button>
@@ -968,7 +969,7 @@ export default function Messages() {
                       <Reply size={14} color="#00a884" />
                       <div>
                         <p className="wa-reply-bar-title">{replyTo.sender_name}</p>
-                        <p className="wa-reply-bar-text">{replyTo.content.slice(0, 60)}</p>
+                        <p className="wa-reply-bar-text">{(replyTo.content || '').slice(0, 60)}</p>
                       </div>
                     </div>
                     <button className="wa-icon-btn" onClick={() => setReplyTo(null)}><X size={14} /></button>
