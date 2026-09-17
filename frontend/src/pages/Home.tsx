@@ -267,7 +267,7 @@ export default function Home() {
     (effectiveEst(t) > 0 && t.acceptance_status === 'accepted' && liveSeconds(t) > effectiveEst(t))
   ));
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
-  const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
+  const allTasks = allTasksRaw.filter(t => t.status !== 'completed' && t.acceptance_status !== 'review');
   const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
   const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && t.acceptance_status === 'accepted');
 
