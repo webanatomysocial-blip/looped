@@ -564,6 +564,14 @@ async function createSchema(): Promise<void> {
     await db.schema.table('task_assignees', t => { t.timestamp('assigned_at').nullable(); });
   }
 
+  const hasCascadeDate = await db.schema.hasColumn('task_assignees', 'cascade_date');
+  if (!hasCascadeDate) {
+    await db.schema.table('task_assignees', t => {
+      t.string('cascade_date', 10).nullable(); // YYYY-MM-DD pinned by time cascade
+      t.float('cascade_start_hour').nullable(); // hour within that day (e.g. 15.5 = 3:30pm)
+    });
+  }
+
   // Backfill time_logs from completed task_sessions that have no time_log yet.
   // Uses orphan-linking: if an unlinked time_log already matches (same task/user/date/hours),
   // update it to link the session rather than inserting a duplicate.

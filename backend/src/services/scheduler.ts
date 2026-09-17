@@ -62,6 +62,8 @@ interface WorkItem {
   due_date: string;
   priority: string;
   earliest: string; // earliest slot date
+  cascadeDate?: string;
+  cascadeStartHour?: number;
 }
 
 export async function scheduleUser(userId: number, db: Knex): Promise<void> {
@@ -131,7 +133,7 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
         }
       }
 
-      items.push({ task_id: t.task_id, user_id: userId, stage_idx: currentStageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest });
+      items.push({ task_id: t.task_id, user_id: userId, stage_idx: currentStageIdx, hours: hrs, due_date: t.due_date, priority: t.priority || 'medium', earliest, cascadeDate: sr.cascade_date ?? undefined, cascadeStartHour: sr.cascade_start_hour != null ? Number(sr.cascade_start_hour) : undefined });
     } else {
       if (!nonXlr8AcceptedIds.has(Number(t.task_id))) continue; // user hasn't accepted
       const key = `${t.task_id}-null`;
@@ -152,9 +154,17 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
 
   // 6. Fill days greedily
   const dayUsed = new Map<string, number>();
-  const toInsert: { task_id: number; user_id: number; stage_idx: number | null; slot_date: string; hours: number }[] = [];
+  const toInsert: { task_id: number; user_id: number; stage_idx: number | null; slot_date: string; hours: number; custom_start_hour?: number }[] = [];
 
   for (const item of items) {
+    // Cascade-pinned: slot is fixed to a specific date+hour
+    if (item.cascadeDate != null && item.cascadeStartHour != null) {
+      toInsert.push({ task_id: item.task_id, user_id: userId, stage_idx: item.stage_idx, slot_date: item.cascadeDate, hours: item.hours, custom_start_hour: item.cascadeStartHour });
+      const used = dayUsed.get(item.cascadeDate) || 0;
+      dayUsed.set(item.cascadeDate, used + item.hours);
+      continue;
+    }
+
     let rem = round2(item.hours);
     let date = skipToWorkday(item.earliest);
 
@@ -171,7 +181,7 @@ export async function scheduleUser(userId: number, db: Knex): Promise<void> {
       if (avail <= 0.01) { date = nextDay(date); continue; }
 
       const hrs = round2(Math.min(rem, avail));
-      toInsert.push({ task_id: item.task_id, user_id: userId, stage_idx: item.stage_idx, slot_date: date, hours: hrs });
+      toInsert.push({ task_id: item.task_id, user_id: userId, stage_idx: item.stage_idx, slot_date: date, hours: hrs, custom_start_hour: undefined });
       dayUsed.set(date, used + hrs);
       rem = round2(rem - hrs);
       if (rem > 0.01) date = nextDay(date);
