@@ -435,7 +435,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                                       <path key={ei}
                                         d={`M ${fromX} 4 C ${fromX} ${h}, ${toX} ${h}, ${toX} 4`}
                                         stroke="#ef4444" strokeWidth={isLast ? 2.5 : 1.5} fill="none"
-                                        markerEnd={isLast ? 'url(#rejArrowHead2)' : undefined}
+                                        markerEnd="url(#rejArrowHead2)"
                                         strokeDasharray="5 3"
                                         opacity={0.25 + (ei / Math.max(1, realArcs.length - 1)) * 0.75}
                                       />
