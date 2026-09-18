@@ -97,6 +97,7 @@ export interface Project {
   start_date: string | null;
   briefing_doc: string | null;
   project_drive_doc: string | null;
+  description: string | null;
   manager_status: 'pending_manager' | 'accepted' | 'declined' | null;
 }
 

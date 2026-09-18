@@ -174,7 +174,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
   const [pinned, setPinned] = useState<Record<number, number>>({});
   // Active drag state
   const dragRef = useRef<{ slotId: number; hrs: number; offsetY: number; colEl: HTMLElement; day: string } | null>(null);
-  const [dragPos, setDragPos] = useState<{ slotId: number; startH: number; day: string } | null>(null);
+  const [dragPos, setDragPos] = useState<{ slotId: number; startH: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const colRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const today = dateStr(new Date());
@@ -185,7 +185,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
     return () => clearInterval(id);
   }, []);
 
-  const loadWeek = () => {
+  useEffect(() => {
     setLoading(true);
     setError(null);
     setPinned({});
@@ -193,14 +193,6 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
       .then(r => setData(r.data))
       .catch(e => setError(e?.response?.data?.error || 'Failed to load week'))
       .finally(() => setLoading(false));
-  };
-
-  useEffect(() => { loadWeek(); }, [dateStr(monday)]);
-
-  useEffect(() => {
-    const handler = () => loadWeek();
-    window.addEventListener('calendar-reload', handler);
-    return () => window.removeEventListener('calendar-reload', handler);
   }, [dateStr(monday)]);
 
   // Pointer drag handlers (attached to document when drag active)
@@ -210,20 +202,12 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
     const onMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      // Find which day column the pointer is over
-      let targetDay = d.day;
-      for (const [day, el] of Object.entries(colRefs.current)) {
-        if (!el) continue;
-        const r = el.getBoundingClientRect();
-        if (e.clientX >= r.left && e.clientX <= r.right) { targetDay = day; break; }
-      }
-      const colEl = colRefs.current[targetDay] || d.colEl;
-      const rect = colEl.getBoundingClientRect();
+      const rect = d.colEl.getBoundingClientRect();
       const scrollTop = scrollRef.current?.scrollTop ?? 0;
       const relY = e.clientY - rect.top + scrollTop - d.offsetY;
       const raw = GRID_START_H + relY / ROW_PX;
       const clamped = Math.max(GRID_START_H, Math.min(GRID_END_H - d.hrs, raw));
-      setDragPos({ slotId: d.slotId, startH: snap(clamped), day: targetDay });
+      setDragPos({ slotId: d.slotId, startH: snap(clamped) });
     };
 
     const onUp = async () => {
@@ -233,13 +217,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
       setDragPos(prev => {
         if (!prev) return null;
         const h = prev.startH;
-        const newDay = prev.day;
         setPinned(p => ({ ...p, [d.slotId]: h }));
-        calendarApi.updateSlotTime(d.slotId, h, newDay !== d.day ? newDay : undefined).catch(() => {});
-        if (newDay !== d.day) {
-          // Reload to reflect the slot moving to a different day
-          setTimeout(() => window.dispatchEvent(new CustomEvent('calendar-reload')), 300);
-        }
+        calendarApi.updateSlotTime(d.slotId, h).catch(() => {});
         return null;
       });
     };
@@ -364,21 +343,9 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                       ))}
 
 
-                      {/* Ghost block when dragging into this column from another day */}
-                      {dragPos != null && dragPos.day === day && !blocks.some(b => b.task.slot_id === dragPos.slotId) && (() => {
-                        const origBlock = Object.values(dayBlocks).flat().find(b => b.task.slot_id === dragPos.slotId);
-                        if (!origBlock) return null;
-                        const hrs = origBlock.endH - origBlock.startH;
-                        const top = (dragPos.startH - GRID_START_H) * ROW_PX;
-                        const height = Math.max(hrs * ROW_PX - 3, 22);
-                        return <div key="ghost" style={{ position: 'absolute', left: 3, right: 3, top, height, borderRadius: 6, background: 'rgba(37,99,235,0.25)', border: '2px dashed #2563eb', pointerEvents: 'none', zIndex: 10 }} />;
-                      })()}
-
                       {/* Task blocks */}
                       {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
                         const isDragging = dragPos != null && task.slot_id != null && dragPos.slotId === task.slot_id;
-                        // Hide from original column when dragged to a different day
-                        if (isDragging && dragPos!.day !== day) return null;
                         const startH = isDragging ? dragPos!.startH : baseStartH;
                         const hrs    = baseEndH - baseStartH;
                         const endH   = startH + hrs;
@@ -398,7 +365,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                               const scrollTop = scrollRef.current?.scrollTop ?? 0;
                               const clickY = e.clientY - rect.top + scrollTop - top;
                               dragRef.current = { slotId: task.slot_id, hrs, offsetY: clickY, colEl, day };
-                              setDragPos({ slotId: task.slot_id, startH: baseStartH, day });
+                              setDragPos({ slotId: task.slot_id, startH: baseStartH });
                               (e.target as HTMLElement).setPointerCapture(e.pointerId);
                             } : undefined}
                             onClick={() => { if (!dragRef.current) onTaskClick(task); }}

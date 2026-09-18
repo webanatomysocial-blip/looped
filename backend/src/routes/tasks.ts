@@ -289,9 +289,8 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
 
     // Insert assignees (no alternate role — only employee + manager)
     const assigneeInserts: any[] = [];
-    const now = new Date();
-    if (workerId)  assigneeInserts.push({ task_id: id, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending', assigned_at: now });
-    if (managerId) assigneeInserts.push({ task_id: id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted', assigned_at: now });
+    if (workerId)  assigneeInserts.push({ task_id: id, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
+    if (managerId) assigneeInserts.push({ task_id: id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
     if (assigneeInserts.length) await db('task_assignees').insert(assigneeInserts);
 
     const validItems = checklistItems.filter(i => i.text);
@@ -414,7 +413,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       updates.assigned_to = ids[0] || null;
       await db('task_assignees').where({ task_id: req.params.id }).delete();
       if (ids.length) {
-        await db('task_assignees').insert(ids.map((uid) => ({ task_id: req.params.id, user_id: uid, assigned_at: new Date() })));
+        await db('task_assignees').insert(ids.map((uid) => ({ task_id: req.params.id, user_id: uid })));
       }
     }
 
@@ -552,7 +551,7 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
 
     await db('task_assignees')
       .where({ task_id: req.params.id, user_id: userId })
-      .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined', ...(action === 'accept' ? { assigned_at: new Date() } : {}) });
+      .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined' });
 
     const task = await db('tasks').where({ id: req.params.id }).first();
     const me = await db('users').where({ id: userId }).first();

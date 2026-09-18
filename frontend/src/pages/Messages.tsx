@@ -440,7 +440,7 @@ export default function Messages() {
                   <div style={{ padding: '4px 6px 2px', fontSize: 13 }}>{renderWithMentions(m.content)}</div>
                 )}
                 <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
-                  <span className="wa-time">{formatMsgDate(m.created_at)}</span>
+                  <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                   {isMe && <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}><CheckCheck size={14} /></span>}
                 </div>
               </div>
@@ -453,7 +453,7 @@ export default function Messages() {
                 {renderWithMentions(m.content)}
                 <div className="wa-bubble-footer">
                   {m.edited_at && <span className="wa-edited">edited</span>}
-                  <span className="wa-time">{formatMsgDate(m.created_at)}</span>
+                  <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                   {isMe && (
                     <span className={`wa-tick${m.read_by_other ? ' wa-tick--read' : ''}`}>
                       <CheckCheck size={14} />
@@ -511,7 +511,7 @@ export default function Messages() {
             <a href={m.file_url} target="_blank" rel="noreferrer" className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
               <img src={m.file_url} alt={m.file_name || 'image'} className="wa-img-preview" />
               <div className="wa-bubble-footer" style={{ padding: '4px 6px 2px' }}>
-                <span className="wa-time">{formatMsgDate(m.created_at)}</span>
+                <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                 {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
               </div>
             </a>
@@ -523,7 +523,7 @@ export default function Messages() {
             <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
               {m.message}
               <div className="wa-bubble-footer">
-                <span className="wa-time">{formatMsgDate(m.created_at)}</span>
+                <span className="wa-time">{format(parseTs(m.created_at), 'h:mm a')}</span>
                 {isMe && <span className="wa-tick"><CheckCheck size={14} /></span>}
               </div>
             </div>

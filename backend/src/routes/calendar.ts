@@ -388,64 +388,6 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // XLR8 tasks currently assigned to this employee — show on assignment date, not due_date
-    if (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'client') {
-      const slottedIds = new Set(slotRows.map((r: any) => r.id));
-      const activeXlr8 = await db('tasks as t')
-        .leftJoin('projects as p', 't.project_id', 'p.id')
-        .where('t.xlr8_assignee_id', user.id)
-        .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress'])
-        .whereNotIn('t.id', [...slottedIds])
-        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
-          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
-          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
-
-      for (const task of activeXlr8) {
-        const log = await db('xlr8_ticket_log')
-          .where({ task_id: task.id, action: 'assigned' })
-          .orderBy('created_at', 'desc')
-          .select('created_at')
-          .first();
-        const assignedAt = log?.created_at ? new Date(log.created_at) : new Date();
-        const assignedDate = assignedAt.toISOString().slice(0, 10);
-        slotRows.push({
-          ...task,
-          slot_date: assignedDate,
-          slot_hours: task.estimated_hours || 0,
-          scheduled_stage: task.xlr8_stage_idx,
-          user_est_hours: task.estimated_hours || 0,
-          is_overview: false,
-        });
-      }
-
-      // Regular project tasks — show on assigned_at date, not due_date
-      const regularTasks = await db('task_assignees as ta')
-        .join('tasks as t', 'ta.task_id', 't.id')
-        .leftJoin('projects as p', 't.project_id', 'p.id')
-        .where('ta.user_id', user.id)
-        .where('ta.assignee_role', 'employee')
-        .whereNull('t.ticket_type_id')
-        .whereNotIn('t.status', ['completed', 'draft'])
-        .whereNotIn('t.id', [...new Set(slotRows.map((r: any) => r.id))])
-        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
-          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
-          'ta.assigned_at',
-          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
-
-      for (const task of regularTasks) {
-        const assignedAt = task.assigned_at ? new Date(task.assigned_at) : new Date();
-        const assignedDate = assignedAt.toISOString().slice(0, 10);
-        slotRows.push({
-          ...task,
-          slot_date: assignedDate,
-          slot_hours: task.estimated_hours || 0,
-          scheduled_stage: null,
-          user_est_hours: task.estimated_hours || 0,
-          is_overview: false,
-        });
-      }
-    }
-
     // Recurring instances for the week (always due_date based — no scheduling needed)
     let recurringQuery = db('recurring_tasks as rt')
       .leftJoin('projects as p', 'rt.project_id', 'p.id')
@@ -484,20 +426,16 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
       .whereNotIn('t.status', ['completed', 'draft'])
       .whereNotNull('t.due_date')
-      .where(function(this: any) {
-        // Show if cascade_date falls in this week, OR if due_date falls in this week (fallback)
-        this.whereBetween('ta.cascade_date', [weekStart, weekEnd])
-            .orWhereBetween('t.due_date', [weekStart, weekEnd]);
-      })
+      .whereBetween('t.due_date', [weekStart, weekEnd])
       .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
         'p.name as project_name', 'ta.est_hours as user_est_hours', 'ta.stage_idx as scheduled_stage',
-        'ta.cascade_date', 'ta.cascade_start_hour',
         db.raw('0 as tracked_seconds'));
 
-    // For employees: always re-run scheduler on calendar load so slots stay fresh
-    if (user.role !== 'admin' && user.role !== 'manager') {
+    // For employees: if no slots exist this week, trigger scheduler then re-fetch
+    if (user.role !== 'admin' && user.role !== 'manager' && slotRowsRaw.length === 0) {
       try {
+        
         const { scheduleUser } = await import('../services/scheduler');
         await scheduleUser(user.id, db);
         const refetched = await db('task_schedule_slots as s')
@@ -539,15 +477,11 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     for (const d of days) byDay[d] = [];
     for (const t of slotRows) byDay[t.slot_date]?.push({ ...t, event_type: 'task' });
     for (const r of recurring) byDay[r.slot_date]?.push(r);
-    // Add future-stage placeholders — use cascade_date if set, else due_date
+    // Add future-stage placeholders on due_date (skip if already has a slot this week)
     for (const t of futureStageRows) {
       if (scheduledTaskIds.has(t.id)) continue;
       const hrs = Number(t.user_est_hours) || 1;
-      const slotDate = t.cascade_date ?? t.due_date;
-      const customStartHour = t.cascade_start_hour != null ? Number(t.cascade_start_hour) : null;
-      if (byDay[slotDate]) {
-        byDay[slotDate].push({ ...t, slot_date: slotDate, slot_hours: hrs, custom_start_hour: customStartHour, event_type: 'task', is_placeholder: true });
-      }
+      byDay[t.due_date]?.push({ ...t, slot_date: t.due_date, slot_hours: hrs, event_type: 'task', is_placeholder: true });
     }
 
     res.json({ days, byDay });
@@ -582,14 +516,12 @@ router.patch('/slot/:slotId/time', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const slotId = Number(req.params.slotId);
-    const { start_hour, slot_date } = req.body;
+    const { start_hour } = req.body;
     if (typeof start_hour !== 'number') { res.status(400).json({ error: 'start_hour required' }); return; }
     // Verify ownership
     const slot = await db('task_schedule_slots').where({ id: slotId, user_id: req.user!.id }).first();
     if (!slot) { res.status(404).json({ error: 'Slot not found' }); return; }
-    const update: Record<string, any> = { custom_start_hour: start_hour };
-    if (slot_date) update.slot_date = slot_date;
-    await db('task_schedule_slots').where({ id: slotId }).update(update);
+    await db('task_schedule_slots').where({ id: slotId }).update({ custom_start_hour: start_hour });
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e?.message || 'Server error' }); }
 });

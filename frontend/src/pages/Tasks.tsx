@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const URL_RE_G = /https?:\/\/[^\s<>"]+/g;
+const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
 function linkifyHtml(text: string) {
-  return text.replace(URL_RE_G, url => `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">${url}</a>`);
+  return text.replace(URL_RE_G, url => {
+    const href = /^https?:\/\//.test(url) ? url : `https://${url}`;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline">${url}</a>`;
+  });
 }
 function DescEditor({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
   const ref = useRef<HTMLDivElement>(null);

@@ -90,12 +90,21 @@ export default function Projects() {
     budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
     monthly_hours_bucket: '', billing_cycle_start_day: '1',
     pod: 'pod1' as 'pod1' | 'pod2',
-    briefing_doc: '', project_drive_doc: '',
+    briefing_doc: '', project_drive_doc: '', description: '',
   });
 
   const [showAddClient, setShowAddClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: '', email: '', password: '', company_name: '', send_welcome_email: false });
   const [addingClient, setAddingClient] = useState(false);
+
+  // Project detail drawer
+  const [detailProject, setDetailProject] = useState<Project | null>(null);
+  const [detailTab, setDetailTab] = useState<'about' | 'docs'>('about');
+  const [detailDesc, setDetailDesc] = useState('');
+  const [savingDesc, setSavingDesc] = useState(false);
+  const [detailBriefing, setDetailBriefing] = useState('');
+  const [detailDrive, setDetailDrive] = useState('');
+  const [savingDocs, setSavingDocs] = useState(false);
 
   // Manager accept flow
   const [acceptProject, setAcceptProject] = useState<Project | null>(null);
@@ -139,7 +148,7 @@ export default function Projects() {
     setForm({ name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [],
       service_type: 'per_project', budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
       monthly_hours_bucket: '', billing_cycle_start_day: '1',
-      pod: 'pod1', briefing_doc: '', project_drive_doc: '' });
+      pod: 'pod1', briefing_doc: '', project_drive_doc: '', description: '' });
     setMemberTab('admins');
     setEmpSubTab('all');
     // Refresh companies so newly created clients (with pod) show up
@@ -168,6 +177,7 @@ export default function Projects() {
       pod: (p.pod as 'pod1' | 'pod2') || 'pod1',
       briefing_doc: p.briefing_doc || '',
       project_drive_doc: p.project_drive_doc || '',
+      description: p.description || '',
     });
     setMemberTab('admins');
     setEmpSubTab('all');
@@ -179,14 +189,14 @@ export default function Projects() {
     try {
       if (!editProject && user?.role === 'admin') {
         // Admin create: new flow — no member_ids, send pod + docs
-        if (!form.briefing_doc.trim()) { alert('Briefing doc is required'); return; }
         await projectsApi.create({
           name: form.name,
           client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
           service_type: form.service_type,
           pod: form.pod,
-          briefing_doc: form.briefing_doc,
+          briefing_doc: form.briefing_doc || null,
           project_drive_doc: form.project_drive_doc || null,
+          description: form.description || null,
           start_date: form.start_date || null,
           due_date: form.due_date || null,
           budget_amount: form.budget_amount ? Number(form.budget_amount) : null,
@@ -209,6 +219,9 @@ export default function Projects() {
           budgeted_hours: form.service_type === 'per_project' && form.budgeted_hours ? Number(form.budgeted_hours) : null,
           monthly_hours_bucket: form.service_type === 'xlr8' && form.monthly_hours_bucket ? Number(form.monthly_hours_bucket) : null,
           billing_cycle_start_day: form.service_type === 'xlr8' ? Number(form.billing_cycle_start_day) || 1 : null,
+          description: form.description || null,
+          briefing_doc: form.briefing_doc || null,
+          project_drive_doc: form.project_drive_doc || null,
         };
         if (editProject) await projectsApi.update(editProject.id, payload);
         else await projectsApi.create(payload);
@@ -486,7 +499,7 @@ export default function Projects() {
                     <tr
                       key={project.id}
                       className="proj-row"
-                      onClick={() => canEdit && openEdit(project)}
+                      onClick={() => { setDetailProject(project); setDetailTab('about'); setDetailDesc(project.description || ''); setDetailBriefing(project.briefing_doc || ''); setDetailDrive(project.project_drive_doc || ''); }}
                     >
                       <td className="proj-td">
                         <span className="proj-name">{project.name}</span>
@@ -816,24 +829,38 @@ export default function Projects() {
                       })}
                     </div>
                   </div>
-                  {/* Briefing doc — text area */}
-                  {(() => {
-                    const companyName = form.name.trim();
-                    const label = companyName ? `About ${companyName} *` : 'Briefing doc *';
-                    return (
-                      <div>
-                        <label className="form-label">{label}</label>
-                        <textarea
-                          className="form-input"
-                          rows={5}
-                          placeholder={companyName ? `Write about ${companyName}…` : 'Write a brief about this project…'}
-                          value={form.briefing_doc}
-                          onChange={e => setForm(f => ({ ...f, briefing_doc: e.target.value }))}
-                          style={{ resize: 'vertical', lineHeight: 1.6 }}
-                        />
-                      </div>
-                    );
-                  })()}
+                  {/* Description */}
+                  <div>
+                    <label className="form-label">Description</label>
+                    <textarea
+                      className="form-input"
+                      rows={4}
+                      placeholder="Write a brief about this project — goals, scope, context…"
+                      value={form.description}
+                      onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      style={{ resize: 'vertical', lineHeight: 1.6 }}
+                    />
+                  </div>
+                  {/* Briefing doc URL */}
+                  <div>
+                    <label className="form-label">Briefing doc</label>
+                    <input
+                      className="form-input"
+                      placeholder="Paste briefing doc URL…"
+                      value={form.briefing_doc}
+                      onChange={e => setForm(f => ({ ...f, briefing_doc: e.target.value }))}
+                    />
+                  </div>
+                  {/* Project drive URL */}
+                  <div>
+                    <label className="form-label">Project drive</label>
+                    <input
+                      className="form-input"
+                      placeholder="Paste project drive URL…"
+                      value={form.project_drive_doc}
+                      onChange={e => setForm(f => ({ ...f, project_drive_doc: e.target.value }))}
+                    />
+                  </div>
                 </>
               ) : (
                 <>
@@ -907,6 +934,26 @@ export default function Projects() {
                         );
                       })}
                     </div>
+                  </div>
+                  {/* Description, Briefing doc, Drive for manager/edit form */}
+                  <div>
+                    <label className="form-label">Description</label>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      placeholder="Write a brief about this project…"
+                      value={form.description}
+                      onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                      style={{ resize: 'vertical', lineHeight: 1.6 }}
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Briefing doc</label>
+                    <input className="form-input" placeholder="Paste briefing doc URL…" value={form.briefing_doc} onChange={e => setForm(f => ({ ...f, briefing_doc: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="form-label">Project drive</label>
+                    <input className="form-input" placeholder="Paste project drive URL…" value={form.project_drive_doc} onChange={e => setForm(f => ({ ...f, project_drive_doc: e.target.value }))} />
                   </div>
                 </>
               )}
@@ -1000,6 +1047,147 @@ export default function Projects() {
               <button className="drawer-submit" style={{ padding: '9px 20px', fontSize: 13, margin: 0 }} onClick={handleManagerAccept}>
                 Accept project
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Project detail drawer */}
+      {detailProject && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex' }} onClick={() => setDetailProject(null)}>
+          <div style={{ flex: 1 }} />
+          <div style={{ width: 440, background: 'var(--surface, #fff)', height: '100%', boxShadow: '-8px 0 40px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px 0', borderBottom: '1px solid var(--sand-border, #e8e3da)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--ink-muted)', marginBottom: 4 }}>Project</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)' }}>{detailProject.name}</div>
+                  {detailProject.client_name && <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>{detailProject.client_name}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {canEdit && (
+                    <button onClick={() => { setDetailProject(null); openEdit(detailProject); }}
+                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 7, border: '1.5px solid var(--sand-border)', background: 'transparent', cursor: 'pointer', color: 'var(--ink)' }}>
+                      Edit
+                    </button>
+                  )}
+                  <button onClick={() => setDetailProject(null)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--ink-muted)', lineHeight: 1, padding: 2 }}>×</button>
+                </div>
+              </div>
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: 0 }}>
+                {(['about', 'docs'] as const).map(tab => (
+                  <button key={tab} onClick={() => setDetailTab(tab)}
+                    style={{ padding: '8px 18px', fontSize: 13, fontWeight: detailTab === tab ? 700 : 500, color: detailTab === tab ? 'var(--ink)' : 'var(--ink-muted)', background: 'none', border: 'none', borderBottom: detailTab === tab ? '2px solid var(--ink)' : '2px solid transparent', cursor: 'pointer', textTransform: 'capitalize' }}>
+                    {tab === 'about' ? 'About' : 'Docs'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tab body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+              {detailTab === 'about' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  {/* Info grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    {[
+                      { label: 'Status', value: detailProject.status.replace('_', ' ') },
+                      { label: 'Client', value: detailProject.client_name || '—' },
+                      { label: 'Start Date', value: detailProject.start_date ? format(parseISO(detailProject.start_date), 'MMM dd, yyyy') : '—' },
+                      { label: 'Due Date', value: detailProject.due_date ? format(parseISO(detailProject.due_date), 'MMM dd, yyyy') : '—' },
+                    ].map(({ label, value }) => (
+                      <div key={label} style={{ background: 'var(--bg-sand, #f8f5f0)', borderRadius: 8, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 3 }}>{label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', textTransform: 'capitalize' }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Team */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 8 }}>Team</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {detailProject.members.map(m => (
+                        <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-sand)', borderRadius: 20, padding: '4px 10px 4px 4px' }}>
+                          <Avatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size="sm" />
+                          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{m.name}</span>
+                        </div>
+                      ))}
+                      {detailProject.members.length === 0 && <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>No team members</span>}
+                    </div>
+                  </div>
+                  {/* Description / About */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 8 }}>About this project</div>
+                    <textarea
+                      value={detailDesc}
+                      onChange={e => setDetailDesc(e.target.value)}
+                      placeholder="Write a brief about this project — goals, scope, context…"
+                      style={{ width: '100%', minHeight: 120, borderRadius: 8, border: '1.5px solid var(--sand-border)', padding: '10px 12px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg-sand)', resize: 'vertical', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <button
+                      disabled={savingDesc || detailDesc === (detailProject.description || '')}
+                      onClick={async () => {
+                        setSavingDesc(true);
+                        try {
+                          await projectsApi.update(detailProject.id, { description: detailDesc });
+                          setDetailProject({ ...detailProject, description: detailDesc });
+                          setProjects(prev => prev.map(p => p.id === detailProject.id ? { ...p, description: detailDesc } : p));
+                        } finally { setSavingDesc(false); }
+                      }}
+                      style={{ marginTop: 8, padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--ink)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: (savingDesc || detailDesc === (detailProject.description || '')) ? 0.4 : 1 }}>
+                      {savingDesc ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {detailTab === 'docs' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  {[
+                    { label: 'Briefing Doc', val: detailBriefing, set: setDetailBriefing },
+                    { label: 'Project Drive', val: detailDrive, set: setDetailDrive },
+                  ].map(({ label, val, set }) => {
+                    const isLink = /^https?:\/\/\S+$|^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/\S*)?$/.test(val.trim());
+                    const href = /^https?:\/\//.test(val) ? val : `https://${val}`;
+                    return (
+                      <div key={label}>
+                        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 8 }}>{label}</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <input
+                            value={val}
+                            onChange={e => set(e.target.value)}
+                            placeholder={`Paste ${label.toLowerCase()} URL or text`}
+                            style={{ flex: 1, borderRadius: 8, border: '1.5px solid var(--sand-border)', padding: '8px 12px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg-sand)', fontFamily: 'inherit', outline: 'none' }}
+                          />
+                          {isLink && val && (
+                            <a href={href} target="_blank" rel="noreferrer"
+                              style={{ fontSize: 11, fontWeight: 700, color: 'var(--brand, #6366f1)', textDecoration: 'none', whiteSpace: 'nowrap', background: 'rgba(99,102,241,0.08)', padding: '7px 12px', borderRadius: 7 }}>
+                              Open ↗
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    disabled={savingDocs || (detailBriefing === (detailProject.briefing_doc || '') && detailDrive === (detailProject.project_drive_doc || ''))}
+                    onClick={async () => {
+                      setSavingDocs(true);
+                      try {
+                        await projectsApi.update(detailProject.id, { briefing_doc: detailBriefing, project_drive_doc: detailDrive });
+                        const updated = { ...detailProject, briefing_doc: detailBriefing || null, project_drive_doc: detailDrive || null };
+                        setDetailProject(updated);
+                        setProjects(prev => prev.map(p => p.id === detailProject.id ? updated : p));
+                      } finally { setSavingDocs(false); }
+                    }}
+                    style={{ alignSelf: 'flex-start', padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--ink)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: (savingDocs || (detailBriefing === (detailProject.briefing_doc || '') && detailDrive === (detailProject.project_drive_doc || ''))) ? 0.4 : 1 }}>
+                    {savingDocs ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

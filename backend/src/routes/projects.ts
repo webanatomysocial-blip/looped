@@ -184,7 +184,6 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   if (!name) { res.status(400).json({ error: 'Name required' }); return; }
   if (!pod) { res.status(400).json({ error: 'Pod required' }); return; }
-  if (!briefing_doc) { res.status(400).json({ error: 'Briefing doc is required' }); return; }
   try {
     const db = getDB();
     const svcType = service_type || 'per_project';
@@ -271,7 +270,8 @@ router.post('/:id/manager-response', requireRoles('manager'), async (req: AuthRe
 
 // PUT update project (admin + manager)
 router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  const { name, status, start_date, due_date, client_company_id, member_ids,
+  const { name, status, start_date, due_date, client_company_id, member_ids, description,
+          briefing_doc, project_drive_doc,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   try {
     const db = getDB();
@@ -281,6 +281,9 @@ router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, re
     if (start_date !== undefined) updates.start_date = start_date ? String(start_date).slice(0, 10) : null;
     if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
     if (client_company_id !== undefined) updates.client_company_id = client_company_id;
+    if (description !== undefined) updates.description = description || null;
+    if (briefing_doc !== undefined) updates.briefing_doc = briefing_doc || null;
+    if (project_drive_doc !== undefined) updates.project_drive_doc = project_drive_doc || null;
     if (service_type) {
       const svcType = service_type;
       updates.service_type = svcType;
