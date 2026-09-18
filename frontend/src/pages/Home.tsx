@@ -271,7 +271,7 @@ export default function Home() {
   const effectiveEst = (t: CapacityTask) => (t.stage_est_hours ?? t.estimated_hours ?? 0) * 3600;
   const overdueTasks  = allTasksRaw.filter(t => t.status !== 'completed' && (
     (t.due_date && t.due_date < today) ||
-    (effectiveEst(t) > 0 && t.acceptance_status === 'accepted' && liveSeconds(t) > effectiveEst(t))
+    (effectiveEst(t) > 0 && ['accepted', 'review'].includes(t.acceptance_status) && liveSeconds(t) > effectiveEst(t))
   ));
   const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
@@ -711,7 +711,7 @@ export default function Home() {
                             </span>
                           );
                         })()}
-                        {effectiveEst(task) > 0 && task.acceptance_status === 'accepted' && liveSeconds(task) > effectiveEst(task) && (
+                        {effectiveEst(task) > 0 && ['accepted', 'review'].includes(task.acceptance_status) && liveSeconds(task) > effectiveEst(task) && (
                           <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5' }}>
                             Over Est
                           </span>
@@ -754,7 +754,7 @@ export default function Home() {
                     )}
 
                     {/* Regularise button — shown when tracked time exceeds estimated */}
-                    {task.acceptance_status === 'accepted' && effectiveEst(task) > 0 && !['completed','in_review'].includes(task.status) &&
+                    {['accepted', 'review'].includes(task.acceptance_status) && effectiveEst(task) > 0 && !['completed','in_review'].includes(task.status) &&
                       (task.tracked_seconds_today > 0 || liveSec > 0) &&
                       liveSec > effectiveEst(task) && (
                       <button
