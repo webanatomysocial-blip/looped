@@ -182,7 +182,7 @@ export interface CapacityTask {
   stage_est_hours?: number | null;
   project_name: string;
   priority?: 'low' | 'medium' | 'high' | 'urgent';
-  acceptance_status: 'pending' | 'accepted' | 'declined';
+  acceptance_status: 'pending' | 'accepted' | 'declined' | 'review';
   assignee_role: 'employee' | 'manager' | 'review' | null;
   tracked_seconds_today: number;
   timer_running: boolean;
