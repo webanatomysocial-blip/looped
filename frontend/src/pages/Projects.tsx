@@ -561,7 +561,7 @@ export default function Projects() {
                       </td>
                       <td className="proj-td proj-td--due">
                         <span className="proj-due">
-                          {project.due_date ? format(parseISO(project.due_date), 'MMM dd') : '—'}
+                          {project.due_date ? format(parseISO(project.due_date), 'MMM dd, yyyy') : '—'}
                         </span>
                         {user?.role === 'admin' && (
                           <button
