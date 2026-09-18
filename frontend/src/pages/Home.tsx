@@ -792,7 +792,7 @@ export default function Home() {
                             <Play size={12} />
                           </button>
                         ) : null}
-                        {task.status === 'in_progress' && (
+                        {task.status === 'in_progress' && task.acceptance_status !== 'review' && (
                           <button
                             className="cap-timer-btn cap-timer-btn--done"
                             title="Done"
@@ -875,12 +875,14 @@ export default function Home() {
                       >
                         <Pause size={14} /> Pause
                       </button>
-                      <button
-                        onClick={() => handleTimer(running.id, 'done', running)}
-                        style={{ background: '#16a34a', border: 'none', borderRadius: 24, padding: '8px 22px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                      >
-                        <Check size={14} /> Done
-                      </button>
+                      {running.acceptance_status !== 'review' && (
+                        <button
+                          onClick={() => handleTimer(running.id, 'done', running)}
+                          style={{ background: '#16a34a', border: 'none', borderRadius: 24, padding: '8px 22px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <Check size={14} /> Done
+                        </button>
+                      )}
                     </div>
                   </div>
                 ) : (
