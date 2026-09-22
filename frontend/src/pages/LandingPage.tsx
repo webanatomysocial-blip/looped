@@ -10,7 +10,7 @@ export default function LandingPage() {
       <nav className="lp-nav">
         <a href="/" className="lp-logo">
           <div className="lp-logo-icon">L</div>
-          loooped
+          loop
         </a>
         <div className="lp-nav-links">
           <a href="#features">Features</a>
@@ -26,9 +26,9 @@ export default function LandingPage() {
 
       {/* Hero */}
       <div className="lp-hero">
-        <div className="lp-tag"><div className="lp-tag-dot" /> loooped Management Platform</div>
+        <div className="lp-tag"><div className="lp-tag-dot" /> loop Management Platform</div>
         <h1>
-          Your loooped,<br />
+          Your loop,<br />
           <span className="accent">fully in sync.</span>
         </h1>
         <p className="lp-hero-sub">
@@ -88,11 +88,11 @@ export default function LandingPage() {
         <div className="lp-section" style={{ paddingTop: 72, paddingBottom: 72 }}>
           <div className="lp-section-label">Google Ads API Integration</div>
           <h2 className="lp-section-title">Paid media reporting,<br />inside the platform</h2>
-          <p className="lp-section-sub">Loooped integrates directly with the Google Ads API to surface campaign performance and ad policy status for every client account.</p>
+          <p className="lp-section-sub">loop integrates directly with the Google Ads API to surface campaign performance and ad policy status for every client account.</p>
           <div className="lp-two-col">
             <div className="lp-glass lp-api-card">
               <h3>How we use the Google Ads API</h3>
-              <p>All API calls are server-side and read-only. Data is displayed in private, authenticated dashboards accessible only to authorized loooped staff and their clients.</p>
+              <p>All API calls are server-side and read-only. Data is displayed in private, authenticated dashboards accessible only to authorized loop staff and their clients.</p>
               <ul className="lp-api-list">
                 {[
                   'Campaign-level metrics: impressions, clicks, cost, conversions via GAQL queries',
@@ -101,8 +101,8 @@ export default function LandingPage() {
                   'Disapproval reasons surfaced so agencies can fix non-compliant ads quickly',
                   'Manager account (MCC) support — one token serves multiple client sub-accounts',
                   'Credentials are never exposed to the browser — all calls are server-side only',
-                  'Read-only access — Loooped never creates, modifies, or deletes Ads entities',
-                  'Access scoped to accounts explicitly configured by loooped administrators',
+                  'Read-only access — loop never creates, modifies, or deletes Ads entities',
+                  'Access scoped to accounts explicitly configured by loop administrators',
                 ].map((item) => (
                   <li key={item}><div className="lp-api-check">✓</div>{item}</li>
                 ))}
@@ -248,8 +248,8 @@ export default function LandingPage() {
 
       {/* CTA */}
       <div className="lp-cta">
-        <h2>Ready to streamline your loooped?</h2>
-        <p>Join agencies using Loooped to deliver better work, faster.</p>
+        <h2>Ready to streamline your loop?</h2>
+        <p>Join agencies using loop to deliver better work, faster.</p>
         <Link to="/login" className="lp-btn-yellow">Get Started →</Link>
       </div>
 
@@ -257,9 +257,9 @@ export default function LandingPage() {
       <footer className="lp-footer">
         <a href="/" className="lp-logo" style={{ fontSize: 16 }}>
           <div className="lp-logo-icon">L</div>
-          loooped
+          loop
         </a>
-        <p>© 2026 Loooped. loooped management platform.</p>
+        <p>© 2026 loop. loop management platform.</p>
         <div className="lp-footer-links">
           <Link to="/login">Login</Link>
           <a href="mailto:info@loooped.in">Contact</a>
