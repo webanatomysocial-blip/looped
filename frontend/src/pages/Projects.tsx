@@ -70,6 +70,7 @@ export default function Projects() {
   const [showModal, setShowModal]   = useState(false);
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'per_project' | 'xlr8'>('all');
 
   // Filter + sort state
   const [healthFilter, setHealthFilter] = useState<HealthLevel>('all');
@@ -303,6 +304,11 @@ export default function Projects() {
     ? [...projects]
     : projects.filter((p) => p.status === statusFilter);
 
+  // Type filter
+  if (typeFilter !== 'all') {
+    displayProjects = displayProjects.filter((p) => p.service_type === typeFilter);
+  }
+
   // Health filter
   if (healthFilter !== 'all') {
     displayProjects = displayProjects.filter((p) => getHealth(p).level === healthFilter);
@@ -436,17 +442,31 @@ export default function Projects() {
           </div>
         )}
 
-        {/* ── Status tabs ── */}
-        <div className="filter-bar" style={{ marginBottom: 24 }}>
-          {['all', ...STATUS_OPTIONS].map((s) => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`filter-tab${statusFilter === s ? ' active' : ''}`}
-            >
-              {FILTER_LABELS[s] ?? s}
-            </button>
-          ))}
+        {/* ── Status + Type tabs ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="filter-bar" style={{ marginBottom: 0 }}>
+            {['all', ...STATUS_OPTIONS].map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`filter-tab${statusFilter === s ? ' active' : ''}`}
+              >
+                {FILTER_LABELS[s] ?? s}
+              </button>
+            ))}
+          </div>
+          <div style={{ width: 1, height: 20, background: 'var(--sand-border, #e8e3da)' }} />
+          <div className="filter-bar" style={{ marginBottom: 0 }}>
+            {(['all', 'per_project', 'xlr8'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`filter-tab${typeFilter === t ? ' active' : ''}`}
+              >
+                {t === 'all' ? 'All types' : t === 'xlr8' ? 'XLR8' : 'Project'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* ── Manager: pending projects ── */}
@@ -484,6 +504,7 @@ export default function Projects() {
                 <tr>
                   <th className="proj-th">Project</th>
                   <th className="proj-th">Client</th>
+                  <th className="proj-th">Type</th>
                   <th className="proj-th">Stage</th>
                   {user?.role === 'admin' && <th className="proj-th">Health</th>}
                   {user?.role === 'admin' && <th className="proj-th proj-th--budget">Budget used</th>}
@@ -512,6 +533,11 @@ export default function Projects() {
                       </td>
                       <td className="proj-td proj-client">
                         {project.client_name || '—'}
+                      </td>
+                      <td className="proj-td">
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: project.service_type === 'xlr8' ? 'rgba(99,102,241,0.1)' : 'rgba(0,0,0,0.06)', color: project.service_type === 'xlr8' ? '#4f46e5' : 'var(--ink-muted)' }}>
+                          {project.service_type === 'xlr8' ? 'XLR8' : 'Project'}
+                        </span>
                       </td>
                       <td className="proj-td">
                         <span className={`proj-stage proj-stage--${project.status}`}>

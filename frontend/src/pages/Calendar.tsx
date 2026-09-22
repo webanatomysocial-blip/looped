@@ -190,7 +190,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
     setError(null);
     setPinned({});
     calendarApi.getWeek(dateStr(monday))
-      .then(r => setData(r.data))
+      .then(r => { setData(r.data); setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = (9 - GRID_START_H) * ROW_PX; }, 50); })
       .catch(e => setError(e?.response?.data?.error || 'Failed to load week'))
       .finally(() => setLoading(false));
   }, [dateStr(monday)]);
@@ -324,11 +324,14 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
               <div style={{ display: 'grid', gridTemplateColumns: `${TIME_COL_W}px repeat(5, 1fr)`, position: 'relative' }}>
                 {/* Time labels + hour grid lines */}
                 <div style={{ position: 'relative' }}>
-                  {hours.map(h => (
-                    <div key={h} style={{ height: ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 4, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }}>
-                      <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{h % 12 || 12}{h < 12 ? 'am' : 'pm'}</span>
-                    </div>
-                  ))}
+                  {hours.map(h => {
+                    const isWork = h >= 9 && h < 18;
+                    return (
+                      <div key={h} style={{ height: ROW_H, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', paddingRight: 8, paddingTop: 4, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box', background: isWork ? 'rgba(37,99,235,0.03)' : 'transparent' }}>
+                        <span style={{ fontSize: 10, color: isWork ? 'var(--ink)' : 'var(--ink-muted)', fontWeight: isWork ? 700 : 600, whiteSpace: 'nowrap' }}>{h % 12 || 12}{h < 12 ? 'am' : 'pm'}</span>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Day columns */}
@@ -339,7 +342,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                     <div key={day} ref={el => { colRefs.current[day] = el; }} style={{ position: 'relative', borderLeft: '1px solid var(--sand-border)', background: isToday ? 'rgba(37,99,235,0.02)' : 'var(--bg-white)' }}>
                       {/* Hour grid lines */}
                       {hours.map(h => (
-                        <div key={h} style={{ height: ROW_H, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box' }} />
+                        <div key={h} style={{ height: ROW_H, borderTop: '1px solid var(--sand-border)', boxSizing: 'border-box', background: h >= 9 && h < 18 ? 'rgba(37,99,235,0.03)' : 'transparent' }} />
                       ))}
 
 
