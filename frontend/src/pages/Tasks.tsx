@@ -556,51 +556,54 @@ export default function Tasks() {
                 ` · ${filtered.filter((t) => t.status === 'overdue').length} overdue`}
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Pod tabs — admin only */}
-            {user?.role === 'admin' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+            {/* Left: filters */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%', justifyContent: 'space-between' }}>
+              {user?.role === 'admin' && (
+                <div className="filter-bar">
+                  {(['all', 'pod1', 'pod2'] as const).map((p) => (
+                    <button
+                      key={p}
+                      className={`filter-tab${podTab === p ? ' active' : ''}`}
+                      onClick={() => setPodTab(p)}
+                    >
+                      {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="filter-bar">
-                {(['all', 'pod1', 'pod2'] as const).map((p) => (
-                  <button
-                    key={p}
-                    className={`filter-tab${podTab === p ? ' active' : ''}`}
-                    onClick={() => setPodTab(p)}
-                  >
-                    {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                {statuses.map((s) => (
+                  <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
+                    {({ all: 'All', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
                   </button>
                 ))}
               </div>
-            )}
-            <div className="filter-bar">
-              {statuses.map((s) => (
-                <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                  {({ all: 'All', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
-                <input
-                  type="date"
-                  className="form-input"
-                  style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
-                  value={dateFilter}
-                  onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-                />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2,marginTop: '-16px' }}>
+                  <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
+                  <input
+                    type="date"
+                    className="form-input"
+                    style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
+                    value={dateFilter}
+                    onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
+                  />
+                </div>
+                {dateFilter && (
+                  <button
+                    className="filter-tab"
+                    style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
+                    onClick={() => { setDateFilter(''); setPage(1); }}
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
-              {dateFilter && (
-                <button
-                  className="filter-tab"
-                  style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
-                  onClick={() => { setDateFilter(''); setPage(1); }}
-                >
-                  ✕
-                </button>
-              )}
             </div>
+            {/* Right: actions */}
             {canCreate && (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                 <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
