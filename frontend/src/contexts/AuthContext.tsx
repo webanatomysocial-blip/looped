@@ -26,6 +26,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setLoading(false);
     }
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && localStorage.getItem('token')) {
+        authApi.me().then((r) => setUser(r.data)).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   const login = async (email: string, password: string) => {

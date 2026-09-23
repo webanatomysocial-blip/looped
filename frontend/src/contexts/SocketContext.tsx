@@ -11,7 +11,7 @@ interface SocketContextValue {
 const SocketContext = createContext<SocketContextValue>({ socket: null, joinChat: () => {} });
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const [, forceUpdate] = useState(0);
 
@@ -31,6 +31,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       s.emit('join', { userId: user.id, chatIds: [] });
     });
+
+    s.on('permissions_updated', () => { refreshUser().catch(() => {}); });
 
     return () => { s.disconnect(); socketRef.current = null; };
   }, [user?.id]);

@@ -585,7 +585,11 @@ router.put('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Re
   const { pages } = req.body;
   if (!Array.isArray(pages)) { res.status(400).json({ error: 'pages array required' }); return; }
   try {
-    await savePagePermissions(Number(req.params.id), pages);
+    const userId = Number(req.params.id);
+    await savePagePermissions(userId, pages);
+    // Notify the user's socket room so their sidebar updates without a refresh
+    const { io } = await import('../socket');
+    io.to(`user:${userId}`).emit('permissions_updated');
     res.json({ ok: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
