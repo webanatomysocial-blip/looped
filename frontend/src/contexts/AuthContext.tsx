@@ -33,7 +33,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    // Poll every 30s to pick up permission changes even without socket
+    const poll = setInterval(() => {
+      if (localStorage.getItem('token')) authApi.me().then((r) => setUser(r.data)).catch(() => {});
+    }, 30000);
+    return () => { document.removeEventListener('visibilitychange', onVisible); clearInterval(poll); };
   }, []);
 
   const login = async (email: string, password: string) => {

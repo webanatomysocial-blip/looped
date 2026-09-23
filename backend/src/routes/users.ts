@@ -6,6 +6,7 @@ import fs from 'fs';
 import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
+import { io } from '../socket';
 
 // All grantable pages (admin always sees all, client is fixed)
 export const ALL_PAGES: { slug: string; label: string; section: 'top' | 'more' }[] = [
@@ -587,8 +588,6 @@ router.put('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Re
   try {
     const userId = Number(req.params.id);
     await savePagePermissions(userId, pages);
-    // Notify the user's socket room so their sidebar updates without a refresh
-    const { io } = await import('../socket');
     io.to(`user:${userId}`).emit('permissions_updated');
     res.json({ ok: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
