@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { TrendingUp, Users, MousePointer, Globe, MapPin, Settings, Check, X, Download, Plus, Trash2, Edit2, Search, Star, Linkedin, FileText } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { seoApi, usersApi } from '../services/api';
+import { seoApi, usersApi, projectsApi } from '../services/api';
 import '../css/pages/SEO.css';
 
 type Range = '7d' | '28d' | '90d' | 'custom';
 
 interface Client { id: number; name: string; ga_property_id: string | null; gsc_site_url: string | null; }
+interface SeoProject { id: number; name: string; client_company_id: number | null; ga_property_id: string | null; gsc_site_url: string | null; }
 interface TrafficRow { date: string; users: number; sessions: number; pageviews: number; newUsers: number; }
 interface AcqRow { channel: string; sessions: number; users: number; }
 interface Engagement { avgDuration: number; bounceRate: number; pagesPerSession: number; engagementRate: number; sessions: number; users: number; newUsers: number; }
@@ -904,7 +905,14 @@ export default function SEO() {
   const canEdit   = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
 
   const [clients, setClients]           = useState<Client[]>([]);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [projects, setProjects]         = useState<SeoProject[]>([]);
+  const [selectedProject, setSelectedProject] = useState<SeoProject | null>(null);
+  // Derived: the client_company_id of the selected project (used for SEO API calls)
+  const selectedClientId = selectedProject?.client_company_id ?? null;
+  // Shim so all existing code using selectedClient.id / selectedClient.ga_property_id still works
+  const selectedClient = selectedProject?.client_company_id
+    ? { id: selectedProject.client_company_id, name: selectedProject.name, ga_property_id: selectedProject.ga_property_id, gsc_site_url: selectedProject.gsc_site_url }
+    : null;
   const [range, setRange]               = useState<Range>('28d');
   const [customStart, setCustomStart]   = useState('');
   const [customEnd, setCustomEnd]       = useState('');
@@ -978,11 +986,18 @@ export default function SEO() {
   }, [report]);
 
   useEffect(() => {
-    seoApi.clients().then((r) => {
-      setClients(r.data);
-      const first = r.data.find((c: Client) => c.ga_property_id);
-      if (first) setSelectedClient(first);
+    // Load projects for SEO tabs
+    projectsApi.list().then((r) => {
+      const projs: SeoProject[] = r.data.map((p: any) => ({
+        id: p.id, name: p.name, client_company_id: p.client_company_id,
+        ga_property_id: p.ga_property_id ?? null, gsc_site_url: p.gsc_site_url ?? null,
+      }));
+      setProjects(projs);
+      const first = projs.find((p) => p.ga_property_id);
+      if (first) setSelectedProject(first);
     }).catch(() => {});
+    // Still need clients list for the config panel (GA/GSC save goes to client_company)
+    seoApi.clients().then((r) => setClients(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1001,7 +1016,7 @@ export default function SEO() {
       .then((r) => setReport(r.data))
       .catch((e) => setError(e.response?.data?.error || 'Failed to load report'))
       .finally(() => setLoading(false));
-  }, [selectedClient, range, customStart, customEnd, demoCountry, compareStart, compareEnd]);
+  }, [selectedProject, range, customStart, customEnd, demoCountry, compareStart, compareEnd]);
 
   useEffect(() => {
     if (!selectedClient) return;
@@ -1042,7 +1057,7 @@ export default function SEO() {
     seoApi.getSavedReports(selectedClient.id)
       .then((r) => setSavedReports(r.data || []))
       .catch(() => setSavedReports([]));
-  }, [selectedClient]);
+  }, [selectedProject]);
 
   const openManualPanel = (panel: typeof manualPanel) => {
     const base = { ...manual };
@@ -1075,12 +1090,15 @@ export default function SEO() {
 
   const saveManual = () => doSaveManual({ ...manualEdit }, true, manualPanel === 'health');
 
-  const openEdit = (c: Client) => {
-    if (editingId === c.id) { setEditingId(null); return; }
-    setEditingId(c.id);
-    setCfGa(c.ga_property_id || '');
-    setCfGsc(c.gsc_site_url || '');
-    setCfName(c.name || '');
+  const openEdit = (proj: SeoProject) => {
+    const clientCompanyId = proj.client_company_id;
+    if (!clientCompanyId) return;
+    if (editingId === clientCompanyId) { setEditingId(null); return; }
+    setEditingId(clientCompanyId);
+    setCfGa(proj.ga_property_id || '');
+    setCfGsc(proj.gsc_site_url || '');
+    const company = clients.find(c => c.id === clientCompanyId);
+    setCfName(company?.name || '');
     setSaved(false);
   };
 
@@ -1091,12 +1109,15 @@ export default function SEO() {
       await seoApi.configClient(editingId, { ga_property_id: cfGa, gsc_site_url: cfGsc });
       const nameChanged = cfName.trim() && cfName.trim() !== (clients.find(c => c.id === editingId)?.name ?? '');
       if (nameChanged) await usersApi.renameCompany(editingId, cfName.trim());
-      const updated = clients.map((c) =>
+      setClients((prev) => prev.map((c) =>
         c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null, name: nameChanged ? cfName.trim() : c.name } : c
-      );
-      setClients(updated);
-      if (selectedClient?.id === editingId) {
-        setSelectedClient((sc) => sc ? { ...sc, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null, name: nameChanged ? cfName.trim() : sc.name } : sc);
+      ));
+      // Update ga/gsc on all projects sharing this client_company_id
+      setProjects((prev) => prev.map((p) =>
+        p.client_company_id === editingId ? { ...p, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : p
+      ));
+      if (selectedProject?.client_company_id === editingId) {
+        setSelectedProject((sp) => sp ? { ...sp, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : sp);
       }
       setSaved(true);
       setTimeout(() => { setEditingId(null); setSaved(false); }, 800);
@@ -1108,6 +1129,7 @@ export default function SEO() {
   const maxDemo  = Math.max(...(report?.demographics.map((r) => r.users) ?? [1]), 1);
 
   const editingClient = clients.find((c) => c.id === editingId) ?? null;
+  const editingProject = projects.find((p) => p.client_company_id === editingId) ?? null;
 
   return (
     <Layout>
@@ -1117,7 +1139,7 @@ export default function SEO() {
         <div className="seo-top">
           <div>
             <h2 className="page-title">SEO Analytics</h2>
-            <p className="page-subtitle">Google Analytics + Search Console — per clients</p>
+            <p className="page-subtitle">Google Analytics + Search Console — per project</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1424,21 +1446,21 @@ export default function SEO() {
           </div>
         </div>
 
-        {/* ── Client selector + inline config ── */}
+        {/* ── Project selector + inline config ── */}
         <div className="seo-nav">
           <div className="seo-client-row">
-            {clients.map((c) => (
-              <div key={c.id} className="seo-client-wrap">
+            {projects.map((proj) => (
+              <div key={proj.id} className="seo-client-wrap">
                 <button
-                  className={`seo-client-btn${selectedClient?.id === c.id ? ' active' : ''}${!c.ga_property_id ? ' unconfigured' : ''}`}
-                  onClick={() => { setSelectedClient(c); if (editingId !== c.id) setEditingId(null); }}
+                  className={`seo-client-btn${selectedProject?.id === proj.id ? ' active' : ''}${!proj.ga_property_id ? ' unconfigured' : ''}`}
+                  onClick={() => { setSelectedProject(proj); if (editingId !== proj.client_company_id) setEditingId(null); }}
                 >
-                  <span>{c.name}</span>
-                  {!c.ga_property_id && <span className="seo-badge-warn">Setup</span>}
-                  {canEdit && (
+                  <span>{proj.name}</span>
+                  {!proj.ga_property_id && <span className="seo-badge-warn">Setup</span>}
+                  {canEdit && proj.client_company_id && (
                     <span
-                      className={`seo-config-icon${editingId === c.id ? ' open' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); openEdit(c); }}
+                      className={`seo-config-icon${editingId === proj.client_company_id ? ' open' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); openEdit(proj); }}
                       title="Configure GA4 & GSC"
                     >
                       <Settings size={11} />
@@ -1450,10 +1472,10 @@ export default function SEO() {
           </div>
 
           {/* Inline edit panel */}
-          {canEdit && editingId && editingClient && (
+          {canEdit && editingId && (editingClient || editingProject) && (
             <div className="seo-inline-config">
               <div className="seo-inline-config__header">
-                <span className="seo-inline-config__title">Configure — {editingClient.name}</span>
+                <span className="seo-inline-config__title">Configure — {editingProject?.name ?? editingClient?.name}</span>
                 <button className="seo-inline-close" onClick={() => setEditingId(null)}><X size={13} /></button>
               </div>
               <div className="seo-inline-config__fields">
@@ -1499,12 +1521,12 @@ export default function SEO() {
         </div>
 
         {/* No client configured */}
-        {selectedClient && !selectedClient.ga_property_id && !editingId && (
+        {selectedProject && !selectedProject.ga_property_id && !editingId && (
           <div className="seo-empty-state">
             <Globe size={36} style={{ color: 'var(--sand-border)' }} />
-            <p>GA4 Property ID not configured for <strong>{selectedClient.name}</strong>.</p>
+            <p>GA4 Property ID not configured for <strong>{selectedProject.name}</strong>.</p>
             {canEdit
-              ? <button className="btn-primary" onClick={() => openEdit(selectedClient)}>Configure now</button>
+              ? <button className="btn-primary" onClick={() => openEdit(selectedProject)}>Configure now</button>
               : <p className="page-subtitle">Ask your admin to set this up.</p>}
           </div>
         )}

@@ -14,7 +14,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     let query = db('projects as p')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
       .leftJoin('users as u', 'p.created_by', 'u.id')
-      .select('p.*', 'c.name as client_name', 'u.name as created_by_name');
+      .select('p.*', 'c.name as client_name', 'c.ga_property_id', 'c.gsc_site_url', 'u.name as created_by_name');
 
     if (role === 'client') {
       query = query
