@@ -1107,10 +1107,8 @@ export default function SEO() {
     setSaving(true);
     try {
       await seoApi.configClient(editingId, { ga_property_id: cfGa, gsc_site_url: cfGsc });
-      const nameChanged = cfName.trim() && cfName.trim() !== (clients.find(c => c.id === editingId)?.name ?? '');
-      if (nameChanged) await usersApi.renameCompany(editingId, cfName.trim());
       setClients((prev) => prev.map((c) =>
-        c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null, name: nameChanged ? cfName.trim() : c.name } : c
+        c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : c
       ));
       // Update ga/gsc on all projects sharing this client_company_id
       setProjects((prev) => prev.map((p) =>
@@ -1479,15 +1477,6 @@ export default function SEO() {
                 <button className="seo-inline-close" onClick={() => setEditingId(null)}><X size={13} /></button>
               </div>
               <div className="seo-inline-config__fields">
-                <div className="seo-inline-field">
-                  <label className="seo-inline-label">Client Name</label>
-                  <input
-                    className="form-input seo-inline-input"
-                    placeholder="Client display name"
-                    value={cfName}
-                    onChange={(e) => setCfName(e.target.value)}
-                  />
-                </div>
                 <div className="seo-inline-field">
                   <label className="seo-inline-label">GA4 Property ID</label>
                   <input
