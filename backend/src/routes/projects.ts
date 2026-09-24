@@ -180,7 +180,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // POST create project (admin only) — sends to pod manager for acceptance
 router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
-  const { name, client_company_id, start_date, due_date, pod, briefing_doc, project_drive_doc,
+  const { name, client_company_id, start_date, due_date, pod, briefing_doc, project_drive_doc, description,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   if (!name) { res.status(400).json({ error: 'Name required' }); return; }
   if (!pod) { res.status(400).json({ error: 'Pod required' }); return; }
@@ -192,7 +192,7 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
       start_date: start_date ? String(start_date).slice(0, 10) : null,
       due_date: due_date ? String(due_date).slice(0, 10) : null,
       status: 'on_hold', manager_status: 'pending_manager',
-      pod, briefing_doc, project_drive_doc: project_drive_doc || null,
+      pod, briefing_doc: briefing_doc || null, project_drive_doc: project_drive_doc || null, description: description || null,
       created_by: req.user!.id,
       service_type: svcType,
       budget_amount: budget_amount != null ? Number(budget_amount) : null,
