@@ -1147,29 +1147,10 @@ export default function Projects() {
                   {/* Description / About */}
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 8 }}>About this project</div>
-                    <textarea
-                      value={detailDesc}
-                      onChange={e => canEdit && setDetailDesc(e.target.value)}
-                      readOnly={!canEdit}
-                      placeholder={canEdit ? 'Write a brief about this project — goals, scope, context…' : 'No description added yet'}
-                      style={{ width: '100%', minHeight: 120, borderRadius: 8, border: '1.5px solid var(--sand-border)', padding: '10px 12px', fontSize: 13, color: 'var(--ink)', background: canEdit ? 'var(--bg-sand)' : 'transparent', resize: canEdit ? 'vertical' : 'none', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', cursor: canEdit ? 'text' : 'default' }}
-                    />
-                    {canEdit && (
-                      <button
-                        disabled={savingDesc || detailDesc === (detailProject.description || '')}
-                        onClick={async () => {
-                          setSavingDesc(true);
-                          try {
-                            await projectsApi.update(detailProject.id, { description: detailDesc });
-                            setDetailProject({ ...detailProject, description: detailDesc });
-                            setProjects(prev => prev.map(p => p.id === detailProject.id ? { ...p, description: detailDesc } : p));
-                          } catch { alert('Failed to save description'); }
-                          finally { setSavingDesc(false); }
-                        }}
-                        style={{ marginTop: 8, padding: '6px 16px', borderRadius: 7, border: 'none', background: 'var(--ink)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: (savingDesc || detailDesc === (detailProject.description || '')) ? 0.4 : 1 }}>
-                        {savingDesc ? 'Saving…' : 'Save'}
-                      </button>
-                    )}
+                    {detailProject.description
+                      ? <p style={{ margin: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{detailProject.description}</p>
+                      : <p style={{ margin: 0, fontSize: 13, color: 'var(--ink-muted)', fontStyle: 'italic' }}>No description added yet. Click Edit to add one.</p>
+                    }
                   </div>
                 </div>
               )}
