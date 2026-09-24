@@ -273,8 +273,8 @@ export default function Home() {
     (t.due_date && t.due_date < today) ||
     (effectiveEst(t) > 0 && ['accepted', 'review'].includes(t.acceptance_status) && liveSeconds(t) > effectiveEst(t))
   ));
-  const todayTasks = allTasksRaw.filter(t => !t.due_date || t.due_date === today || t.status === 'completed');
-  const allTasks = allTasksRaw.filter(t => t.status !== 'completed');
+  const todayTasks = allTasksRaw.filter(t => t.status !== 'pending_approval' && (!t.due_date || t.due_date === today || t.status === 'completed'));
+  const allTasks = allTasksRaw.filter(t => t.status !== 'completed' && t.status !== 'pending_approval');
   const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
   const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && t.acceptance_status === 'accepted');
 
@@ -356,7 +356,7 @@ export default function Home() {
             <div className="cap-header__meta">
               <span className="cap-header__meta-item">
                 <span className="cap-header__meta-dot" style={{ background: 'var(--blue)' }} />
-                {(data?.tasks ?? []).filter((t) => t.acceptance_status === 'pending').length} pending tasks
+                {(data?.tasks ?? []).filter((t) => t.status !== 'pending_approval' && t.acceptance_status === 'pending').length} pending tasks
               </span>
               <span className="cap-header__meta-item">
                 <span className="cap-header__meta-dot" style={{ background: 'var(--orange)' }} />
@@ -433,7 +433,7 @@ export default function Home() {
         {/* XLR8 stage assignment alert — shown until accepted */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const xlr8Pending = (data?.tasks ?? []).filter(t =>
-            t.ticket_type_id && !t.timer_running && (
+            t.status !== 'pending_approval' && t.ticket_type_id && !t.timer_running && (
               (t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending') ||
               (t.rejection_log && t.acceptance_status !== 'review' && t.status !== 'completed')
             )
@@ -510,6 +510,7 @@ export default function Home() {
         {/* Pending task invitation alert */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const pending = (data?.tasks ?? []).filter(t =>
+            t.status !== 'pending_approval' &&
             t.acceptance_status === 'pending' &&
             !(t.ticket_type_id && t.xlr8_status === 'pending_assignee')
           );
