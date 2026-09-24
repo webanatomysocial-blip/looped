@@ -95,20 +95,29 @@ router.post('/gmb-from-url', async (req: AuthRequest, res: Response) => {
 
     if (!placeName && !lat) { res.status(400).json({ error: 'Could not parse place from URL' }); return; }
 
-    // Use findplacefromtext with location bias when coords available
-    const input = encodeURIComponent(placeName || `${lat},${lng}`);
-    const locationBias = lat && lng ? `&locationbias=point:${lat},${lng}` : '';
-    const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${input}&inputtype=textquery&fields=place_id,name,rating,user_ratings_total${locationBias}&key=${key}`;
-
-    const response = await fetch(url);
-    const data = await response.json() as any;
-
-    if (data.status !== 'OK' || !data.candidates?.length) {
-      res.status(404).json({ error: `Place not found (${data.status})` }); return;
+    // Use Places API (New) — Text Search
+    const body: any = { textQuery: placeName || `${lat},${lng}` };
+    if (lat && lng) {
+      body.locationBias = { circle: { center: { latitude: parseFloat(lat), longitude: parseFloat(lng) }, radius: 500 } };
     }
 
-    const place = data.candidates[0];
-    res.json({ place_id: place.place_id, name: place.name, rating: place.rating ?? null, reviews: place.user_ratings_total ?? null });
+    const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'places.id,places.displayName,places.rating,places.userRatingCount',
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json() as any;
+
+    if (!data.places?.length) {
+      res.status(404).json({ error: 'Place not found — try a more specific URL or location name' }); return;
+    }
+
+    const place = data.places[0];
+    res.json({ place_id: place.id, name: place.displayName?.text ?? '', rating: place.rating ?? null, reviews: place.userRatingCount ?? null });
   } catch (e: any) {
     res.status(500).json({ error: `Places API error: ${e.message}` });
   }
