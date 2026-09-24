@@ -900,6 +900,43 @@ const emptyManual = (): ManualData => ({
   linkedin_url: '', linkedin_followers: null,
 });
 
+function GmbUrlFetch({ onFetch }: { onFetch: (data: { name: string; rating: number | null; reviews: number | null }) => void }) {
+  const [url, setUrl] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [err, setErr] = useState('');
+
+  const handleFetch = async () => {
+    if (!url.trim()) return;
+    setFetching(true); setErr('');
+    try {
+      const r = await seoApi.fetchGmbFromUrl(url.trim());
+      onFetch({ name: r.data.name || '', rating: r.data.rating, reviews: r.data.reviews });
+      setUrl('');
+    } catch (e: any) {
+      setErr(e.response?.data?.error || 'Failed to fetch');
+    } finally { setFetching(false); }
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 12 }}>
+      <input
+        className="form-input seo-inline-input"
+        placeholder="Paste Google Maps URL to auto-fetch rating & reviews"
+        value={url}
+        onChange={(e) => { setUrl(e.target.value); setErr(''); }}
+        style={{ flex: 1, fontSize: 12 }}
+        onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
+      />
+      <button
+        onClick={handleFetch}
+        disabled={fetching || !url.trim()}
+        style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--brand,#2563eb)', background: fetching ? 'var(--surface)' : 'var(--brand,#2563eb)', color: fetching ? 'var(--ink-muted)' : '#fff', cursor: fetching ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+      >{fetching ? 'Fetching…' : 'Fetch ↗'}</button>
+      {err && <span style={{ fontSize: 11, color: '#dc2626' }}>{err}</span>}
+    </div>
+  );
+}
+
 export default function SEO() {
   const { user } = useAuth();
   const canEdit   = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
@@ -2487,6 +2524,8 @@ export default function SEO() {
                                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 18, lineHeight: 1 }} title="Remove location">−</button>
                             )}
                           </div>
+                          {/* Google Maps URL auto-fetch */}
+                          <GmbUrlFetch onFetch={(data) => updLoc(i, { rating: data.rating, reviews: data.reviews, name: loc.name || data.name })} />
                           <div className="seo-manual-grid">
                             <div className="seo-inline-field"><label className="seo-inline-label">Rating</label>
                               <input className="form-input seo-inline-input" placeholder="4.5" type="number" step="0.1" min="0" max="5"

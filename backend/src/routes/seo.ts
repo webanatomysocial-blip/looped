@@ -76,6 +76,44 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// POST /api/seo/gmb-from-url — parse Google Maps URL, fetch Place rating + reviews
+router.post('/gmb-from-url', async (req: AuthRequest, res: Response) => {
+  const { maps_url } = req.body as { maps_url: string };
+  if (!maps_url?.trim()) { res.status(400).json({ error: 'maps_url required' }); return; }
+
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) { res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY not configured in .env' }); return; }
+
+  try {
+    // Extract place name from URL path: /maps/place/PLACE_NAME/@lat,lng,...
+    const placeMatch = maps_url.match(/\/maps\/place\/([^/@]+)/);
+    const coordMatch = maps_url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+
+    const placeName = placeMatch ? decodeURIComponent(placeMatch[1].replace(/\+/g, ' ')) : '';
+    const lat = coordMatch?.[1];
+    const lng = coordMatch?.[2];
+
+    if (!placeName && !lat) { res.status(400).json({ error: 'Could not parse place from URL' }); return; }
+
+    // Use findplacefromtext with location bias when coords available
+    const input = encodeURIComponent(placeName || `${lat},${lng}`);
+    const locationBias = lat && lng ? `&locationbias=point:${lat},${lng}` : '';
+    const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${input}&inputtype=textquery&fields=place_id,name,rating,user_ratings_total${locationBias}&key=${key}`;
+
+    const response = await fetch(url);
+    const data = await response.json() as any;
+
+    if (data.status !== 'OK' || !data.candidates?.length) {
+      res.status(404).json({ error: `Place not found (${data.status})` }); return;
+    }
+
+    const place = data.candidates[0];
+    res.json({ place_id: place.place_id, name: place.name, rating: place.rating ?? null, reviews: place.user_ratings_total ?? null });
+  } catch (e: any) {
+    res.status(500).json({ error: `Places API error: ${e.message}` });
+  }
+});
+
 // PUT /api/seo/clients/:id — admin/manager/employee can set GA property and GSC URL
 router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   const { role, id: userId } = req.user!;
