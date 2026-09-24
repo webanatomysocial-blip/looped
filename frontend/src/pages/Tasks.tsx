@@ -728,9 +728,11 @@ export default function Tasks() {
                     })()}
                   </td>
                   <td>
-                    {task.ticket_type_id && user?.role === 'employee' && task.xlr8_assignee_id !== user?.id && task.xlr8_status !== 'completed'
-                      ? <Badge status="stage_done" />
-                      : <Badge status={task.status} />}
+                    {task.status === 'pending_approval'
+                      ? <Badge status="pending_approval" />
+                      : task.ticket_type_id && user?.role === 'employee' && task.xlr8_assignee_id !== user?.id && task.xlr8_status !== 'completed'
+                        ? <Badge status="stage_done" />
+                        : <Badge status={task.status} />}
                   </td>
                   <td>
                     {task.checklist_total > 0
