@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { TrendingUp, Users, MousePointer, Globe, MapPin, Settings, Check, X, Download, Plus, Trash2, Edit2, Search, Star, Linkedin, FileText } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
-import { seoApi } from '../services/api';
+import { seoApi, usersApi } from '../services/api';
 import '../css/pages/SEO.css';
 
 type Range = '7d' | '28d' | '90d' | 'custom';
@@ -919,6 +919,7 @@ export default function SEO() {
   const [editingId, setEditingId]   = useState<number | null>(null);
   const [cfGa, setCfGa]             = useState('');
   const [cfGsc, setCfGsc]           = useState('');
+  const [cfName, setCfName]         = useState('');
   const [saving, setSaving]         = useState(false);
   const [saved, setSaved]           = useState(false);
 
@@ -1079,6 +1080,7 @@ export default function SEO() {
     setEditingId(c.id);
     setCfGa(c.ga_property_id || '');
     setCfGsc(c.gsc_site_url || '');
+    setCfName(c.name || '');
     setSaved(false);
   };
 
@@ -1087,12 +1089,14 @@ export default function SEO() {
     setSaving(true);
     try {
       await seoApi.configClient(editingId, { ga_property_id: cfGa, gsc_site_url: cfGsc });
+      const nameChanged = cfName.trim() && cfName.trim() !== (clients.find(c => c.id === editingId)?.name ?? '');
+      if (nameChanged) await usersApi.renameCompany(editingId, cfName.trim());
       const updated = clients.map((c) =>
-        c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : c
+        c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null, name: nameChanged ? cfName.trim() : c.name } : c
       );
       setClients(updated);
       if (selectedClient?.id === editingId) {
-        setSelectedClient((sc) => sc ? { ...sc, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : sc);
+        setSelectedClient((sc) => sc ? { ...sc, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null, name: nameChanged ? cfName.trim() : sc.name } : sc);
       }
       setSaved(true);
       setTimeout(() => { setEditingId(null); setSaved(false); }, 800);
@@ -1453,6 +1457,15 @@ export default function SEO() {
                 <button className="seo-inline-close" onClick={() => setEditingId(null)}><X size={13} /></button>
               </div>
               <div className="seo-inline-config__fields">
+                <div className="seo-inline-field">
+                  <label className="seo-inline-label">Client Name</label>
+                  <input
+                    className="form-input seo-inline-input"
+                    placeholder="Client display name"
+                    value={cfName}
+                    onChange={(e) => setCfName(e.target.value)}
+                  />
+                </div>
                 <div className="seo-inline-field">
                   <label className="seo-inline-label">GA4 Property ID</label>
                   <input

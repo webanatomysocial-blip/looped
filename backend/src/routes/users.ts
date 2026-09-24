@@ -140,6 +140,17 @@ router.get('/companies', requireRoles('admin', 'manager'), async (_req: AuthRequ
   }
 });
 
+// PUT /companies/:id — rename a client company directly
+router.put('/companies/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  const { name } = req.body;
+  if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
+  try {
+    const db = getDB();
+    await db('client_companies').where({ id: req.params.id }).update({ name: name.trim() });
+    res.json({ ok: true });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // GET clients grouped by pod (admin only)
 router.get('/clients-by-pod', requireRoles('admin'), async (_req: AuthRequest, res: Response) => {
   try {

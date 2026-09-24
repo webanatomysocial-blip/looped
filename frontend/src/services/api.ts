@@ -28,6 +28,7 @@ export const usersApi = {
   list: () => api.get('/users'),
   byRole: (role: string) => api.get(`/users/by-role/${role}`),
   companies: () => api.get('/users/companies'),
+  renameCompany: (id: number, name: string) => api.put(`/users/companies/${id}`, { name }),
   team: () => api.get('/users/team'),
   userProjects: (id: number) => api.get(`/users/${id}/projects`),
   create: (data: any) => api.post('/users', data),
