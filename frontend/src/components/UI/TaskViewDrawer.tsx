@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock, Paperclip, Link2, ExternalLink, Trash2 } from 'lucide-react';
 import { tasksApi, xlr8Api } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
 
 const URL_RE = /(https?:\/\/[^\s]+)/g;
@@ -35,6 +36,7 @@ function fmtSec(s: number) {
 }
 
 export default function TaskViewDrawer({ taskId, onClose }: Props) {
+  const { user } = useAuth();
   const [task, setTask] = useState<any>(null);
   const [log, setLog]   = useState<any[]>([]);
   const [deliverables, setDeliverables] = useState<any[]>([]);
@@ -157,7 +159,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       </div>
                     );
                   })() },
-                  { label: 'Status', value: <span className={`badge badge--${task.status}`}>{task.status?.replace(/_/g, ' ')}</span> },
+                  { label: 'Status', value: <span className={`badge badge--${task.status}`}>{({ pending_approval: 'Pending Approval', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[task.status] ?? task.status}</span> },
                   { label: 'Due Date', value: task.due_date ? format(new Date(task.due_date + 'T00:00:00'), 'MMM d, yyyy') : '—' },
                   { label: 'Created by', value: task.created_by_name || '—' },
                 ].map(({ label, value }) => (
@@ -167,6 +169,20 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                   </div>
                 ))}
               </div>
+
+              {/* Manager approve/reject for pending_approval tasks */}
+              {task.status === 'pending_approval' && (user?.role === 'manager' || user?.role === 'admin') && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                  <button
+                    onClick={async () => { await tasksApi.managerApprove(taskId, 'approve'); const r = await tasksApi.get(taskId); setTask(r.data); }}
+                    style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                  >✓ Approve Task</button>
+                  <button
+                    onClick={async () => { await tasksApi.managerApprove(taskId, 'reject'); const r = await tasksApi.get(taskId); setTask(r.data); }}
+                    style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1.5px solid var(--red)', background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                  >✕ Reject</button>
+                </div>
+              )}
 
               {/* Description */}
               <div>

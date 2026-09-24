@@ -531,7 +531,7 @@ export default function Tasks() {
   const [dateFilter, setDateFilter] = useState('');
   const [previewUser, setPreviewUser] = useState<{ name: string; role?: string; avatar_url: string } | null>(null);
 
-  const statuses = ['all', 'draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+  const statuses = ['all', 'pending_approval', 'draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
   const filtered = tasks.filter((t) => {
     if (filterStatus !== 'all' && t.status !== filterStatus) return false;
     if (dateFilter) {
@@ -575,7 +575,7 @@ export default function Tasks() {
               <div className="filter-bar">
                 {statuses.map((s) => (
                   <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                    {({ all: 'All', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
+                    {({ all: 'All', pending_approval: 'Pending Approval', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
                   </button>
                 ))}
               </div>
@@ -836,6 +836,21 @@ export default function Tasks() {
                               <Check size={12} />
                             </button>
                           )}
+                        </>
+                      )}
+                      {/* Approve / Reject for pending_approval tasks */}
+                      {task.status === 'pending_approval' && (user?.role === 'manager' || user?.role === 'admin') && (
+                        <>
+                          <button
+                            title="Approve task"
+                            onClick={async (e) => { e.stopPropagation(); await tasksApi.managerApprove(task.id, 'approve'); load(podTab); }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(22,163,74,0.3)', background: 'rgba(22,163,74,0.08)', color: 'var(--green)' }}
+                          >✓ Approve</button>
+                          <button
+                            title="Reject task"
+                            onClick={async (e) => { e.stopPropagation(); await tasksApi.managerApprove(task.id, 'reject'); load(podTab); }}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(220,38,38,0.3)', background: 'rgba(220,38,38,0.08)', color: 'var(--red)' }}
+                          >✕ Reject</button>
                         </>
                       )}
                       {/* Re-assign when employee declined */}

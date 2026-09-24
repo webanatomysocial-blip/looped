@@ -10,6 +10,7 @@ const LABELS: Record<string, string> = {
   in_progress:       'In Progress',
   overdue:           'Delayed',
   stage_done:        'Stage done',
+  pending_approval:  'Pending Approval',
   pending_manager:   'Awaiting manager',
   pending_admin:     'Awaiting admin',
   pending_client:    'Awaiting client',

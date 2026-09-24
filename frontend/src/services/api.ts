@@ -79,6 +79,7 @@ export const tasksApi = {
     api.put(`/tasks/${taskId}/checklist/${itemId}`, { completed }),
   delete: (id: number) => api.delete(`/tasks/${id}`),
   accept: (id: number, action: 'accept' | 'decline') => api.post(`/tasks/${id}/accept`, { action }),
+  managerApprove: (id: number, action: 'approve' | 'reject') => api.post(`/tasks/${id}/manager-approve`, { action }),
   timer: (id: number, action: 'start' | 'pause' | 'done') => api.post(`/tasks/${id}/timer`, { action }),
   getDeliverables: (id: number) => api.get(`/tasks/${id}/deliverables`),
   addDeliverableLink: (id: number, url: string, name?: string) => api.post(`/tasks/${id}/deliverables/link`, { url, name }),

@@ -280,7 +280,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       created_by: req.user!.id,
       due_date: due_date ? String(due_date).slice(0, 10) : null,
       due_time: due_time || null,
-      status: isDraft ? 'draft' : 'todo',
+      status: isDraft ? 'draft' : (req.user!.role === 'employee' ? 'pending_approval' : 'todo'),
       checklist_total: checklistItems.filter(i => i.text).length,
       checklist_done: 0,
       estimated_hours: estimated_hours ? Number(estimated_hours) : null,
@@ -365,7 +365,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     if (due_time !== undefined) updates.due_time = due_time;
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
     if (priority !== undefined) updates.priority = priority;
-    const VALID_STATUSES = ['draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+    const VALID_STATUSES = ['draft', 'todo', 'pending_approval', 'in_progress', 'in_review', 'overdue', 'completed'];
     if (status !== undefined) {
       if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
       updates.status = status;
@@ -535,6 +535,20 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
     console.error('Delete task error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// POST manager approves or rejects a pending_approval task
+router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  const { action } = req.body; // 'approve' | 'reject'
+  if (!['approve', 'reject'].includes(action)) { res.status(400).json({ error: 'Invalid action' }); return; }
+  try {
+    const db = getDB();
+    const task = await db('tasks').where({ id: req.params.id }).first();
+    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+    if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Task is not pending approval' }); return; }
+    await db('tasks').where({ id: req.params.id }).update({ status: action === 'approve' ? 'todo' : 'draft' });
+    res.json({ ok: true, status: action === 'approve' ? 'todo' : 'draft' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 // POST accept or decline task assignment
