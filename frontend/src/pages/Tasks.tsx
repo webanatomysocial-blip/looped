@@ -117,7 +117,7 @@ export default function Tasks() {
 
   const canCreate = user?.role !== 'client';
   const [showRecurringModal, setShowRecurringModal] = useState(false);
-  const [recurringForm, setRecurringForm] = useState({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: '', end_date: '' });
+  const [recurringForm, setRecurringForm] = useState({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: '', end_date: '' });
   const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
 
   const load = async (pod?: string) => {
@@ -604,7 +604,7 @@ export default function Tasks() {
             {/* Right: actions */}
             {canCreate && (
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
+                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
                 <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
@@ -2012,8 +2012,11 @@ export default function Tasks() {
               )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="form-label">Est. Hours</label>
-                  <input type="number" min="0.5" step="0.5" className="form-input" value={recurringForm.estimated_hours} onChange={e => setRecurringForm(f => ({ ...f, estimated_hours: e.target.value }))} />
+                  <label className="form-label">Est. Time</label>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <input type="number" min="0" step="1" className="form-input" style={{ width: '60%' }} placeholder="h" value={recurringForm.estimated_hours} onChange={e => setRecurringForm(f => ({ ...f, estimated_hours: e.target.value }))} />
+                    <input type="number" min="0" max="59" step="1" className="form-input" style={{ width: '40%' }} placeholder="min" value={recurringForm.estimated_minutes} onChange={e => setRecurringForm(f => ({ ...f, estimated_minutes: e.target.value }))} />
+                  </div>
                 </div>
                 <div>
                   <label className="form-label">Priority</label>
@@ -2046,7 +2049,7 @@ export default function Tasks() {
                     recurrence_days: recurringForm.recurrence_type === 'weekly' ? recurringForm.recurrence_days : [],
                     day_of_month: recurringForm.recurrence_type === 'monthly' ? Number(recurringForm.day_of_month) : null,
                     end_date: recurringForm.end_date || null,
-                    estimated_hours: Number(recurringForm.estimated_hours) || 1,
+                    estimated_hours: (Number(recurringForm.estimated_hours) || 0) + (Number(recurringForm.estimated_minutes) || 0) / 60,
                     description: recurringForm.description || null,
                     doc_link: recurringForm.doc_link || null,
                     start_date: new Date().toISOString().slice(0, 10),

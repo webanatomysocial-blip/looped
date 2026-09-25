@@ -353,7 +353,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                         const hrs    = baseEndH - baseStartH;
                         const endH   = startH + hrs;
                         const top    = (startH - GRID_START) * ROW_H;
-                        const height = Math.max(hrs * ROW_H - 3, 22);
+                        const height = Math.max(hrs * ROW_H - 3, 38);
                         const pc     = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
                         const isPlaceholder = task.is_placeholder;
                         const canDrag = !isPlaceholder && task.slot_id != null && !isOverview;
@@ -401,7 +401,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                               }
                               <div style={{ fontSize: 11, fontWeight: 700, color: isPlaceholder ? pc.color : pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{task.title}</div>
                             </div>
-                            {height > 34 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{fmtHour(startH)} – {fmtHour(endH)}</div>}
+                            {height > 34 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{task.event_type === 'recurring' ? fmtHrs(hrs) : `${fmtHour(startH)} – ${fmtHour(endH)}`}</div>}
                             {height > 52 && (
                               <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 2 }}>
                                 <span style={{ fontSize: 9, fontWeight: 700, color: pc.color, background: 'rgba(255,255,255,0.6)', borderRadius: 99, padding: '0px 4px' }}>{pc.label}</span>
@@ -508,6 +508,7 @@ export default function CalendarPage() {
   const [monday, setMonday] = useState<Date>(() => getMondayOf(today));
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
+  function fmtHours(h: number) { const totalMin = Math.round(h * 60); const hr = Math.floor(totalMin / 60); const min = totalMin % 60; return hr > 0 && min > 0 ? `${hr}h ${min}m` : hr > 0 ? `${hr}h` : `${min}m`; }
   const [selected, setSelected] = useState<number | null>(null); // task ID for drawer
   const [selectedRecurring, setSelectedRecurring] = useState<any | null>(null); // recurring event info popup
   const [recurringList, setRecurringList] = useState<any[]>([]);
@@ -521,7 +522,7 @@ export default function CalendarPage() {
     title: '', description: '', doc_link: '', assigned_to: '', project_id: '',
     recurrence_type: 'weekly', recurrence_days: [] as number[],
     day_of_month: '1', start_date: dateStr(today),
-    end_date: '', estimated_hours: '1', priority: 'medium',
+    end_date: '', estimated_hours: '1', estimated_minutes: '0', priority: 'medium',
   });
 
   useEffect(() => {
@@ -553,16 +554,17 @@ export default function CalendarPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ title:'', description:'', doc_link:'', assigned_to: String(user?.id||''), project_id:'', recurrence_type:'weekly', recurrence_days:[], day_of_month:'1', start_date:dateStr(today), end_date:'', estimated_hours:'1', priority:'medium' });
+    setForm({ title:'', description:'', doc_link:'', assigned_to: String(user?.id||''), project_id:'', recurrence_type:'weekly', recurrence_days:[], day_of_month:'1', start_date:dateStr(today), end_date:'', estimated_hours:'1', estimated_minutes:'0', priority:'medium' });
     setModal(true);
   }
   function openEdit(rt: any) {
     setEditing(rt);
-      setForm({ title:rt.title, description:rt.description||'', doc_link:rt.doc_link||'', assigned_to:String(rt.assigned_to), project_id:rt.project_id?String(rt.project_id):'', recurrence_type:rt.recurrence_type, recurrence_days:Array.isArray(rt.recurrence_days)?rt.recurrence_days:(rt.recurrence_days?JSON.parse(rt.recurrence_days):[]), day_of_month:String(rt.day_of_month||1), start_date:rt.start_date, end_date:rt.end_date||'', estimated_hours:String(rt.estimated_hours||1), priority:rt.priority||'medium' });
+      const totalMins = Math.round((rt.estimated_hours || 1) * 60);
+    setForm({ title:rt.title, description:rt.description||'', doc_link:rt.doc_link||'', assigned_to:String(rt.assigned_to), project_id:rt.project_id?String(rt.project_id):'', recurrence_type:rt.recurrence_type, recurrence_days:Array.isArray(rt.recurrence_days)?rt.recurrence_days:(rt.recurrence_days?JSON.parse(rt.recurrence_days):[]), day_of_month:String(rt.day_of_month||1), start_date:rt.start_date, end_date:rt.end_date||'', estimated_hours:String(Math.floor(totalMins/60)), estimated_minutes:String(totalMins%60 >= 45 ? 45 : totalMins%60 >= 30 ? 30 : totalMins%60 >= 15 ? 15 : 0), priority:rt.priority||'medium' });
     setModal(true);
   }
   async function saveForm() {
-    const payload = { ...form, assigned_to:form.assigned_to?Number(form.assigned_to):undefined, project_id:form.project_id?Number(form.project_id):null, recurrence_days:form.recurrence_type==='weekly'?form.recurrence_days:[], day_of_month:form.recurrence_type==='monthly'?Number(form.day_of_month):null, end_date:form.end_date||null, estimated_hours:Number(form.estimated_hours)||1 };
+    const payload = { ...form, assigned_to:form.assigned_to?Number(form.assigned_to):undefined, project_id:form.project_id?Number(form.project_id):null, recurrence_days:form.recurrence_type==='weekly'?form.recurrence_days:[], day_of_month:form.recurrence_type==='monthly'?Number(form.day_of_month):null, end_date:form.end_date||null, estimated_hours:(Number(form.estimated_hours)||0)+(Number((form as any).estimated_minutes)||0)/60 || 1 };
     if (editing) await calendarApi.updateRecurring(editing.id, payload);
     else await calendarApi.createRecurring(payload);
     setModal(false);
@@ -660,7 +662,7 @@ export default function CalendarPage() {
                     <div style={{ fontSize: 10, color: 'var(--ink-muted)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ background: 'rgba(99,102,241,0.1)', color: '#4f46e5', borderRadius: 99, padding: '1px 7px', fontWeight: 600 }}>{describeRecurrence(rt)}</span>
                       {rt.project_name && <span>{rt.project_name}</span>}
-                      <span>{rt.estimated_hours}h</span>
+                      <span>{fmtHours(rt.estimated_hours || 0)}</span>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--ink-muted)' }}>From {rt.start_date}{rt.end_date ? ` → ${rt.end_date}` : ''}</div>
                   </div>
@@ -690,7 +692,7 @@ export default function CalendarPage() {
                 {[
                   { label: 'Date', value: selectedRecurring.date },
                   { label: 'Status', value: selectedRecurring.status },
-                  { label: 'Estimated', value: selectedRecurring.estimated_hours ? `${selectedRecurring.estimated_hours}h` : '—' },
+                  { label: 'Estimated', value: selectedRecurring.estimated_hours ? fmtHours(selectedRecurring.estimated_hours) : '—' },
                   { label: 'Priority', value: selectedRecurring.priority || 'medium' },
                   { label: 'Assigned to', value: selectedRecurring.assigned_to_name || '—' },
                   { label: 'Project', value: selectedRecurring.project_name || '—' },
@@ -774,8 +776,11 @@ export default function CalendarPage() {
                 )}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
                   <div>
-                    <label className="form-label">Est. Hours</label>
-                    <input className="form-input" type="number" min={0.5} max={24} step={0.5} value={form.estimated_hours} onChange={e=>setForm(f=>({...f,estimated_hours:e.target.value}))} />
+                    <label className="form-label">Est. Time</label>
+                    <div style={{ display:'flex', gap:4 }}>
+                      <input className="form-input" type="number" min={0} step={1} style={{ width:'60%' }} placeholder="h" value={form.estimated_hours} onChange={e=>setForm(f=>({...f,estimated_hours:e.target.value}))} />
+                      <input className="form-input" type="number" min={0} max={59} step={1} style={{ width:'40%' }} placeholder="min" value={(form as any).estimated_minutes||'0'} onChange={e=>setForm(f=>({...f,estimated_minutes:e.target.value}))} />
+                    </div>
                   </div>
                   <div>
                     <label className="form-label">Priority</label>
