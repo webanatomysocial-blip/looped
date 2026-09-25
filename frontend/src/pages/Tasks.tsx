@@ -1056,10 +1056,10 @@ export default function Tasks() {
                           const podManagers = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
                           const catEmployees = isReviewer ? [] : [
                             ...employees.filter(u =>
-                              u.categories?.some((c: any) => c.name === s.category_name) ||
+                              u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
-                            ...(s.category_name === 'manager' ? podManagers : []),
+                            ...((s.category_name || '').toLowerCase() === 'manager' ? podManagers : []),
                           ];
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
@@ -1150,7 +1150,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {stageSearchTerm[idx] && [...employees, ...(s.category_name === 'manager' ? podManagers : [])]
+                                      {stageSearchTerm[idx] && [...employees, ...((s.category_name || '').toLowerCase() === 'manager' ? podManagers : [])]
                                         .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
@@ -1509,10 +1509,10 @@ export default function Tasks() {
                           const podManagers2 = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
                           const catEmployees = isReviewer ? [] : [
                             ...empPool.filter(u =>
-                              u.categories?.some((c: any) => c.name === s.category_name) ||
+                              u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
-                            ...(s.category_name === 'manager' ? podManagers2 : []),
+                            ...((s.category_name || '').toLowerCase() === 'manager' ? podManagers2 : []),
                           ];
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
@@ -1603,7 +1603,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setEditStageSearchOpen(prev => ({ ...prev, [idx]: false })); setEditStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {editStageSearchTerm[idx] && [...empPool, ...(s.category_name === 'manager' ? podManagers2 : [])]
+                                      {editStageSearchTerm[idx] && [...empPool, ...((s.category_name || '').toLowerCase() === 'manager' ? podManagers2 : [])]
                                         .filter(u => u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
