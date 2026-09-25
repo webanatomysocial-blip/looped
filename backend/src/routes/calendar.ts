@@ -38,7 +38,7 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
 router.post('/recurring', async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const user = req.user!;
-  const { title, description, assigned_to, project_id, recurrence_type, recurrence_days, day_of_month, start_date, end_date, estimated_hours, priority } = req.body;
+  const { title, description, doc_link, assigned_to, project_id, recurrence_type, recurrence_days, day_of_month, start_date, end_date, estimated_hours, priority } = req.body;
   if (!title || !recurrence_type || !start_date) { res.status(400).json({ error: 'title, recurrence_type, start_date required' }); return; }
 
   const canAssign = user.role === 'admin' || user.role === 'manager';
@@ -47,6 +47,7 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
   const [id] = await db('recurring_tasks').insert({
     title,
     description: description || null,
+    doc_link: doc_link || null,
     assigned_to: assignee,
     created_by: user.id,
     project_id: project_id || null,
@@ -68,10 +69,11 @@ router.put('/recurring/:id', async (req: AuthRequest, res: Response) => {
   if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
   if (rt.created_by !== user.id && user.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return; }
 
-  const { title, description, assigned_to, project_id, recurrence_type, recurrence_days, day_of_month, start_date, end_date, estimated_hours, priority, active } = req.body;
+  const { title, description, doc_link, assigned_to, project_id, recurrence_type, recurrence_days, day_of_month, start_date, end_date, estimated_hours, priority, active } = req.body;
   await db('recurring_tasks').where('id', req.params.id).update({
     title: title ?? rt.title,
     description: description ?? rt.description,
+    doc_link: doc_link !== undefined ? doc_link : rt.doc_link,
     assigned_to: assigned_to ?? rt.assigned_to,
     project_id: project_id !== undefined ? project_id : rt.project_id,
     recurrence_type: recurrence_type ?? rt.recurrence_type,
@@ -242,6 +244,8 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
         project_name: rt.project_name,
         task_instance_id: instance?.id || null,
         event_type: 'recurring',
+        description: rt.description || null,
+        doc_link: rt.doc_link || null,
       });
     }
   }
@@ -410,7 +414,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         else if (rt.recurrence_type === 'weekly') occurs = rdaysList.includes(dow);
         else if (rt.recurrence_type === 'monthly') { const d = parseInt(dateStr.slice(8)); occurs = rt.day_of_month ? d === rt.day_of_month : d === 1; }
         if (!occurs || dateStr < rt.start_date || (rt.end_date && dateStr > rt.end_date)) continue;
-        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, assigned_to_name: rt.assigned_to_name, event_type: 'recurring', tracked_seconds: 0, is_overview: !isOwn });
+        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, assigned_to_name: rt.assigned_to_name, event_type: 'recurring', tracked_seconds: 0, is_overview: !isOwn, description: rt.description || null, doc_link: rt.doc_link || null });
       }
     }
 

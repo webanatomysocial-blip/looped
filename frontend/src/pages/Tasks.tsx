@@ -117,7 +117,7 @@ export default function Tasks() {
 
   const canCreate = user?.role !== 'client';
   const [showRecurringModal, setShowRecurringModal] = useState(false);
-  const [recurringForm, setRecurringForm] = useState({ title: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: '', end_date: '' });
+  const [recurringForm, setRecurringForm] = useState({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [] as number[], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: '', end_date: '' });
   const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
 
   const load = async (pod?: string) => {
@@ -604,7 +604,7 @@ export default function Tasks() {
             {/* Right: actions */}
             {canCreate && (
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
+                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
                 <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
@@ -1955,41 +1955,42 @@ export default function Tasks() {
 
       {/* Recurring Task Modal */}
       {showRecurringModal && (
-        <div className="drawer-backdrop" onClick={() => setShowRecurringModal(false)} style={{ zIndex: 1200 }}>
-          <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: 'var(--surface)', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', width: 420, maxWidth: '95vw', padding: 28, zIndex: 1201 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>New Recurring Task</h2>
-              <button type="button" onClick={() => setShowRecurringModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--ink-muted)' }}>×</button>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowRecurringModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: 600, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid var(--sand-border)' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>New Recurring Task</div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ padding: '20px 28px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label className="form-label">Title *</label>
                 <input className="form-input" value={recurringForm.title} onChange={e => setRecurringForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Weekly report every Monday" autoFocus />
               </div>
-              <div>
-                <label className="form-label">Project</label>
-                <select className="form-input" value={recurringForm.project_id} onChange={e => setRecurringForm(f => ({ ...f, project_id: e.target.value }))}>
-                  <option value="">None</option>
-                  {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                </select>
-              </div>
-              {(user?.role === 'admin' || user?.role === 'manager') && (
+              <div style={{ display: 'grid', gridTemplateColumns: (user?.role === 'admin' || user?.role === 'manager') ? '1fr 1fr' : '1fr', gap: 12 }}>
+                {(user?.role === 'admin' || user?.role === 'manager') && (
+                  <div>
+                    <label className="form-label">Assign To</label>
+                    <select className="form-input" value={recurringForm.assigned_to} onChange={e => setRecurringForm(f => ({ ...f, assigned_to: e.target.value }))}>
+                      <option value={String(user?.id)}>Me ({user?.name})</option>
+                      {users.filter(u => u.id !== user?.id && u.role !== 'client').map(u => (
+                        <option key={u.id} value={String(u.id)}>{u.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div>
-                  <label className="form-label">Assign To</label>
-                  <select className="form-input" value={recurringForm.assigned_to} onChange={e => setRecurringForm(f => ({ ...f, assigned_to: e.target.value }))}>
-                    <option value={String(user?.id)}>Me ({user?.name})</option>
-                    {users.filter(u => u.id !== user?.id && u.role !== 'client').map(u => (
-                      <option key={u.id} value={String(u.id)}>{u.name}</option>
-                    ))}
+                  <label className="form-label">Project</label>
+                  <select className="form-input" value={recurringForm.project_id} onChange={e => setRecurringForm(f => ({ ...f, project_id: e.target.value }))}>
+                    <option value="">None</option>
+                    {projects.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
                   </select>
                 </div>
-              )}
+              </div>
               <div>
                 <label className="form-label">Recurrence</label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   {(['daily','weekly','monthly'] as const).map(t => (
                     <button key={t} type="button" onClick={() => setRecurringForm(f => ({ ...f, recurrence_type: t }))}
-                      style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `2px solid ${recurringForm.recurrence_type === t ? 'var(--brand)' : 'var(--sand-border)'}`, background: recurringForm.recurrence_type === t ? 'var(--brand-light,#eff6ff)' : 'transparent', fontWeight: 600, fontSize: 12, cursor: 'pointer', color: recurringForm.recurrence_type === t ? 'var(--brand)' : 'var(--ink-muted)' }}>
+                      style={{ flex: 1, padding: '7px 0', borderRadius: 8, fontSize: 12, fontWeight: 600, background: recurringForm.recurrence_type === t ? 'var(--ink)' : 'var(--bg-sand)', color: recurringForm.recurrence_type === t ? '#fff' : 'var(--ink-muted)', border: `1px solid ${recurringForm.recurrence_type === t ? 'var(--ink)' : 'var(--sand-border)'}`, cursor: 'pointer' }}>
                       {t.charAt(0).toUpperCase() + t.slice(1)}
                     </button>
                   ))}
@@ -1998,46 +1999,61 @@ export default function Tasks() {
               {recurringForm.recurrence_type === 'weekly' && (
                 <div>
                   <label className="form-label">Repeat on</label>
-                  <div style={{ display: 'flex', gap: 4 }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
                     {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d, i) => (
                       <button key={i} type="button"
                         onClick={() => setRecurringForm(f => ({ ...f, recurrence_days: f.recurrence_days.includes(i) ? f.recurrence_days.filter(x => x !== i) : [...f.recurrence_days, i] }))}
-                        style={{ width: 34, height: 34, borderRadius: 8, border: `2px solid ${recurringForm.recurrence_days.includes(i) ? 'var(--brand)' : 'var(--sand-border)'}`, background: recurringForm.recurrence_days.includes(i) ? 'var(--brand)' : 'transparent', color: recurringForm.recurrence_days.includes(i) ? '#fff' : 'var(--ink-muted)', fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>
+                        style={{ flex: 1, padding: '6px 0', borderRadius: 8, fontSize: 11, fontWeight: 700, background: recurringForm.recurrence_days.includes(i) ? 'var(--ink)' : 'var(--bg-sand)', color: recurringForm.recurrence_days.includes(i) ? '#fff' : 'var(--ink-muted)', border: `1px solid ${recurringForm.recurrence_days.includes(i) ? 'var(--ink)' : 'var(--sand-border)'}`, cursor: 'pointer' }}>
                         {d}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">Est. hours</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label">Est. Hours</label>
                   <input type="number" min="0.5" step="0.5" className="form-input" value={recurringForm.estimated_hours} onChange={e => setRecurringForm(f => ({ ...f, estimated_hours: e.target.value }))} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <label className="form-label">End date</label>
+                <div>
+                  <label className="form-label">Priority</label>
+                  <select className="form-input" value={(recurringForm as any).priority || 'medium'} onChange={e => setRecurringForm(f => ({ ...f, priority: e.target.value }))}>
+                    {(['low','medium','high','urgent'] as const).map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">End Date <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
                   <input type="date" className="form-input" value={recurringForm.end_date} onChange={e => setRecurringForm(f => ({ ...f, end_date: e.target.value }))} />
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                <button className="btn-secondary" onClick={() => setShowRecurringModal(false)}>Cancel</button>
-                <button className="btn-primary" onClick={async () => {
-                  if (!recurringForm.title.trim()) { alert('Title is required'); return; }
-                  try {
-                    await calendarApi.createRecurring({
-                      ...recurringForm,
-                      assigned_to: recurringForm.assigned_to ? Number(recurringForm.assigned_to) : undefined,
-                      project_id: recurringForm.project_id ? Number(recurringForm.project_id) : null,
-                      recurrence_days: recurringForm.recurrence_type === 'weekly' ? recurringForm.recurrence_days : [],
-                      day_of_month: recurringForm.recurrence_type === 'monthly' ? Number(recurringForm.day_of_month) : null,
-                      end_date: recurringForm.end_date || null,
-                      estimated_hours: Number(recurringForm.estimated_hours) || 1,
-                      start_date: new Date().toISOString().slice(0, 10),
-                    });
-                    setShowRecurringModal(false);
-                  } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
-                }}>Create</button>
+              <div>
+                <label className="form-label">Description <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
+                <textarea className="form-input" rows={3} style={{ resize: 'vertical' }} value={recurringForm.description} onChange={e => setRecurringForm(f => ({ ...f, description: e.target.value }))} placeholder="What needs to be done each time…" />
               </div>
+              <div>
+                <label className="form-label">Doc Link <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional)</span></label>
+                <input type="url" className="form-input" value={recurringForm.doc_link} onChange={e => setRecurringForm(f => ({ ...f, doc_link: e.target.value }))} placeholder="https://docs.google.com/…" />
+              </div>
+            </div>
+            <div style={{ padding: '14px 28px', borderTop: '1px solid var(--sand-border)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" onClick={() => setShowRecurringModal(false)}>Cancel</button>
+              <button className="btn-primary" disabled={!recurringForm.title.trim()} onClick={async () => {
+                try {
+                  await calendarApi.createRecurring({
+                    ...recurringForm,
+                    assigned_to: recurringForm.assigned_to ? Number(recurringForm.assigned_to) : undefined,
+                    project_id: recurringForm.project_id ? Number(recurringForm.project_id) : null,
+                    recurrence_days: recurringForm.recurrence_type === 'weekly' ? recurringForm.recurrence_days : [],
+                    day_of_month: recurringForm.recurrence_type === 'monthly' ? Number(recurringForm.day_of_month) : null,
+                    end_date: recurringForm.end_date || null,
+                    estimated_hours: Number(recurringForm.estimated_hours) || 1,
+                    description: recurringForm.description || null,
+                    doc_link: recurringForm.doc_link || null,
+                    start_date: new Date().toISOString().slice(0, 10),
+                  });
+                  setShowRecurringModal(false);
+                } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
+              }}>Create</button>
             </div>
           </div>
         </div>

@@ -1149,6 +1149,12 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // Add doc_link to recurring_tasks
+  const hasRtDocLink = await db.schema.hasColumn('recurring_tasks', 'doc_link');
+  if (!hasRtDocLink) {
+    await db.schema.table('recurring_tasks', (t) => { t.string('doc_link').nullable(); });
+  }
+
   // Add recurring_task_id to tasks
   const hasRecurringTaskId = await db.schema.hasColumn('tasks', 'recurring_task_id');
   if (!hasRecurringTaskId) {

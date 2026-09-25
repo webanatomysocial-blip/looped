@@ -518,7 +518,7 @@ export default function CalendarPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const isManager = user?.role === 'admin' || user?.role === 'manager';
   const [form, setForm] = useState({
-    title: '', description: '', assigned_to: '', project_id: '',
+    title: '', description: '', doc_link: '', assigned_to: '', project_id: '',
     recurrence_type: 'weekly', recurrence_days: [] as number[],
     day_of_month: '1', start_date: dateStr(today),
     end_date: '', estimated_hours: '1', priority: 'medium',
@@ -526,9 +526,9 @@ export default function CalendarPage() {
 
   useEffect(() => {
     calendarApi.listRecurring().then(r => setRecurringList(r.data));
+    projectsApi.list().then(r => setProjects(r.data));
     if (isManager) {
       usersApi.list().then(r => setUsers(r.data.filter((u: any) => u.role !== 'client')));
-      projectsApi.list().then(r => setProjects(r.data));
     }
   }, []);
 
@@ -553,12 +553,12 @@ export default function CalendarPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ title:'', description:'', assigned_to: String(user?.id||''), project_id:'', recurrence_type:'weekly', recurrence_days:[], day_of_month:'1', start_date:dateStr(today), end_date:'', estimated_hours:'1', priority:'medium' });
+    setForm({ title:'', description:'', doc_link:'', assigned_to: String(user?.id||''), project_id:'', recurrence_type:'weekly', recurrence_days:[], day_of_month:'1', start_date:dateStr(today), end_date:'', estimated_hours:'1', priority:'medium' });
     setModal(true);
   }
   function openEdit(rt: any) {
     setEditing(rt);
-    setForm({ title:rt.title, description:rt.description||'', assigned_to:String(rt.assigned_to), project_id:rt.project_id?String(rt.project_id):'', recurrence_type:rt.recurrence_type, recurrence_days:Array.isArray(rt.recurrence_days)?rt.recurrence_days:(rt.recurrence_days?JSON.parse(rt.recurrence_days):[]), day_of_month:String(rt.day_of_month||1), start_date:rt.start_date, end_date:rt.end_date||'', estimated_hours:String(rt.estimated_hours||1), priority:rt.priority||'medium' });
+      setForm({ title:rt.title, description:rt.description||'', doc_link:rt.doc_link||'', assigned_to:String(rt.assigned_to), project_id:rt.project_id?String(rt.project_id):'', recurrence_type:rt.recurrence_type, recurrence_days:Array.isArray(rt.recurrence_days)?rt.recurrence_days:(rt.recurrence_days?JSON.parse(rt.recurrence_days):[]), day_of_month:String(rt.day_of_month||1), start_date:rt.start_date, end_date:rt.end_date||'', estimated_hours:String(rt.estimated_hours||1), priority:rt.priority||'medium' });
     setModal(true);
   }
   async function saveForm() {
@@ -701,6 +701,18 @@ export default function CalendarPage() {
                   </div>
                 ))}
               </div>
+              {selectedRecurring.description && (
+                <div style={{ background: '#f8f5f0', borderRadius: 10, padding: '10px 14px', marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Description</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{selectedRecurring.description}</div>
+                </div>
+              )}
+              {selectedRecurring.doc_link && (
+                <div style={{ background: '#f8f5f0', borderRadius: 10, padding: '10px 14px', marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Doc Link</div>
+                  <a href={selectedRecurring.doc_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: '#2563eb', fontWeight: 600, wordBreak: 'break-all' }}>{selectedRecurring.doc_link}</a>
+                </div>
+              )}
               <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
                 This recurring task hasn't been generated as an active task yet for this date. It will appear once the scheduler runs.
               </p>
@@ -711,30 +723,32 @@ export default function CalendarPage() {
         {/* ── Recurring task modal ── */}
         {modal && (
           <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.3)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:20, width:480, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.15)' }}>
-              <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--sand-border)' }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:20, width:600, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.15)' }}>
+              <div style={{ padding:'20px 28px 16px', borderBottom:'1px solid var(--sand-border)' }}>
                 <div style={{ fontSize:16, fontWeight:800, color:'var(--ink)' }}>{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</div>
               </div>
-              <div style={{ padding:'20px 24px', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
+              <div style={{ padding:'20px 28px', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
                 <div>
                   <label className="form-label">Title *</label>
                   <input className="form-input" value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Weekly report" autoFocus />
                 </div>
-                {isManager && (
+                <div style={{ display:'grid', gridTemplateColumns: isManager ? '1fr 1fr' : '1fr', gap:12 }}>
+                  {isManager && (
+                    <div>
+                      <label className="form-label">Assign To</label>
+                      <select className="form-input" value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))}>
+                        <option value={String(user?.id)}>Me ({user?.name})</option>
+                        {users.filter(u=>u.id!==user?.id).map(u=><option key={u.id} value={String(u.id)}>{u.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div>
-                    <label className="form-label">Assign To</label>
-                    <select className="form-input" value={form.assigned_to} onChange={e=>setForm(f=>({...f,assigned_to:e.target.value}))}>
-                      <option value={String(user?.id)}>Me ({user?.name})</option>
-                      {users.filter(u=>u.id!==user?.id).map(u=><option key={u.id} value={String(u.id)}>{u.name}</option>)}
+                    <label className="form-label">Project</label>
+                    <select className="form-input" value={form.project_id} onChange={e=>setForm(f=>({...f,project_id:e.target.value}))}>
+                      <option value="">None</option>
+                      {projects.map(p=><option key={p.id} value={String(p.id)}>{p.name}</option>)}
                     </select>
                   </div>
-                )}
-                <div>
-                  <label className="form-label">Project</label>
-                  <select className="form-input" value={form.project_id} onChange={e=>setForm(f=>({...f,project_id:e.target.value}))}>
-                    <option value="">None</option>
-                    {projects.map(p=><option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label className="form-label">Recurrence</label>
@@ -758,7 +772,7 @@ export default function CalendarPage() {
                     </div>
                   </div>
                 )}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
                   <div>
                     <label className="form-label">Est. Hours</label>
                     <input className="form-input" type="number" min={0.5} max={24} step={0.5} value={form.estimated_hours} onChange={e=>setForm(f=>({...f,estimated_hours:e.target.value}))} />
@@ -769,13 +783,21 @@ export default function CalendarPage() {
                       {(['low','medium','high','urgent'] as const).map(p=><option key={p} value={p}>{p.charAt(0).toUpperCase()+p.slice(1)}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className="form-label">End Date <span style={{ fontWeight:400, textTransform:'none' }}>(optional)</span></label>
+                    <input className="form-input" type="date" value={form.end_date} onChange={e=>setForm(f=>({...f,end_date:e.target.value}))} />
+                  </div>
                 </div>
                 <div>
-                  <label className="form-label">End Date <span style={{ fontWeight:400, textTransform:'none' }}>(optional)</span></label>
-                  <input className="form-input" type="date" value={form.end_date} onChange={e=>setForm(f=>({...f,end_date:e.target.value}))} />
+                  <label className="form-label">Description <span style={{ fontWeight:400, textTransform:'none' }}>(optional)</span></label>
+                  <textarea className="form-input" rows={3} style={{ resize:'vertical' }} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="What needs to be done each time…" />
+                </div>
+                <div>
+                  <label className="form-label">Doc Link <span style={{ fontWeight:400, textTransform:'none' }}>(optional)</span></label>
+                  <input className="form-input" type="url" value={(form as any).doc_link} onChange={e=>setForm(f=>({...f,doc_link:e.target.value}))} placeholder="https://docs.google.com/…" />
                 </div>
               </div>
-              <div style={{ padding:'14px 24px', borderTop:'1px solid var(--sand-border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <div style={{ padding:'14px 28px', borderTop:'1px solid var(--sand-border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
                 <button className="btn-secondary" onClick={()=>setModal(false)}>Cancel</button>
                 <button className="btn-primary" disabled={!form.title} onClick={saveForm}>{editing ? 'Save Changes' : 'Create'}</button>
               </div>
