@@ -264,12 +264,22 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
     const activeIds = new Set(tasks.map((t: any) => t.id));
     const completedMerged = completedToday.filter((t: any) => !activeIds.has(t.id));
 
+    // For managers/admins: also fetch tasks pending their approval
+    let pendingApprovalTasks: any[] = [];
+    if (req.user!.role === 'admin' || req.user!.role === 'manager') {
+      pendingApprovalTasks = await db('tasks as t')
+        .join('projects as p', 't.project_id', 'p.id')
+        .where('t.status', 'pending_approval')
+        .select('t.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 't.priority', 't.ticket_type_id', 'p.name as project_name')
+        .then((rows: any[]) => rows.map((r: any) => ({ ...r, tracked_seconds_today: 0, timer_running: false, acceptance_status: null, rejection_log: null })));
+    }
+
     res.json({
       tracked_seconds: Math.round(trackedSeconds),
       capacity_seconds: 7 * 3600,
       active_task_id: activeTaskId,
       active_session_start: activeSessionStart,
-      tasks: [...tasks, ...completedMerged],
+      tasks: [...tasks, ...completedMerged, ...pendingApprovalTasks.filter((t: any) => !activeIds.has(t.id))],
     });
   } catch (err) {
     console.error(err);

@@ -430,6 +430,36 @@ export default function Home() {
           </div>
         )}
 
+        {/* Pending approval alert — manager/admin only */}
+        {(user?.role === 'admin' || user?.role === 'manager') && (() => {
+          const pendingApproval = (data?.tasks ?? []).filter((t: any) => t.status === 'pending_approval');
+          if (pendingApproval.length === 0) return null;
+          return (
+            <div style={{ background: 'rgba(234,179,8,0.08)', border: '1.5px solid rgba(234,179,8,0.4)', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <AlertTriangle size={16} color="#92400e" />
+                <span style={{ fontWeight: 700, fontSize: 14, color: '#92400e' }}>
+                  {pendingApproval.length} task{pendingApproval.length > 1 ? 's' : ''} awaiting your approval
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {pendingApproval.map((task: any) => (
+                  <div key={task.id} style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setViewTask(task.id)}>{task.title}</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}> · {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button className="cap-accept-btn cap-accept-btn--yes" style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12 }} onClick={async () => { await tasksApi.managerApprove(task.id, 'approve'); load(); }}>✓ Approve</button>
+                      <button className="cap-accept-btn cap-accept-btn--no" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12 }} onClick={async () => { await tasksApi.managerApprove(task.id, 'reject'); load(); }}>✕ Reject</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* XLR8 stage assignment alert — shown until accepted */}
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const xlr8Pending = (data?.tasks ?? []).filter(t =>
