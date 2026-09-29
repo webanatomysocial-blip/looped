@@ -280,12 +280,12 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
 
     // Today's recurring task instances for this user
     const recurringRaw = await db('tasks as t')
-      .leftJoin('recurring_tasks as rt', 't.recurring_task_id', 'rt.id')
       .whereNotNull('t.recurring_task_id')
       .where(function () { this.where('t.assigned_to', userId).orWhere('t.created_by', userId); })
-      .where('t.recurrence_date', today)
+      .where(function () { this.where('t.recurrence_date', today).orWhere('t.due_date', today); })
       .select('t.id', 't.title', 't.estimated_hours');
 
+      
     const recIds = recurringRaw.map((r: any) => r.id);
     const recSessions = recIds.length
       ? await db('task_sessions').whereIn('task_id', recIds).where({ user_id: userId, session_date: today }).select('*')
