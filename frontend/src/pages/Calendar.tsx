@@ -161,7 +161,7 @@ const GRID_START_H = 0;
 const GRID_END_H   = 24;
 const ROW_PX       = 60;
 
-function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: any) => void }) {
+function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskClick: (task: any) => void; refreshKey?: number }) {
   const { user } = useAuth();
   const isOverview = user?.role === 'admin' || user?.role === 'manager';
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]> } | null>(null);
@@ -193,7 +193,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
       .then(r => { setData(r.data); setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = (9 - GRID_START_H) * ROW_PX; }, 50); })
       .catch(e => setError(e?.response?.data?.error || 'Failed to load week'))
       .finally(() => setLoading(false));
-  }, [dateStr(monday)]);
+  }, [dateStr(monday), refreshKey]);
 
   // Pointer drag handlers (attached to document when drag active)
   useEffect(() => {
@@ -545,6 +545,7 @@ export default function CalendarPage() {
   const [selectedRecurring, setSelectedRecurring] = useState<any | null>(null); // recurring event info popup
   const [recurringList, setRecurringList] = useState<any[]>([]);
   const [showRecurring, setShowRecurring] = useState(false);
+  const [calendarRefresh, setCalendarRefresh] = useState(0);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [users, setUsers] = useState<any[]>([]);
@@ -601,11 +602,13 @@ export default function CalendarPage() {
     else await calendarApi.createRecurring(payload);
     setModal(false);
     calendarApi.listRecurring().then(r => setRecurringList(r.data));
+    setCalendarRefresh(n => n + 1);
   }
   async function deleteRt(id: number) {
     if (!confirm('Delete this recurring task?')) return;
     await calendarApi.deleteRecurring(id);
     calendarApi.listRecurring().then(r => setRecurringList(r.data));
+    setCalendarRefresh(n => n + 1);
   }
   function toggleDay(d: number) { setForm(f => ({ ...f, recurrence_days: f.recurrence_days.includes(d) ? f.recurrence_days.filter(x=>x!==d) : [...f.recurrence_days,d] })); }
 
@@ -651,7 +654,7 @@ export default function CalendarPage() {
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flex: 1, minHeight: 0 }}>
           {/* ── Main view ── */}
           {view === 'week' && (
-            <WeekView monday={monday} onTaskClick={(task) => {
+            <WeekView monday={monday} refreshKey={calendarRefresh} onTaskClick={(task) => {
               if (task.event_type === 'recurring') {
                 if (task.task_instance_id) { setSelected(task.task_instance_id); setSelectedRecurring(null); }
                 else { setSelectedRecurring(task); setSelected(null); }
