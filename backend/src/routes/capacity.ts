@@ -274,6 +274,10 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         .then((rows: any[]) => rows.map((r: any) => ({ ...r, tracked_seconds_today: 0, timer_running: false, acceptance_status: null, rejection_log: null })));
     }
 
+    // Ensure today's recurring instances exist (lazy generation)
+    const { generateTodayInstances } = await import('./calendar');
+    await generateTodayInstances().catch(() => {});
+
     // Today's recurring task instances for this user
     const recurringRaw = await db('tasks as t')
       .leftJoin('recurring_tasks as rt', 't.recurring_task_id', 'rt.id')
