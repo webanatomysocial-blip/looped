@@ -110,8 +110,10 @@ export default function Home() {
   useEffect(() => {
     load();
     const poll = setInterval(load, 30000);
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
     window.addEventListener('wd:new-notification', load);
-    return () => { clearInterval(poll); window.removeEventListener('wd:new-notification', load); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(poll); window.removeEventListener('wd:new-notification', load); document.removeEventListener('visibilitychange', onVisible); };
   }, [load]);
 
   useEffect(() => {
