@@ -62,6 +62,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
       .whereNull('t.ticket_type_id')
+      .whereNull('t.recurring_task_id')
       .where(function () {
         this.whereNot('ta.acceptance_status', 'declined').orWhereNull('ta.acceptance_status');
       })

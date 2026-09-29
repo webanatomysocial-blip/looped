@@ -664,8 +664,9 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
       }
 
       // Don't touch status if task is already in_review (reviewer timing their review)
-      const currentTask = await db('tasks').where({ id: taskId }).select('status').first();
-      if (currentTask?.status !== 'in_review') {
+      // Also skip status change for recurring task instances — they manage their own lifecycle
+      const currentTask = await db('tasks').where({ id: taskId }).select('status', 'recurring_task_id').first();
+      if (currentTask?.status !== 'in_review' && !currentTask?.recurring_task_id) {
         await db('tasks').where({ id: taskId }).update({ status: 'in_progress' });
       }
 
@@ -720,6 +721,12 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
 
       // XLR8 tickets manage their own status and approval via /api/xlr8/tickets/:id/done
       if (task?.ticket_type_id) { res.json({ message: 'Session closed' }); return; }
+
+      // Recurring task instances complete directly — no review/approval flow
+      if (task?.recurring_task_id) {
+        await db('tasks').where({ id: taskId }).update({ status: 'completed' });
+        res.json({ message: 'Completed' }); return;
+      }
 
       await db('tasks').where({ id: taskId }).update({ status: 'in_review' });
 
