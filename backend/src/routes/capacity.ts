@@ -284,6 +284,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotNull('t.recurring_task_id')
       .where(function () { this.where('t.assigned_to', userId).orWhere('t.created_by', userId); })
       .where(function () { this.where('t.recurrence_date', today).orWhere('t.due_date', today); })
+      .whereNot('t.status', 'completed')
       .select('t.id', 't.title', 't.estimated_hours');
 
       
