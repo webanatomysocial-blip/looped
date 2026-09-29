@@ -1054,7 +1054,7 @@ export default function Tasks() {
                           const isReviewer = isManager || isAdmin;
                           const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
                           const podManagers = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
-                          const catEmployees = isReviewer ? [] : [
+                          const catEmployees = isReviewer ? [] : [  
                             ...employees.filter(u =>
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))

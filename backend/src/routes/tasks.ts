@@ -121,6 +121,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))`,
         [userId, userId, userId]
       );
+    } else if (role === 'admin' || role === 'manager') {
+      // Recurring task instances are personal — only visible to the assignee/creator, not all admins/managers
+      query = query.whereRaw(
+        `(t.recurring_task_id IS NULL OR t.assigned_to = ? OR t.created_by = ?)`,
+        [userId, userId]
+      );
     } else if (role === 'client') {
       query = query
         .join('project_members as pm', 'p.id', 'pm.project_id')

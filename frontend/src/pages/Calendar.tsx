@@ -170,11 +170,11 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
   const [nowPct, setNowPct] = useState(() => {
     const n = new Date(); return ((n.getHours() + n.getMinutes() / 60 - GRID_START_H) / (GRID_END_H - GRID_START_H)) * 100;
   });
-  // Map slotId → pinned start hour (local overrides after drag)
-  const [pinned, setPinned] = useState<Record<number, number>>({});
+  // Map drag key → pinned start hour (local overrides after drag); key = `slot_${slotId}` or `rec_${taskId}`
+  const [pinned, setPinned] = useState<Record<string, number>>({});
   // Active drag state
-  const dragRef = useRef<{ slotId: number; hrs: number; offsetY: number; colEl: HTMLElement; day: string } | null>(null);
-  const [dragPos, setDragPos] = useState<{ slotId: number; startH: number } | null>(null);
+  const dragRef = useRef<{ key: string; hrs: number; offsetY: number; colEl: HTMLElement; day: string; slotId?: number } | null>(null);
+  const [dragPos, setDragPos] = useState<{ key: string; startH: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const colRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const today = dateStr(new Date());
@@ -207,7 +207,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
       const relY = e.clientY - rect.top + scrollTop - d.offsetY;
       const raw = GRID_START_H + relY / ROW_PX;
       const clamped = Math.max(GRID_START_H, Math.min(GRID_END_H - d.hrs, raw));
-      setDragPos({ slotId: d.slotId, startH: snap(clamped) });
+      setDragPos({ key: d.key, startH: snap(clamped) });
     };
 
     const onUp = async () => {
@@ -217,8 +217,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
       setDragPos(prev => {
         if (!prev) return null;
         const h = prev.startH;
-        setPinned(p => ({ ...p, [d.slotId]: h }));
-        calendarApi.updateSlotTime(d.slotId, h).catch(() => {});
+        setPinned(p => ({ ...p, [d.key]: h }));
+        if (d.slotId != null) calendarApi.updateSlotTime(d.slotId, h).catch(() => {});
         return null;
       });
     };
@@ -281,7 +281,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
           for (const task of (data.byDay[day] || [])) {
             if (task.is_overview) { freeTasks.push(task); continue; } // overview tasks stack in grid too
             const slotId = task.slot_id;
-            const pinnedH = slotId != null ? (pinned[slotId] ?? task.custom_start_hour ?? null) : null;
+            const dragKey = slotId != null ? `slot_${slotId}` : task.event_type === 'recurring' ? `rec_${task.id}` : null;
+            const pinnedH = dragKey != null ? (pinned[dragKey] ?? (slotId != null ? task.custom_start_hour ?? null : null)) : null;
             if (pinnedH != null) {
               const hrs = Number(task.slot_hours ?? task.estimated_hours) || 1;
               pinnedTasks.push({ task, startH: pinnedH, endH: Math.min(pinnedH + hrs, GRID_END) });
@@ -348,7 +349,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
 
                       {/* Task blocks */}
                       {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
-                        const isDragging = dragPos != null && task.slot_id != null && dragPos.slotId === task.slot_id;
+                        const taskDragKey = task.slot_id != null ? `slot_${task.slot_id}` : task.event_type === 'recurring' ? `rec_${task.id}` : null;
+                        const isDragging = dragPos != null && taskDragKey != null && dragPos.key === taskDragKey;
                         const startH = isDragging ? dragPos!.startH : baseStartH;
                         const hrs    = baseEndH - baseStartH;
                         const endH   = startH + hrs;
@@ -356,7 +358,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                         const height = Math.max(hrs * ROW_H - 3, 38);
                         const pc     = PRIORITY_CONFIG[task.priority] || PRIORITY_CONFIG.medium;
                         const isPlaceholder = task.is_placeholder;
-                        const canDrag = !isPlaceholder && task.slot_id != null && !isOverview;
+                        const canDrag = !isPlaceholder && taskDragKey != null && !isOverview;
                         return (
                           <div
                             key={task.id || j}
@@ -367,8 +369,8 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                               const rect = colEl.getBoundingClientRect();
                               const scrollTop = scrollRef.current?.scrollTop ?? 0;
                               const clickY = e.clientY - rect.top + scrollTop - top;
-                              dragRef.current = { slotId: task.slot_id, hrs, offsetY: clickY, colEl, day };
-                              setDragPos({ slotId: task.slot_id, startH: baseStartH });
+                              dragRef.current = { key: taskDragKey!, hrs, offsetY: clickY, colEl, day, slotId: task.slot_id ?? undefined };
+                              setDragPos({ key: taskDragKey!, startH: baseStartH });
                               (e.target as HTMLElement).setPointerCapture(e.pointerId);
                             } : undefined}
                             onClick={() => { if (!dragRef.current) onTaskClick(task); }}
