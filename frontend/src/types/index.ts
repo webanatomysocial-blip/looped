@@ -199,6 +199,7 @@ export interface CapacityData {
   active_task_id: number | null;
   active_session_start: string | null;
   tasks: CapacityTask[];
+  recurringTasks?: { id: number; title: string; estimated_hours: number; tracked_seconds_today: number; timer_running: boolean }[];
 }
 
 export interface TeamMemberCapacity {

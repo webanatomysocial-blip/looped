@@ -274,12 +274,36 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         .then((rows: any[]) => rows.map((r: any) => ({ ...r, tracked_seconds_today: 0, timer_running: false, acceptance_status: null, rejection_log: null })));
     }
 
+    // Today's recurring task instances for this user
+    const recurringRaw = await db('tasks as t')
+      .leftJoin('recurring_tasks as rt', 't.recurring_task_id', 'rt.id')
+      .whereNotNull('t.recurring_task_id')
+      .where(function () { this.where('t.assigned_to', userId).orWhere('t.created_by', userId); })
+      .where('t.recurrence_date', today)
+      .select('t.id', 't.title', 't.estimated_hours');
+
+    const recIds = recurringRaw.map((r: any) => r.id);
+    const recSessions = recIds.length
+      ? await db('task_sessions').whereIn('task_id', recIds).where({ user_id: userId, session_date: today }).select('*')
+      : [];
+
+    const recurringTasks = recurringRaw.map((r: any) => {
+      const ts = recSessions.filter((s: any) => s.task_id === r.id);
+      let secs = 0; let running = false;
+      for (const s of ts) {
+        secs += (s.ended_at ? new Date(s.ended_at).getTime() : now) - new Date(s.started_at).getTime();
+        if (!s.ended_at) running = true;
+      }
+      return { id: r.id, title: r.title, estimated_hours: Number(r.estimated_hours) || 0, tracked_seconds_today: Math.round(secs / 1000), timer_running: running };
+    });
+
     res.json({
       tracked_seconds: Math.round(trackedSeconds),
       capacity_seconds: 7 * 3600,
       active_task_id: activeTaskId,
       active_session_start: activeSessionStart,
       tasks: [...tasks, ...completedMerged, ...pendingApprovalTasks.filter((t: any) => !activeIds.has(t.id))],
+      recurringTasks,
     });
   } catch (err) {
     console.error(err);

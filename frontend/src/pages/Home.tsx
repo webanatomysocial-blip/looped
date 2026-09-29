@@ -1040,6 +1040,7 @@ export default function Home() {
                     <ArrowUpRight size={13} color="#16a34a" style={{ flexShrink: 0 }} />
                   </Link>
                 ))}
+                
               </div>
             )}
 
@@ -1073,6 +1074,47 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            {/* Recurring Tasks Timer */}
+            {(data?.recurringTasks ?? []).length > 0 && (
+              <div className="card" style={{ padding: '22px 24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div>
+                    <div className="home-section__title">Recurring Tasks</div>
+                    <div className="home-section__sub">Today's scheduled recurring work</div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {(data?.recurringTasks ?? []).map((rt) => {
+                    const liveSec = rt.tracked_seconds_today + (rt.timer_running ? elapsed : 0);
+                    const estSec = rt.estimated_hours * 3600;
+                    const pct = estSec > 0 ? Math.min(100, (liveSec / estSec) * 100) : 0;
+                    return (
+                      <div key={rt.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-sand)', borderRadius: 10 }}>
+                        <RefreshCw size={13} color="#818cf8" style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rt.title}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                            <div style={{ flex: 1, height: 3, background: '#e0ddd8', borderRadius: 99 }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: pct >= 100 ? '#22c55e' : '#818cf8', borderRadius: 99, transition: 'width 1s linear' }} />
+                            </div>
+                            <span className={`cap-timer-time${rt.timer_running ? ' cap-timer-time--running' : ''}`} style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: rt.timer_running ? '#818cf8' : 'var(--ink-muted)', minWidth: 52 }}>
+                              {fmtSeconds(Math.round(liveSec))}
+                            </span>
+                          </div>
+                        </div>
+                        {rt.timer_running ? (
+                          <button className="cap-timer-btn cap-timer-btn--pause" onClick={() => tasksApi.timer(rt.id, 'pause').then(load)} title="Pause" />
+                        ) : (
+                          <button className="cap-timer-btn cap-timer-btn--start" onClick={() => tasksApi.timer(rt.id, 'start').then(load)} title="Start" />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
