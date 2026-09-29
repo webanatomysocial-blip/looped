@@ -94,6 +94,9 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
   const rt = await db('recurring_tasks').where('id', req.params.id).first();
   if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
   if (rt.created_by !== user.id && user.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return; }
+  const today = new Date().toISOString().slice(0, 10);
+  // Delete upcoming instances (today + future) — past instances keep their time logs
+  await db('tasks').where('recurring_task_id', req.params.id).where('due_date', '>=', today).delete();
   await db('recurring_tasks').where('id', req.params.id).delete();
   res.json({ ok: true });
 });
