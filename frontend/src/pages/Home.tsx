@@ -970,9 +970,12 @@ export default function Home() {
                           </div>
                         </div>
                         {rt.timer_running ? (
-                          <button className="cap-timer-btn cap-timer-btn--pause" onClick={() => tasksApi.timer(rt.id, 'pause').then(load)} title="Pause" />
+                          <>
+                            <button className="cap-timer-btn cap-timer-btn--pause" onClick={() => tasksApi.timer(rt.id, 'pause').then(load)} title="Pause"><Pause size={12} /></button>
+                            <button className="cap-timer-btn cap-timer-btn--done" onClick={() => tasksApi.timer(rt.id, 'done').then(load)} title="Done"><Check size={12} /></button>
+                          </>
                         ) : (
-                          <button className="cap-timer-btn cap-timer-btn--start" onClick={() => tasksApi.timer(rt.id, 'start').then(load)} title="Start" />
+                          <button className="cap-timer-btn cap-timer-btn--start" onClick={() => tasksApi.timer(rt.id, 'start').then(load)} title="Start"><Play size={12} /></button>
                         )}
                       </div>
                     );
