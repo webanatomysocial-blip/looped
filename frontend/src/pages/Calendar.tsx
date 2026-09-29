@@ -272,6 +272,34 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
 
         // Compute start times. Pinned tasks (custom_start_hour / local overrides) use their pinned time;
         // unpinned tasks stack from 9am in priority order.
+        // Assign side-by-side columns for overlapping blocks
+        function assignColumns(blocks: { task: any; startH: number; endH: number }[]) {
+          const cols: number[] = new Array(blocks.length).fill(0);
+          const totals: number[] = new Array(blocks.length).fill(1);
+          // For each block, find all blocks that overlap with it
+          for (let i = 0; i < blocks.length; i++) {
+            // collect overlapping group
+            const group: number[] = [i];
+            for (let j = 0; j < blocks.length; j++) {
+              if (i === j) continue;
+              if (blocks[j].startH < blocks[i].endH && blocks[j].endH > blocks[i].startH) group.push(j);
+            }
+            if (group.length === 1) continue;
+            // assign cols greedily within group
+            const used: boolean[] = [];
+            for (const idx of group.sort((a,b) => a - b)) {
+              // find first free col not used by overlapping already-assigned blocks
+              const takenCols = group.filter(k => k < idx).map(k => cols[k]);
+              let c = 0; while (takenCols.includes(c)) c++;
+              cols[idx] = c;
+              used[c] = true;
+            }
+            const maxCol = Math.max(...group.map(k => cols[k])) + 1;
+            for (const idx of group) totals[idx] = maxCol;
+          }
+          return blocks.map((b, i) => ({ ...b, col: cols[i], totalCols: totals[i] }));
+        }
+
         const dayBlocks: Record<string, { task: any; startH: number; endH: number }[]> = {};
         for (const day of data.days) {
           let cursor = 9;
@@ -338,7 +366,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                 {/* Day columns */}
                 {data.days.map((day) => {
                   const isToday = day === today;
-                  const blocks = dayBlocks[day];
+                  const blocks = assignColumns(dayBlocks[day]);
                   return (
                     <div key={day} ref={el => { colRefs.current[day] = el; }} style={{ position: 'relative', borderLeft: '1px solid var(--sand-border)', background: isToday ? 'rgba(37,99,235,0.02)' : 'var(--bg-white)' }}>
                       {/* Hour grid lines */}
@@ -348,7 +376,9 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
 
 
                       {/* Task blocks */}
-                      {blocks.map(({ task, startH: baseStartH, endH: baseEndH }, j) => {
+                      {blocks.map(({ task, startH: baseStartH, endH: baseEndH, col, totalCols }, j) => {
+                        const colW = `calc((100% - 6px) / ${totalCols})`;
+                        const colLeft = `calc(3px + ${col} * (100% - 6px) / ${totalCols})`;
                         const taskDragKey = task.slot_id != null ? `slot_${task.slot_id}` : task.event_type === 'recurring' ? `rec_${task.id}` : null;
                         const isDragging = dragPos != null && taskDragKey != null && dragPos.key === taskDragKey;
                         const startH = isDragging ? dragPos!.startH : baseStartH;
@@ -376,7 +406,7 @@ function WeekView({ monday, onTaskClick }: { monday: Date; onTaskClick: (task: a
                             onClick={() => { if (!dragRef.current) onTaskClick(task); }}
                             style={{
                               position: 'absolute',
-                              top, left: 3, right: 3, height,
+                              top, left: colLeft, width: colW, height,
                               background: isPlaceholder ? 'transparent' : pc.bg,
                               border: `1.5px ${isPlaceholder ? 'dashed' : 'solid'} ${pc.border}`,
                               borderRadius: 6,
