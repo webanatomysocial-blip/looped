@@ -1365,11 +1365,16 @@ async function createSchema(): Promise<void> {
     })
     .select('t.id', 't.xlr8_stage_idx', 't.xlr8_assignee_id');
   for (const t of staleTasks) {
-    await db('tasks').where({ id: t.id }).update({ xlr8_status: 'in_progress', status: 'in_progress' });
+    await db('tasks').where({ id: t.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: t.xlr8_assignee_id });
     if (t.xlr8_assignee_id) {
-      await db('task_assignees')
-        .where({ task_id: t.id, user_id: t.xlr8_assignee_id, stage_idx: t.xlr8_stage_idx })
-        .update({ acceptance_status: 'accepted' });
+      // Update existing row (may have null user_id placeholder) or insert
+      const updated = await db('task_assignees')
+        .where({ task_id: t.id, stage_idx: t.xlr8_stage_idx })
+        .where(function (this: any) { this.where('user_id', t.xlr8_assignee_id).orWhereNull('user_id'); })
+        .update({ user_id: t.xlr8_assignee_id, acceptance_status: 'accepted' });
+      if (!updated) {
+        await db('task_assignees').insert({ task_id: t.id, user_id: t.xlr8_assignee_id, stage_idx: t.xlr8_stage_idx, assignee_role: 'employee', acceptance_status: 'accepted' }).catch(() => {});
+      }
     }
   }
 }

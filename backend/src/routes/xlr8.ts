@@ -479,10 +479,15 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
-  // Mark this stage accepted so scheduler picks it up
-  await db('task_assignees')
-    .where({ task_id: ticket.id, user_id: req.user!.id })
-    .update({ acceptance_status: 'accepted' });
+  // Update task_assignees for this stage: set user_id (fills null placeholder) + accepted
+  const stageIdx = ticket.xlr8_stage_idx ?? 0;
+  const updated = await db('task_assignees')
+    .where({ task_id: ticket.id, stage_idx: stageIdx })
+    .where(function () { this.where('user_id', req.user!.id).orWhereNull('user_id'); })
+    .update({ user_id: req.user!.id, acceptance_status: 'accepted' });
+  if (!updated) {
+    await db('task_assignees').insert({ task_id: ticket.id, user_id: req.user!.id, stage_idx: stageIdx, assignee_role: 'employee', acceptance_status: 'accepted' });
+  }
   await appendLog(ticket.id, req.user!, 'employee_accepted', 'pending_assignee', 'in_progress');
   if (ticket.created_by !== req.user!.id) {
     await createNotification(ticket.created_by, `${req.user!.name} accepted your ticket "${ticket.title}" and has started working`, 'task', ticket.project_id);
@@ -581,8 +586,9 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
     let prevEmpIdx = currentStageIdx - 1;
     while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
     const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
-    const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).first();
-    const prevAssigneeId = prevAssignee?.user_id ?? null;
+    const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).whereNotNull('user_id').first();
+    // Fall back to current assignee if stage row had null user_id (employee accepted unassigned stage)
+    const prevAssigneeId = prevAssignee?.user_id ?? (targetIdx === currentStageIdx - 1 ? ticket.xlr8_assignee_id : null) ?? null;
 
     await db('tasks').where({ id: ticket.id }).update({
       xlr8_status: 'in_progress',
@@ -664,8 +670,8 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
 
   const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
   // Restore the original assignee for the target stage so they get the re-do prompt
-  const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).first();
-  const prevAssigneeId = prevAssignee?.user_id ?? null;
+  const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).whereNotNull('user_id').first();
+  const prevAssigneeId = prevAssignee?.user_id ?? (targetIdx === currentStageIdx - 1 ? ticket.xlr8_assignee_id : null) ?? null;
 
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
   await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'in_progress', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
