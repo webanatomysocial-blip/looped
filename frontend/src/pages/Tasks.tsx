@@ -912,7 +912,7 @@ export default function Tasks() {
 
               {/* Header */}
               <div className="drawer-header">
-                <div className="drawer-header__label">New Task</div>
+                <div className="drawer-header__label">New Ticket</div>
                 <div className="drawer-header__row">
                   <input
                     className="drawer-title-input"
@@ -1086,14 +1086,10 @@ export default function Tasks() {
                                   {label}
                                   {showReviewBadge && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
                                 </span>
-                                {/* Reviewer toggle — only for employee stages */}
-                                {!isReviewer && !isAdmin && !isSkipped && (
-                                  <button type="button" onClick={() => updateSa({ is_reviewer: !sa.is_reviewer })} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${sa.is_reviewer ? '#818cf8' : 'var(--sand-border)'}`, background: sa.is_reviewer ? 'rgba(129,140,248,0.12)' : 'transparent', color: sa.is_reviewer ? '#818cf8' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
-                                    {sa.is_reviewer ? '✓ Reviewer' : 'Reviewer'}
-                                  </button>
-                                )}
                                 {/* Skip toggle */}
-                                <button type="button" onClick={() => updateSa({ skipped: !sa.skipped })} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${isSkipped ? '#ef4444' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(239,68,68,0.1)' : 'transparent', color: isSkipped ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                                <button type="button" onClick={() => updateSa({ skipped: !sa.skipped })}
+                                  title={isSkipped ? 'Stage skipped — click to include' : 'Click to skip this stage for this task'}
+                                  style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${isSkipped ? '#ef4444' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(239,68,68,0.1)' : 'transparent', color: isSkipped ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
                                   {isSkipped ? '✕ Skipped' : 'Skip'}
                                 </button>
                                 {!isSkipped && <input

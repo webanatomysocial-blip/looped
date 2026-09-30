@@ -304,37 +304,42 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       <div style={{ width: 'max-content' }}>
                       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
                         {stages.map((stage: any, i: number) => {
-                          const isReview = stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true;
-                          const isRejected   = lastWasRejected && i === rejectedStageIdx;
-                          const isRedoTarget = lastWasRejected && i === redoIdx;
-                          const isDone = !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
-                          const isCurrent = !isCompleted && i === currentIdx && !isRejected;
-                          const isPending = !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
-                          const stageAssignee = stageAssignees.filter((a: any) => a.stage_idx === i && a.user_id);
+                          const stageRows = stageAssignees.filter((a: any) => a.stage_idx === i);
+                          const isSkippedStage = stageRows.some((a: any) => a.skipped);
+                          const reviewerOverride = stageRows.find((a: any) => a.is_reviewer !== undefined && a.is_reviewer !== null);
+                          const isReview = isSkippedStage ? false : (reviewerOverride ? !!reviewerOverride.is_reviewer : (stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true));
+                          const isRejected   = !isSkippedStage && lastWasRejected && i === rejectedStageIdx;
+                          const isRedoTarget = !isSkippedStage && lastWasRejected && i === redoIdx;
+                          const isDone = !isSkippedStage && !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
+                          const isCurrent = !isSkippedStage && !isCompleted && i === currentIdx && !isRejected;
+                          const isPending = !isSkippedStage && !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
+                          const stageAssignee = stageRows.filter((a: any) => a.user_id);
                           const rawTracked = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
                           const stageIsActive = (task.stage_assignees ?? []).some((a: any) => a.stage_idx === i && a.is_active);
                           const trackedSec = Number(rawTracked) + (stageIsActive ? drawerElapsed : 0);
                           const label = stage.type === 'admin' ? 'Admin Review' : stage.type === 'manager' ? 'Manager Review' : stage.category_name;
-                          const borderColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#e2e8f0';
-                          const bgColor = isRejected ? 'rgba(239,68,68,0.05)' : isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? 'rgba(59,130,246,0.05)' : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
-                          const dotColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#cbd5e1';
+                          const borderColor = isSkippedStage ? '#d1d5db' : isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#e2e8f0';
+                          const bgColor = isSkippedStage ? 'rgba(209,213,219,0.15)' : isRejected ? 'rgba(239,68,68,0.05)' : isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? 'rgba(59,130,246,0.05)' : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'var(--surface)';
+                          const dotColor = isSkippedStage ? '#9ca3af' : isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#cbd5e1';
                           return (
                             <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
                               <div style={{ width: 180, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <div style={{ position: 'absolute', top: -10, left: 10, background: dotColor, color: '#fff', borderRadius: 99, fontSize: 9, fontWeight: 800, padding: '1px 7px', whiteSpace: 'nowrap' }}>Stage {i + 1}</div>
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                                  {isDone       && <CheckCircle2 size={22} color="#22c55e" />}
-                                  {isRejected   && <XCircle      size={22} color="#ef4444" />}
-                                  {isRedoTarget && <RefreshCw    size={22} color="#f59e0b" />}
-                                  {isCurrent    && <Circle       size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
-                                  {isPending    && <MinusCircle  size={22} color="#cbd5e1" />}
+                                  {isSkippedStage && <MinusCircle size={22} color="#9ca3af" />}
+                                  {!isSkippedStage && isDone       && <CheckCircle2 size={22} color="#22c55e" />}
+                                  {!isSkippedStage && isRejected   && <XCircle      size={22} color="#ef4444" />}
+                                  {!isSkippedStage && isRedoTarget && <RefreshCw    size={22} color="#f59e0b" />}
+                                  {!isSkippedStage && isCurrent    && <Circle       size={22} color="#3b82f6" fill="rgba(59,130,246,0.15)" />}
+                                  {!isSkippedStage && isPending    && <MinusCircle  size={22} color="#cbd5e1" />}
                                 </div>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: isSkippedStage ? '#9ca3af' : isPending ? 'var(--ink-muted)' : 'var(--ink)', lineHeight: 1.3, textDecoration: isSkippedStage ? 'line-through' : 'none' }}>
                                   {label}
-                                  {isReview && <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : stage.type === 'manager' ? '#3b82f6' : '#16a34a', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : stage.type === 'manager' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>}
+                                  {isSkippedStage && <div style={{ marginTop: 2, fontSize: 9, fontWeight: 700, color: '#6b7280', display: 'inline-block', background: 'rgba(107,114,128,0.12)', borderRadius: 4, padding: '1px 4px', marginLeft: 4, textDecoration: 'none' }}>Skipped</div>}
+                                  {!isSkippedStage && isReview && <div style={{ marginTop: 2, fontSize: 9, fontWeight: 600, color: stage.type === 'admin' ? 'var(--orange)' : stage.type === 'manager' ? '#3b82f6' : '#16a34a', display: 'inline-block', background: stage.type === 'admin' ? 'rgba(234,88,12,0.1)' : stage.type === 'manager' ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>Review</div>}
                                 </div>
                                 <div style={{ flex: 1 }}>
-                                  {stageAssignee.length > 0 ? (
+                                  {isSkippedStage ? <span style={{ fontSize: 10, color: '#9ca3af', fontStyle: 'italic' }}>Stage bypassed</span> : stageAssignee.length > 0 ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                                       {stageAssignee.map((a: any) => {
                                         const status = a.is_active ? 'working' : (a.acceptance_status || 'pending');

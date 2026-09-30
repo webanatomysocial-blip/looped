@@ -598,18 +598,18 @@ export default function CalendarPage() {
   }
   async function saveForm() {
     const payload = { ...form, assigned_to:form.assigned_to?Number(form.assigned_to):undefined, project_id:form.project_id?Number(form.project_id):null, recurrence_days:form.recurrence_type==='weekly'?form.recurrence_days:[], day_of_month:form.recurrence_type==='monthly'?Number(form.day_of_month):null, end_date:form.end_date||null, estimated_hours:(Number(form.estimated_hours)||0)+(Number((form as any).estimated_minutes)||0)/60 || 1 };
-    if (editing) await calendarApi.updateRecurring(editing.id, payload);
-    else await calendarApi.createRecurring(payload);
-    setModal(false);
-    calendarApi.listRecurring().then(r => setRecurringList(r.data));
-    setCalendarRefresh(n => n + 1);
-  }
-  async function deleteRt(id: number) {
-    if (!confirm('Delete this recurring task?')) return;
-    await calendarApi.deleteRecurring(id);
-    calendarApi.listRecurring().then(r => setRecurringList(r.data));
-    setCalendarRefresh(n => n + 1);
-  }
+      if (editing) await calendarApi.updateRecurring(editing.id, payload);
+      else await calendarApi.createRecurring(payload);
+      setModal(false);
+      calendarApi.listRecurring().then(r => setRecurringList(r.data));
+      setCalendarRefresh(n => n + 1);
+    }
+    async function deleteRt(id: number) {
+      if (!confirm('Delete this recurring task?')) return;
+      await calendarApi.deleteRecurring(id);
+      calendarApi.listRecurring().then(r => setRecurringList(r.data));
+      setCalendarRefresh(n => n + 1);
+    }
   function toggleDay(d: number) { setForm(f => ({ ...f, recurrence_days: f.recurrence_days.includes(d) ? f.recurrence_days.filter(x=>x!==d) : [...f.recurrence_days,d] })); }
 
   return (

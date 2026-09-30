@@ -1173,6 +1173,36 @@ async function createSchema(): Promise<void> {
   if (!hasStageIsReviewer) {
     await db.schema.table('task_assignees', (t) => { t.boolean('is_reviewer').defaultTo(false); });
   }
+  // Make task_assignees.user_id nullable so skipped manager/admin stages (no pre-assigned user) can store a row
+  const isMySQL2 = (db.client as any).config?.client === 'mysql2';
+  if (!isMySQL2) {
+    // SQLite: check via pragma whether user_id is already nullable (notnull=0 means nullable)
+    const pragmaRows: any[] = await db.raw("PRAGMA table_info(task_assignees)").then((r: any) => r);
+    const userIdCol = pragmaRows.find((c: any) => c.name === 'user_id');
+    if (userIdCol && userIdCol.notnull === 1) {
+      // Recreate table with user_id nullable
+      await db.schema.createTable('task_assignees_nullable', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').nullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('acceptance_status').defaultTo('pending');
+        t.string('assignee_role').defaultTo('employee');
+        t.integer('stage_idx').nullable();
+        t.float('est_hours').nullable();
+        t.boolean('skipped').defaultTo(false);
+        t.boolean('is_reviewer').defaultTo(false);
+      });
+      await db.raw('INSERT INTO task_assignees_nullable SELECT id, task_id, user_id, acceptance_status, assignee_role, stage_idx, est_hours, COALESCE(skipped, 0), COALESCE(is_reviewer, 0) FROM task_assignees');
+      await db.schema.dropTable('task_assignees');
+      await db.schema.renameTable('task_assignees_nullable', 'task_assignees');
+    }
+  } else {
+    // MySQL: ALTER COLUMN directly
+    const [cols]: any[] = await db.raw('SHOW COLUMNS FROM task_assignees LIKE "user_id"');
+    if (cols.length && cols[0].Null === 'NO') {
+      await db.raw('ALTER TABLE task_assignees MODIFY user_id INT NULL');
+    }
+  }
 
   const hasPriority = await db.schema.hasColumn('tasks', 'priority');
   if (!hasPriority) {
