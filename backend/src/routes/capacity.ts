@@ -122,7 +122,14 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotNull('t.ticket_type_id')
       .whereNotIn('t.status', ['completed'])
       .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds].length ? [...xlr8Ids, ...reviewRoleIds] : [0])
-      .whereRaw('ta.stage_idx >= t.xlr8_stage_idx')
+      .where(function () {
+        // Future stages: always show pre-assignment prompt
+        this.whereRaw('ta.stage_idx > t.xlr8_stage_idx')
+          // Current stage: only show if task is still pending assignment (not already in_progress after rejection)
+          .orWhere(function () {
+            this.whereRaw('ta.stage_idx = t.xlr8_stage_idx').where('t.xlr8_status', 'pending_assignee');
+          });
+      })
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
