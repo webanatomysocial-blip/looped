@@ -98,8 +98,8 @@ export default function Tasks() {
     ticket_type_id: '', priority: 'medium',
   });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
-  // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes }
-  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }>>({});
+  // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes, skipped, is_reviewer }
+  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean }>>({});
   const [stageSearchOpen, setStageSearchOpen] = useState<Record<number, boolean>>({});
   const [stageSearchTerm, setStageSearchTerm] = useState<Record<number, string>>({});
   // XLR8 ticket workflow modal
@@ -161,6 +161,7 @@ export default function Tasks() {
           const stage = tt.stages[i];
           if (stage.type === 'manager' || stage.type === 'admin') continue;
           const sa = stageAssignments[i];
+          if (sa?.skipped) continue;
           if (!sa || sa.user_ids.length === 0) {
             alert(`Please assign at least one employee to Stage ${i + 1} (${stage.category_name}).`);
             return;
@@ -172,6 +173,7 @@ export default function Tasks() {
       if (tt2) {
         for (let i = 0; i < tt2.stages.length; i++) {
           const sa = stageAssignments[i];
+          if (sa?.skipped) continue;
           const stageMin = (Number(sa?.est_hours) || 0) * 60 + (Number(sa?.est_minutes) || 0);
           if (stageMin === 0) {
             alert(`Please set an estimated time for Stage ${i + 1} (${tt2.stages[i].category_name || tt2.stages[i].type}).`);
@@ -190,9 +192,9 @@ export default function Tasks() {
         const sa = Object.entries(stageAssignments)
           .map(([idx, v]) => {
             const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
-            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec };
+            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec, skipped: !!v.skipped, is_reviewer: !!v.is_reviewer };
           })
-          .filter(s => s.user_ids.length > 0 || s.est_hours > 0);
+          .filter(s => s.user_ids.length > 0 || s.est_hours > 0 || s.skipped);
         await xlr8Api.createTicket({
           title: form.title,
           description: form.description || null,
@@ -1069,37 +1071,49 @@ export default function Tasks() {
                           const pool = isReviewer ? reviewPool : catEmployees;
                           const selectedUsers = users.filter(u => sa.user_ids.includes(u.id));
                           const unselectedUsers = pool.filter(u => !sa.user_ids.includes(u.id));
-                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string }>) =>
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean }>) =>
                             setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
                           const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : isEmpReviewer ? 'rgba(34,197,94,0.05)' : 'var(--surface-raised, #f8f8f8)';
                           const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : isEmpReviewer ? '#16a34a' : 'var(--ink)';
                           const label = isAdmin ? 'Admin Review' : isManager ? 'Manager Review' : s.category_name;
+                          const isSkipped = !!sa.skipped;
+                          const showReviewBadge = (isReviewer || isEmpReviewer || sa.is_reviewer) && !isSkipped;
                           return (
-                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--sand-border)', background: bgColor }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${isSkipped ? '#d1d5db' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(0,0,0,0.02)' : bgColor, opacity: isSkipped ? 0.55 : 1, transition: 'opacity 0.15s' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isSkipped ? 0 : 8 }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: labelColor, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isSkipped ? 'var(--ink-muted)' : labelColor, display: 'flex', alignItems: 'center', gap: 5 }}>
                                   {label}
-                                  {(isReviewer || isEmpReviewer) && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
+                                  {showReviewBadge && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
                                 </span>
-                                <input
+                                {/* Reviewer toggle — only for employee stages */}
+                                {!isReviewer && !isAdmin && !isSkipped && (
+                                  <button type="button" onClick={() => updateSa({ is_reviewer: !sa.is_reviewer })} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${sa.is_reviewer ? '#818cf8' : 'var(--sand-border)'}`, background: sa.is_reviewer ? 'rgba(129,140,248,0.12)' : 'transparent', color: sa.is_reviewer ? '#818cf8' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                                    {sa.is_reviewer ? '✓ Reviewer' : 'Reviewer'}
+                                  </button>
+                                )}
+                                {/* Skip toggle */}
+                                <button type="button" onClick={() => updateSa({ skipped: !sa.skipped })} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${isSkipped ? '#ef4444' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(239,68,68,0.1)' : 'transparent', color: isSkipped ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                                  {isSkipped ? '✕ Skipped' : 'Skip'}
+                                </button>
+                                {!isSkipped && <input
                                   type="number" min="0" max="99" placeholder="0h"
                                   value={sa.est_hours}
                                   onChange={e => updateSa({ est_hours: e.target.value })}
                                   className="form-input"
                                   style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
                                   title="Hours"
-                                />
-                                <input
+                                />}
+                                {!isSkipped && <input
                                   type="number" min="0" max="59" placeholder="0m"
                                   value={sa.est_minutes === '0' ? '' : sa.est_minutes}
                                   onChange={e => updateSa({ est_minutes: e.target.value || '0' })}
                                   className="form-input"
                                   style={{ width: 48, marginBottom: 0, fontSize: 12, textAlign: 'center', border: '1.5px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink)', padding: '6px 4px' }}
                                   title="Minutes"
-                                />
+                                />}
                               </div>
-                              <div style={{ paddingLeft: 26 }}>
+                              {!isSkipped && <div style={{ paddingLeft: 26 }}>
                                 {selectedUsers.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
                                     {selectedUsers.map(u => (
@@ -1171,7 +1185,7 @@ export default function Tasks() {
                                   </div>
                                 )}
                                 {pool.length === 0 && isReviewer && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Any {isAdmin ? 'admin' : 'manager'} can review</span>}
-                              </div>
+                              </div>}
                             </div>
                             
                           );

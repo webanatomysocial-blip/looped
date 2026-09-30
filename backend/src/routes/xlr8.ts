@@ -182,13 +182,15 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
       const stg = stages[sa.stage_idx];
       const sType = stg ? stageType(stg) : 'employee';
       const estH = sa.est_hours || null;
+      const skipped = sa.skipped ? 1 : 0;
+      const isReviewer = sa.is_reviewer ? 1 : 0;
       if (sa.user_ids.length > 0) {
         for (const uid of sa.user_ids) {
-          rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+          rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped, is_reviewer: isReviewer });
         }
-      } else if (estH) {
-        // No user yet (review stage with no pre-assignment) — store est_hours with a placeholder row
-        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH });
+      } else if (estH || skipped) {
+        // No user yet (review stage with no pre-assignment, or skipped stage) — store with placeholder row
+        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped, is_reviewer: isReviewer });
       }
     }
     if (rows.length > 0) await db('task_assignees').insert(rows);
@@ -732,6 +734,13 @@ async function advanceToStage(
     await completeTicket(db, ticket, actor);
     if (approval2) await db('approvals').where({ id: approval2.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date() });
     res.json({ ok: true, next: 'completed' }); return;
+  }
+
+  // Skip stages flagged as skipped in task_assignees
+  const skipRow = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx }).where('skipped', 1).first();
+  if (skipRow) {
+    await appendLog(ticket.id, actor, 'next_stage', fromState, 'skipped', `Stage ${targetIdx + 1} skipped`);
+    return advanceToStage(db, ticket, stages, finalApproval, targetIdx + 1, actor, fromState, res);
   }
 
   const nextStage = stages[targetIdx];

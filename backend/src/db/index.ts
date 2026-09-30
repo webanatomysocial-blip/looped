@@ -1164,6 +1164,16 @@ async function createSchema(): Promise<void> {
     });
   }
 
+  // task_assignees: per-task stage overrides (skip + reviewer flag)
+  const hasStageSkipped = await db.schema.hasColumn('task_assignees', 'skipped');
+  if (!hasStageSkipped) {
+    await db.schema.table('task_assignees', (t) => { t.boolean('skipped').defaultTo(false); });
+  }
+  const hasStageIsReviewer = await db.schema.hasColumn('task_assignees', 'is_reviewer');
+  if (!hasStageIsReviewer) {
+    await db.schema.table('task_assignees', (t) => { t.boolean('is_reviewer').defaultTo(false); });
+  }
+
   const hasPriority = await db.schema.hasColumn('tasks', 'priority');
   if (!hasPriority) {
     await db.schema.table('tasks', (t) => { t.string('priority').defaultTo('medium'); });
