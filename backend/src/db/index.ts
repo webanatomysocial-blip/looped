@@ -1338,13 +1338,40 @@ async function createSchema(): Promise<void> {
 
   // Fix stale XLR8 rejections: approvals stuck as work_in_progress with no active pending state
   // (from old rejection code that set work_in_progress instead of rejected)
-  const staleIds = await db('approvals as ap')
+  const staleApIds = await db('approvals as ap')
     .join('tasks as t', 't.id', 'ap.task_id')
     .where('ap.status', 'work_in_progress')
     .where('ap.workflow_type', 'xlr8')
     .whereNotIn('t.xlr8_status', ['pending_manager', 'pending_admin', 'pending_client'])
     .pluck('ap.id');
-  if (staleIds.length) await db('approvals').whereIn('id', staleIds).update({ status: 'rejected' });
+  if (staleApIds.length) await db('approvals').whereIn('id', staleApIds).update({ status: 'rejected' });
+
+  // Fix tasks stuck in pending_assignee after a manager/admin rejection
+  // (old code set pending_assignee; new code sets in_progress so employee sees rejection banner)
+  const staleTasks = await db('tasks as t')
+    .whereNotNull('t.ticket_type_id')
+    .where('t.xlr8_status', 'pending_assignee')
+    .whereExists(function () {
+      this.from('xlr8_ticket_log as l')
+        .whereRaw('l.task_id = t.id')
+        .whereIn('l.action', ['manager_declined', 'admin_declined'])
+        .whereNotExists(function () {
+          // No progress log after the decline (would mean the decline is stale)
+          this.from('xlr8_ticket_log as l2')
+            .whereRaw('l2.task_id = t.id')
+            .whereIn('l2.action', ['employee_accepted', 'manager_approved', 'admin_approved', 'next_stage'])
+            .whereRaw('l2.created_at > l.created_at');
+        });
+    })
+    .select('t.id', 't.xlr8_stage_idx', 't.xlr8_assignee_id');
+  for (const t of staleTasks) {
+    await db('tasks').where({ id: t.id }).update({ xlr8_status: 'in_progress', status: 'in_progress' });
+    if (t.xlr8_assignee_id) {
+      await db('task_assignees')
+        .where({ task_id: t.id, user_id: t.xlr8_assignee_id, stage_idx: t.xlr8_stage_idx })
+        .update({ acceptance_status: 'accepted' });
+    }
+  }
 }
 
 async function seedAdmin(): Promise<void> {
