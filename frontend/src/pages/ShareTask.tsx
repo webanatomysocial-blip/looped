@@ -74,6 +74,7 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
     (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
 
   const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
+  const skippedIdxSet = new Set(stageAssignees.filter((a: any) => a.skipped).map((a: any) => Number(a.stage_idx)));
   type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
   const declineEvents: DeclineEvent[] = [];
   let trackedIdx = 0, lastAdminIdx = -1, lastManagerIdx = -1;
@@ -88,13 +89,13 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
     } else if (entry.action === 'admin_declined') {
       const fromIdx = lastAdminIdx >= 0 ? lastAdminIdx : trackedIdx;
       let pi = fromIdx - 1;
-      while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
+      while (pi >= 0 && (stageTypeOf(stages[pi]) !== 'employee' || skippedIdxSet.has(pi))) pi--;
       declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
       trackedIdx = pi >= 0 ? pi : 0; lastAdminIdx = -1;
     } else if (entry.action === 'manager_declined') {
       const fromIdx = lastManagerIdx >= 0 ? lastManagerIdx : trackedIdx;
       let pi = fromIdx - 1;
-      while (pi >= 0 && stageTypeOf(stages[pi]) !== 'employee') pi--;
+      while (pi >= 0 && (stageTypeOf(stages[pi]) !== 'employee' || skippedIdxSet.has(pi))) pi--;
       declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
       trackedIdx = pi >= 0 ? pi : 0; lastManagerIdx = -1;
     } else if (entry.action === 'employee_declined') {

@@ -582,9 +582,10 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
     // Mark approval as rejected so it leaves the manager's pending queue
     await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'rejected' });
 
-    // Find the previous employee stage to send back to
+    // Find the previous employee stage to send back to (skip over skipped stages)
+    const skippedStageIdxs = new Set((await db('task_assignees').where({ task_id: ticket.id, skipped: 1 }).pluck('stage_idx')).map(Number));
     let prevEmpIdx = currentStageIdx - 1;
-    while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
+    while (prevEmpIdx >= 0 && (stageType(stages[prevEmpIdx]) !== 'employee' || skippedStageIdxs.has(prevEmpIdx))) prevEmpIdx--;
     const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
     const prevAssignee = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, assignee_role: 'employee' }).whereNotNull('user_id').first();
     // Fall back to current assignee if stage row had null user_id (employee accepted unassigned stage)
@@ -664,9 +665,10 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
   const stages: any[] = pj(ticketType?.stages, []);
   const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
 
-  // Find the previous employee stage to send work back to
+  // Find the previous employee stage to send work back to (skip over skipped stages)
+  const skippedStageIdxs = new Set((await db('task_assignees').where({ task_id: ticket.id, skipped: 1 }).pluck('stage_idx')).map(Number));
   let prevEmpIdx = currentStageIdx - 1;
-  while (prevEmpIdx >= 0 && stageType(stages[prevEmpIdx]) !== 'employee') prevEmpIdx--;
+  while (prevEmpIdx >= 0 && (stageType(stages[prevEmpIdx]) !== 'employee' || skippedStageIdxs.has(prevEmpIdx))) prevEmpIdx--;
 
   const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
   // Restore the original assignee for the target stage so they get the re-do prompt

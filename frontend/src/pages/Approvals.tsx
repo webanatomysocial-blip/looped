@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { CheckCircle, XCircle, ChevronDown, ChevronUp, CheckCheck, RotateCcw, Play, Pause, Clock } from 'lucide-react';
+import { CheckCircle, XCircle, ChevronDown, ChevronUp, CheckCheck, RotateCcw, Play, Pause, Clock, Paperclip, Link2, ExternalLink } from 'lucide-react';
+import XLR8StageFlow from '../components/UI/XLR8StageFlow';
 import Pagination from '../components/UI/Pagination';
 
 const PAGE_SIZE = 7;
@@ -127,6 +128,8 @@ export default function Approvals() {
   const [expanded, setExpanded]   = useState<number | null>(null);
   const [steps, setSteps]         = useState<Record<number, ApprovalStep[]>>({});
   const [checklists, setChecklists] = useState<Record<number, ChecklistItem[]>>({});
+  const [taskDetails, setTaskDetails] = useState<Record<number, any>>({});
+  const [ticketLogs, setTicketLogs]   = useState<Record<number, any[]>>({});
 
   // Review modal state
   const [reviewModal, setReviewModal]   = useState<Approval | null>(null);
@@ -208,11 +211,21 @@ export default function Approvals() {
           setSteps((prev) => ({ ...prev, [id]: res.data }));
         } catch { /* silent */ }
       }
-      if (approval && !checklists[id]) {
+      if (approval && !taskDetails[id]) {
         try {
-          const res = await tasksApi.get(approval.task_id);
+          const [res, dlRes] = await Promise.all([
+            tasksApi.get(approval.task_id),
+            tasksApi.getDeliverables(approval.task_id).catch(() => ({ data: [] })),
+          ]);
+          const td = { ...res.data, deliverables: dlRes.data };
+          setTaskDetails((prev) => ({ ...prev, [id]: td }));
           const items: ChecklistItem[] = (res.data.checklist || []).filter((i: ChecklistItem) => i.completed);
           setChecklists((prev) => ({ ...prev, [id]: items }));
+          if (approval.workflow_type === 'xlr8') {
+            xlr8Api.getTicketLog(approval.task_id).then(lr => {
+              setTicketLogs((prev) => ({ ...prev, [id]: lr.data }));
+            }).catch(() => {});
+          }
         } catch { /* silent */ }
       }
     }
@@ -543,74 +556,45 @@ export default function Approvals() {
                           </div>
                         )}
 
-                        {/* XLR8 ticket workflow path */}
-                        {a.workflow_type === 'xlr8' && (() => {
-                          const stages: { category_name?: string; type?: string }[] = a.xlr8_stages ?? [];
-                          const currentIdx = a.xlr8_stage_idx ?? 0;
-                          const xlr8Status = a.xlr8_status ?? '';
-                          const fa = a.xlr8_final_approval ?? {};
-                          const auditLog = steps[a.id] ?? []; // outer audit records
-                          // Build xlr8Steps from actual stage definitions (renamed to avoid shadowing outer `steps`)
-                          const xlr8Steps: { label: string; key: string }[] = [];
-                          stages.forEach((s, i) => {
-                            if (s.type === 'manager') {
-                              xlr8Steps.push({ label: 'Manager Review', key: `mgr_${i}` });
-                            } else if (s.type === 'admin') {
-                              xlr8Steps.push({ label: 'Admin Review', key: `adm_${i}` });
-                            } else {
-                              xlr8Steps.push({ label: `${s.category_name} Work`, key: `work_${i}` });
-                            }
-                          });
-                          if (fa.adminRequired) xlr8Steps.push({ label: 'Admin Approval', key: 'admin' });
-                          if (fa.clientOptional) xlr8Steps.push({ label: 'Client Review', key: 'client' });
-                          xlr8Steps.push({ label: 'Done', key: 'done' });
-
-                          const getState = (key: string) => {
-                            if (a.status === 'approved') return 'done';
-                            if (key === 'done') return 'pending';
-                            if (key === 'admin') return a.status === 'approved' || a.status === 'pending_client' ? 'done' : a.status === 'pending_admin' && !stages[currentIdx] ? 'active' : 'pending';
-                            if (key === 'client') return a.status === 'approved' ? 'done' : a.status === 'pending_client' ? 'active' : 'pending';
-                            const m = key.match(/^(work|mgr|adm)_(\d+)$/);
-                            if (!m) return 'pending';
-                            const idx = Number(m[2]);
-                            if (idx < currentIdx) return 'done';
-                            if (idx > currentIdx) return 'pending';
-                            // current stage
-                            if (m[1] === 'work') return xlr8Status === 'in_progress' ? 'active' : xlr8Status === 'pending_assignee' ? 'pending' : 'done';
-                            if (m[1] === 'mgr') return xlr8Status === 'pending_manager' ? 'active' : 'pending';
-                            if (m[1] === 'adm') return xlr8Status === 'pending_admin' ? 'active' : 'pending';
-                            return 'pending';
-                          };
-
+                        {/* XLR8 ticket: full stage flow */}
+                        {a.workflow_type === 'xlr8' && taskDetails[a.id] && (() => {
+                          const td = taskDetails[a.id];
+                          const deliverables: any[] = td.deliverables || [];
                           return (
-                            <div className="approval-timeline" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                              {[{ label: 'Submitted', key: 'submitted', stageIdx: -1 }, ...xlr8Steps.map((s, si) => ({ ...s, stageIdx: si }))].map((step, i, arr) => {
-                                const state = step.key === 'submitted' ? 'done' : getState(step.key);
-                                // Look up start time from synthesized xlr8 log entries
-                                const startEntry = step.key === 'submitted'
-                                  ? auditLog.find((s) => s.stage_key === 'stage_start_0')
-                                  : auditLog.find((s) => s.stage_key === `stage_start_${step.stageIdx}`);
-                                const dateToShow = startEntry?.acted_at ?? null;
-                                return (
-                                  <div key={step.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-                                      <div className={`timeline-chip ${state === 'done' ? 'timeline-chip--done' : state === 'active' ? 'timeline-chip--active' : 'timeline-chip--pending'}`}>
-                                        <div className="timeline-chip-dot" style={{ background: state === 'done' ? 'var(--green)' : state === 'active' ? 'var(--yellow)' : 'var(--sand-border)' }} />
-                                        {step.label}
+                            <>
+                              {/* Description */}
+                              {td.description && (
+                                <div style={{ marginBottom: 14 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 6 }}>Description</div>
+                                  <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{td.description}</div>
+                                </div>
+                              )}
+                              {/* Stage Flow */}
+                              <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 6 }}>Stage Flow</div>
+                                <XLR8StageFlow task={td} log={ticketLogs[a.id] ?? []} />
+                              </div>
+                              {/* Attachments */}
+                              {deliverables.length > 0 && (
+                                <div style={{ marginBottom: 14 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--ink-muted)', marginBottom: 6 }}>Attachments</div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {deliverables.map((d: any) => (
+                                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                                        {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
+                                        <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                                        <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
                                       </div>
-                                      {(state === 'done' || state === 'active') && dateToShow && (
-                                        <span style={{ fontSize: 9, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 4 }}>
-                                          {state === 'active' ? 'Started ' : ''}{format(new Date(dateToShow), 'MMM d, h:mm a')}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {i < arr.length - 1 && <div className="timeline-line" style={{ marginTop: 12 }} />}
+                                    ))}
                                   </div>
-                                );
-                              })}
-                            </div>
+                                </div>
+                              )}
+                            </>
                           );
                         })()}
+                        {a.workflow_type === 'xlr8' && !taskDetails[a.id] && (
+                          <div style={{ fontSize: 12, color: 'var(--ink-muted)', padding: '8px 0' }}>Loading stage flow…</div>
+                        )}
 
                         {/* Legacy step timeline */}
                         {a.workflow_type !== 'custom' && a.workflow_type !== 'xlr8' && (

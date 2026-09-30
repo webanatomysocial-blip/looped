@@ -1346,6 +1346,32 @@ async function createSchema(): Promise<void> {
     .pluck('ap.id');
   if (staleApIds.length) await db('approvals').whereIn('id', staleApIds).update({ status: 'rejected' });
 
+  // Fix tasks stuck at a skipped stage after rejection (rejection used to land on skipped stage instead of jumping over it)
+  const stuckAtSkipped = await db('tasks as t')
+    .whereNotNull('t.ticket_type_id')
+    .whereIn('t.xlr8_status', ['in_progress', 'pending_assignee'])
+    .whereExists(function () {
+      this.from('task_assignees as ta')
+        .whereRaw('ta.task_id = t.id')
+        .whereRaw('ta.stage_idx = t.xlr8_stage_idx')
+        .where('ta.skipped', 1);
+    })
+    .select('t.id', 't.xlr8_stage_idx', 't.ticket_type_id');
+  for (const t of stuckAtSkipped) {
+    const ticketType = await db('xlr8_ticket_types').where({ id: t.ticket_type_id }).first();
+    if (!ticketType) continue;
+    const stages: any[] = (() => { try { return JSON.parse(ticketType.stages); } catch { return []; } })();
+    const skippedIdxs = new Set((await db('task_assignees').where({ task_id: t.id, skipped: 1 }).pluck('stage_idx')).map(Number));
+    let prevIdx = (t.xlr8_stage_idx ?? 1) - 1;
+    const stageType = (s: any) => s?.is_review || s?.type === 'manager' ? 'manager' : 'employee';
+    while (prevIdx >= 0 && (stageType(stages[prevIdx]) !== 'employee' || skippedIdxs.has(prevIdx))) prevIdx--;
+    const targetIdx = prevIdx >= 0 ? prevIdx : 0;
+    const prevAssignee = await db('task_assignees').where({ task_id: t.id, stage_idx: targetIdx }).whereNotNull('user_id').first();
+    const prevAssigneeId = prevAssignee?.user_id ?? null;
+    await db('tasks').where({ id: t.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'in_progress', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
+    await db('task_assignees').where({ task_id: t.id }).where('stage_idx', '>', targetIdx).whereIn('acceptance_status', ['accepted', 'pending']).whereNot('skipped', 1).update({ acceptance_status: 'pre_pending' });
+  }
+
   // Fix tasks stuck in pending_assignee after a manager/admin rejection
   // (old code set pending_assignee; new code sets in_progress so employee sees rejection banner)
   const staleTasks = await db('tasks as t')

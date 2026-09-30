@@ -84,7 +84,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       })
       .where('t.xlr8_assignee_id', userId)
       .whereIn('t.xlr8_status', ['pending_assignee', 'in_progress', 'pending_manager', 'pending_admin'])
-      .whereNotIn('t.status', ['completed'])
+      .whereNotIn('t.status', ['completed', 'draft'])
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
@@ -120,7 +120,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('ta.assignee_role', ['admin', 'client'])
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
-      .whereNotIn('t.status', ['completed'])
+      .whereNotIn('t.status', ['completed', 'draft'])
       .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds].length ? [...xlr8Ids, ...reviewRoleIds] : [0])
       .where(function () {
         // Future stages: always show pre-assignment prompt
