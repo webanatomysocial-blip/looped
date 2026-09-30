@@ -574,7 +574,8 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
 
   if (action === 'decline') {
     await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
-    await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+    // Mark approval as rejected so it leaves the manager's pending queue
+    await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'rejected' });
 
     // Find the previous employee stage to send back to
     let prevEmpIdx = currentStageIdx - 1;
@@ -668,7 +669,8 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
 
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
   await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'in_progress', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
-  await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
+  // Mark approval as rejected so it leaves the admin's pending queue
+  await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'rejected' });
   // Mark target stage as accepted — employee already accepted, no re-accept needed
   if (prevAssigneeId) {
     await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId, stage_idx: targetIdx }).update({ acceptance_status: 'accepted' });

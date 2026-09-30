@@ -1335,6 +1335,16 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+
+  // Fix stale XLR8 rejections: approvals stuck as work_in_progress with no active pending state
+  // (from old rejection code that set work_in_progress instead of rejected)
+  const staleIds = await db('approvals as ap')
+    .join('tasks as t', 't.id', 'ap.task_id')
+    .where('ap.status', 'work_in_progress')
+    .where('ap.workflow_type', 'xlr8')
+    .whereNotIn('t.xlr8_status', ['pending_manager', 'pending_admin', 'pending_client'])
+    .pluck('ap.id');
+  if (staleIds.length) await db('approvals').whereIn('id', staleIds).update({ status: 'rejected' });
 }
 
 async function seedAdmin(): Promise<void> {
