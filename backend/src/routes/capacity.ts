@@ -216,18 +216,33 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         : []
     );
 
-    // Fetch latest rejection comment for XLR8 pending_assignee tasks
-    const pendingAssigneeIds = allTasks.filter((t: any) => t.xlr8_status === 'pending_assignee' && t.ticket_type_id).map((t: any) => t.id);
+    // Fetch latest rejection comment for XLR8 tasks sent back for rework (pending_assignee or in_progress after a decline)
+    const reworkCandidateIds = allTasks.filter((t: any) => t.ticket_type_id && ['pending_assignee', 'in_progress'].includes(t.xlr8_status)).map((t: any) => t.id);
     const rejectionLogs: Record<number, { actor: string; comment: string }> = {};
-    if (pendingAssigneeIds.length) {
+    if (reworkCandidateIds.length) {
       const logs = await db('xlr8_ticket_log as l')
         .join('users as u', 'l.actor_id', 'u.id')
-        .whereIn('l.task_id', pendingAssigneeIds)
+        .whereIn('l.task_id', reworkCandidateIds)
         .whereIn('l.action', ['manager_declined', 'admin_declined'])
         .orderBy('l.created_at', 'desc')
-        .select('l.task_id', 'l.comment', 'u.name as actor');
+        .select('l.task_id', 'l.comment', 'u.name as actor', 'l.created_at');
+      // Only attach rejection_log if the decline happened AFTER the last approval/start
+      // so we don't show stale rejections for tasks that have since progressed
+      const lastProgressLogs = await db('xlr8_ticket_log as l')
+        .whereIn('l.task_id', reworkCandidateIds)
+        .whereIn('l.action', ['manager_approved', 'admin_approved', 'next_stage', 'employee_accepted'])
+        .orderBy('l.created_at', 'desc')
+        .select('l.task_id', 'l.created_at');
+      const lastProgressAt: Record<number, number> = {};
+      for (const r of lastProgressLogs) {
+        if (!lastProgressAt[r.task_id]) lastProgressAt[r.task_id] = new Date(r.created_at).getTime();
+      }
       for (const row of logs) {
-        if (!rejectionLogs[row.task_id]) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment };
+        if (!rejectionLogs[row.task_id]) {
+          const declineAt = new Date(row.created_at ?? 0).getTime();
+          const progressAt = lastProgressAt[row.task_id] ?? 0;
+          if (declineAt > progressAt) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment };
+        }
       }
     }
 

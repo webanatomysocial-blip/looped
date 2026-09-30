@@ -99,7 +99,7 @@ export default function Tasks() {
   });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
   // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes, skipped, is_reviewer }
-  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean }>>({});
+  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean }>>({});
   const [stageSearchOpen, setStageSearchOpen] = useState<Record<number, boolean>>({});
   const [stageSearchTerm, setStageSearchTerm] = useState<Record<number, string>>({});
   // XLR8 ticket workflow modal
@@ -1056,7 +1056,13 @@ export default function Tasks() {
                           const isReviewer = isManager || isAdmin;
                           const projectMemberIds = new Set((selProj?.members || []).map((m: any) => m.user_id));
                           const podManagers = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
-                          const catEmployees = isReviewer ? [] : [  
+                          // Cross Pod: employees from OTHER pods
+                          const otherPod = projPod === 'pod1' ? 'pod2' : projPod === 'pod2' ? 'pod1' : null;
+                          const crossPodEmployees = users.filter(u => u.role === 'employee' && (otherPod ? u.pod === otherPod : u.pod !== projPod) &&
+                            u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase())
+                          );
+                          const isCrossPod = !isReviewer && !!sa.cross_pod && !!projPod;
+                          const catEmployees = isReviewer ? [] : [
                             ...employees.filter(u =>
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
@@ -1068,10 +1074,10 @@ export default function Tasks() {
                             : isManager
                               ? users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod))
                               : [];
-                          const pool = isReviewer ? reviewPool : catEmployees;
+                          const pool = isReviewer ? reviewPool : isCrossPod ? crossPodEmployees : catEmployees;
                           const selectedUsers = users.filter(u => sa.user_ids.includes(u.id));
                           const unselectedUsers = pool.filter(u => !sa.user_ids.includes(u.id));
-                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean }>) =>
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean }>) =>
                             setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
                           const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : isEmpReviewer ? 'rgba(34,197,94,0.05)' : 'var(--surface-raised, #f8f8f8)';
                           const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : isEmpReviewer ? '#16a34a' : 'var(--ink)';
@@ -1086,6 +1092,15 @@ export default function Tasks() {
                                   {label}
                                   {showReviewBadge && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, background: isAdmin ? 'rgba(234,88,12,0.1)' : isManager ? 'rgba(59,130,246,0.1)' : 'rgba(34,197,94,0.12)', color: labelColor }}>Review</span>}
                                 </span>
+                                {/* Cross Pod toggle — only for employee stages when project has a pod */}
+                                {!isReviewer && !isAdmin && !isSkipped && !!projPod && (
+                                  <button type="button"
+                                    onClick={() => updateSa({ cross_pod: !sa.cross_pod })}
+                                    title={isCrossPod ? `Showing ${otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'} employees — click to revert` : `Pull employees from ${otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'}`}
+                                    style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${isCrossPod ? '#f59e0b' : 'var(--sand-border)'}`, background: isCrossPod ? 'rgba(245,158,11,0.1)' : 'transparent', color: isCrossPod ? '#b45309' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
+                                    {isCrossPod ? `✓ ${otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'}` : 'Cross Pod'}
+                                  </button>
+                                )}
                                 {/* Skip toggle */}
                                 <button type="button" onClick={() => updateSa({ skipped: !sa.skipped })}
                                   title={isSkipped ? 'Stage skipped — click to include' : 'Click to skip this stage for this task'}
@@ -1135,13 +1150,14 @@ export default function Tasks() {
                                 )}
                                 {!isReviewer && !stageSearchOpen[idx] && (
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: pool.length > 0 ? 6 : 0 }}>
-                                    {pool.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
+                                    {pool.length === 0 && !isCrossPod && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>No employees in this category — manager will assign</span>}
+                                    {pool.length === 0 && isCrossPod && <span style={{ fontSize: 11, color: '#b45309' }}>No {otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'} employees in this category</span>}
                                     <button
                                       type="button"
                                       onClick={() => setStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
-                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, background: 'var(--surface)', border: '1px solid var(--sand-border)', borderRadius: 6, cursor: 'pointer' }}
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, background: 'var(--surface)', border: `1px solid ${isCrossPod ? '#f59e0b' : 'var(--sand-border)'}`, borderRadius: 6, cursor: 'pointer', color: isCrossPod ? '#b45309' : 'inherit' }}
                                     >
-                                      Search Project Employees
+                                      {isCrossPod ? `Search ${otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'} Employees` : 'Search Project Employees'}
                                     </button>
                                   </div>
                                 )}
@@ -1160,7 +1176,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {stageSearchTerm[idx] && [...employees, ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : [])]
+                                      {stageSearchTerm[idx] && (isCrossPod ? crossPodEmployees : [...employees, ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : [])])
                                         .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (

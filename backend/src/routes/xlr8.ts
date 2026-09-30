@@ -222,7 +222,17 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
   }
 
   const stageName = fType === 'employee' ? (firstStage?.category_name || 'worker') : fType === 'manager' ? 'Manager Review' : fType === 'admin' ? 'Admin Review' : 'worker';
-  const managers = await db('users').whereIn('role', ['manager', 'admin']).select('id');
+  const projectPod = project?.pod;
+  const managers = await db('users')
+    .whereIn('role', ['manager', 'admin'])
+    .where(function () {
+      // Pod managers only see their pod's notifications; admins always get notified
+      this.where('role', 'admin').orWhere(function () {
+        this.where('role', 'manager');
+        if (projectPod) this.where('pod', projectPod);
+      });
+    })
+    .select('id');
   for (const m of managers) {
     if (m.id !== req.user!.id) {
       await createNotification(m.id, `New ticket "${title}" created — ${stageName}`, 'task', project_id);
@@ -574,17 +584,19 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
     const prevAssigneeId = prevAssignee?.user_id ?? null;
 
     await db('tasks').where({ id: ticket.id }).update({
-      xlr8_status: 'pending_assignee',
+      xlr8_status: 'in_progress',
       xlr8_stage_idx: targetIdx,
       xlr8_assignee_id: prevAssigneeId,
       assigned_to: prevAssigneeId,
       status: 'in_progress',
     });
-    // Reset assignee acceptance so the home banner reappears for them
+    // Mark target stage as accepted — employee already accepted, no re-accept needed
     if (prevAssigneeId) {
-      await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId }).update({ acceptance_status: 'pending' });
+      await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId, stage_idx: targetIdx }).update({ acceptance_status: 'accepted' });
     }
-    await appendLog(ticket.id, req.user!, 'manager_declined', 'pending_manager', 'pending_assignee', comment);
+    // Hide future-stage pre-assignment prompts until the task reaches those stages again
+    await db('task_assignees').where({ task_id: ticket.id }).where('stage_idx', '>', targetIdx).whereIn('acceptance_status', ['pending']).update({ acceptance_status: 'pre_pending' });
+    await appendLog(ticket.id, req.user!, 'manager_declined', 'pending_manager', 'in_progress', comment);
     if (prevAssigneeId) {
       await createNotification(prevAssigneeId, `Ticket "${ticket.title}" was declined — please redo and resubmit${comment ? ': ' + comment : ''}`, 'task', ticket.project_id);
     }
@@ -655,13 +667,15 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
   const prevAssigneeId = prevAssignee?.user_id ?? null;
 
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
-  await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'pending_assignee', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_stage_idx: targetIdx, xlr8_status: 'in_progress', xlr8_assignee_id: prevAssigneeId, status: 'in_progress' });
   await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'work_in_progress' });
-  // Reset assignee acceptance so the home banner reappears for them
+  // Mark target stage as accepted — employee already accepted, no re-accept needed
   if (prevAssigneeId) {
-    await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId }).update({ acceptance_status: 'pending' });
+    await db('task_assignees').where({ task_id: ticket.id, user_id: prevAssigneeId, stage_idx: targetIdx }).update({ acceptance_status: 'accepted' });
   }
-  await appendLog(ticket.id, req.user!, 'admin_declined', 'pending_admin', 'pending_assignee', req.body.comment);
+  // Hide future-stage pre-assignment prompts until the task reaches those stages again
+  await db('task_assignees').where({ task_id: ticket.id }).where('stage_idx', '>', targetIdx).whereIn('acceptance_status', ['pending']).update({ acceptance_status: 'pre_pending' });
+  await appendLog(ticket.id, req.user!, 'admin_declined', 'pending_admin', 'in_progress', req.body.comment);
 
   if (prevAssigneeId) {
     await createNotification(prevAssigneeId, `Ticket "${ticket.title}" was declined by admin — please redo your work`, 'task', ticket.project_id);
@@ -735,6 +749,9 @@ async function advanceToStage(
     if (approval2) await db('approvals').where({ id: approval2.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date() });
     res.json({ ok: true, next: 'completed' }); return;
   }
+
+  // Restore pre_pending → pending for this stage (task has now reached it after a prior rejection backward)
+  await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, acceptance_status: 'pre_pending' }).update({ acceptance_status: 'pending' });
 
   // Skip stages flagged as skipped in task_assignees
   const skipRow = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx }).where('skipped', 1).first();
