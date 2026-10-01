@@ -545,7 +545,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name } = req.body;
     const token = randomUUID();
     const manualRow = await getDB()('seo_manual_data').where({ client_id: req.params.clientId }).first();
     await getDB()('seo_share_tokens').insert({
@@ -556,6 +556,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
       acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
       country: country || null,
       agency_name: agency_name || null,
+      project_name: project_name || null,
       manual_snapshot: manualRow ? JSON.stringify(manualRow) : null,
     });
     res.json({ token });
@@ -636,7 +637,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
 
     // GA4 data (if configured)
     if (!client.ga_property_id) {
-      res.json({ client: { id: client.id, name: client.name }, range, manual: manualData, report: null, agency_name: shareRow.agency_name || null });
+      res.json({ client: { id: client.id, name: shareRow.project_name || client.name }, range, manual: manualData, report: null, agency_name: shareRow.agency_name || null });
       return;
     }
 
@@ -739,7 +740,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       client: { id: client.id, name: client.name },
     };
 
-    res.json({ client: { id: client.id, name: client.name }, range, customStart, customEnd, manual: manualData, report, agency_name: shareRow.agency_name || null });
+    res.json({ client: { id: client.id, name: shareRow.project_name || client.name }, range, customStart, customEnd, manual: manualData, report, agency_name: shareRow.agency_name || null });
   } catch (e: any) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -760,13 +761,13 @@ router.get('/saved-reports/:clientId', async (req: AuthRequest, res: Response) =
 
 // POST save a report snapshot
 router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
-  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot, agency_name, acquisitions, demographics } = req.body;
+  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot, agency_name, acquisitions, demographics, project_name } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
     const token = randomUUID();
     const snapshotJson = manual_snapshot ? JSON.stringify(manual_snapshot) : null;
-    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
+    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, project_name: project_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
       created_by: req.user!.id,

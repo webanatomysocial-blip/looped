@@ -204,6 +204,8 @@ async function createSchema(): Promise<void> {
       }
       const hasAgency = await db.schema.hasColumn('seo_share_tokens', 'agency_name');
       if (!hasAgency) await db.schema.table('seo_share_tokens', (t) => { t.string('agency_name').nullable(); });
+      const hasProjectName = await db.schema.hasColumn('seo_share_tokens', 'project_name');
+      if (!hasProjectName) await db.schema.table('seo_share_tokens', (t) => { t.string('project_name').nullable(); });
       const hasAcquisitions = await db.schema.hasColumn('seo_share_tokens', 'acquisitions');
       if (!hasAcquisitions) await db.schema.table('seo_share_tokens', (t) => { t.text('acquisitions').nullable(); t.text('demographics').nullable(); });
     }
@@ -1332,6 +1334,19 @@ async function createSchema(): Promise<void> {
         t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
         t.string('token', 64).notNullable().unique();
         t.timestamps(true, true);
+      });
+    }
+  });
+
+  await db.schema.hasTable('recurring_task_overrides').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('recurring_task_overrides', (t) => {
+        t.increments('id').primary();
+        t.integer('recurring_task_id').notNullable().references('id').inTable('recurring_tasks').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.string('date', 10).notNullable(); // YYYY-MM-DD
+        t.float('custom_start_hour').notNullable();
+        t.unique(['recurring_task_id', 'user_id', 'date']);
       });
     }
   });

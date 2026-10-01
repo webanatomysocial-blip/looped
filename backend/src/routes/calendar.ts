@@ -406,6 +406,18 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     recurringQuery = recurringQuery.where('rt.assigned_to', user.id);
     const recurringTemplates = await recurringQuery;
 
+    // Load per-day start-hour overrides for recurring tasks this week
+    const recurringIds = recurringTemplates.map((rt: any) => rt.id);
+    const recurOverrides: Record<string, number> = {};
+    if (recurringIds.length) {
+      const overrideRows = await db('recurring_task_overrides')
+        .whereIn('recurring_task_id', recurringIds)
+        .where('user_id', user.id)
+        .whereBetween('date', [weekStart, weekEnd])
+        .select('recurring_task_id', 'date', 'custom_start_hour');
+      for (const o of overrideRows) recurOverrides[`${o.recurring_task_id}_${o.date}`] = o.custom_start_hour;
+    }
+
     const recurring: any[] = [];
     for (const rt of recurringTemplates) {
       const isOwn = rt.assigned_to === user.id;
@@ -417,7 +429,8 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
         else if (rt.recurrence_type === 'weekly') occurs = rdaysList.includes(dow);
         else if (rt.recurrence_type === 'monthly') { const d = parseInt(dateStr.slice(8)); occurs = rt.day_of_month ? d === rt.day_of_month : d === 1; }
         if (!occurs || dateStr < rt.start_date || (rt.end_date && dateStr > rt.end_date)) continue;
-        recurring.push({ id: `rt_${rt.id}_${dateStr}`, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, assigned_to_name: rt.assigned_to_name, event_type: 'recurring', tracked_seconds: 0, is_overview: !isOwn, description: rt.description || null, doc_link: rt.doc_link || null });
+        const customStartHour = recurOverrides[`${rt.id}_${dateStr}`] ?? null;
+        recurring.push({ id: `rt_${rt.id}_${dateStr}`, recurring_task_id: rt.id, title: rt.title, due_date: dateStr, slot_date: dateStr, status: 'recurring', priority: rt.priority, estimated_hours: rt.estimated_hours, slot_hours: rt.estimated_hours, project_name: rt.project_name, assigned_to_name: rt.assigned_to_name, event_type: 'recurring', tracked_seconds: 0, is_overview: !isOwn, description: rt.description || null, doc_link: rt.doc_link || null, custom_start_hour: customStartHour });
       }
     }
 
@@ -516,6 +529,22 @@ router.post('/schedule', async (req: AuthRequest, res: Response) => {
     console.error('schedule error:', e?.message);
     res.status(500).json({ error: e?.message || 'Server error' });
   }
+});
+
+// PATCH /calendar/recurring/:id/time — pin a recurring instance to a start hour for one specific day
+router.patch('/recurring/:id/time', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const { start_hour, date } = req.body;
+    if (typeof start_hour !== 'number' || !date) { res.status(400).json({ error: 'start_hour and date required' }); return; }
+    const rt = await db('recurring_tasks').where({ id: req.params.id, assigned_to: req.user!.id }).first();
+    if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
+    await db('recurring_task_overrides')
+      .insert({ recurring_task_id: Number(req.params.id), user_id: req.user!.id, date, custom_start_hour: start_hour })
+      .onConflict(['recurring_task_id', 'user_id', 'date'])
+      .merge({ custom_start_hour: start_hour });
+    res.json({ ok: true });
+  } catch (e: any) { res.status(500).json({ error: e?.message || 'Server error' }); }
 });
 
 // PATCH /calendar/slot/:slotId/time — pin a slot to a specific start hour (drag-to-reposition)
