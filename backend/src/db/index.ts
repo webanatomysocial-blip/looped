@@ -1346,6 +1346,33 @@ async function createSchema(): Promise<void> {
     .pluck('ap.id');
   if (staleApIds.length) await db('approvals').whereIn('id', staleApIds).update({ status: 'rejected' });
 
+  // Fix XLR8 tasks where initial manager approval didn't trigger advanceToStage
+  // (old manager-approve route just set status='todo' but left xlr8_status='pending_approval')
+  const stuckAfterInitialApproval = await db('tasks as t')
+    .whereNotNull('t.ticket_type_id')
+    .where('t.xlr8_status', 'pending_approval')
+    .whereNot('t.status', 'pending_approval') // status was changed (approved/rejected) but xlr8_status wasn't
+    .whereNot('t.status', 'draft')            // ignore rejected ones
+    .select('t.id', 't.xlr8_stage_idx', 't.ticket_type_id');
+  for (const t of stuckAfterInitialApproval) {
+    const ticketType = await db('xlr8_ticket_types').where({ id: t.ticket_type_id }).first();
+    if (!ticketType) continue;
+    const pj2 = (v: any, fb: any) => { try { return v ? (typeof v === 'string' ? JSON.parse(v) : v) : fb; } catch { return fb; } };
+    const stages: any[] = pj2(ticketType.stages, []);
+    // Find first non-skipped stage
+    const skippedIdxs = new Set((await db('task_assignees').where({ task_id: t.id, skipped: 1 }).pluck('stage_idx')).map(Number));
+    let firstIdx = t.xlr8_stage_idx ?? 0;
+    while (firstIdx < stages.length && skippedIdxs.has(firstIdx)) firstIdx++;
+    if (firstIdx >= stages.length) continue;
+    const stageType = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : 'employee';
+    const nextStage = stages[firstIdx];
+    const sType = stageType(nextStage);
+    const assigneeRow = await db('task_assignees').where({ task_id: t.id, stage_idx: firstIdx }).whereNotNull('user_id').first();
+    const assigneeId = assigneeRow?.user_id ?? null;
+    const newXlr8Status = sType === 'manager' ? 'pending_manager' : sType === 'admin' ? 'pending_admin' : (assigneeId ? 'pending_assignee' : 'pending_assignee');
+    await db('tasks').where({ id: t.id }).update({ xlr8_stage_idx: firstIdx, xlr8_status: newXlr8Status, xlr8_assignee_id: assigneeId, status: 'todo' });
+  }
+
   // Fix tasks stuck at a skipped stage after rejection (rejection used to land on skipped stage instead of jumping over it)
   const stuckAtSkipped = await db('tasks as t')
     .whereNotNull('t.ticket_type_id')

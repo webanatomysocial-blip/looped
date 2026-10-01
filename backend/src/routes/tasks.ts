@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
+import { advanceToStage } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
 async function pauseActiveSession(db: any, userId: number): Promise<void> {
@@ -552,8 +553,22 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
     const task = await db('tasks').where({ id: req.params.id }).first();
     if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
     if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Task is not pending approval' }); return; }
-    await db('tasks').where({ id: req.params.id }).update({ status: action === 'approve' ? 'todo' : 'draft' });
-    res.json({ ok: true, status: action === 'approve' ? 'todo' : 'draft' });
+    if (action === 'reject') {
+      await db('tasks').where({ id: req.params.id }).update({ status: 'draft' });
+      res.json({ ok: true, status: 'draft' });
+      return;
+    }
+    // For XLR8 tickets, kick off the stage flow instead of just setting status = 'todo'
+    if (task.ticket_type_id) {
+      const ticketType = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
+      const pj = (v: any, fb: any) => { if (!v) return fb; if (typeof v === 'string') return JSON.parse(v); return v; };
+      const stages = pj(ticketType?.stages, []);
+      const finalApproval = pj(ticketType?.final_approval, {});
+      await advanceToStage(db, task, stages, finalApproval, task.xlr8_stage_idx ?? 0, req.user!, 'pending_approval', res);
+      return;
+    }
+    await db('tasks').where({ id: req.params.id }).update({ status: 'todo' });
+    res.json({ ok: true, status: 'todo' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 

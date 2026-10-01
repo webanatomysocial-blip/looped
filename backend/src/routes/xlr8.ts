@@ -729,7 +729,7 @@ router.get('/tickets/:id/log', async (req: AuthRequest, res: Response) => {
 });
 
 // Routes ticket to the stage at targetIdx, or to final approval if past all stages
-async function advanceToStage(
+export async function advanceToStage(
   db: any, ticket: any, stages: any[], finalApproval: any,
   targetIdx: number, actor: any, fromState: string, res: Response
 ) {
