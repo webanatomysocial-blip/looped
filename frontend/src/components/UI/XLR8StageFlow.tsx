@@ -86,8 +86,8 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
             {stages.map((stage: any, i: number) => {
               const stageRows = stageAssignees.filter((a: any) => a.stage_idx === i);
               const isSkippedStage = stageRows.some((a: any) => a.skipped);
-              const reviewerOverride = stageRows.find((a: any) => a.is_reviewer !== undefined && a.is_reviewer !== null);
-              const isReview = isSkippedStage ? false : (reviewerOverride ? !!reviewerOverride.is_reviewer : (stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true));
+              const reviewerOverride = stageRows.find((a: any) => a.is_reviewer === 1 || a.is_reviewer === true);
+              const isReview = isSkippedStage ? false : (stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true || (reviewerOverride ? !!reviewerOverride.is_reviewer : false));
               const isRejected   = !isSkippedStage && lastWasRejected && i === rejectedStageIdx;
               const isRedoTarget = !isSkippedStage && lastWasRejected && i === redoIdx;
               const isDone    = !isSkippedStage && !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);

@@ -192,7 +192,9 @@ export default function Tasks() {
         const sa = Object.entries(stageAssignments)
           .map(([idx, v]) => {
             const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
-            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec, skipped: !!v.skipped, is_reviewer: !!v.is_reviewer };
+            const stg = tt2?.stages[Number(idx)];
+            const isReviewer = v.is_reviewer || stg?.type === 'manager' || stg?.type === 'admin' || stg?.reviewer === true;
+            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec, skipped: !!v.skipped, is_reviewer: !!isReviewer };
           })
           .filter(s => s.user_ids.length > 0 || s.est_hours > 0 || s.skipped);
         await xlr8Api.createTicket({

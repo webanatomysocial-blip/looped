@@ -732,10 +732,11 @@ ${manual.gmb_locations.map((loc) => {
   @media print {
     body { padding: 16px 20px; }
     @page { margin: 0.6cm; size: A4 portrait; }
-    h2 { page-break-after: avoid; }
-    .section { page-break-inside: avoid; }
+    h2 { page-break-after: avoid; margin-top: 6px; }
+    .section { page-break-inside: avoid; margin-bottom: 6px; }
     .two-col { page-break-inside: avoid; }
-    .section-block { page-break-inside: avoid; }
+    .section-block { page-break-inside: avoid; margin-bottom: 6px; }
+    .cards { margin-bottom: 6px; }
   }
 </style>
 </head><body>
@@ -1398,6 +1399,7 @@ export default function SEO() {
                                   country: demoCountry || undefined,
                                   manual_snapshot: manual,
                                   agency_name: agencyName || undefined,
+                                  project_name: selectedProject?.name || undefined,
                                   acquisitions: [...selectedAcquisitions],
                                   demographics: [...selectedDemographics],
                                 });
@@ -1465,7 +1467,7 @@ export default function SEO() {
                       className="seo-inline-save"
                       style={{ width: '100%', marginTop: 4 }}
                       onClick={async () => {
-                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry, agency_name: agencyName || undefined });
+                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry, agency_name: agencyName || undefined, project_name: selectedProject?.name || undefined });
                         const newToken = r.data.token;
                         setShareTokens((prev) => [{ token: newToken, range, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
                         const link = `${window.location.origin}/share/${newToken}`;
