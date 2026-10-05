@@ -134,8 +134,9 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
       ? new Date(now.getFullYear(), now.getMonth(), startDay)
       : new Date(now.getFullYear(), now.getMonth() - 1, startDay);
     const cycleEnd = new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, startDay - 1);
-    const cycleStartStr = cycleStart.toISOString().slice(0, 10);
-    const cycleEndStr   = cycleEnd.toISOString().slice(0, 10);
+    const localStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const cycleStartStr = localStr(cycleStart);
+    const cycleEndStr   = localStr(cycleEnd);
 
     const logs = await db('time_logs as tl')
       .join('users as u', 'tl.user_id', 'u.id')
@@ -154,10 +155,10 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
       .select('ts.id', 'ts.task_id', 'ts.started_at', 'ts.ended_at', 'ts.user_id', 'ts.session_date', 't.title as task_title', 'u.name as user_name', 'u.avatar_color as user_color');
     const nowMs = Date.now();
 
-    // Only count session hours for tasks that don't already have time_log entries (avoid double-counting)
-    const loggedTaskIds = new Set(logs.map((l: any) => l.task_id));
+    // Only count session hours for sessions not already converted to a time_log entry (avoid double-counting)
+    const loggedSessionIds = new Set(logs.filter((l: any) => l.task_session_id).map((l: any) => l.task_session_id));
     const sessionHours = allSessions
-      .filter((s: any) => !loggedTaskIds.has(s.task_id))
+      .filter((s: any) => !loggedSessionIds.has(s.id))
       .reduce((sum: number, s: any) => {
         const end = s.ended_at ? Number(new Date(s.ended_at)) : nowMs;
         return sum + (end - Number(new Date(s.started_at))) / 3600000;
@@ -165,7 +166,7 @@ router.get('/xlr8/:projectId', async (req: AuthRequest, res: Response) => {
 
     // Build session-based pseudo log entries for display
     const sessionLogs = allSessions
-      .filter((s: any) => !loggedTaskIds.has(s.task_id))
+      .filter((s: any) => !loggedSessionIds.has(s.id))
       .map((s: any) => {
         const end = s.ended_at ? Number(new Date(s.ended_at)) : nowMs;
         const hrs = Math.round(((end - Number(new Date(s.started_at))) / 3600000) * 100) / 100;

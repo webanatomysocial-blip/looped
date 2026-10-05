@@ -123,7 +123,7 @@ router.post('/gmb-from-url', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PUT /api/seo/clients/:id — admin/manager/employee can set GA property and GSC URL
+// PUT /api/seo/clients/:id — legacy, kept for compatibility
 router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   const { role, id: userId } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role)) {
@@ -146,6 +146,18 @@ router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// PUT /api/seo/project-config/:projectId — save GA4/GSC per project
+router.put('/project-config/:projectId', async (req: AuthRequest, res: Response) => {
+  const { role } = req.user!;
+  if (!['admin', 'manager', 'employee'].includes(role)) { res.status(403).json({ error: 'Access denied' }); return; }
+  const { ga_property_id, gsc_site_url } = req.body;
+  try {
+    const db = getDB();
+    await db('projects').where({ id: req.params.projectId }).update({ ga_property_id: ga_property_id || null, gsc_site_url: gsc_site_url || null });
+    res.json({ message: 'Updated' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // GET /api/seo/report/:clientId?range=28d — full analytics report
 router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
   try {
@@ -166,7 +178,18 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
 
     const client = await db('client_companies').where({ id: req.params.clientId }).first();
     if (!client) { res.status(404).json({ error: 'Client not found' }); return; }
-    if (!client.ga_property_id) { res.status(400).json({ error: 'GA4 Property ID not configured for this client' }); return; }
+
+    // Use project-level GA config when projectId provided, fall back to client_companies
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+    let propertyId = client.ga_property_id;
+    let siteUrl = client.gsc_site_url;
+    if (projectId) {
+      const proj = await db('projects').where({ id: projectId }).select('ga_property_id', 'gsc_site_url').first();
+      if (proj?.ga_property_id) propertyId = proj.ga_property_id;
+      if (proj?.gsc_site_url !== undefined) siteUrl = proj.gsc_site_url;
+    }
+
+    if (!propertyId) { res.status(400).json({ error: 'GA4 Property ID not configured for this project' }); return; }
 
     const { token, error: authError } = await getAccessToken();
     if (!token) { res.status(500).json({ error: authError ?? 'Google auth failed' }); return; }
@@ -181,8 +204,6 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     const ga4End       = isCustom ? customEnd   : 'today';
     const gscStart     = isCustom ? customStart : formatDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
     const gscEnd       = isCustom ? customEnd   : formatDate(0);
-    const propertyId   = client.ga_property_id;
-    const siteUrl      = client.gsc_site_url;
 
     const ga4Base = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -441,7 +462,14 @@ async function queryGSC(rawSiteUrl: string, headers: Record<string, string>, sta
 router.get('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const row = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+    let row = await db('seo_manual_data')
+      .where(projectId ? { project_id: projectId } : { client_id: req.params.clientId })
+      .first();
+    // Fall back to client_id row for projects whose legacy row wasn't backfilled yet
+    if (!row && projectId) {
+      row = await db('seo_manual_data').where({ client_id: req.params.clientId }).whereNull('project_id').first();
+    }
     if (!row) { res.json({}); return; }
     res.json({
       keyword_rankings:  row.keyword_rankings  ? JSON.parse(row.keyword_rankings)  : [],
@@ -527,11 +555,15 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
       hour_utilization:    hour_utilization    !== undefined ? JSON.stringify(hour_utilization)    : undefined,
       updated_at:          new Date(),
     };
-    const existing = await db('seo_manual_data').where({ client_id: req.params.clientId }).first();
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+    // Prefer project_id scope; fall back to client_id for legacy rows
+    const scopeWhere = projectId ? { project_id: projectId } : { client_id: req.params.clientId };
+    const existing = await db('seo_manual_data').where(scopeWhere).first();
     if (existing) {
-      await db('seo_manual_data').where({ client_id: req.params.clientId }).update(payload);
+      await db('seo_manual_data').where({ id: existing.id }).update({ ...payload, ...(projectId && !existing.project_id ? { project_id: projectId } : {}) });
     } else {
-      await db('seo_manual_data').insert({ ...payload, client_id: req.params.clientId });
+      // For project-scoped rows: client_id is nullable, so omit it to avoid unique constraint conflicts
+      await db('seo_manual_data').insert({ ...payload, ...(projectId ? { project_id: projectId } : { client_id: req.params.clientId }) });
     }
     res.json({ message: 'Saved' });
   } catch (err) {
@@ -545,11 +577,15 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name, project_id } = req.body;
+    const projId = project_id ? Number(project_id) : null;
     const token = randomUUID();
-    const manualRow = await getDB()('seo_manual_data').where({ client_id: req.params.clientId }).first();
+    const manualRow = await getDB()('seo_manual_data')
+      .where(projId ? { project_id: projId } : { client_id: req.params.clientId })
+      .first();
     await getDB()('seo_share_tokens').insert({
       token, client_id: req.params.clientId, range,
+      project_id: projId || null,
       start_date: startDate || null, end_date: endDate || null,
       compare_start: compareStart || null, compare_end: compareEnd || null,
       demographics: demographics ? JSON.stringify(demographics) : null,
@@ -576,10 +612,10 @@ router.delete('/share-token/:token', async (req: AuthRequest, res: Response) => 
 // GET /api/seo/share-tokens/:clientId — list all tokens for a client
 router.get('/share-tokens/:clientId', async (req: AuthRequest, res: Response) => {
   try {
-    const rows = await getDB()('seo_share_tokens')
-      .where({ client_id: req.params.clientId })
-      .select('token', 'range', 'start_date', 'end_date', 'created_at')
-      .orderBy('created_at', 'desc');
+    const projId = req.query.projectId ? Number(req.query.projectId) : null;
+    let q = getDB()('seo_share_tokens').where({ client_id: req.params.clientId });
+    if (projId) q = q.where({ project_id: projId });
+    const rows = await q.select('token', 'range', 'start_date', 'end_date', 'created_at').orderBy('created_at', 'desc');
     res.json(rows);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -750,26 +786,27 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
 router.get('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const rows = await db('seo_saved_reports as sr')
-      .join('users as u', 'sr.created_by', 'u.id')
-      .where('sr.client_id', req.params.clientId)
-      .select('sr.*', 'u.name as created_by_name')
-      .orderBy('sr.created_at', 'desc');
+    const projId = req.query.projectId ? Number(req.query.projectId) : null;
+    let q = db('seo_saved_reports as sr').join('users as u', 'sr.created_by', 'u.id').where('sr.client_id', req.params.clientId);
+    if (projId) q = q.where('sr.project_id', projId);
+    const rows = await q.select('sr.*', 'u.name as created_by_name').orderBy('sr.created_at', 'desc');
     res.json(rows);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 // POST save a report snapshot
 router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) => {
-  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot, agency_name, acquisitions, demographics, project_name } = req.body;
+  const { name, range, start_date, end_date, compare_start, compare_end, country, manual_snapshot, agency_name, acquisitions, demographics, project_name, project_id } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
+    const projId = project_id ? Number(project_id) : null;
     const token = randomUUID();
     const snapshotJson = manual_snapshot ? JSON.stringify(manual_snapshot) : null;
-    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, project_name: project_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
+    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', project_id: projId || null, start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, project_name: project_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
+      project_id: projId || null,
       created_by: req.user!.id,
       name: name.trim(),
       range: range || '28d',

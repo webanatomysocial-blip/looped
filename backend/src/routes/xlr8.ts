@@ -456,9 +456,10 @@ router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Respo
 router.post('/tickets/:id/stage-pre-decline', async (req: AuthRequest, res: Response) => {
   if (!['employee', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Not authorized' }); return; }
   const db = getDB();
-  const updated = await db('task_assignees')
-    .where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' })
-    .update({ acceptance_status: 'declined' });
+  const { stage_idx } = req.body;
+  const qb = db('task_assignees').where({ task_id: req.params.id, user_id: req.user!.id, assignee_role: 'employee' });
+  if (stage_idx != null) qb.where({ stage_idx: Number(stage_idx) });
+  const updated = await qb.update({ acceptance_status: 'declined' });
   if (!updated) { res.status(404).json({ error: 'No assignment found' }); return; }
   const ticket = await db('tasks').where({ id: req.params.id }).first();
   if (ticket) {
@@ -643,7 +644,9 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
   if (finalApproval.clientOptional) {
     await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client' });
     if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8', admin_approved_by: req.user!.id, admin_approved_at: new Date() });
-    const clientUsers = await db('users').where({ role: 'client' }).select('id');
+    const clientUsers = await db('users as u')
+      .join('projects as p', 'p.client_company_id', 'u.client_company_id')
+      .where('p.id', ticket.project_id).where('u.role', 'client').select('u.id');
     for (const c of clientUsers) {
       await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
     }
@@ -703,17 +706,46 @@ router.post('/tickets/:id/admin-send-client', async (req: AuthRequest, res: Resp
   const db = getDB();
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_admin' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not pending admin approval' }); return; }
-  await appendLog(ticket.id, req.user!, 'admin_skip_client', 'pending_admin', 'completed', req.body.comment);
-  await completeTicket(db, ticket, req.user!);
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client', assigned_to: null, xlr8_assignee_id: null });
   const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
-  if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'approved', workflow_type: 'xlr8', final_approved_at: new Date(), admin_approved_by: req.user!.id, admin_approved_at: new Date() });
-  res.json({ ok: true });
+  if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8', admin_approved_by: req.user!.id, admin_approved_at: new Date() });
+  else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: ticket.created_by, status: 'pending_client', workflow_type: 'xlr8' });
+  await appendLog(ticket.id, req.user!, 'sent_to_client', 'pending_admin', 'pending_client', req.body.comment);
+  const clients = await db('users as u')
+    .join('projects as p', 'p.client_company_id', 'u.client_company_id')
+    .where('p.id', ticket.project_id).where('u.role', 'client').select('u.id');
+  for (const c of clients) await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
+  res.json({ ok: true, next: 'pending_client' });
 });
 
-router.post('/tickets/:id/client-approve', async (req: AuthRequest, res: Response) => {
+router.post('/tickets/:id/client-reject', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'client') { res.status(403).json({ error: 'Client only' }); return; }
   const db = getDB();
   const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_client' }).first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not pending client approval' }); return; }
+  const project = await db('projects as p')
+    .leftJoin('users as u', 'u.client_company_id', 'p.client_company_id')
+    .where('p.id', ticket.project_id).where('u.id', req.user!.id).first();
+  if (!project) { res.status(403).json({ error: 'Not authorized for this project' }); return; }
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress' });
+  const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
+  if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'revision_requested', workflow_type: 'xlr8' });
+  await appendLog(ticket.id, req.user!, 'client_declined', 'pending_client', 'in_progress', req.body.comment);
+  const admins = await db('users').where({ role: 'admin' }).select('id');
+  for (const a of admins) await createNotification(a.id, `Client rejected ticket "${ticket.title}" — revision needed`, 'task', ticket.project_id);
+  res.json({ ok: true, next: 'revision_requested' });
+});
+
+router.post('/tickets/:id/client-approve', async (req: AuthRequest, res: Response) => {
+  if (req.user!.role !== 'client') { res.status(403).json({ error: 'Client only' }); return; }
+  const db = getDB();
+  const ticket = await db('tasks').where({ id: req.params.id, xlr8_status: 'pending_client' }).first();
+  if (!ticket) { res.status(404).json({ error: 'Ticket not pending client approval' }); return; }
+  // Verify caller belongs to the project's client company
+  const project = await db('projects as p')
+    .leftJoin('users as u', 'u.client_company_id', 'p.client_company_id')
+    .where('p.id', ticket.project_id).where('u.id', req.user!.id).first();
+  if (!project) { res.status(403).json({ error: 'Not authorized for this project' }); return; }
   await appendLog(ticket.id, req.user!, 'client_approved', 'pending_client', 'completed');
   await completeTicket(db, ticket, req.user!);
   const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
@@ -750,7 +782,9 @@ export async function advanceToStage(
       if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8' });
       else await db('approvals').insert({ task_id: ticket.id, title: ticket.title, project_id: ticket.project_id, submitted_by: actor.id, status: 'pending_client', workflow_type: 'xlr8' });
       await appendLog(ticket.id, actor, 'sent_to_client', fromState, 'pending_client');
-      const clients = await db('users').where({ role: 'client' }).select('id');
+      const clients = await db('users as u')
+        .join('projects as p', 'p.client_company_id', 'u.client_company_id')
+        .where('p.id', ticket.project_id).where('u.role', 'client').select('u.id');
       for (const c of clients) await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
       res.json({ ok: true, next: 'pending_client' }); return;
     }

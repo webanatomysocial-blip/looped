@@ -281,7 +281,8 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const workerId  = working_person_id  ? Number(working_person_id)  : null;
     const managerId = task_manager_id    ? Number(task_manager_id)    : null;
 
-    const [id] = await db('tasks').insert({
+    const [id] = await db.transaction(async (trx) => {
+    const inserted = await trx('tasks').insert({
       title, description: description || null,
       project_id, assigned_to: workerId,
       created_by: req.user!.id,
@@ -293,37 +294,46 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       estimated_hours: estimated_hours ? Number(estimated_hours) : null,
       priority: priority || 'medium',
     });
+    const newId = inserted[0];
 
     // Insert assignees (no alternate role — only employee + manager)
     const assigneeInserts: any[] = [];
-    if (workerId)  assigneeInserts.push({ task_id: id, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
-    if (managerId) assigneeInserts.push({ task_id: id, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
-    if (assigneeInserts.length) await db('task_assignees').insert(assigneeInserts);
+    if (workerId)  assigneeInserts.push({ task_id: newId, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
+    if (managerId) assigneeInserts.push({ task_id: newId, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
+    if (assigneeInserts.length) await trx('task_assignees').insert(assigneeInserts);
 
     const validItems = checklistItems.filter(i => i.text);
     if (validItems.length) {
-      await db('task_checklist').insert(validItems.map((i) => ({ task_id: id, text: i.text, completed: i.checked ? 1 : 0 })));
+      await trx('task_checklist').insert(validItems.map((i) => ({ task_id: newId, text: i.text, completed: i.checked ? 1 : 0 })));
       const doneCount = validItems.filter(i => i.checked).length;
-      await db('tasks').where({ id }).update({ checklist_total: validItems.length, checklist_done: doneCount });
+      await trx('tasks').where({ id: newId }).update({ checklist_total: validItems.length, checklist_done: doneCount });
     }
 
     // Save custom approval flow if provided
     const flowUsers: number[] = Array.isArray(approval_flow) ? approval_flow.filter(Boolean) : [];
     if (flowUsers.length) {
-      await db('task_approval_flow').insert(
-        flowUsers.map((userId, position) => ({ task_id: id, user_id: userId, position }))
+      await trx('task_approval_flow').insert(
+        flowUsers.map((userId, position) => ({ task_id: newId, user_id: userId, position }))
       );
     }
+
+    // Auto-pause active session if high/urgent priority (inside transaction so pause + insert are atomic)
+    const effectivePriority2 = priority || 'medium';
+    if (workerId && ['high', 'urgent'].includes(effectivePriority2)) {
+      await pauseActiveSession(trx, workerId);
+    }
+
+    return inserted;
+    });
 
     // Notify assigned employee + check capacity warnings (skip for drafts)
     const warnings: string[] = [];
     if (isDraft) { res.status(201).json({ id, warnings }); return; }
     const project = await db('projects').where({ id: project_id }).first();
 
-    // Auto-pause active session if high/urgent priority task assigned
+    // Notify about pause or assignment
     const effectivePriority = priority || 'medium';
     if (workerId && ['high', 'urgent'].includes(effectivePriority)) {
-      await pauseActiveSession(db, workerId);
       if (workerId !== req.user!.id) {
         await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${title}" assigned — your active task was paused`, 'task', project_id);
       }
@@ -373,8 +383,12 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
     if (priority !== undefined) updates.priority = priority;
     const VALID_STATUSES = ['draft', 'todo', 'pending_approval', 'in_progress', 'in_review', 'overdue', 'completed'];
+    const ADMIN_MANAGER_ONLY_STATUSES = ['completed', 'overdue'];
     if (status !== undefined) {
       if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
+      if (req.user!.role === 'employee' && ADMIN_MANAGER_ONLY_STATUSES.includes(status)) {
+        res.status(403).json({ error: 'Employees cannot set this status directly' }); return;
+      }
       updates.status = status;
     }
 
@@ -420,7 +434,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       updates.assigned_to = ids[0] || null;
       await db('task_assignees').where({ task_id: req.params.id }).delete();
       if (ids.length) {
-        await db('task_assignees').insert(ids.map((uid) => ({ task_id: req.params.id, user_id: uid })));
+        await db('task_assignees').insert(ids.map((uid) => ({ task_id: req.params.id, user_id: uid, assignee_role: 'employee', acceptance_status: 'pending' })));
       }
     }
 

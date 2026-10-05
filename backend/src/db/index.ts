@@ -304,6 +304,79 @@ async function createSchema(): Promise<void> {
       if (!hasHourUtil) {
         await db.schema.table('seo_manual_data', (t) => { t.text('hour_utilization').nullable(); });
       }
+      const hasProjectId = await db.schema.hasColumn('seo_manual_data', 'project_id');
+      if (!hasProjectId) {
+        await db.schema.table('seo_manual_data', (t) => {
+          t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE');
+        });
+        // Backfill: stamp each existing row with the first project under its client
+        try {
+          const rows = await db('seo_manual_data').whereNull('project_id').select('id', 'client_id');
+          for (const r of rows) {
+            const proj = await db('projects').where({ client_company_id: r.client_id }).orderBy('id').first();
+            if (proj) await db('seo_manual_data').where({ id: r.id }).update({ project_id: proj.id });
+          }
+        } catch {}
+      }
+      // Make client_id nullable + remove unique constraint so each project gets its own row.
+      // SQLite can't ALTER constraints — recreate table to fix this.
+      // Guard: check if client_id is still NOT NULL (pre-migration state) by attempting a nullable alter.
+      try {
+        const isProd = process.env.NODE_ENV === 'production';
+        if (isProd) {
+          // MySQL can alter inline
+          await db.raw('ALTER TABLE `seo_manual_data` MODIFY `client_id` INT NULL');
+          await db.raw('ALTER TABLE `seo_manual_data` DROP INDEX IF EXISTS `seo_manual_data_client_id_unique`').catch(() => {});
+        } else {
+          // SQLite: check if any NOT NULL violation would occur before recreating
+          // Recreate without NOT NULL / UNIQUE on client_id, keeping project_id unique
+          const allRows = await db('seo_manual_data').select('*');
+          await db.schema.dropTableIfExists('seo_manual_data_old');
+          await db.schema.renameTable('seo_manual_data', 'seo_manual_data_old');
+          await db.schema.createTable('seo_manual_data', (t) => {
+            t.increments('id').primary();
+            t.integer('client_id').nullable().references('id').inTable('client_companies').onDelete('CASCADE');
+            t.integer('project_id').nullable().unique().references('id').inTable('projects').onDelete('CASCADE');
+            t.text('keyword_rankings').nullable();
+            t.text('targets').nullable();
+            t.text('key_achievements').nullable();
+            t.text('linkedin_data').nullable();
+            t.text('social_media_data').nullable();
+            t.text('gmb_overview').nullable();
+            t.integer('gmb_calls').nullable();
+            t.integer('gmb_bookings').nullable();
+            t.integer('gmb_website_clicks').nullable();
+            t.text('organic_form_data').nullable();
+            t.integer('organic_submissions').defaultTo(0);
+            t.decimal('gmb_rating', 3, 1).nullable();
+            t.integer('gmb_reviews').nullable();
+            t.string('gmb_profile_url').nullable();
+            t.string('linkedin_url').nullable();
+            t.integer('linkedin_followers').nullable();
+            t.text('gmb_locations').nullable();
+            t.text('executive_summary').nullable();
+            t.text('sig_change_whys').nullable();
+            t.text('last_period_plan').nullable();
+            t.text('best_performing_asset').nullable();
+            t.text('next_period_plan').nullable();
+            t.text('period_targets').nullable();
+            t.text('meta_organic').nullable();
+            t.text('linkedin_organic').nullable();
+            t.text('performance_marketing').nullable();
+            t.integer('health_score').nullable();
+            t.string('health_label').nullable();
+            t.text('flags_risks').nullable();
+            t.text('seo_authority').nullable();
+            t.text('hour_utilization').nullable();
+            t.timestamp('updated_at').nullable();
+          });
+          for (const row of allRows) {
+            const { id, ...data } = row;
+            await db('seo_manual_data').insert(data).onConflict('project_id').ignore();
+          }
+          await db.schema.dropTableIfExists('seo_manual_data_old');
+        }
+      } catch (e) { console.warn('seo_manual_data constraint migration skipped:', (e as any).message); }
     }
   });
 
@@ -366,6 +439,22 @@ async function createSchema(): Promise<void> {
   const hasStartDate = await db.schema.hasColumn('projects', 'start_date');
   if (!hasStartDate) {
     await db.schema.table('projects', (t) => { t.date('start_date').nullable(); });
+  }
+  const hasProjGa = await db.schema.hasColumn('projects', 'ga_property_id');
+  if (!hasProjGa) {
+    await db.schema.table('projects', (t) => {
+      t.string('ga_property_id').nullable();
+      t.string('gsc_site_url').nullable();
+    });
+    // Backfill project-level GA config from client_companies
+    try {
+      const companies = await db('client_companies').select('id', 'ga_property_id', 'gsc_site_url');
+      for (const co of companies) {
+        if (co.ga_property_id || co.gsc_site_url) {
+          await db('projects').where({ client_company_id: co.id }).update({ ga_property_id: co.ga_property_id || null, gsc_site_url: co.gsc_site_url || null });
+        }
+      }
+    } catch {}
   }
   // project members
   await db.schema.hasTable('project_members').then(async (exists) => {
@@ -996,8 +1085,32 @@ async function createSchema(): Promise<void> {
       if (!hasManualSnapshot) await db.schema.table('seo_saved_reports', (t) => t.text('manual_snapshot').nullable());
       const hasAgencyName = await db.schema.hasColumn('seo_saved_reports', 'agency_name');
       if (!hasAgencyName) await db.schema.table('seo_saved_reports', (t) => t.string('agency_name').nullable());
+      const hasSrProjectId = await db.schema.hasColumn('seo_saved_reports', 'project_id');
+      if (!hasSrProjectId) {
+        await db.schema.table('seo_saved_reports', (t) => t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE'));
+        try {
+          const reports = await db('seo_saved_reports').whereNull('project_id').select('id', 'client_id');
+          for (const r of reports) {
+            const proj = await db('projects').where({ client_company_id: r.client_id }).orderBy('id').first();
+            if (proj) await db('seo_saved_reports').where({ id: r.id }).update({ project_id: proj.id });
+          }
+        } catch {}
+      }
     }
   });
+
+  // Add project_id to seo_share_tokens
+  const hasStProjectId = await db.schema.hasColumn('seo_share_tokens', 'project_id');
+  if (!hasStProjectId) {
+    await db.schema.table('seo_share_tokens', (t) => t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE'));
+    try {
+      const tokens = await db('seo_share_tokens').whereNull('project_id').select('id', 'client_id');
+      for (const tk of tokens) {
+        const proj = await db('projects').where({ client_company_id: tk.client_id }).orderBy('id').first();
+        if (proj) await db('seo_share_tokens').where({ id: tk.id }).update({ project_id: proj.id });
+      }
+    } catch {}
+  }
 
   // Local SEO rank tracking
   await db.schema.hasTable('local_seo_configs').then(async (exists) => {

@@ -74,12 +74,19 @@ function getDotState(
 ): 'done' | 'active' | 'rejected' | 'pending' {
   if (approval.status === 'approved') return 'done';
   if (stageKey === 'submitted') return 'done';
+  // For XLR8 approvals, use xlr8_status as the live position
+  const liveStatus = (approval.workflow_type === 'xlr8' && (approval as any).xlr8_status)
+    ? (approval as any).xlr8_status
+    : approval.status;
   if (approval.status === 'rejected') {
-    const current = timeline.findIndex((t) => t.key === approval.status);
+    // Find the stage just before the last active stage — all stages at or before it are rejected
+    const currentIdx = timeline.findIndex((t) => t.key === liveStatus);
     const me = timeline.findIndex((t) => t.key === stageKey);
-    return me <= current ? 'rejected' : 'pending';
+    // If the current stage can't be found, mark all non-submitted stages as rejected
+    const threshold = currentIdx >= 0 ? currentIdx : timeline.length;
+    return me <= threshold ? 'rejected' : 'pending';
   }
-  const currentIdx = timeline.findIndex((t) => t.key === approval.status);
+  const currentIdx = timeline.findIndex((t) => t.key === liveStatus);
   const myIdx = timeline.findIndex((t) => t.key === stageKey);
   if (myIdx < 0) return 'pending';
   if (myIdx < currentIdx) return 'done';

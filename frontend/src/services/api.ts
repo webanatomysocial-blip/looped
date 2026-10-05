@@ -179,17 +179,19 @@ export const adsApi = {
 
 export const seoApi = {
   clients: () => api.get('/seo/clients'),
-  report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string, compareStart?: string, compareEnd?: string) =>
-    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country, compareStart, compareEnd } }),
+  report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string, compareStart?: string, compareEnd?: string, projectId?: number) =>
+    api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country, compareStart, compareEnd, ...(projectId ? { projectId } : {}) } }),
   configClient: (clientId: number, data: { ga_property_id: string; gsc_site_url: string }) =>
     api.put(`/seo/clients/${clientId}`, data),
-  getManual: (clientId: number) => api.get(`/seo/manual/${clientId}`),
-  updateManual: (clientId: number, data: any) => api.put(`/seo/manual/${clientId}`, data),
-  getShareTokens: (clientId: number) => api.get(`/seo/share-tokens/${clientId}`),
-  createShare: (clientId: number, data: { range: string; startDate?: string; endDate?: string; compareStart?: string; compareEnd?: string; demographics?: string[]; acquisitions?: string[]; country?: string; agency_name?: string; project_name?: string }) => api.post(`/seo/share/${clientId}`, data),
+  configProject: (projectId: number, data: { ga_property_id: string; gsc_site_url: string }) =>
+    api.put(`/seo/project-config/${projectId}`, data),
+  getManual: (clientId: number, projectId?: number) => api.get(`/seo/manual/${clientId}`, { params: projectId ? { projectId } : {} }),
+  updateManual: (clientId: number, data: any, projectId?: number) => api.put(`/seo/manual/${clientId}`, data, { params: projectId ? { projectId } : {} }),
+  getShareTokens: (clientId: number, projectId?: number) => api.get(`/seo/share-tokens/${clientId}`, { params: projectId ? { projectId } : {} }),
+  createShare: (clientId: number, data: { range: string; startDate?: string; endDate?: string; compareStart?: string; compareEnd?: string; demographics?: string[]; acquisitions?: string[]; country?: string; agency_name?: string; project_name?: string; project_id?: number }) => api.post(`/seo/share/${clientId}`, data),
   revokeShareToken: (token: string) => api.delete(`/seo/share-token/${token}`),
-  getSavedReports: (clientId: number) => api.get(`/seo/saved-reports/${clientId}`),
-  saveReport: (clientId: number, data: { name: string; range: string; start_date?: string; end_date?: string; compare_start?: string; compare_end?: string; country?: string; manual_snapshot?: any; agency_name?: string; project_name?: string; acquisitions?: string[]; demographics?: string[] }) => api.post(`/seo/saved-reports/${clientId}`, data),
+  getSavedReports: (clientId: number, projectId?: number) => api.get(`/seo/saved-reports/${clientId}`, { params: projectId ? { projectId } : {} }),
+  saveReport: (clientId: number, data: { name: string; range: string; start_date?: string; end_date?: string; compare_start?: string; compare_end?: string; country?: string; manual_snapshot?: any; agency_name?: string; project_name?: string; project_id?: number; acquisitions?: string[]; demographics?: string[] }) => api.post(`/seo/saved-reports/${clientId}`, data),
   updateSavedReport: (reportId: number, data: { name: string; range: string; start_date?: string; end_date?: string; compare_start?: string; compare_end?: string; country?: string; manual_snapshot?: any; agency_name?: string }) => api.put(`/seo/saved-reports/${reportId}`, data),
   deleteSavedReport: (reportId: number) => api.delete(`/seo/saved-reports/${reportId}`),
   revokeAndRegenerateToken: (reportId: number) => api.patch(`/seo/saved-reports/${reportId}/revoke-token`),

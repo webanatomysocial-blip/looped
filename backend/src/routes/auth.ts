@@ -32,7 +32,7 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   }
   try {
     const db = getDB();
-    const user = await db('users').where({ email }).first();
+    const user = await db('users').whereRaw('LOWER(email) = ?', [email.toLowerCase()]).first();
     if (!user) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;

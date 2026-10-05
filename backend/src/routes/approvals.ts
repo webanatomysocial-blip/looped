@@ -17,7 +17,8 @@ async function closeTaskTimers(taskId: number) {
     if (hours > 0.001) {
       const task = await db('tasks').where({ id: taskId }).select('project_id').first();
       const user = await db('users').where({ id: s.user_id }).select('monthly_salary').first();
-      const rate = user?.monthly_salary ? user.monthly_salary / 160 : null;
+      const now2 = new Date(); const daysInMonth = new Date(now2.getFullYear(), now2.getMonth() + 1, 0).getDate();
+      const rate = user?.monthly_salary ? user.monthly_salary / daysInMonth / 7 : null;
       await db('time_logs').insert({
         task_id: taskId,
         project_id: task?.project_id,
@@ -145,11 +146,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         this.from('approvals as ap').whereRaw('ap.task_id = t.id').whereNotIn('ap.status', ['approved', 'rejected']);
       })
       .select('t.id', 't.title', 't.project_id', 't.created_by', 't.xlr8_status');
-    if (orphaned.length > 0) {
-      await db('approvals').insert(orphaned.map((t: any) => ({
-        task_id: t.id, title: t.title, project_id: t.project_id,
-        submitted_by: t.created_by, status: t.xlr8_status, workflow_type: 'xlr8',
-      })));
+    for (const t of orphaned) {
+      await db('approvals')
+        .insert({ task_id: t.id, title: t.title, project_id: t.project_id, submitted_by: t.created_by, status: t.xlr8_status, workflow_type: 'xlr8' })
+        .onConflict('task_id').ignore();
     }
 
     let query = db('approvals as ap')

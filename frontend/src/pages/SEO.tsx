@@ -1050,6 +1050,7 @@ export default function SEO() {
       demoCountry,
       compareStart || undefined,
       compareEnd || undefined,
+      selectedProject?.id,
     )
       .then((r) => setReport(r.data))
       .catch((e) => setError(e.response?.data?.error || 'Failed to load report'))
@@ -1061,7 +1062,7 @@ export default function SEO() {
     // Reset manual immediately so stale data from previous client/report never bleeds in
     setManual(emptyManual());
     setManualEdit(emptyManual());
-    seoApi.getManual(selectedClient.id)
+    seoApi.getManual(selectedClient.id, selectedProject?.id)
       .then((r) => {
         const data = { ...emptyManual(), ...r.data };
         // Migrate legacy flat GMB fields into gmb_locations[0]
@@ -1088,11 +1089,11 @@ export default function SEO() {
       })
       .catch(() => { setManual(emptyManual()); setShowTiktok(false); });
 
-    seoApi.getShareTokens(selectedClient.id)
+    seoApi.getShareTokens(selectedClient.id, selectedProject?.id)
       .then((r) => setShareTokens(r.data || []))
       .catch(() => setShareTokens([]));
 
-    seoApi.getSavedReports(selectedClient.id)
+    seoApi.getSavedReports(selectedClient.id, selectedProject?.id)
       .then((r) => setSavedReports(r.data || []))
       .catch(() => setSavedReports([]));
   }, [selectedProject]);
@@ -1119,7 +1120,7 @@ export default function SEO() {
           data.health_score = Math.round(validTargets.reduce((s: number, t: Target) => s + Math.min(100, (t.achieved / t.target) * 100), 0) / validTargets.length);
         }
       }
-      await seoApi.updateManual(selectedClient.id, data);
+      await seoApi.updateManual(selectedClient.id, data, selectedProject?.id);
       setManual({ ...data });
       if (closePanel) setManualPanel(null);
     } catch { alert('Failed to save'); }
@@ -1129,14 +1130,12 @@ export default function SEO() {
   const saveManual = () => doSaveManual({ ...manualEdit }, true, manualPanel === 'health');
 
   const openEdit = (proj: SeoProject) => {
-    const clientCompanyId = proj.client_company_id;
-    if (!clientCompanyId) return;
-    if (editingId === clientCompanyId) { setEditingId(null); return; }
-    setEditingId(clientCompanyId);
+    if (editingId === proj.id) { setEditingId(null); return; }
+    setEditingId(proj.id);
     setCfGa(proj.ga_property_id || '');
     setCfGsc(proj.gsc_site_url || '');
-    const company = clients.find(c => c.id === clientCompanyId);
-    setCfName(company?.name || '');
+    const company = clients.find(c => c.id === proj.client_company_id);
+    setCfName(company?.name || proj.name);
     setSaved(false);
   };
 
@@ -1144,15 +1143,12 @@ export default function SEO() {
     if (!editingId) return;
     setSaving(true);
     try {
-      await seoApi.configClient(editingId, { ga_property_id: cfGa, gsc_site_url: cfGsc });
-      setClients((prev) => prev.map((c) =>
-        c.id === editingId ? { ...c, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : c
-      ));
-      // Update ga/gsc on all projects sharing this client_company_id
+      await seoApi.configProject(editingId, { ga_property_id: cfGa, gsc_site_url: cfGsc });
+      // Update only the specific project
       setProjects((prev) => prev.map((p) =>
-        p.client_company_id === editingId ? { ...p, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : p
+        p.id === editingId ? { ...p, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : p
       ));
-      if (selectedProject?.client_company_id === editingId) {
+      if (selectedProject?.id === editingId) {
         setSelectedProject((sp) => sp ? { ...sp, ga_property_id: cfGa || null, gsc_site_url: cfGsc || null } : sp);
       }
       setSaved(true);
@@ -1164,8 +1160,8 @@ export default function SEO() {
   const maxAcq   = Math.max(...(report?.acquisition.map((r) => r.sessions) ?? [1]), 1);
   const maxDemo  = Math.max(...(report?.demographics.map((r) => r.users) ?? [1]), 1);
 
-  const editingClient = clients.find((c) => c.id === editingId) ?? null;
-  const editingProject = projects.find((p) => p.client_company_id === editingId) ?? null;
+  const editingProject = projects.find((p) => p.id === editingId) ?? null;
+  const editingClient = editingProject ? (clients.find((c) => c.id === editingProject.client_company_id) ?? null) : null;
 
   return (
     <Layout>
@@ -1400,6 +1396,7 @@ export default function SEO() {
                                   manual_snapshot: manual,
                                   agency_name: agencyName || undefined,
                                   project_name: selectedProject?.name || undefined,
+                                  project_id: selectedProject?.id || undefined,
                                   acquisitions: [...selectedAcquisitions],
                                   demographics: [...selectedDemographics],
                                 });
@@ -1467,7 +1464,7 @@ export default function SEO() {
                       className="seo-inline-save"
                       style={{ width: '100%', marginTop: 4 }}
                       onClick={async () => {
-                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry, agency_name: agencyName || undefined, project_name: selectedProject?.name || undefined });
+                        const r = await seoApi.createShare(selectedClient.id, { range, startDate: customStart || undefined, endDate: customEnd || undefined, compareStart: compareStart || undefined, compareEnd: compareEnd || undefined, demographics: [...selectedDemographics], acquisitions: [...selectedAcquisitions], country: demoCountry, agency_name: agencyName || undefined, project_name: selectedProject?.name || undefined, project_id: selectedProject?.id || undefined });
                         const newToken = r.data.token;
                         setShareTokens((prev) => [{ token: newToken, range, start_date: customStart || null, end_date: customEnd || null }, ...prev]);
                         const link = `${window.location.origin}/share/${newToken}`;
@@ -1490,13 +1487,13 @@ export default function SEO() {
               <div key={proj.id} className="seo-client-wrap">
                 <button
                   className={`seo-client-btn${selectedProject?.id === proj.id ? ' active' : ''}${!proj.ga_property_id ? ' unconfigured' : ''}`}
-                  onClick={() => { setSelectedProject(proj); if (editingId !== proj.client_company_id) setEditingId(null); }}
+                  onClick={() => { setSelectedProject(proj); if (editingId !== proj.id) setEditingId(null); }}
                 >
                   <span>{proj.name}</span>
                   {!proj.ga_property_id && <span className="seo-badge-warn">Setup</span>}
-                  {canEdit && proj.client_company_id && (
+                  {canEdit && (
                     <span
-                      className={`seo-config-icon${editingId === proj.client_company_id ? ' open' : ''}`}
+                      className={`seo-config-icon${editingId === proj.id ? ' open' : ''}`}
                       onClick={(e) => { e.stopPropagation(); openEdit(proj); }}
                       title="Configure GA4 & GSC"
                     >

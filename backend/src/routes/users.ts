@@ -244,13 +244,14 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
   }
   try {
     const db = getDB();
-    const existing = await db('users').where({ email }).first();
+    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await db('users').whereRaw('LOWER(email) = ?', [normalizedEmail]).first();
     if (existing) { res.status(409).json({ error: 'Email already exists' }); return; }
 
     const hash = await bcrypt.hash(password, 10);
     const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
     const [id] = await db('users').insert({
-      name, email, password_hash: hash, role,
+      name, email: normalizedEmail, password_hash: hash, role,
       avatar_color: color, created_by: req.user!.id,
       pod: pod || null,
       monthly_salary: monthly_salary != null ? Number(monthly_salary) : null,
