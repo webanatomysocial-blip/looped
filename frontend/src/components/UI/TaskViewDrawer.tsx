@@ -1,5 +1,5 @@
 <title>TaskViewDrawer</title>
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
@@ -384,21 +384,21 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 left: mentionRect.left,
                 top: mentionRect.bottom + 4,
                 width: Math.max(mentionRect.width, 200),
-                zIndex: 9999,
-                background: 'var(--surface)',
-                border: '1px solid var(--border, #e5e7eb)',
+                zIndex: 99999,
+                background: '#ffffff',
+                border: '1px solid #e5e7eb',
                 borderRadius: 8,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
                 maxHeight: 220,
                 overflowY: 'auto',
+                isolation: 'isolate',
               };
               return createPortal(
                 <div style={style}>
+                  <style>{`.mention-item:hover{background:rgba(0,0,0,0.06)}`}</style>
                   {mentionSuggestions.map((m: any) => (
-                    <div key={m.id} onMouseDown={e => { e.preventDefault(); insertMention(m.name); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13 }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--hover, rgba(0,0,0,0.05))')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    <div key={m.id} className="mention-item" onMouseDown={e => { e.preventDefault(); insertMention(m.name); }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, transition: 'background 0.1s' }}
                     >
                       <MiniAvatar name={m.name} color={m.avatar_color || '#94a3b8'} size={22} fontSize={9} />
                       <span style={{ fontWeight: 600 }}>{m.name}</span>
@@ -500,7 +500,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           placeholder={`Reply to ${c.user_name?.split(' ')[0]}… (@ to mention)`}
                           style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--blue, #2563eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', boxSizing: 'border-box' }}
                         />
-                        <MentionDropdown target="reply" />
+                        {MentionDropdown({ target: 'reply' })}
                         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                           <button onClick={async () => { await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); }} disabled={!replyText.trim()} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: 'none', background: 'var(--blue, #2563eb)', color: '#fff', cursor: 'pointer', fontWeight: 700, opacity: replyText.trim() ? 1 : 0.4 }}>Reply</button>
                           <button onClick={() => setReplyingTo(null)} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--ink-muted)', cursor: 'pointer' }}>Cancel</button>
@@ -534,9 +534,9 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                       onFocus={e => { e.target.style.borderColor = 'var(--blue, #2563eb)'; }}
                       onBlur={e => { e.target.style.borderColor = 'var(--border, #e5e7eb)'; setTimeout(() => { setMentionQuery(null); setMentionTarget(null); }, 150); }}
                     />
-                    <MentionDropdown target="main" />
+                    {MentionDropdown({ target: 'main' })}
                     {commentText.trim() && (
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, position: 'relative', zIndex: 0 }}>
                         <button
                           onClick={async () => { if (submittingComment) return; setSubmittingComment(true); try { await postComment(commentText); setCommentText(''); } finally { setSubmittingComment(false); } }}
                           disabled={submittingComment}

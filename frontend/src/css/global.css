@@ -321,6 +321,7 @@ textarea.form-input { resize: none; }
   z-index: 600;
   display: flex;
   justify-content: flex-end;
+  isolation: isolate;
 }
 
 .drawer-backdrop {
@@ -342,7 +343,6 @@ textarea.form-input { resize: none; }
   border-left: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow: -12px 0 48px rgba(0, 0, 0, 0.10);
   animation: drawerIn 0.25s cubic-bezier(0.32, 0, 0.08, 1);
-  overflow: hidden;
 }
 
 @keyframes drawerIn {
