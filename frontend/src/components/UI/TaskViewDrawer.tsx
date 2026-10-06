@@ -110,7 +110,11 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
         }
         tasksApi.getDeliverables(taskId).then(dr => setDeliverables(dr.data || [])).catch(() => {});
         tasksApi.getComments(taskId).then(cr => setComments(cr.data || [])).catch(() => {});
-        if (task.project_id) projectsApi.members(task.project_id).then(r => setProjectMembers(r.data || [])).catch(() => {});
+        if (r.data.project_id) {
+          projectsApi.members(r.data.project_id)
+            .then(mr => { console.log('[mention] project members:', mr.data); setProjectMembers(mr.data || []); })
+            .catch(e => console.error('[mention] members fetch failed:', e));
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -341,6 +345,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
             };
             (projectMembers.length > 0 ? projectMembers : (task.assignees || [])).forEach(addM);
             comments.forEach((c: any) => addM({ id: c.user_id, name: c.user_name, avatar_color: c.avatar_color, avatar_url: c.avatar_url }));
+            console.log('[mention] pool:', members.length, members.map((m:any)=>m.name), 'query:', mentionQuery, 'target:', mentionTarget);
             const mentionSuggestions = mentionQuery !== null
               ? members.filter((m: any) => m.name?.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
               : [];
