@@ -1,6 +1,5 @@
 <title>TaskViewDrawer</title>
 import { useEffect, useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
 import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
@@ -52,8 +51,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const [editingComment, setEditingComment] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionTarget, setMentionTarget] = useState<'main' | 'reply' | null>(null);
   const replyInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopyLink = async () => {
@@ -328,92 +325,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
             const canEditComment = (c: any) => String(c.user_id) === String(user?.id);
             const canDeleteComment = (c: any) => String(c.user_id) === String(user?.id);
 
-            // @mention pool: only task assignees + comment authors, excluding self
-            const seen = new Set<string>();
-            const members: any[] = [];
-            const addM = (m: any) => {
-              if (!m?.id || !m?.name) return;
-              if (String(m.id) === String(user?.id)) return;
-              const k = String(m.id);
-              if (!seen.has(k)) { seen.add(k); members.push(m); }
-            };
-            (task.assignees || []).forEach(addM);
-            comments.forEach((c: any) => addM({ id: c.user_id, name: c.user_name, avatar_color: c.avatar_color, avatar_url: c.avatar_url }));
-            const mentionSuggestions = mentionQuery !== null
-              ? members.filter((m: any) => m.name?.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
-              : [];
-
-            const handleMentionInput = (val: string, target: 'main' | 'reply', cursorPos: number) => {
-              const match = val.slice(0, cursorPos).match(/@(\w*)$/);
-              if (match) { setMentionQuery(match[1]); setMentionTarget(target); }
-              else { setMentionQuery(null); setMentionTarget(null); }
-            };
-
-            const insertMention = (name: string) => {
-              const mention = `@${name} `;
-              if (mentionTarget === 'main') {
-                const el = commentInputRef.current;
-                if (!el) return;
-                const pos = el.selectionStart ?? commentText.length;
-                const before = commentText.slice(0, pos).replace(/@\w*$/, '');
-                const after = commentText.slice(pos);
-                setCommentText(before + mention + after);
-                setTimeout(() => { el.focus(); el.setSelectionRange((before + mention).length, (before + mention).length); }, 0);
-              } else {
-                const cur = replyText;
-                const el = replyInputRef.current;
-                const pos = el?.selectionStart ?? cur.length;
-                const before = cur.slice(0, pos).replace(/@\w*$/, '');
-                const after = cur.slice(pos);
-                setReplyText(before + mention + after);
-                setTimeout(() => { el?.focus(); el?.setSelectionRange((before + mention).length, (before + mention).length); }, 0);
-              }
-              setMentionQuery(null); setMentionTarget(null);
-            };
-
-            // Render @mentions as highlighted spans in comment text
-            const renderComment = (text: string) => {
-              const parts = text.split(/(@\w+)/g);
-              return parts.map((p, i) => p.startsWith('@')
-                ? <span key={i} style={{ color: 'var(--blue, #2563eb)', fontWeight: 600 }}>{p}</span>
-                : p
-              );
-            };
-
-            const MentionDropdown = ({ target }: { target: 'main' | 'reply' }) => {
-              if (mentionTarget !== target || mentionSuggestions.length === 0) return null;
-              const anchorEl = target === 'main' ? commentInputRef.current : replyInputRef.current;
-              const rect = anchorEl?.getBoundingClientRect();
-              if (!rect) return null;
-              const style: React.CSSProperties = {
-                position: 'fixed',
-                left: rect.left,
-                top: rect.bottom + 4,
-                width: Math.max(rect.width, 220),
-                zIndex: 99999,
-                background: '#ffffff',
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
-                maxHeight: 220,
-                overflowY: 'auto',
-              };
-              return createPortal(
-                <div style={style}>
-                  <style>{`.mention-item:hover{background:rgba(0,0,0,0.06)}`}</style>
-                  {mentionSuggestions.map((m: any) => (
-                    <div key={m.id} className="mention-item" onMouseDown={e => { e.preventDefault(); insertMention(m.name); }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 13, transition: 'background 0.1s' }}
-                    >
-                      <MiniAvatar name={m.name} color={m.avatar_color || '#94a3b8'} size={22} fontSize={9} />
-                      <span style={{ fontWeight: 600 }}>{m.name}</span>
-                      {m.role && <span style={{ fontSize: 10, color: 'var(--ink-muted)', textTransform: 'capitalize' }}>{m.role}</span>}
-                    </div>
-                  ))}
-                </div>,
-                document.body
-              );
-            };
+            const renderComment = (text: string) => <>{text}</>;
 
             const postComment = async (text: string, parentId?: number) => {
               if (!text.trim()) return;
@@ -496,16 +408,11 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           ref={replyInputRef}
                           autoFocus
                           value={replyText}
-                          onChange={e => { setReplyText(e.target.value); handleMentionInput(e.target.value, 'reply', e.target.selectionStart ?? e.target.value.length); }}
-                          onKeyDown={async e => {
-                            if (mentionQuery !== null && mentionTarget === 'reply' && e.key === 'Escape') { setMentionQuery(null); return; }
-                            if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) { e.preventDefault(); await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); }
-                          }}
-                          onBlur={() => setTimeout(() => { setMentionQuery(null); setMentionTarget(null); }, 150)}
-                          placeholder={`Reply to ${c.user_name?.split(' ')[0]}… (@ to mention)`}
+                          onChange={e => setReplyText(e.target.value)}
+                          onKeyDown={async e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); } }}
+                          placeholder={`Reply to ${c.user_name?.split(' ')[0]}…`}
                           style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--blue, #2563eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', boxSizing: 'border-box' }}
                         />
-                        {MentionDropdown({ target: 'reply' })}
                         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                           <button onClick={async () => { await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); }} disabled={!replyText.trim()} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: 'none', background: 'var(--blue, #2563eb)', color: '#fff', cursor: 'pointer', fontWeight: 700, opacity: replyText.trim() ? 1 : 0.4 }}>Reply</button>
                           <button onClick={() => setReplyingTo(null)} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--ink-muted)', cursor: 'pointer' }}>Cancel</button>
@@ -528,18 +435,16 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                     <textarea
                       ref={commentInputRef}
                       value={commentText}
-                      onChange={e => { setCommentText(e.target.value); handleMentionInput(e.target.value, 'main', e.target.selectionStart ?? e.target.value.length); }}
+                      onChange={e => setCommentText(e.target.value)}
                       onKeyDown={async e => {
-                        if (mentionQuery !== null && mentionTarget === 'main' && mentionSuggestions.length > 0 && (e.key === 'Escape')) { setMentionQuery(null); return; }
-                        if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) { e.preventDefault(); if (!commentText.trim() || submittingComment) return; setSubmittingComment(true); try { await postComment(commentText); setCommentText(''); } finally { setSubmittingComment(false); } }
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!commentText.trim() || submittingComment) return; setSubmittingComment(true); try { await postComment(commentText); setCommentText(''); } finally { setSubmittingComment(false); } }
                       }}
-                      placeholder="Add a comment… (@ to mention, Enter to post)"
+                      placeholder="Add a comment… (Enter to post)"
                       rows={2}
                       style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--border, #e5e7eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', resize: 'vertical', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
                       onFocus={e => { e.target.style.borderColor = 'var(--blue, #2563eb)'; }}
-                      onBlur={e => { e.target.style.borderColor = 'var(--border, #e5e7eb)'; setTimeout(() => { setMentionQuery(null); setMentionTarget(null); }, 150); }}
+                      onBlur={e => { e.target.style.borderColor = 'var(--border, #e5e7eb)'; }}
                     />
-                    {MentionDropdown({ target: 'main' })}
                     {commentText.trim() && (
                       <div style={{ display: 'flex', gap: 6, marginTop: 6, position: 'relative', zIndex: 0 }}>
                         <button
