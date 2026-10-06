@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
 import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
-import { tasksApi, xlr8Api, projectsApi } from '../../services/api';
+import { tasksApi, xlr8Api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
 
@@ -54,7 +54,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionTarget, setMentionTarget] = useState<'main' | 'reply' | null>(null);
-  const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const replyInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopyLink = async () => {
@@ -110,11 +109,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
         }
         tasksApi.getDeliverables(taskId).then(dr => setDeliverables(dr.data || [])).catch(() => {});
         tasksApi.getComments(taskId).then(cr => setComments(cr.data || [])).catch(() => {});
-        if (r.data.project_id) {
-          projectsApi.members(r.data.project_id)
-            .then(mr => { console.log('[mention] project members:', mr.data); setProjectMembers(mr.data || []); })
-            .catch(e => console.error('[mention] members fetch failed:', e));
-        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -334,18 +328,17 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
             const canEditComment = (c: any) => String(c.user_id) === String(user?.id);
             const canDeleteComment = (c: any) => String(c.user_id) === String(user?.id);
 
-            // @mention pool: project members (excluding self), falling back to assignees + comment authors
+            // @mention pool: only task assignees + comment authors, excluding self
             const seen = new Set<string>();
             const members: any[] = [];
             const addM = (m: any) => {
               if (!m?.id || !m?.name) return;
-              if (String(m.id) === String(user?.id)) return; // no self-tagging
+              if (String(m.id) === String(user?.id)) return;
               const k = String(m.id);
               if (!seen.has(k)) { seen.add(k); members.push(m); }
             };
-            (projectMembers.length > 0 ? projectMembers : (task.assignees || [])).forEach(addM);
+            (task.assignees || []).forEach(addM);
             comments.forEach((c: any) => addM({ id: c.user_id, name: c.user_name, avatar_color: c.avatar_color, avatar_url: c.avatar_url }));
-            console.log('[mention] pool:', members.length, members.map((m:any)=>m.name), 'query:', mentionQuery, 'target:', mentionTarget);
             const mentionSuggestions = mentionQuery !== null
               ? members.filter((m: any) => m.name?.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
               : [];
