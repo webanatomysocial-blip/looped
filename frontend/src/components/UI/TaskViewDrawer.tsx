@@ -54,7 +54,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionTarget, setMentionTarget] = useState<'main' | 'reply' | null>(null);
-  const [mentionRect, setMentionRect] = useState<DOMRect | null>(null);
   const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const replyInputRef = useRef<HTMLInputElement>(null);
 
@@ -346,12 +345,10 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
               ? members.filter((m: any) => m.name?.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
               : [];
 
-            // Detect @ trigger — also capture the input's rect for fixed-position dropdown
-            const handleMentionInput = (val: string, target: 'main' | 'reply', cursorPos: number, el: HTMLElement | null) => {
-              const textUpToCursor = val.slice(0, cursorPos);
-              const match = textUpToCursor.match(/@(\w*)$/);
-              if (match) { setMentionQuery(match[1]); setMentionTarget(target); setMentionRect(el ? el.getBoundingClientRect() : null); }
-              else { setMentionQuery(null); setMentionTarget(null); setMentionRect(null); }
+            const handleMentionInput = (val: string, target: 'main' | 'reply', cursorPos: number) => {
+              const match = val.slice(0, cursorPos).match(/@(\w*)$/);
+              if (match) { setMentionQuery(match[1]); setMentionTarget(target); }
+              else { setMentionQuery(null); setMentionTarget(null); }
             };
 
             const insertMention = (name: string) => {
@@ -385,14 +382,16 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
               );
             };
 
-            // Portal-based dropdown — uses fixed position to escape overflow:hidden/auto scroll containers
             const MentionDropdown = ({ target }: { target: 'main' | 'reply' }) => {
-              if (mentionTarget !== target || mentionSuggestions.length === 0 || !mentionRect) return null;
+              if (mentionTarget !== target || mentionSuggestions.length === 0) return null;
+              const anchorEl = target === 'main' ? commentInputRef.current : replyInputRef.current;
+              const rect = anchorEl?.getBoundingClientRect();
+              if (!rect) return null;
               const style: React.CSSProperties = {
                 position: 'fixed',
-                left: mentionRect.left,
-                top: mentionRect.bottom + 4,
-                width: Math.max(mentionRect.width, 200),
+                left: rect.left,
+                top: rect.bottom + 4,
+                width: Math.max(rect.width, 220),
                 zIndex: 99999,
                 background: '#ffffff',
                 border: '1px solid #e5e7eb',
@@ -400,7 +399,6 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
                 maxHeight: 220,
                 overflowY: 'auto',
-                isolation: 'isolate',
               };
               return createPortal(
                 <div style={style}>
@@ -500,7 +498,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                           ref={replyInputRef}
                           autoFocus
                           value={replyText}
-                          onChange={e => { setReplyText(e.target.value); handleMentionInput(e.target.value, 'reply', e.target.selectionStart ?? e.target.value.length, e.target); }}
+                          onChange={e => { setReplyText(e.target.value); handleMentionInput(e.target.value, 'reply', e.target.selectionStart ?? e.target.value.length); }}
                           onKeyDown={async e => {
                             if (mentionQuery !== null && mentionTarget === 'reply' && e.key === 'Escape') { setMentionQuery(null); return; }
                             if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) { e.preventDefault(); await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); }
@@ -532,7 +530,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                     <textarea
                       ref={commentInputRef}
                       value={commentText}
-                      onChange={e => { setCommentText(e.target.value); handleMentionInput(e.target.value, 'main', e.target.selectionStart ?? e.target.value.length, e.target); }}
+                      onChange={e => { setCommentText(e.target.value); handleMentionInput(e.target.value, 'main', e.target.selectionStart ?? e.target.value.length); }}
                       onKeyDown={async e => {
                         if (mentionQuery !== null && mentionTarget === 'main' && mentionSuggestions.length > 0 && (e.key === 'Escape')) { setMentionQuery(null); return; }
                         if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) { e.preventDefault(); if (!commentText.trim() || submittingComment) return; setSubmittingComment(true); try { await postComment(commentText); setCommentText(''); } finally { setSubmittingComment(false); } }
