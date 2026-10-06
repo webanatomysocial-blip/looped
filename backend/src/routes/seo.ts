@@ -685,8 +685,16 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
 
     // Always fetch live GA4 data so share shows the same numbers as the dashboard
 
-    // GA4 data (if configured)
-    if (!client.ga_property_id) {
+    // Same property resolution as the dashboard: project config wins over client
+    let propertyId = client.ga_property_id;
+    let siteUrl = client.gsc_site_url;
+    if (shareRow.project_id) {
+      const proj = await db('projects').where({ id: shareRow.project_id }).select('ga_property_id', 'gsc_site_url').first();
+      if (proj?.ga_property_id) propertyId = proj.ga_property_id;
+      if (proj?.gsc_site_url !== undefined) siteUrl = proj.gsc_site_url;
+    }
+
+    if (!propertyId) {
       res.json({ client: clientInfo, range, manual: manualData, report: null, agency_name: shareRow.agency_name || null });
       return;
     }
@@ -698,7 +706,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
     const ga4End   = isCustom ? customEnd   : isoDate(1); // yesterday — complete days only
     const gscStart = isCustom ? customStart : isoDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
     const gscEnd   = isCustom ? customEnd   : isoDate(1);
-    const ga4Base  = `https://analyticsdata.googleapis.com/v1beta/properties/${client.ga_property_id}:runReport`;
+    const ga4Base  = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
     const headers  = { Authorization: `Bearer ${gToken}`, 'Content-Type': 'application/json' };
 
     const engagementMetrics = [
@@ -749,11 +757,11 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
           dimensionFilter: { andGroup: { expressions } },
         }) }).then((r) => r.json());
       })(),
-      client.gsc_site_url
-        ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'page')
+      siteUrl
+        ? queryGSC(siteUrl, headers, gscStart!, gscEnd!, 'page')
         : Promise.resolve(null),
-      client.gsc_site_url
-        ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'query')
+      siteUrl
+        ? queryGSC(siteUrl, headers, gscStart!, gscEnd!, 'query')
         : Promise.resolve(null),
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json()),
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json()),
