@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
 import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
-import { tasksApi, xlr8Api, projectsApi } from '../../services/api';
+import { tasksApi, xlr8Api, projectsApi, usersApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
 
@@ -111,7 +111,18 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
         }
         tasksApi.getDeliverables(taskId).then(dr => setDeliverables(dr.data || [])).catch(() => {});
         tasksApi.getComments(taskId).then(cr => setComments(cr.data || [])).catch(() => {});
-        if (task.project_id) projectsApi.members(task.project_id).then(r => setProjectMembers(r.data || [])).catch(() => {});
+        const loadMembers = async () => {
+          try {
+            if (task.project_id) {
+              const r = await projectsApi.members(task.project_id);
+              const list = r.data || [];
+              if (list.length > 0) { setProjectMembers(list); return; }
+            }
+          } catch {}
+          // fallback: all internal team members
+          try { const r = await usersApi.team(); setProjectMembers((r.data || []).filter((u: any) => u.role !== 'client')); } catch {}
+        };
+        loadMembers();
       })
       .catch(() => {})
       .finally(() => setLoading(false));
