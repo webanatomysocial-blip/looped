@@ -576,15 +576,22 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name, project_id, report_snapshot } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name, project_id, report_snapshot, manual_snapshot: manualFromFrontend } = req.body;
     const projId = project_id ? Number(project_id) : null;
     const token = randomUUID();
     const isCustomRange = range === 'custom' && startDate && endDate;
     const resolvedStart = isCustomRange ? startDate : ga4StartDate(range);
     const resolvedEnd   = isCustomRange ? endDate   : isoDate(1);
-    const manualRow = await getDB()('seo_manual_data')
-      .where(projId ? { project_id: projId } : { client_id: req.params.clientId })
-      .first();
+    // Use frontend-sent manual (already parsed with gmb_locations.prev_* populated); fall back to DB row
+    let manualSnapshotJson: string | null = null;
+    if (manualFromFrontend) {
+      manualSnapshotJson = JSON.stringify(manualFromFrontend);
+    } else {
+      const manualRow = await getDB()('seo_manual_data')
+        .where(projId ? { project_id: projId } : { client_id: req.params.clientId })
+        .first();
+      manualSnapshotJson = manualRow ? JSON.stringify(manualRow) : null;
+    }
     await getDB()('seo_share_tokens').insert({
       token, client_id: req.params.clientId, range: 'custom',
       project_id: projId || null,
@@ -595,7 +602,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
       country: country || null,
       agency_name: agency_name || null,
       project_name: project_name || null,
-      manual_snapshot: manualRow ? JSON.stringify(manualRow) : null,
+      manual_snapshot: manualSnapshotJson,
       report_snapshot: report_snapshot ? JSON.stringify(report_snapshot) : null,
     });
     res.json({ token });
