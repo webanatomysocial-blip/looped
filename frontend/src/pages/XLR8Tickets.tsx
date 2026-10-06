@@ -528,7 +528,7 @@ export default function XLR8Tickets() {
                             <span style={{ color: 'var(--ink-muted)' }}>{formatAction(entry.action)}</span>
                             {entry.comment && <span> — <em>{entry.comment}</em></span>}
                           </p>
-                          <p style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{new Date(entry.created_at).toLocaleString()}</p>
+                          <p style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{parseTs(entry.created_at).toLocaleString()}</p>
                         </div>
                       </div>
                     ))}
@@ -674,6 +674,12 @@ export default function XLR8Tickets() {
   );
 }
 
+function parseTs(s: any): Date {
+  if (!s) return new Date(NaN);
+  const str = String(s);
+  const iso = str.includes('T') || str.includes('Z') || str.includes('+') ? str : str.replace(' ', 'T') + 'Z';
+  return new Date(Number(str) || iso);
+}
 function formatAction(action: string): string {
   const map: Record<string, string> = {
     created: 'created the ticket',

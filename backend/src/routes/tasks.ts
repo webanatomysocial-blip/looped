@@ -392,6 +392,12 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
       updates.status = status;
     }
 
+    // Employees can only update tasks they are assigned to
+    if (req.user!.role === 'employee') {
+      const assigned = await db('task_assignees').where({ task_id: req.params.id, user_id: req.user!.id }).first();
+      if (!assigned) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
+    }
+
     // Role-based assignee update (from edit drawer) — skip for XLR8 tickets; stage assignments are managed via PUT /stage-assignments
     const taskForCheck = await db('tasks').where({ id: req.params.id }).select('ticket_type_id').first();
     if (!taskForCheck?.ticket_type_id && (working_person_id !== undefined || task_manager_id !== undefined)) {

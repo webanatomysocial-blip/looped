@@ -30,6 +30,16 @@ function stageType(stage: any): 'employee' | 'manager' | 'admin' {
   return 'employee';
 }
 
+async function fullySkippedIdxs(db: any, task_id: number): Promise<Set<number>> {
+  const rows = await db('task_assignees').where({ task_id }).select('stage_idx', 'skipped');
+  const byIdx = new Map<number, boolean>();
+  for (const r of rows) {
+    const idx = Number(r.stage_idx);
+    byIdx.set(idx, (byIdx.get(idx) ?? true) && !!r.skipped);
+  }
+  return new Set([...byIdx.entries()].filter(([, v]) => v).map(([k]) => k));
+}
+
 async function appendLog(task_id: number, actor: { id: number; name: string } | null, action: string, from_state: string | null, to_state: string | null, comment?: string) {
   await getDB()('xlr8_ticket_log').insert({
     task_id,
@@ -478,6 +488,15 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
     .where(function () { this.where('xlr8_assignee_id', req.user!.id).orWhereNull('xlr8_assignee_id'); })
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found or not available' }); return; }
+  // Verify the caller is actually assigned to this stage — prevents any employee from grabbing an unassigned ticket
+  const stageAssignment = await db('task_assignees').where({ task_id: ticket.id, stage_idx: ticket.xlr8_stage_idx ?? 0, user_id: req.user!.id }).first();
+  if (!stageAssignment && ticket.xlr8_assignee_id !== null) { res.status(403).json({ error: 'You are not assigned to this ticket' }); return; }
+  if (!stageAssignment) {
+    // Null-assignee stage: verify caller appears in task_assignees for this task at all, or project membership
+    const anyAssignment = await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).first();
+    const isMember = await db('project_members').where({ project_id: ticket.project_id, user_id: req.user!.id }).first();
+    if (!anyAssignment && !isMember) { res.status(403).json({ error: 'You are not assigned to this ticket' }); return; }
+  }
 
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
   // Update task_assignees for this stage: set user_id (fills null placeholder) + accepted
@@ -583,8 +602,8 @@ router.post('/tickets/:id/review', async (req: AuthRequest, res: Response) => {
     // Mark approval as rejected so it leaves the manager's pending queue
     await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).update({ status: 'rejected' });
 
-    // Find the previous employee stage to send back to (skip over skipped stages)
-    const skippedStageIdxs = new Set((await db('task_assignees').where({ task_id: ticket.id, skipped: 1 }).pluck('stage_idx')).map(Number));
+    // Find the previous employee stage to send back to (skip over fully-skipped stages)
+    const skippedStageIdxs = await fullySkippedIdxs(db, ticket.id);
     let prevEmpIdx = currentStageIdx - 1;
     while (prevEmpIdx >= 0 && (stageType(stages[prevEmpIdx]) !== 'employee' || skippedStageIdxs.has(prevEmpIdx))) prevEmpIdx--;
     const targetIdx = prevEmpIdx >= 0 ? prevEmpIdx : 0;
@@ -668,8 +687,8 @@ router.post('/tickets/:id/admin-decline', async (req: AuthRequest, res: Response
   const stages: any[] = pj(ticketType?.stages, []);
   const currentStageIdx = ticket.xlr8_stage_idx ?? 0;
 
-  // Find the previous employee stage to send work back to (skip over skipped stages)
-  const skippedStageIdxs = new Set((await db('task_assignees').where({ task_id: ticket.id, skipped: 1 }).pluck('stage_idx')).map(Number));
+  // Find the previous employee stage to send work back to (skip over fully-skipped stages)
+  const skippedStageIdxs = await fullySkippedIdxs(db, ticket.id);
   let prevEmpIdx = currentStageIdx - 1;
   while (prevEmpIdx >= 0 && (stageType(stages[prevEmpIdx]) !== 'employee' || skippedStageIdxs.has(prevEmpIdx))) prevEmpIdx--;
 
@@ -797,9 +816,10 @@ export async function advanceToStage(
   // Restore pre_pending → pending for this stage (task has now reached it after a prior rejection backward)
   await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx, acceptance_status: 'pre_pending' }).update({ acceptance_status: 'pending' });
 
-  // Skip stages flagged as skipped in task_assignees
-  const skipRow = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx }).where('skipped', 1).first();
-  if (skipRow) {
+  // Skip only when every assignee row for this stage is marked skipped (no real active person)
+  const stageRows = await db('task_assignees').where({ task_id: ticket.id, stage_idx: targetIdx });
+  const allSkipped = stageRows.length > 0 && stageRows.every((r: any) => r.skipped);
+  if (allSkipped) {
     await appendLog(ticket.id, actor, 'next_stage', fromState, 'skipped', `Stage ${targetIdx + 1} skipped`);
     return advanceToStage(db, ticket, stages, finalApproval, targetIdx + 1, actor, fromState, res);
   }

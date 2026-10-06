@@ -159,7 +159,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
                   { label: 'Task Key', value: (() => {
-                    const mon = task.created_at ? new Date(task.created_at).toLocaleString('en-US', { month: 'short' }).toUpperCase() : '';
+                    const mon = task.created_at ? (() => { const s = String(task.created_at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return new Date(Number(s) || iso).toLocaleString('en-US', { month: 'short' }).toUpperCase(); })() : '';
                     const proj = (task.project_name || '').replace(/\s+/g, '').toUpperCase().slice(0, 8);
                     return (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -298,7 +298,7 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{ACTION_LABELS[entry.action] || entry.action}</span></span>
                       <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
-                        {format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}
+                        {(() => { const s = String(entry.created_at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })()}
                       </span>
                     </div>
                     {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}

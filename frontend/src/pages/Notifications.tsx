@@ -10,7 +10,7 @@ import '../css/pages/Notifications.css';
 const PAGE_SIZE = 7;
 
 function fmtDate(ts: string | null | undefined) {
-  try { return ts ? format(new Date(ts), 'MMM d, h:mm a') : ''; } catch { return ''; }
+  try { if (!ts) return ''; const s = String(ts); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); } catch { return ''; }
 }
 
 function NotifIcon({ type }: { type: string }) {

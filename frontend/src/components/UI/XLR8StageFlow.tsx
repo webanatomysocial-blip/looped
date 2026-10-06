@@ -30,7 +30,12 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
 
   type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string; fromLabel: string; toLabel: string };
   const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
-  const skippedIdxSet = new Set(stageAssignees.filter((a: any) => a.skipped).map((a: any) => Number(a.stage_idx)));
+  // A stage index is fully skipped only if every row for it is marked skipped (a null-user placeholder + skipped=1)
+  const stageIdxSet = [...new Set(stageAssignees.map((a: any) => Number(a.stage_idx)))];
+  const skippedIdxSet = new Set(stageIdxSet.filter(idx => {
+    const rows = stageAssignees.filter((a: any) => Number(a.stage_idx) === idx);
+    return rows.length > 0 && rows.every((a: any) => a.skipped);
+  }));
   const stageLabelOf = (idx: number) => {
     if (idx === stages.length) return 'Admin Approval';
     const s = stages[idx];
@@ -85,7 +90,8 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
           <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
             {stages.map((stage: any, i: number) => {
               const stageRows = stageAssignees.filter((a: any) => a.stage_idx === i);
-              const isSkippedStage = stageRows.some((a: any) => a.skipped);
+              const realAssignees = stageRows.filter((a: any) => a.user_id);
+              const isSkippedStage = stageRows.some((a: any) => a.skipped) && realAssignees.every((a: any) => a.skipped);
               const reviewerOverride = stageRows.find((a: any) => a.is_reviewer === 1 || a.is_reviewer === true);
               const isReview = isSkippedStage ? false : (stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true || (reviewerOverride ? !!reviewerOverride.is_reviewer : false));
               const isRejected   = !isSkippedStage && lastWasRejected && i === rejectedStageIdx;
@@ -93,7 +99,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
               const isDone    = !isSkippedStage && !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
               const isCurrent = !isSkippedStage && !isCompleted && i === currentIdx && !isRejected;
               const isPending = !isSkippedStage && !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
-              const stageAssignee = stageRows.filter((a: any) => a.user_id);
+              const stageAssignee = stageRows.filter((a: any) => a.user_id && !a.skipped);
               const rawTracked = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
               const stageIsActive = stageAssignees.some((a: any) => a.stage_idx === i && a.is_active);
               const trackedSec = Number(rawTracked) + (stageIsActive ? drawerElapsed : 0);
@@ -254,7 +260,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                     {(() => {
                       const last = realArcs[realArcs.length - 1];
                       const midX = (cardCenterX(last.fromIdx) + cardCenterX(last.toIdx)) / 2;
-                      const atStr = last.at ? format(new Date(Number(last.at) || last.at), 'MMM d, h:mm a') : null;
+                      const atStr = last.at ? (() => { const s = String(last.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })() : null;
                       return (
                         <div style={{ position: 'absolute', top: baseArcH - 10, left: midX, transform: 'translateX(-50%)' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 99, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap' }}>
@@ -268,7 +274,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                 )}
                 <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {declineEvents.map((ev, ei) => {
-                    const atStr = ev.at ? format(new Date(Number(ev.at) || ev.at), 'MMM d, h:mm a') : null;
+                    const atStr = ev.at ? (() => { const s = String(ev.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })() : null;
                     const isLast = ei === declineEvents.length - 1;
                     return (
                       <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, background: isLast ? 'rgba(239,68,68,0.04)' : 'transparent', borderRadius: 8, padding: '6px 8px' }}>

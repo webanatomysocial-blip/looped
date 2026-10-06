@@ -271,7 +271,7 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
 
       // 4. Demographics — cities filtered by selected country (or all countries)
       (() => {
-        const demoCountry = req.query.country ? String(req.query.country) : 'India';
+        const demoCountry = req.query.country ? String(req.query.country) : 'all';
         const countryFilter = demoCountry !== 'all'
           ? { filter: { fieldName: 'country', stringFilter: { value: demoCountry, matchType: 'EXACT' } } }
           : null;
@@ -676,14 +676,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
 
     const clientInfo = { id: client.id, name: shareRow.project_name || client.name };
 
-    // If we have a report snapshot, serve it directly — exact same numbers as the dashboard at share time
-    if (shareRow.report_snapshot) {
-      try {
-        const snap = JSON.parse(shareRow.report_snapshot);
-        res.json({ client: clientInfo, range, customStart, customEnd, manual: manualData, report: snap, agency_name: shareRow.agency_name || null });
-        return;
-      } catch { /* fall through to live fetch */ }
-    }
+    // Always fetch live GA4 data so share shows the same numbers as the dashboard
 
     // GA4 data (if configured)
     if (!client.ga_property_id) {
@@ -707,8 +700,16 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       { name: 'sessions' }, { name: 'activeUsers' }, { name: 'newUsers' },
     ];
 
-    const compareStart = shareRow.compare_start || null;
-    const compareEnd   = shareRow.compare_end   || null;
+    // Use stored manual comparison range, or auto-compute previous period (same as dashboard)
+    let compareStart = shareRow.compare_start || null;
+    let compareEnd   = shareRow.compare_end   || null;
+    if (!compareStart || !compareEnd) {
+      const diffDays = Math.round((new Date(ga4End!).getTime() - new Date(ga4Start!).getTime()) / 86400000) + 1;
+      const prevEndDate   = new Date(ga4Start!); prevEndDate.setDate(prevEndDate.getDate() - 1);
+      const prevStartDate = new Date(prevEndDate); prevStartDate.setDate(prevStartDate.getDate() - diffDays + 1);
+      compareStart = prevStartDate.toISOString().slice(0, 10);
+      compareEnd   = prevEndDate.toISOString().slice(0, 10);
+    }
 
     const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes, prevEngagementRes, prevAcquisitionRes] = await Promise.allSettled([
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
@@ -726,24 +727,29 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
         dateRanges: [{ startDate: ga4Start, endDate: ga4End }], metrics: engagementMetrics,
       }) }).then((r) => r.json()),
-      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
-        dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
-        dimensions: [{ name: 'city' }],
-        metrics: [{ name: 'activeUsers' }, { name: 'sessions' }],
-        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 20,
-      }) }).then((r) => r.json()),
+      (() => {
+        const demoCountry = shareRow.country || 'all';
+        const countryFilter = demoCountry !== 'all'
+          ? { filter: { fieldName: 'country', stringFilter: { value: demoCountry, matchType: 'EXACT' } } }
+          : null;
+        const notSetFilter = { notExpression: { filter: { fieldName: 'city', stringFilter: { value: '(not set)', matchType: 'EXACT' } } } };
+        const expressions = countryFilter ? [countryFilter, notSetFilter] : [notSetFilter];
+        return fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
+          dateRanges: [{ startDate: ga4Start, endDate: ga4End }],
+          dimensions: [{ name: 'city' }, { name: 'country' }],
+          metrics: [{ name: 'activeUsers' }, { name: 'sessions' }],
+          orderBys: [{ metric: { metricName: 'activeUsers' }, desc: true }], limit: 20,
+          dimensionFilter: { andGroup: { expressions } },
+        }) }).then((r) => r.json());
+      })(),
       client.gsc_site_url
         ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'page')
         : Promise.resolve(null),
       client.gsc_site_url
         ? queryGSC(client.gsc_site_url, headers, gscStart!, gscEnd!, 'query')
         : Promise.resolve(null),
-      compareStart && compareEnd
-        ? fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json())
-        : Promise.resolve(null),
-      compareStart && compareEnd
-        ? fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json())
-        : Promise.resolve(null),
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json()),
+      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json()),
     ]);
 
     const eng = engagementRes.status === 'fulfilled' && engagementRes.value?.rows?.[0]?.metricValues

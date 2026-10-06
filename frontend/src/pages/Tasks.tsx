@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
+function parseTs(s: any): Date {
+  if (!s) return new Date(NaN);
+  const str = String(s);
+  const iso = str.includes('T') || str.includes('Z') || str.includes('+') ? str : str.replace(' ', 'T') + 'Z';
+  return new Date(Number(str) || iso);
+}
 function linkifyHtml(text: string) {
   return text.replace(URL_RE_G, url => {
     const href = /^https?:\/\//.test(url) ? url : `https://${url}`;
@@ -707,7 +713,7 @@ export default function Tasks() {
                   <td>
                     {task.due_date
                       ? <span className={`task-date${task.status === 'overdue' ? ' task-date--over' : ''}`}>
-                          {format(new Date(task.due_date), 'MMM d')}
+                          {format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
                         </span>
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
                   </td>
@@ -1347,7 +1353,7 @@ export default function Tasks() {
                       <div key={i} style={{ fontSize: 12, padding: '8px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                           <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{actionLabels[entry.action] || entry.action}</span></span>
-                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(new Date(Number(entry.created_at) || entry.created_at), 'MMM d, h:mm a')}</span>
+                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(parseTs(entry.created_at), 'MMM d, h:mm a')}</span>
                         </div>
                         {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}
                       </div>

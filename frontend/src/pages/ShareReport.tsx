@@ -371,11 +371,11 @@ export default function ShareReport() {
               <div key={i} style={{ marginBottom: i < manual.gmb_locations.length - 1 ? 20 : 0 }}>
                 {loc.name && <h3 style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{loc.name}</h3>}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                  {loc.rating != null && <MiniCard label="Rating" val={Number(loc.rating).toFixed(1)} />}
-                  {loc.reviews != null && <MiniCard label="Reviews" val={Number(loc.reviews).toLocaleString()} />}
-                  {loc.calls != null && <MiniCard label="Calls" val={Number(loc.calls).toLocaleString()} />}
-                  {loc.bookings != null && <MiniCard label="Bookings" val={Number(loc.bookings).toLocaleString()} />}
-                  {loc.website_clicks != null && <MiniCard label="Website Clicks" val={Number(loc.website_clicks).toLocaleString()} />}
+                  {loc.rating != null && <MiniCard label="Rating" val={Number(loc.rating).toFixed(1)} prev={loc.prev_rating} />}
+                  {loc.reviews != null && <MiniCard label="Reviews" val={Number(loc.reviews).toLocaleString()} prev={loc.prev_reviews} />}
+                  {loc.calls != null && <MiniCard label="Calls" val={Number(loc.calls).toLocaleString()} prev={loc.prev_calls} />}
+                  {loc.bookings != null && <MiniCard label="Bookings" val={Number(loc.bookings).toLocaleString()} prev={loc.prev_bookings} />}
+                  {loc.website_clicks != null && <MiniCard label="Website Clicks" val={Number(loc.website_clicks).toLocaleString()} prev={loc.prev_website_clicks} />}
                 </div>
                 {loc.overview && <p style={{ fontSize: 12, color: '#555', lineHeight: 1.55, marginBottom: 6 }}>{loc.overview}</p>}
                 {loc.key_insights && <p style={{ fontSize: 13, color: '#334155', lineHeight: 1.6, margin: 0 }}>{loc.key_insights}</p>}
@@ -514,10 +514,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function MiniCard({ label, val }: { label: string; val: any }) {
+function MiniCard({ label, val, prev }: { label: string; val: any; prev?: number | null }) {
+  const pct = prev != null && prev !== 0 ? Math.round(((Number(String(val).replace(/,/g, '')) - prev) / Math.abs(prev)) * 100) : null;
   return (
     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 14px', minWidth: 100 }}>
-      <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{val}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{val}</span>
+        {pct !== null && <span style={{ fontSize: 10, fontWeight: 700, color: pct >= 0 ? '#16a34a' : '#dc2626' }}>{pct >= 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>}
+      </div>
       <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginTop: 2, textTransform: 'uppercase' }}>{label}</div>
     </div>
   );

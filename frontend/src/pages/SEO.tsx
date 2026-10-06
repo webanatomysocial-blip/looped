@@ -956,7 +956,7 @@ export default function SEO() {
   const [customEnd, setCustomEnd]       = useState('');
   const [compareStart, setCompareStart] = useState('');
   const [compareEnd, setCompareEnd]     = useState('');
-  const [demoCountry, setDemoCountry]   = useState('India');
+  const [demoCountry, setDemoCountry]   = useState('all');
   const [report, setReport]             = useState<Report | null>(null);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');

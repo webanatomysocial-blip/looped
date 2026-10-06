@@ -346,7 +346,7 @@ export default function AssetLibrary() {
                       <FileTypeIcon type={file.file_type} />
                     )}
                     <span className="wa-explorer-label">{file.name}</span>
-                    <span className="wa-explorer-meta">{fileSize(file.file_size)} · {format(new Date(file.created_at), 'MMM d')}</span>
+                    <span className="wa-explorer-meta">{fileSize(file.file_size)} · {format(new Date((s => s.includes('T') || s.includes('Z') ? s : s.replace(' ', 'T') + 'Z')(String(file.created_at))), 'MMM d')}</span>
                   </div>
                 ))}
 

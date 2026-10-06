@@ -5,6 +5,12 @@ import XLR8StageFlow from '../components/UI/XLR8StageFlow';
 import Pagination from '../components/UI/Pagination';
 
 const PAGE_SIZE = 7;
+function parseTs(s: any): Date {
+  if (!s) return new Date(NaN);
+  const str = String(s);
+  const iso = str.includes('T') || str.includes('Z') || str.includes('+') ? str : str.replace(' ', 'T') + 'Z';
+  return new Date(Number(str) || iso);
+}
 import Layout from '../components/Layout/Layout';
 import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import Drawer from '../components/UI/Drawer';
@@ -408,7 +414,7 @@ export default function Approvals() {
                   <div className="approval-card__info">
                     <p className="approval-card__title">{a.title}</p>
                     <p className="approval-card__meta">
-                      {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(new Date(a.created_at), 'MMM d')}
+                      {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(parseTs(a.created_at), 'MMM d')}
                     </p>
                     {a.submitted_by_name && (
                       <div className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -543,7 +549,7 @@ export default function Approvals() {
                                           {acted.action === 'approve' ? '✓ Approved' : '✗ Rejected'} by {acted.actor_name}
                                         </span>
                                         <span style={{ color: 'var(--ink-muted)' }}>
-                                          {format(new Date(acted.acted_at), 'MMM d, h:mm a')}
+                                          {format(parseTs(acted.acted_at), 'MMM d, h:mm a')}
                                         </span>
                                         {acted.comments && (
                                           <span style={{ color: 'var(--ink-muted)', fontStyle: 'italic' }}>"{acted.comments}"</span>
@@ -624,7 +630,7 @@ export default function Approvals() {
                                         <span style={{ fontWeight: 700 }}>
                                           {acted.action === 'approve' ? '✓' : '✗'} {acted.actor_name}
                                         </span>
-                                        <span style={{ color: 'var(--ink-muted)' }}>{format(new Date(acted.acted_at), 'MMM d')}</span>
+                                        <span style={{ color: 'var(--ink-muted)' }}>{format(parseTs(acted.acted_at), 'MMM d')}</span>
                                       </div>
                                     )}
                                   </div>
@@ -663,7 +669,7 @@ export default function Approvals() {
                               <div className="timeline-chip-dot" style={{ background: step.done ? 'var(--green)' : step.active ? 'var(--yellow)' : 'var(--sand-border)' }} />
                               {step.label}
                               {step.done && step.date && (
-                                <span style={{ opacity: 0.6, fontSize: 10 }}>{format(new Date(step.date), 'MMM d')}</span>
+                                <span style={{ opacity: 0.6, fontSize: 10 }}>{format(parseTs(step.date), 'MMM d')}</span>
                               )}
                             </div>
                             {i < arr.length - 1 && <div className="timeline-line" />}
@@ -681,7 +687,7 @@ export default function Approvals() {
                         {(isNewWorkflow(a) ? steps[a.id].filter((s: any) => s.action === 'reject') : steps[a.id]).map((step: any) => (
                           <div key={step.id} className={`approval-note${step.action === 'reject' ? ' approval-note--danger' : ''}`}>
                             <strong>
-                              {step.actor_name}{step.actor_name ? ` (${step.actor_role})` : step.actor_role} · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(new Date(step.acted_at), 'MMM d, h:mm a')}
+                              {step.actor_name}{step.actor_name ? ` (${step.actor_role})` : step.actor_role} · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(parseTs(step.acted_at), 'MMM d, h:mm a')}
                             </strong>
                             {step.comments && <span> — {step.comments}</span>}
                           </div>
