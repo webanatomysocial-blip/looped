@@ -208,6 +208,8 @@ async function createSchema(): Promise<void> {
       if (!hasProjectName) await db.schema.table('seo_share_tokens', (t) => { t.string('project_name').nullable(); });
       const hasAcquisitions = await db.schema.hasColumn('seo_share_tokens', 'acquisitions');
       if (!hasAcquisitions) await db.schema.table('seo_share_tokens', (t) => { t.text('acquisitions').nullable(); t.text('demographics').nullable(); });
+      const hasReportSnapshot = await db.schema.hasColumn('seo_share_tokens', 'report_snapshot');
+      if (!hasReportSnapshot) await db.schema.table('seo_share_tokens', (t) => { t.text('report_snapshot').nullable(); });
     }
   });
 
@@ -1450,6 +1452,20 @@ async function createSchema(): Promise<void> {
         t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
         t.string('token', 64).notNullable().unique();
         t.timestamps(true, true);
+      });
+    }
+  });
+
+  await db.schema.hasTable('task_comments').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('task_comments', (t) => {
+        t.increments('id').primary();
+        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('parent_id').nullable().references('id').inTable('task_comments').onDelete('CASCADE');
+        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.text('comment').notNullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+        t.timestamp('updated_at').nullable();
       });
     }
   });

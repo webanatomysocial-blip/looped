@@ -67,6 +67,7 @@ export const projectsApi = {
   delete: (id: number) => api.delete(`/projects/${id}`),
   managerResponse: (id: number, action: 'accept' | 'decline', member_ids?: number[]) =>
     api.post(`/projects/${id}/manager-response`, { action, member_ids }),
+  members: (id: number) => api.get(`/projects/${id}/members`),
 };
 
 export const tasksApi = {
@@ -89,6 +90,10 @@ export const tasksApi = {
   },
   deleteDeliverable: (taskId: number, deliverableId: number) => api.delete(`/tasks/${taskId}/deliverables/${deliverableId}`),
   getShareToken: (id: number) => api.post(`/tasks/${id}/share-token`),
+  getComments: (id: number) => api.get(`/tasks/${id}/comments`),
+  addComment: (id: number, comment: string, parent_id?: number) => api.post(`/tasks/${id}/comments`, { comment, parent_id }),
+  updateComment: (id: number, cid: number, comment: string) => api.put(`/tasks/${id}/comments/${cid}`, { comment }),
+  deleteComment: (id: number, cid: number) => api.delete(`/tasks/${id}/comments/${cid}`),
 };
 
 export const capacityApi = {

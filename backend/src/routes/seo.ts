@@ -48,10 +48,15 @@ async function getAccessToken(): Promise<{ token: string | null; error?: string 
   }
 }
 
-// Range helper → GA4 date string
+// Range helper → absolute ISO date (matches GA4 website "last N days" = N days ago to yesterday)
+function isoDate(daysAgo: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
 function ga4StartDate(range: string): string {
-  const map: Record<string, string> = { '7d': '7daysAgo', '28d': '28daysAgo', '90d': '90daysAgo' };
-  return map[range] ?? '28daysAgo';
+  const map: Record<string, number> = { '7d': 7, '28d': 28, '90d': 90 };
+  return isoDate(map[range] ?? 28);
 }
 
 // GET /api/seo/clients — companies visible to the logged-in user
@@ -201,22 +206,21 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
     const compareEnd   = req.query.compareEnd   ? String(req.query.compareEnd)   : null;
     const isCustom     = range === 'custom' && customStart && customEnd;
     const ga4Start     = isCustom ? customStart : ga4StartDate(range);
-    const ga4End       = isCustom ? customEnd   : 'today';
-    const gscStart     = isCustom ? customStart : formatDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
-    const gscEnd       = isCustom ? customEnd   : formatDate(0);
+    const ga4End       = isCustom ? customEnd   : isoDate(1); // yesterday — matches GA4 UI (complete days, no partial-day noise)
+    const gscStart     = isCustom ? customStart : isoDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
+    const gscEnd       = isCustom ? customEnd   : isoDate(1);
 
     const ga4Base = `https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`;
     const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
     // Compute previous period (manual override wins over auto)
-    const daysBack = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
     let prevStartStr: string, prevEndStr: string;
     if (compareStart && compareEnd) {
       prevStartStr = compareStart;
       prevEndStr   = compareEnd;
     } else {
-      const resolvedStartStr = isCustom ? ga4Start! : daysBack(range === '7d' ? 7 : range === '28d' ? 28 : 90);
-      const resolvedEndStr   = isCustom ? ga4End!   : daysBack(0);
+      const resolvedStartStr = ga4Start!;
+      const resolvedEndStr   = ga4End!;
       const diffDays = Math.round((new Date(resolvedEndStr).getTime() - new Date(resolvedStartStr).getTime()) / 86400000) + 1;
       const prevEndDate   = new Date(resolvedStartStr); prevEndDate.setDate(prevEndDate.getDate() - 1);
       const prevStartDate = new Date(prevEndDate);      prevStartDate.setDate(prevStartDate.getDate() - diffDays + 1);
@@ -411,11 +415,6 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
   }
 });
 
-function formatDate(daysAgo: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
-}
 
 // Extracts bare domain from any input: "pebpro.in", "https://pebpro.in/", "sc-domain:pebpro.in"
 function extractDomain(raw: string): string {
@@ -577,16 +576,19 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager', 'employee'].includes(role?.toLowerCase())) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
   try {
-    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name, project_id } = req.body;
+    const { range = '28d', startDate, endDate, compareStart, compareEnd, demographics, acquisitions, country, agency_name, project_name, project_id, report_snapshot } = req.body;
     const projId = project_id ? Number(project_id) : null;
     const token = randomUUID();
+    const isCustomRange = range === 'custom' && startDate && endDate;
+    const resolvedStart = isCustomRange ? startDate : ga4StartDate(range);
+    const resolvedEnd   = isCustomRange ? endDate   : isoDate(1);
     const manualRow = await getDB()('seo_manual_data')
       .where(projId ? { project_id: projId } : { client_id: req.params.clientId })
       .first();
     await getDB()('seo_share_tokens').insert({
-      token, client_id: req.params.clientId, range,
+      token, client_id: req.params.clientId, range: 'custom',
       project_id: projId || null,
-      start_date: startDate || null, end_date: endDate || null,
+      start_date: resolvedStart, end_date: resolvedEnd,
       compare_start: compareStart || null, compare_end: compareEnd || null,
       demographics: demographics ? JSON.stringify(demographics) : null,
       acquisitions: acquisitions ? JSON.stringify(acquisitions) : null,
@@ -594,6 +596,7 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
       agency_name: agency_name || null,
       project_name: project_name || null,
       manual_snapshot: manualRow ? JSON.stringify(manualRow) : null,
+      report_snapshot: report_snapshot ? JSON.stringify(report_snapshot) : null,
     });
     res.json({ token });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -671,9 +674,20 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       seo_authority: jp(manual.seo_authority, {}),
     } : {};
 
+    const clientInfo = { id: client.id, name: shareRow.project_name || client.name };
+
+    // If we have a report snapshot, serve it directly — exact same numbers as the dashboard at share time
+    if (shareRow.report_snapshot) {
+      try {
+        const snap = JSON.parse(shareRow.report_snapshot);
+        res.json({ client: clientInfo, range, customStart, customEnd, manual: manualData, report: snap, agency_name: shareRow.agency_name || null });
+        return;
+      } catch { /* fall through to live fetch */ }
+    }
+
     // GA4 data (if configured)
     if (!client.ga_property_id) {
-      res.json({ client: { id: client.id, name: shareRow.project_name || client.name }, range, manual: manualData, report: null, agency_name: shareRow.agency_name || null });
+      res.json({ client: clientInfo, range, manual: manualData, report: null, agency_name: shareRow.agency_name || null });
       return;
     }
 
@@ -681,9 +695,9 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
     if (!gToken) { res.status(500).json({ error: authError ?? 'Google auth failed' }); return; }
 
     const ga4Start = isCustom ? customStart : ga4StartDate(range);
-    const ga4End   = isCustom ? customEnd   : 'today';
-    const gscStart = isCustom ? customStart : formatDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
-    const gscEnd   = isCustom ? customEnd   : formatDate(0);
+    const ga4End   = isCustom ? customEnd   : isoDate(1); // yesterday — complete days only
+    const gscStart = isCustom ? customStart : isoDate(range === '7d' ? 7 : range === '28d' ? 28 : 90);
+    const gscEnd   = isCustom ? customEnd   : isoDate(1);
     const ga4Base  = `https://analyticsdata.googleapis.com/v1beta/properties/${client.ga_property_id}:runReport`;
     const headers  = { Authorization: `Bearer ${gToken}`, 'Content-Type': 'application/json' };
 
@@ -776,7 +790,7 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       client: { id: client.id, name: client.name },
     };
 
-    res.json({ client: { id: client.id, name: shareRow.project_name || client.name }, range, customStart, customEnd, manual: manualData, report, agency_name: shareRow.agency_name || null });
+    res.json({ client: clientInfo, range, customStart, customEnd, manual: manualData, report, agency_name: shareRow.agency_name || null });
   } catch (e: any) { res.status(500).json({ error: 'Server error' }); }
 });
 
@@ -803,7 +817,11 @@ router.post('/saved-reports/:clientId', async (req: AuthRequest, res: Response) 
     const projId = project_id ? Number(project_id) : null;
     const token = randomUUID();
     const snapshotJson = manual_snapshot ? JSON.stringify(manual_snapshot) : null;
-    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: range || '28d', project_id: projId || null, start_date: start_date || null, end_date: end_date || null, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, project_name: project_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
+    // Resolve relative range to absolute dates so saved report always reopens same window
+    const isCustomRange2 = range === 'custom' && start_date && end_date;
+    const resolvedStart2 = isCustomRange2 ? start_date : ga4StartDate(range || '28d');
+    const resolvedEnd2   = isCustomRange2 ? end_date   : isoDate(1);
+    await db('seo_share_tokens').insert({ client_id: req.params.clientId, token, range: 'custom', project_id: projId || null, start_date: resolvedStart2, end_date: resolvedEnd2, compare_start: compare_start || null, compare_end: compare_end || null, agency_name: agency_name || null, project_name: project_name || null, manual_snapshot: snapshotJson, acquisitions: acquisitions ? JSON.stringify(acquisitions) : null, demographics: demographics ? JSON.stringify(demographics) : null });
     const [id] = await db('seo_saved_reports').insert({
       client_id: req.params.clientId,
       project_id: projId || null,

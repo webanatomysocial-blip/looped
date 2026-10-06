@@ -13,7 +13,7 @@ export function fmtSec(s: number) {
 interface Props {
   task: any;
   log: any[];
-  drawerElapsed?: number; // live elapsed seconds for the currently-active stage (drawer only)
+  drawerElapsed?: number;
 }
 
 export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {

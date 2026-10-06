@@ -156,6 +156,20 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// GET project members (all users assigned to any task in this project)
+router.get('/:id/members', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const members = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .join('users as u', 'ta.user_id', 'u.id')
+      .where('t.project_id', req.params.id)
+      .whereNotIn('u.role', ['client'])
+      .distinct('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role');
+    res.json(members);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // GET single project
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {

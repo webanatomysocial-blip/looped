@@ -943,6 +943,66 @@ router.post('/:id/share-token', async (req: AuthRequest, res: Response) => {
   res.json({ token });
 });
 
+// GET /tasks/:id/comments
+router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const rows = await db('task_comments as c')
+      .join('users as u', 'c.user_id', 'u.id')
+      .where('c.task_id', req.params.id)
+      .select('c.*', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url')
+      .orderBy('c.created_at', 'asc');
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// POST /tasks/:id/comments
+router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
+  const { comment, parent_id } = req.body;
+  if (!comment?.trim()) { res.status(400).json({ error: 'comment required' }); return; }
+  try {
+    const db = getDB();
+    const [id] = await db('task_comments').insert({
+      task_id: Number(req.params.id),
+      parent_id: parent_id ? Number(parent_id) : null,
+      user_id: req.user!.id,
+      comment: comment.trim(),
+    });
+    const row = await db('task_comments as c').join('users as u', 'c.user_id', 'u.id').where('c.id', id).select('c.*', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url').first();
+    res.status(201).json(row);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// PUT /tasks/:id/comments/:cid
+router.put('/:id/comments/:cid', async (req: AuthRequest, res: Response) => {
+  const { comment } = req.body;
+  if (!comment?.trim()) { res.status(400).json({ error: 'comment required' }); return; }
+  try {
+    const db = getDB();
+    const row = await db('task_comments').where({ id: req.params.cid }).first();
+    if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+    if (String(row.user_id) !== String(req.user!.id)) {
+      res.status(403).json({ error: 'You can only edit your own comments' }); return;
+    }
+    await db('task_comments').where({ id: req.params.cid }).update({ comment: comment.trim(), updated_at: new Date() });
+    res.json({ ...row, comment: comment.trim(), updated_at: new Date() });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// DELETE /tasks/:id/comments/:cid
+router.delete('/:id/comments/:cid', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const row = await db('task_comments').where({ id: req.params.cid }).first();
+    if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+    if (String(row.user_id) !== String(req.user!.id)) {
+      res.status(403).json({ error: 'You can only delete your own comments' }); return;
+    }
+    await db('task_comments').where({ id: req.params.cid }).delete();
+    res.status(204).end();
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 export default router;
 
 // ─── Public task router (no auth) ────────────────────────────────────────────
