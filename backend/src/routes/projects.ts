@@ -156,16 +156,29 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// GET project members from project_members table
+// GET project members — union of project_members + task_assignees for this project
 router.get('/:id/members', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const members = await db('project_members as pm')
+    const pid = req.params.id;
+    const fromProjectMembers = await db('project_members as pm')
       .join('users as u', 'pm.user_id', 'u.id')
-      .where('pm.project_id', req.params.id)
+      .where('pm.project_id', pid)
       .whereNotIn('u.role', ['client'])
       .select('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role');
-    res.json(members);
+    const fromTaskAssignees = await db('task_assignees as ta')
+      .join('tasks as t', 'ta.task_id', 't.id')
+      .join('users as u', 'ta.user_id', 'u.id')
+      .where('t.project_id', pid)
+      .whereNotIn('u.role', ['client'])
+      .distinct('u.id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role');
+    // deduplicate by id
+    const seen = new Set<number>();
+    const all = [...fromProjectMembers, ...fromTaskAssignees].filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id); return true;
+    });
+    res.json(all);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
