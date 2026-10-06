@@ -1012,9 +1012,21 @@ export default function SEO() {
   const [queryPage, setQueryPage]               = useState(1);
 
   useEffect(() => {
-    // New report loaded — select all items by default and reset search/pagination
-    setSelectedAcquisitions(new Set(report?.acquisition.map((a) => a.channel) ?? []));
-    setSelectedDemographics(new Set(report?.demographics.map((d) => d.city) ?? []));
+    // New report loaded — add newly-seen items but preserve existing unchecks
+    setSelectedAcquisitions((prev) => {
+      const channels = report?.acquisition.map((a) => a.channel) ?? [];
+      if (prev.size === 0) return new Set(channels); // first load: select all
+      const next = new Set(prev);
+      channels.forEach((c) => { if (!prev.has(c)) next.add(c); }); // add new channels only
+      return next;
+    });
+    setSelectedDemographics((prev) => {
+      const cities = report?.demographics.map((d) => d.city) ?? [];
+      if (prev.size === 0) return new Set(cities); // first load: select all
+      const next = new Set(prev);
+      cities.forEach((c) => { if (!prev.has(c)) next.add(c); }); // add new cities only
+      return next;
+    });
     setPageSearchInput('');
     setPageSearch('');
     setPagePage(1);
@@ -1037,6 +1049,11 @@ export default function SEO() {
     // Still need clients list for the config panel (GA/GSC save goes to client_company)
     seoApi.clients().then((r) => setClients(r.data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    setSelectedDemographics(new Set());
+    setSelectedAcquisitions(new Set());
+  }, [selectedProject?.id]);
 
   useEffect(() => {
     if (!selectedClient?.ga_property_id) { setReport(null); return; }
