@@ -198,9 +198,10 @@ async function createSchema(): Promise<void> {
       }
       const hasSnapshot = await db.schema.hasColumn('seo_share_tokens', 'manual_snapshot');
       if (!hasSnapshot) {
-        await db.schema.table('seo_share_tokens', (t) => {
-          t.text('manual_snapshot').nullable();
-        });
+        await db.schema.table('seo_share_tokens', (t) => { t.specificType('manual_snapshot', 'MEDIUMTEXT').nullable(); });
+      } else {
+        const client2 = (db.client as any).config?.client || '';
+        if (client2.includes('mysql')) await db.raw('ALTER TABLE seo_share_tokens MODIFY manual_snapshot MEDIUMTEXT NULL');
       }
       const hasAgency = await db.schema.hasColumn('seo_share_tokens', 'agency_name');
       if (!hasAgency) await db.schema.table('seo_share_tokens', (t) => { t.string('agency_name').nullable(); });
@@ -209,7 +210,15 @@ async function createSchema(): Promise<void> {
       const hasAcquisitions = await db.schema.hasColumn('seo_share_tokens', 'acquisitions');
       if (!hasAcquisitions) await db.schema.table('seo_share_tokens', (t) => { t.text('acquisitions').nullable(); t.text('demographics').nullable(); });
       const hasReportSnapshot = await db.schema.hasColumn('seo_share_tokens', 'report_snapshot');
-      if (!hasReportSnapshot) await db.schema.table('seo_share_tokens', (t) => { t.text('report_snapshot').nullable(); });
+      if (!hasReportSnapshot) {
+        await db.schema.table('seo_share_tokens', (t) => { t.specificType('report_snapshot', 'MEDIUMTEXT').nullable(); });
+      } else {
+        // Upgrade TEXT → MEDIUMTEXT on MySQL (no-op on SQLite)
+        const client = (db.client as any).config?.client || '';
+        if (client.includes('mysql')) {
+          await db.raw('ALTER TABLE seo_share_tokens MODIFY report_snapshot MEDIUMTEXT NULL');
+        }
+      }
     }
   });
 
