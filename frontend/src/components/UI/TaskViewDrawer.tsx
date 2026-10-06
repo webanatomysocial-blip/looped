@@ -331,8 +331,13 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
             const canEditComment = (c: any) => String(c.user_id) === String(user?.id);
             const canDeleteComment = (c: any) => String(c.user_id) === String(user?.id);
 
-            // @mention pool: only project members (fetched from /projects/:id/members)
-            const members: any[] = projectMembers;
+            // @mention pool: project members, falling back to assignees + comment authors
+            const seen = new Set<string>();
+            const members: any[] = [];
+            const addM = (m: any) => { if (!m?.id || !m?.name) return; const k = String(m.id); if (!seen.has(k)) { seen.add(k); members.push(m); } };
+            (projectMembers.length > 0 ? projectMembers : (task.assignees || [])).forEach(addM);
+            comments.forEach((c: any) => addM({ id: c.user_id, name: c.user_name, avatar_color: c.avatar_color, avatar_url: c.avatar_url }));
+            if (user) addM(user);
             const mentionSuggestions = mentionQuery !== null
               ? members.filter((m: any) => m.name?.toLowerCase().includes(mentionQuery.toLowerCase())).slice(0, 6)
               : [];
