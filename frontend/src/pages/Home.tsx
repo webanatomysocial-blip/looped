@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { forCurrentStage } from '../components/UI/ChecklistEditor';
 import { format } from 'date-fns';
 import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -196,7 +197,7 @@ export default function Home() {
       setDoneLinkInput('');
       try {
         const [full, delivs] = await Promise.all([tasksApi.get(taskId), tasksApi.getDeliverables(taskId)]);
-        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.text?.trim()).map((i: any) => ({ ...i, completed: false })));
+        setDoneModalChecklist(forCurrentStage<any>(full.data.checklist || [], full.data).filter((i: any) => i.text?.trim()).map((i: any) => ({ ...i, completed: !!i.completed })));
         setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
@@ -242,11 +243,10 @@ export default function Home() {
       try { const r = await tasksApi.addDeliverableLink(doneConfirmTask.id, doneLinkInput.trim()); setDoneDeliverables(prev => [...prev, r.data]); } catch {}
       setDoneLinkInput('');
     }
-    if (doneConfirmTask.ticket_type_id) {
-      await xlr8Api.markDone(doneConfirmTask.id);
-    } else {
-      await tasksApi.timer(doneConfirmTask.id, 'done');
-    }
+    try {
+      if (doneConfirmTask.ticket_type_id) await xlr8Api.markDone(doneConfirmTask.id);
+      else await tasksApi.timer(doneConfirmTask.id, 'done');
+    } catch (err: any) { alert(err?.response?.data?.error || "Couldn't mark this as done"); return; }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
     setDoneDeliverables([]);
@@ -278,7 +278,7 @@ export default function Home() {
   const todayTasks = allTasksRaw.filter(t => t.status !== 'pending_approval' && (!t.due_date || t.due_date === today || t.status === 'completed'));
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed' && t.status !== 'pending_approval');
   const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
-  const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && t.acceptance_status === 'accepted');
+  const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'accepted' || (t.acceptance_status as string) === 'upcoming'));
 
   const visibleApproved = approvedTasks.filter(a => !dismissedApprovedIds.has(a.id));
   const visibleRejected = allTasksRaw.filter(t => t.has_rejected_approval && !dismissedRejectedIds.has(t.id));
@@ -450,10 +450,28 @@ export default function Home() {
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setViewTask(task.id)}>{task.title}</span>
                       <span style={{ fontSize: 12, color: '#64748b' }}> · {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+                      {task.crosspod_pods && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 99, background: 'rgba(245,158,11,0.15)', color: '#b45309' }}>Request{task.created_by_name ? ` · from ${task.created_by_name}` : ''}</span>}
+                      {(() => {
+                        // Why this needs approval — managers see the lines for their pod, admins see all
+                        let reasons: { pod: string; text: string }[] = [];
+                        try { reasons = task.crosspod_reasons ? JSON.parse(task.crosspod_reasons) : []; } catch { reasons = []; }
+                        const shown = user?.role === 'admin' ? reasons : reasons.filter(r => r.pod === user?.pod);
+                        if (!shown.length) return null;
+                        return (
+                          <ul style={{ margin: '4px 0 0', paddingLeft: 16, fontSize: 12, color: '#92400e' }}>
+                            {shown.map((r, i) => <li key={i}>{r.text}</li>)}
+                          </ul>
+                        );
+                      })()}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      <button className="cap-accept-btn cap-accept-btn--yes" style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12 }} onClick={async () => { await tasksApi.managerApprove(task.id, 'approve'); load(); }}>✓ Approve</button>
-                      <button className="cap-accept-btn cap-accept-btn--no" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12 }} onClick={async () => { await tasksApi.managerApprove(task.id, 'reject'); load(); }}>✕ Reject</button>
+                      <button className="cap-accept-btn cap-accept-btn--yes" style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12 }} onClick={async () => { try { await tasksApi.managerApprove(task.id, 'approve'); } catch (e: any) { alert(e.response?.data?.error || 'Could not approve'); } load(); }}>✓ Approve</button>
+                      <button className="cap-accept-btn cap-accept-btn--no" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12 }} onClick={async () => {
+                        let comment: string | undefined;
+                        if (task.crosspod_pods) { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
+                        try { await tasksApi.managerApprove(task.id, 'reject', comment); } catch (e: any) { alert(e.response?.data?.error || 'Could not reject'); }
+                        load();
+                      }}>✕ Reject</button>
                     </div>
                   </div>
                 ))}
@@ -728,6 +746,11 @@ export default function Home() {
                     <div className="cap-task-row__info">
                       <div className="cap-task-row__title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => openTaskView(task.id)}>
                         {task.title}
+                        {(task.acceptance_status as string) === 'upcoming' && (
+                          <span title="You accepted this stage — it starts when the earlier stages finish" style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(59,130,246,0.08)', color: 'var(--blue)', border: '1px solid rgba(59,130,246,0.25)' }}>
+                            Upcoming · Stage {((task as any).my_stage_idx ?? 0) + 1}
+                          </span>
+                        )}
                         {task.priority && (() => {
                           const p = task.priority as string;
                           const map: Record<string, { bg: string; color: string; border: string }> = {
@@ -974,7 +997,7 @@ export default function Home() {
                         {rt.timer_running ? (
                           <>
                             <button className="cap-timer-btn cap-timer-btn--pause" onClick={() => tasksApi.timer(rt.id, 'pause').then(load)} title="Pause"><Pause size={12} /></button>
-                            <button className="cap-timer-btn cap-timer-btn--done" onClick={() => tasksApi.timer(rt.id, 'done').then(load)} title="Done"><Check size={12} /></button>
+                            <button className="cap-timer-btn cap-timer-btn--done" onClick={() => tasksApi.timer(rt.id, 'done').then(load).catch((err: any) => alert(err?.response?.data?.error || "Couldn't mark this as done"))} title="Done"><Check size={12} /></button>
                           </>
                         ) : (
                           <button className="cap-timer-btn cap-timer-btn--start" onClick={() => tasksApi.timer(rt.id, 'start').then(load)} title="Start"><Play size={12} /></button>

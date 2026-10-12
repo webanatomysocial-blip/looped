@@ -1,4 +1,5 @@
 
+import { assigneeChip } from './assigneeChip';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock } from 'lucide-react';
 import { MiniAvatar } from './Avatar';
@@ -45,8 +46,23 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
 
   const declineEvents: DeclineEvent[] = [];
   let trackedIdx = 0, lastAdminInStageIdx = -1, lastManagerIdx = -1;
-  for (const entry of log) {
-    if (entry.action === 'next_stage') {
+  // Old rejection rows lack to_stage_idx: whoever finished work next tells us which stage it really went to
+  const inferTarget = (li: number, fromIdx: number, guess: number) => {
+    const next = log.slice(li + 1).find((e: any) => e.action === 'work_done' || e.action.includes('declined'));
+    if (!next || next.action !== 'work_done' || !next.actor_id) return guess;
+    const theirStages = stageAssignees
+      .filter((a: any) => a.user_id === next.actor_id && Number(a.stage_idx) < fromIdx)
+      .map((a: any) => Number(a.stage_idx));
+    if (!theirStages.length || theirStages.includes(guess)) return guess;
+    return Math.max(...theirStages);
+  };
+  for (const [li, entry] of log.entries()) {
+    if ((entry.action === 'admin_declined' || entry.action === 'manager_declined') && entry.to_stage_idx != null) {
+      const fromIdx = Number(entry.from_stage_idx ?? entry.to_stage_idx);
+      const toIdx = Number(entry.to_stage_idx);
+      declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
+      trackedIdx = toIdx; lastAdminInStageIdx = -1; lastManagerIdx = -1;
+    } else if (entry.action === 'next_stage') {
       const m = (entry.comment ?? '').match(/^Stage (\d+):/);
       if (m) {
         trackedIdx = Number(m[1]) - 1;
@@ -58,14 +74,14 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
       const searchFrom = lastAdminInStageIdx >= 0 ? lastAdminInStageIdx - 1 : stages.length - 1;
       let pi = searchFrom;
       while (pi >= 0 && (stageTypeOf(stages[pi]) !== 'employee' || skippedIdxSet.has(pi))) pi--;
-      const toIdx = pi >= 0 ? pi : 0;
+      const toIdx = inferTarget(li, fromIdx, pi >= 0 ? pi : 0);
       declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
       trackedIdx = toIdx; lastAdminInStageIdx = -1;
     } else if (entry.action === 'manager_declined') {
       const fromIdx = lastManagerIdx >= 0 ? lastManagerIdx : trackedIdx;
       let pi = fromIdx - 1;
       while (pi >= 0 && (stageTypeOf(stages[pi]) !== 'employee' || skippedIdxSet.has(pi))) pi--;
-      const toIdx = pi >= 0 ? pi : 0;
+      const toIdx = inferTarget(li, fromIdx, pi >= 0 ? pi : 0);
       declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
       trackedIdx = toIdx; lastManagerIdx = -1;
     } else if (entry.action === 'employee_declined') {
@@ -73,15 +89,15 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
     }
   }
 
-  const rejectedStageIdx = (() => {
-    if (!lastWasRejected) return currentIdx;
-    if (lastLogEntry.action === 'admin_declined') {
-      const idx = stages.findIndex((_s: any, si: number) => si > currentIdx && _s.type === 'admin');
-      return idx >= 0 ? idx : currentIdx;
-    }
-    return currentIdx;
-  })();
-  const redoIdx = rejectedStageIdx > currentIdx ? currentIdx : rejectedStageIdx - 1;
+  // Old log rows have no stage columns: the ticket's current stage is the truth for the latest rejection
+  const lastEvent = declineEvents[declineEvents.length - 1];
+  if (lastWasRejected && lastEvent && lastLogEntry.action !== 'employee_declined' && lastEvent.toIdx !== currentIdx) {
+    lastEvent.toIdx = currentIdx; lastEvent.toLabel = stageLabelOf(currentIdx);
+  }
+  const isEmployeeDecline = lastWasRejected && lastLogEntry.action === 'employee_declined';
+  // Stage that rejected (red) and stage the work was sent back to (amber, active again)
+  const rejectedStageIdx = !lastWasRejected ? -1 : isEmployeeDecline ? currentIdx : (lastEvent?.fromIdx ?? -1);
+  const redoIdx = lastWasRejected && !isEmployeeDecline ? currentIdx : -1;
 
   return (
     <div>
@@ -97,7 +113,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
               const isRejected   = !isSkippedStage && lastWasRejected && i === rejectedStageIdx;
               const isRedoTarget = !isSkippedStage && lastWasRejected && i === redoIdx;
               const isDone    = !isSkippedStage && !isRedoTarget && !isRejected && (isCompleted || i < currentIdx);
-              const isCurrent = !isSkippedStage && !isCompleted && i === currentIdx && !isRejected;
+              const isCurrent = !isSkippedStage && !isCompleted && i === currentIdx && !isRejected && !isRedoTarget;
               const isPending = !isSkippedStage && !isCompleted && !isRejected && i > currentIdx && i !== redoIdx;
               const stageAssignee = stageRows.filter((a: any) => a.user_id && !a.skipped);
               const rawTracked = stageTracked.find((t: any) => t.stage_idx === i)?.tracked_seconds ?? 0;
@@ -133,19 +149,12 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                       ) : stageAssignee.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                           {stageAssignee.map((a: any) => {
-                            const status = a.is_active ? 'working' : (a.acceptance_status || 'pending');
-                            const pill: Record<string, { label: string; bg: string; color: string }> = {
-                              working:  { label: 'Working',        bg: 'rgba(59,130,246,0.12)',  color: '#2563eb' },
-                              accepted: { label: 'Accepted',       bg: 'rgba(34,197,94,0.12)',   color: '#16a34a' },
-                              declined: { label: 'Declined',       bg: 'rgba(239,68,68,0.12)',   color: '#dc2626' },
-                              pending:  { label: 'Not yet accepted', bg: 'rgba(148,163,184,0.15)', color: '#64748b' },
-                            };
-                            const p = pill[status] || pill.pending;
+                            const p = assigneeChip({ acceptance: a.acceptance_status, working: !!a.is_active, logged: trackedSec > 0, stageDone: isDone, stageCurrent: isCurrent || isRedoTarget, reviewStage: isReview });
                             return (
                               <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? 'var(--ink-muted)' : 'var(--ink)', flexWrap: 'wrap' }}>
                                 <MiniAvatar name={a.user_name || '?'} color={isPending ? '#cbd5e1' : (a.avatar_color || '#94a3b8')} avatarUrl={isPending ? null : a.avatar_url} size={16} fontSize={7} />
                                 {a.user_name?.split(' ')[0]}
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>
+                                {p && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>}
                               </span>
                             );
                           })}
@@ -176,6 +185,11 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                       <div style={{ fontSize: 10, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 6, padding: '4px 6px', fontStyle: 'italic' }}>✕ "{lastLogEntry.comment}"</div>
                     )}
                     {isRejected && !lastLogEntry?.comment && <div style={{ fontSize: 10, color: '#ef4444', fontWeight: 600 }}>✕ Rejected</div>}
+                    {isRedoTarget && (
+                      <div style={{ fontSize: 10, color: '#b45309', fontWeight: 600, background: 'rgba(245,158,11,0.08)', borderRadius: 6, padding: '4px 6px' }}>
+                        ↺ Sent back by {lastEvent?.actor_name || 'reviewer'}{lastLogEntry?.comment ? `: "${lastLogEntry.comment}"` : ''}
+                      </div>
+                    )}
                   </div>
                   {i < stages.length - 1 && (
                     <div style={{ width: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -194,7 +208,9 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
               const fa = task.xlr8_final_approval || {};
               const allStagesDone = isCompleted || ['pending_admin','pending_client','completed'].includes(task.xlr8_status);
               const cards: { key: string; label: string; color: string; accentColor: string; isDone: boolean; isActive: boolean }[] = [];
-              if (fa.adminRequired) {
+              const lastAdminEvent = [...log].reverse().find((e: any) => e.action === 'admin_skipped' || e.action === 'sent_to_admin');
+              const adminSkipped = lastAdminEvent?.action === 'admin_skipped';
+              if (fa.adminRequired && !adminSkipped) {
                 cards.push({ key: 'admin', label: 'Admin Approval', color: '#ea580c', accentColor: 'rgba(234,88,12,0.08)', isDone: isCompleted || task.xlr8_status === 'pending_client', isActive: task.xlr8_status === 'pending_admin' });
               }
               if (fa.clientOptional) {

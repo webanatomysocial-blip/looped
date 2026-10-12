@@ -171,6 +171,70 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // Internal ad campaign hierarchy. level 1..3 maps to platform labels:
+  // google Campaign/Ad Group/Ad, meta Campaign/Ad Set/Ad, linkedin Campaign Group/Campaign/Ad
+  await db.schema.hasTable('ad_entities').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('ad_entities', (t) => {
+        t.increments('id').primary();
+        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.string('platform', 20).notNullable();
+        t.integer('level').notNullable();
+        t.integer('parent_id').nullable().references('id').inTable('ad_entities').onDelete('CASCADE');
+        t.string('name').notNullable();
+        t.string('status', 20).notNullable().defaultTo('draft');
+        t.string('objective').nullable();
+        t.decimal('budget', 14, 2).nullable();
+        t.string('budget_type', 20).nullable();
+        t.string('start_date').nullable();
+        t.string('end_date').nullable();
+        t.text('notes').nullable();
+        t.string('external_id').nullable();
+        t.text('targeting').nullable();
+        t.string('ad_format').nullable();
+        t.string('headline').nullable();
+        t.text('primary_text').nullable();
+        t.string('cta').nullable();
+        t.string('destination_url', 1000).nullable();
+        t.integer('asset_id').nullable();
+        t.string('asset_url', 1000).nullable();
+        t.integer('created_by').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+        t.timestamp('updated_at').defaultTo(db.fn.now());
+        t.index(['client_id', 'platform']);
+        t.index(['parent_id']);
+        t.index(['status']);
+      });
+    }
+  });
+  // Early builds had a NOT NULL period and no cost_per_lead; rebuild while still empty
+  if (await db.schema.hasTable('ad_entity_metrics') && !(await db.schema.hasColumn('ad_entity_metrics', 'cost_per_lead'))) {
+    const n = Number((await db('ad_entity_metrics').count('id as n').first() as any)?.n || 0);
+    if (n === 0) await db.schema.dropTable('ad_entity_metrics');
+    else await db.schema.alterTable('ad_entity_metrics', (t) => { t.decimal('cost_per_lead', 14, 2).nullable(); });
+  }
+  await db.schema.hasTable('ad_entity_metrics').then(async (exists) => {
+    if (!exists) {
+      await db.schema.createTable('ad_entity_metrics', (t) => {
+        t.increments('id').primary();
+        t.integer('entity_id').notNullable().references('id').inTable('ad_entities').onDelete('CASCADE');
+        // null period = imported from the old flat report, which had no dates
+        t.string('period_start').nullable();
+        t.string('period_end').nullable();
+        t.bigInteger('reach').nullable();
+        t.bigInteger('impressions').nullable();
+        t.bigInteger('clicks').nullable();
+        t.integer('leads').nullable();
+        t.decimal('cost', 14, 2).nullable();
+        t.decimal('cost_per_lead', 14, 2).nullable();
+        t.string('source', 20).notNullable().defaultTo('manual');
+        t.integer('created_by').nullable();
+        t.timestamp('created_at').defaultTo(db.fn.now());
+        t.index(['entity_id', 'period_start']);
+      });
+    }
+  });
+
   // multi-token share links for SEO
   await db.schema.hasTable('seo_share_tokens').then(async (exists) => {
     if (!exists) {
@@ -539,7 +603,11 @@ async function createSchema(): Promise<void> {
         t.integer('task_id').notNullable().references('id').inTable('tasks');
         t.string('text').notNullable();
         t.boolean('completed').defaultTo(false);
+        t.integer('stage_idx').nullable();
       });
+    } else if (!(await db.schema.hasColumn('task_checklist', 'stage_idx'))) {
+      // null = whole task (plain tasks, old tickets); a number = only that stage's person sees and ticks it
+      await db.schema.table('task_checklist', (t) => { t.integer('stage_idx').nullable(); });
     }
   });
 
@@ -976,6 +1044,10 @@ async function createSchema(): Promise<void> {
       });
     }
   });
+  if (!(await db.schema.hasColumn('ads_manual_data', 'campaigns_migrated'))) {
+    await db.schema.alterTable('ads_manual_data', (t) => { t.boolean('campaigns_migrated').defaultTo(false); });
+  }
+  await migrateLegacyAdsCampaigns(db);
 
   // contact-forms: embeddable per-site contact forms (migrated from standalone contactform app)
   await db.schema.hasTable('contact_projects').then(async (exists) => {
@@ -1232,6 +1304,14 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // Exact stage movement for rejections, so the stage flow never has to guess
+  if (!(await db.schema.hasColumn('xlr8_ticket_log', 'to_stage_idx'))) {
+    await db.schema.table('xlr8_ticket_log', (t) => {
+      t.integer('from_stage_idx').nullable();
+      t.integer('to_stage_idx').nullable();
+    });
+  }
+
   // Migrate tasks: add XLR8 ticket columns
   const hasTicketTypeId  = await db.schema.hasColumn('tasks', 'ticket_type_id');
   const hasXlr8StageIdx  = await db.schema.hasColumn('tasks', 'xlr8_stage_idx');
@@ -1293,6 +1373,11 @@ async function createSchema(): Promise<void> {
     });
   }
 
+  // Manual scheduling: the day a person chose to start their stage (scheduler keeps it), and which slots came from it
+  if (!(await db.schema.hasColumn('task_assignees', 'schedule_anchor'))) {
+    await db.schema.table('task_assignees', (t) => { t.string('schedule_anchor', 10).nullable(); });
+  }
+
   // task_assignees: per-task stage overrides (skip + reviewer flag)
   const hasStageSkipped = await db.schema.hasColumn('task_assignees', 'skipped');
   if (!hasStageSkipped) {
@@ -1338,6 +1423,21 @@ async function createSchema(): Promise<void> {
     await db.schema.table('tasks', (t) => { t.string('priority').defaultTo('medium'); });
   }
 
+  // Custom stage sets made from the create form; hidden from the template list
+  if (!(await db.schema.hasColumn('xlr8_ticket_types', 'is_custom'))) {
+    await db.schema.table('xlr8_ticket_types', (t) => { t.boolean('is_custom').defaultTo(false); t.integer('created_by').nullable(); });
+  }
+
+  // Why a held task needs approval: JSON [{ pod, text }]
+  if (!(await db.schema.hasColumn('tasks', 'crosspod_reasons'))) {
+    await db.schema.table('tasks', (t) => { t.text('crosspod_reasons').nullable(); });
+  }
+
+  // Cross-pod hold: JSON array of pods whose manager still has to approve; note = rejection reason
+  if (!(await db.schema.hasColumn('tasks', 'crosspod_pods'))) {
+    await db.schema.table('tasks', (t) => { t.text('crosspod_pods').nullable(); t.text('crosspod_note').nullable(); });
+  }
+
   // Phase 2: Scheduling slots — one row per (task, user, day) chunk
   await db.schema.hasTable('task_schedule_slots').then(async (exists) => {
     if (!exists) {
@@ -1349,11 +1449,13 @@ async function createSchema(): Promise<void> {
         t.string('slot_date', 10).notNullable(); // YYYY-MM-DD
         t.float('hours').notNullable();
         t.float('custom_start_hour').nullable(); // null = auto-stack, float = pinned hour (e.g. 14.5 = 2:30pm)
+        t.boolean('is_manual').defaultTo(false);
         t.index(['user_id', 'slot_date']);
       });
     } else {
       const hasCustomStart = await db.schema.hasColumn('task_schedule_slots', 'custom_start_hour');
       if (!hasCustomStart) await db.schema.table('task_schedule_slots', (t) => { t.float('custom_start_hour').nullable(); });
+      if (!(await db.schema.hasColumn('task_schedule_slots', 'is_manual'))) await db.schema.table('task_schedule_slots', (t) => { t.boolean('is_manual').defaultTo(false); });
     }
   });
 
@@ -1586,6 +1688,19 @@ async function createSchema(): Promise<void> {
       }
     }
   }
+
+  // Repair tickets stuck on "awaiting acceptance" although the current-stage assignee already accepted
+  const stuck = await db('tasks as t')
+    .join('task_assignees as ta', function (this: any) { this.on('ta.task_id', 't.id').andOn('ta.stage_idx', 't.xlr8_stage_idx'); })
+    .where('t.xlr8_status', 'pending_assignee')
+    .where('ta.acceptance_status', 'accepted')
+    .whereNotNull('ta.user_id')
+    .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+    .select('t.id', 'ta.user_id');
+  for (const r of stuck) {
+    await db('tasks').where({ id: r.id, xlr8_status: 'pending_assignee' })
+      .update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: r.user_id, assigned_to: r.user_id });
+  }
 }
 
 async function seedAdmin(): Promise<void> {
@@ -1660,4 +1775,36 @@ export async function isNotifEnabled(
     if (pref && !pref.enabled) return false;
   }
   return true;
+}
+
+// One-time move of the old flat report rows into the campaign hierarchy, so Campaigns is the single source.
+// Each old row becomes a campaign (LinkedIn: a campaign inside an "Imported campaigns" group) with one undated metric entry.
+async function migrateLegacyAdsCampaigns(db: Knex): Promise<void> {
+  const rows = await db('ads_manual_data').where((q) => q.where('campaigns_migrated', false).orWhereNull('campaigns_migrated'));
+  for (const row of rows) {
+    let cm: any = null;
+    try { cm = row.campaigns_manual ? JSON.parse(row.campaigns_manual) : null; } catch { cm = null; }
+    await db.transaction(async (trx) => {
+      // Claim the row first so a second server process starting at the same time skips it
+      const claimed = await trx('ads_manual_data').where({ id: row.id }).where((q) => q.where('campaigns_migrated', false).orWhereNull('campaigns_migrated')).update({ campaigns_migrated: true });
+      if (!claimed) return;
+      if (cm && typeof cm === 'object' && !Array.isArray(cm)) {
+        for (const platform of ['google', 'meta', 'linkedin']) {
+          const list = (cm[platform]?.campaigns || []).filter((c: any) => c && Object.values(c).some((v) => String(v ?? '').trim()));
+          if (!list.length) continue;
+          let parent_id: number | null = null;
+          if (platform === 'linkedin') {
+            const [gid] = await trx('ad_entities').insert({ client_id: row.client_id, platform, level: 1, name: 'Imported campaigns', status: 'active', notes: 'Created automatically from the previous report format' });
+            parent_id = typeof gid === 'object' ? (gid as any).id : gid;
+          }
+          for (const c of list) {
+            const [eid] = await trx('ad_entities').insert({ client_id: row.client_id, platform, level: platform === 'linkedin' ? 2 : 1, parent_id, name: String(c.name || '').trim() || 'Untitled campaign', status: 'active' });
+            const num = (v: any) => { const n = Number(v); return v === '' || v == null || !Number.isFinite(n) ? null : n; };
+            const m = { reach: num(c.reach), impressions: num(c.impressions), clicks: num(c.clicks), leads: num(c.leads), cost: num(c.cost), cost_per_lead: num(c.cost_per_lead) };
+            if (Object.values(m).some((v) => v != null)) await trx('ad_entity_metrics').insert({ entity_id: typeof eid === 'object' ? (eid as any).id : eid, period_start: null, period_end: null, source: 'imported', ...m });
+          }
+        }
+      }
+    });
+  }
 }

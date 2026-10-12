@@ -3,6 +3,33 @@ import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 
 const router = Router();
+
+// Of these tasks, the ones a manager actually works on: assigned/created by them, a project they're a member of,
+// a project in their pod, or a task with someone from their pod assigned.
+async function managerTaskIds(db: any, userId: number, taskIds: number[]): Promise<Set<number>> {
+  if (!taskIds.length) return new Set();
+  const me = await db('users').where({ id: userId }).select('pod').first();
+  const pod = me?.pod ?? null;
+  const rows = await db('tasks as t')
+    .leftJoin('projects as p', 'p.id', 't.project_id')
+    .whereIn('t.id', taskIds)
+    .where(function (this: any) {
+      this.where('t.xlr8_assignee_id', userId)
+        .orWhere('t.created_by', userId)
+        .orWhereExists(function (this: any) { this.from('task_assignees as ta').whereRaw('ta.task_id = t.id').where('ta.user_id', userId); })
+        .orWhereExists(function (this: any) { this.from('project_members as pm').whereRaw('pm.project_id = t.project_id').where('pm.user_id', userId); });
+      if (pod) {
+        this.orWhere('p.pod', pod)
+          .orWhereExists(function (this: any) {
+            this.from('task_assignees as ta2').join('users as u2', 'u2.id', 'ta2.user_id')
+              .whereRaw('ta2.task_id = t.id').where('u2.pod', pod);
+          });
+      }
+    })
+    .pluck('t.id');
+  return new Set(rows.map(Number));
+}
+
 router.use(authenticate);
 
 // GET /api/capacity/daily — current user's daily capacity summary
@@ -63,6 +90,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where('ta.user_id', userId)
       .whereNull('t.ticket_type_id')
       .whereNull('t.recurring_task_id')
+      .whereNull('t.crosspod_pods').whereNull('t.crosspod_note')
       .where(function () {
         this.whereNot('ta.acceptance_status', 'declined').orWhereNull('ta.acceptance_status');
       })
@@ -95,9 +123,12 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .groupBy('t.id');
 
     // For admin/manager: also include pending_admin/pending_manager XLR8 tasks needing their review (where xlr8_assignee_id may be null)
-    const pendingReviewForRole = (req.user!.role === 'admin' || req.user!.role === 'manager') ? await db('tasks as t')
+    let pendingReviewForRole: any[] = (req.user!.role === 'admin' || req.user!.role === 'manager') ? await db('tasks as t')
       .leftJoin('projects as p', 't.project_id', 'p.id')
+      .leftJoin('users as xa', 'xa.id', 't.xlr8_assignee_id')
       .where('t.xlr8_status', req.user!.role === 'admin' ? 'pending_admin' : 'pending_manager')
+      // Stages reviewed by an employee belong to that employee, not the manager queue
+      .where((q: any) => q.whereNull('xa.role').orWhereNot('xa.role', 'employee'))
       .whereNotIn('t.status', ['completed'])
       .whereNotNull('t.ticket_type_id')
       .select(
@@ -107,6 +138,11 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         db.raw("'employee' as assignee_role"),
         db.raw('NULL as stage_est_hours')
       ) : [];
+
+    if (req.user!.role === 'manager' && (pendingReviewForRole as any[]).length) {
+      const mine = await managerTaskIds(db, userId, (pendingReviewForRole as any[]).map((t: any) => Number(t.id)));
+      pendingReviewForRole = (pendingReviewForRole as any[]).filter((t: any) => mine.has(Number(t.id)));
+    }
 
     // XLR8 future-stage assignments waiting for this user's acceptance
     const xlr8Ids = new Set(xlr8Tasks.map((t: any) => t.id));
@@ -121,6 +157,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
       .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNull('t.crosspod_pods')
       .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds].length ? [...xlr8Ids, ...reviewRoleIds] : [0])
       .where(function () {
         // Future stages: always show pre-assignment prompt
@@ -138,6 +175,35 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'
       );
 
+    // XLR8 future stages this user already accepted — show as upcoming so they don't vanish after accepting
+    const pendingStageIds = new Set((pendingStageRows as any[]).map((r: any) => r.id));
+    const upcomingStageRows = req.user!.role === 'admin' || req.user!.role === 'client' ? [] : await db('task_assignees as ta')
+      .join('tasks as t', 't.id', 'ta.task_id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
+      .where('ta.user_id', userId)
+      .where('ta.acceptance_status', 'accepted')
+      .whereNotIn('ta.assignee_role', ['admin', 'client'])
+      .andWhere((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+      .whereNotNull('t.ticket_type_id')
+      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNull('t.crosspod_pods')
+      .whereNotIn('t.xlr8_status', ['completed'])
+      .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
+      .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds, ...pendingStageIds].length ? [...xlr8Ids, ...reviewRoleIds, ...pendingStageIds] : [0])
+      .select(
+        't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours',
+        'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
+        db.raw("'upcoming' as acceptance_status"),
+        db.raw("'employee' as assignee_role"),
+        'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'
+      );
+    const upcomingDeduped = Object.values(
+      (upcomingStageRows as any[]).reduce((acc: any, row: any) => {
+        if (!acc[row.id] || row.my_stage_idx < acc[row.id].my_stage_idx) acc[row.id] = row;
+        return acc;
+      }, {})
+    );
+
     // Deduplicate pendingStageRows by task id (a user may have multiple stage rows)
     const pendingStageDeduped = Object.values(
       (pendingStageRows as any[]).reduce((acc: any, row: any) => {
@@ -152,6 +218,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       ...assignedTasks.filter((t: any) => !xlr8Ids.has(t.id) && !pendingIds.has(t.id) && !reviewRoleIds.has(t.id)),
       ...xlr8Tasks,
       ...pendingStageDeduped,
+      ...upcomingDeduped,
       ...(pendingReviewForRole as any[]).filter((t: any) => !xlr8Ids.has(t.id)),
     ];
 
@@ -280,7 +347,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         if (!s.ended_at) timerRunning = true;
       }
 
-      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)), rejection_log: rejectionLogs[task.id] ?? null, stage_approved_by: stageApprovedBy[task.id] ?? null };
+      return { ...task, tracked_seconds_today: taskSeconds, timer_running: timerRunning, has_rejected_approval: rejectedSet.has(Number(task.id)), rejection_log: task.acceptance_status === 'upcoming' ? null : (rejectionLogs[task.id] ?? null), stage_approved_by: stageApprovedBy[task.id] ?? null };
     });
 
     // Merge completed tasks (dedup by id)
@@ -290,11 +357,23 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
     // For managers/admins: also fetch tasks pending their approval
     let pendingApprovalTasks: any[] = [];
     if (req.user!.role === 'admin' || req.user!.role === 'manager') {
+      const myPod = (await db('users').where({ id: userId }).select('pod').first())?.pod;
       pendingApprovalTasks = await db('tasks as t')
         .join('projects as p', 't.project_id', 'p.id')
         .where('t.status', 'pending_approval')
-        .select('t.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 't.priority', 't.ticket_type_id', 'p.name as project_name')
+        .leftJoin('users as cr', 't.created_by', 'cr.id')
+        .select('t.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 't.priority', 't.ticket_type_id', 'p.name as project_name', 't.crosspod_pods', 't.crosspod_reasons', 'cr.name as created_by_name')
+        .then((rows: any[]) => rows.filter((r: any) => {
+          // Cross-pod requests only go to the manager of the pod being borrowed from
+          if (!r.crosspod_pods || req.user!.role === 'admin') return true;
+          return (JSON.parse(r.crosspod_pods) as string[]).includes(myPod);
+        }))
         .then((rows: any[]) => rows.map((r: any) => ({ ...r, tracked_seconds_today: 0, timer_running: false, acceptance_status: null, rejection_log: null })));
+      if (req.user!.role === 'manager') {
+        // Cross-pod / custom-stage requests are routed by pod above; everything else only if the manager works on it
+        const mine = await managerTaskIds(db, userId, pendingApprovalTasks.filter((t: any) => !t.crosspod_pods).map((t: any) => Number(t.id)));
+        pendingApprovalTasks = pendingApprovalTasks.filter((t: any) => t.crosspod_pods || mine.has(Number(t.id)));
+      }
     }
 
     // Ensure today's recurring instances exist (lazy generation)
@@ -396,6 +475,10 @@ router.get('/declined-stages', requireRoles('admin', 'manager'), async (req: Aut
         'u.name as declined_by', 'u.avatar_color',
         'tl.comment as reason'
       );
+    if (req.user!.role === 'manager') {
+      const mine = await managerTaskIds(db, req.user!.id, [...new Set<number>(declined.map((d: any) => Number(d.task_id)))]);
+      res.json(declined.filter((d: any) => mine.has(Number(d.task_id)))); return;
+    }
     res.json(declined);
   } catch (err) {
     console.error(err);

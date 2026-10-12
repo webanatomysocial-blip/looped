@@ -28,3 +28,15 @@ export async function visibleCompanyIds(db: Knex, role: string, userId: number):
   if (role === 'employee') return employeeCompanyIds(db, userId);
   return [];
 }
+
+/** SEO employees (category name contains "SEO") work on every client's SEO reports */
+export async function isSeoEmployee(db: Knex, role: string, userId: number): Promise<boolean> {
+  if (role !== 'employee') return false;
+  const names: string[] = await db('user_categories as uc').join('employee_categories as ec', 'uc.category_id', 'ec.id').where('uc.user_id', userId).pluck('ec.name');
+  return names.some((n) => /seo/i.test(n));
+}
+
+/** Company IDs visible on SEO pages: like visibleCompanyIds, but SEO employees see all (null) */
+export async function seoVisibleCompanyIds(db: Knex, role: string, userId: number): Promise<number[] | null> {
+  return (await isSeoEmployee(db, role, userId)) ? null : visibleCompanyIds(db, role, userId);
+}

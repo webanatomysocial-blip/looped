@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { assigneeChip } from '../components/UI/assigneeChip';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 
@@ -150,12 +151,7 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
             const borderColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#e2e8f0';
             const bgColor = isRejected ? 'rgba(239,68,68,0.05)' : isDone ? 'rgba(34,197,94,0.06)' : isCurrent ? 'rgba(59,130,246,0.05)' : isRedoTarget ? 'rgba(245,158,11,0.05)' : 'rgba(255,255,255,0.6)';
             const dotColor = isRejected ? '#ef4444' : isDone ? '#22c55e' : isCurrent ? '#3b82f6' : isRedoTarget ? '#f59e0b' : '#cbd5e1';
-            const pill: Record<string, { label: string; bg: string; color: string }> = {
-              working:  { label: 'Working',         bg: 'rgba(59,130,246,0.12)',  color: '#2563eb' },
-              accepted: { label: 'Accepted',        bg: 'rgba(34,197,94,0.12)',   color: '#16a34a' },
-              declined: { label: 'Declined',        bg: 'rgba(239,68,68,0.12)',   color: '#dc2626' },
-              pending:  { label: 'Not yet accepted',bg: 'rgba(148,163,184,0.15)', color: '#64748b' },
-            };
+            const isReview = stage.type === 'manager' || stage.type === 'admin' || stage.reviewer === true;
             return (
               <div key={i} style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
                 <div style={{ width: cardW, minHeight: 130, border: `2px solid ${borderColor}`, borderRadius: 12, padding: '14px 12px 12px', background: bgColor, position: 'relative', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -165,13 +161,12 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
                     {stageAssignee.length > 0 ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {stageAssignee.map((a: any) => {
-                          const status = a.acceptance_status || 'pending';
-                          const p = pill[status] || pill.pending;
+                          const p = assigneeChip({ acceptance: a.acceptance_status, working: !!a.is_active, logged: trackedSec > 0, stageDone: isDone, stageCurrent: isCurrent || isRedoTarget, reviewStage: isReview });
                           return (
                             <span key={a.user_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: isPending ? '#94a3b8' : '#1a1a1a', flexWrap: 'wrap' }}>
                               <Avatar name={a.user_name || '?'} color={isPending ? '#cbd5e1' : a.avatar_color} url={isPending ? undefined : a.avatar_url} size={16} />
                               {a.user_name?.split(' ')[0]}
-                              <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>
+                              {p && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: p.bg, color: p.color }}>{p.label}</span>}
                             </span>
                           );
                         })}

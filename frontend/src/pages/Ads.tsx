@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Megaphone, Edit2, Plus, Trash2, Settings, X, Download, Globe } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Megaphone, Settings, X, Download, Globe } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import api, { adsApi } from '../services/api';
 import '../css/pages/SEO.css';
+import AdsCampaigns from '../components/UI/AdsCampaigns';
 
 interface AdsClient {
   id: number;
@@ -19,6 +20,7 @@ interface ManualCampaign {
   leads: string;
   cost_per_lead: string;
   cost: string;
+  source?: string;
 }
 
 interface CampaignGroup {
@@ -43,7 +45,6 @@ const GROUPS: { key: GroupKey; label: string; badge: string }[] = [
 
 const emptyGroup = (): CampaignGroup => ({ campaigns: [], key_insights: '' });
 const emptyManual = (): AdsManualData => ({ notes: '', google: emptyGroup(), linkedin: emptyGroup(), meta: emptyGroup() });
-const emptyCampaign = (): ManualCampaign => ({ name: '', reach: '', impressions: '', clicks: '', leads: '', cost_per_lead: '', cost: '' });
 
 const parseManualData = (raw: any): AdsManualData => {
   const base = emptyManual();
@@ -187,7 +188,8 @@ export default function Ads() {
 
   const [clients,        setClients]        = useState<AdsClient[]>([]);
   const [selectedClient, setSelectedClient] = useState<AdsClient | null>(null);
-  const [isFullScan,     setIsFullScan]     = useState(false);
+  const [platform,       setPlatform]       = useState<GroupKey>('google');
+  const [reportTick,     setReportTick]     = useState(0);
   const [editingClientId, setEditingClientId] = useState<number | null>(null);
   const [cfCustomerId,   setCfCustomerId]   = useState('');
   const [cfSaving,       setCfSaving]       = useState(false);
@@ -196,74 +198,68 @@ export default function Ads() {
   const [customEnd,   setCustomEnd]   = useState('');
 
   const [manual,       setManual]       = useState<AdsManualData>(emptyManual());
-  const [manualEdit,   setManualEdit]   = useState<AdsManualData>(emptyManual());
-  const [editingGroup, setEditingGroup] = useState<GroupKey | null>(null);
   const [saving,       setSaving]       = useState(false);
   const [shareTokens,    setShareTokens]    = useState<{ token: string; start_date: string | null; end_date: string | null }[]>([]);
   const [showSharePanel, setShowSharePanel] = useState(false);
   const [shareCopied,    setShareCopied]    = useState<string | null>(null);
   const [adApprovals,    setAdApprovals]    = useState<any[]>([]);
   const [approvalsLoading, setApprovalsLoading] = useState(false);
+  const [approvalsError, setApprovalsError] = useState('');
+  const [clientsError,   setClientsError]   = useState('');
+  const [manualError,    setManualError]    = useState('');
+  const [saveTarget,     setSaveTarget]     = useState<'notes' | 'insights'>('notes');
+  const [undatedHidden,  setUndatedHidden]  = useState(0);
+  const [notesState,     setNotesState]     = useState<'' | 'saving' | 'saved' | 'error'>('');
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notesClient = useRef<number | null>(null);
 
   useEffect(() => {
     api.get('/ads/clients').then((r) => {
       setClients(r.data);
-    }).catch(() => {});
+      setSelectedClient((sc) => sc ?? r.data[0] ?? null);
+    }).catch((e) => setClientsError(e?.response?.data?.error || "Couldn't load clients. Refresh to try again."));
   }, []);
 
+  // Report numbers are rebuilt from Campaigns whenever the client, dates or campaign data change
   useEffect(() => {
-    if (isFullScan) {
-      if (!clients.length) return;
-      Promise.all(
-        clients.map((c) =>
-          api.get(`/ads/manual/${c.id}`).then((r) => parseManualData(r.data)).catch(() => emptyManual())
-        )
-      ).then((results) => {
-        const combined = emptyManual();
-        results.forEach((res) => {
-          combined.google.campaigns.push(...res.google.campaigns);
-          combined.linkedin.campaigns.push(...res.linkedin.campaigns);
-          combined.meta.campaigns.push(...res.meta.campaigns);
-        });
-        setManual(combined);
-      });
-      setShareTokens([]);
-    } else if (selectedClient) {
-      api.get(`/ads/manual/${selectedClient.id}`)
-        .then((r) => setManual(parseManualData(r.data)))
-        .catch(() => setManual(emptyManual()));
-      adsApi.getShareTokens(selectedClient.id)
-        .then((r) => setShareTokens(r.data || []))
-        .catch(() => setShareTokens([]));
-      setAdApprovals([]);
-      if (selectedClient.ads_customer_id) {
-        setApprovalsLoading(true);
-        adsApi.adApprovals(selectedClient.id)
-          .then((r) => setAdApprovals(r.data.ads || []))
-          .catch(() => setAdApprovals([]))
-          .finally(() => setApprovalsLoading(false));
-      }
-    }
-  }, [isFullScan, selectedClient, clients]);
-
-  const openGroupEdit = (key: GroupKey) => {
-    setManualEdit({ ...manual, [key]: { ...manual[key], campaigns: manual[key].campaigns.map((c) => ({ ...c })) } });
-    setEditingGroup(key);
-  };
-
-  const saveGroup = async () => {
     if (!selectedClient) return;
-    setSaving(true);
-    try {
-      const updated = { ...manual, [editingGroup!]: manualEdit[editingGroup!] };
-      await api.put(`/ads/manual/${selectedClient.id}`, {
-        notes: updated.notes,
-        campaigns_manual: { google: updated.google, linkedin: updated.linkedin, meta: updated.meta },
-      });
-      setManual(updated);
-      setEditingGroup(null);
-    } catch { alert('Failed to save'); }
-    finally { setSaving(false); }
+    let stale = false;
+    setManualError('');
+    api.get(`/ads/manual/${selectedClient.id}`, { params: { startDate: customStart || undefined, endDate: customEnd || undefined } })
+      .then((r) => { if (!stale) { setManual(parseManualData(r.data)); setUndatedHidden(Number(r.data?.undated_hidden) || 0); } })
+      .catch((e) => { if (!stale) { setManual(emptyManual()); setManualError(e?.response?.data?.error || "Couldn't load this client's report data, so editing is disabled to avoid overwriting it. Refresh to try again."); } });
+    return () => { stale = true; };
+  }, [selectedClient, customStart, customEnd, reportTick]);
+
+  useEffect(() => {
+    if (!selectedClient) return;
+    let stale = false;
+    setNotesState(''); setApprovalsError(''); setAdApprovals([]);
+    adsApi.getShareTokens(selectedClient.id)
+      .then((r) => { if (!stale) setShareTokens(r.data || []); })
+      .catch(() => { if (!stale) setShareTokens([]); });
+    if (selectedClient.ads_customer_id) {
+      setApprovalsLoading(true);
+      adsApi.adApprovals(selectedClient.id)
+        .then((r) => { if (!stale) setAdApprovals(r.data.ads || []); })
+        .catch((e) => { if (!stale) { setAdApprovals([]); setApprovalsError(e?.response?.data?.error || "Couldn't load ad approvals"); } })
+        .finally(() => { if (!stale) setApprovalsLoading(false); });
+    }
+    return () => { stale = true; };
+  }, [selectedClient]);
+
+  const saveNotes = (clientId: number, data: AdsManualData, target: 'notes' | 'insights' = 'notes') => {
+    setSaveTarget(target);
+    // Only debounce edits to the same client; a pending save for another client still goes through
+    if (notesTimer.current && notesClient.current === clientId) clearTimeout(notesTimer.current);
+    notesClient.current = clientId;
+    setNotesState('saving');
+    notesTimer.current = setTimeout(() => {
+      api.put(`/ads/manual/${clientId}`, {
+        notes: data.notes,
+        campaigns_manual: { google: data.google, linkedin: data.linkedin, meta: data.meta },
+      }).then(() => setNotesState('saved')).catch(() => setNotesState('error'));
+    }, 700);
   };
 
   const saveClientConfig = async () => {
@@ -276,175 +272,6 @@ export default function Ads() {
       setEditingClientId(null);
     } catch { alert('Failed to save'); }
     finally { setCfSaving(false); }
-  };
-
-  const updGroup = (key: GroupKey, patch: Partial<CampaignGroup>) =>
-    setManualEdit((prev) => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-
-  const updCampaign = (key: GroupKey, i: number, patch: Partial<ManualCampaign>) =>
-    setManualEdit((prev) => {
-      const arr = [...prev[key].campaigns];
-      arr[i] = { ...arr[i], ...patch };
-      return { ...prev, [key]: { ...prev[key], campaigns: arr } };
-    });
-
-  const addCampaign = (key: GroupKey) =>
-    setManualEdit((prev) => ({ ...prev, [key]: { ...prev[key], campaigns: [...prev[key].campaigns, emptyCampaign()] } }));
-
-  const removeCampaign = (key: GroupKey, i: number) =>
-    setManualEdit((prev) => ({ ...prev, [key]: { ...prev[key], campaigns: prev[key].campaigns.filter((_, j) => j !== i) } }));
-
-  // Overall totals across all groups
-  const allGroups = GROUPS.map(({ key }) => manual[key]);
-  const overallTotals = allGroups.map(calcGroupTotals).reduce(
-    (acc, t) => ({ reach: acc.reach + t.reach, impressions: acc.impressions + t.impressions, clicks: acc.clicks + t.clicks, leads: acc.leads + t.leads, cost: acc.cost + t.cost }),
-    { reach: 0, impressions: 0, clicks: 0, leads: 0, cost: 0 },
-  );
-  const allCampaigns = allGroups.flatMap((g) => g.campaigns);
-  const overallCpl = calcGroupAvgCpl({ campaigns: allCampaigns, key_insights: '' });
-  const hasSomeData = allCampaigns.length > 0;
-
-  const renderGroupSection = ({ key, label, badge }: typeof GROUPS[number]) => {
-    const group      = manual[key];
-    const editGroup  = manualEdit[key];
-    const isEditing  = editingGroup === key;
-    const totals     = calcGroupTotals(group);
-    const avgCpl     = calcGroupAvgCpl(group);
-    const hasData    = group.campaigns.length > 0;
-
-    const cplColor = (cpl: number | null) => {
-      if (cpl === null || avgCpl === null) return 'var(--ink-muted)';
-      if (cpl < avgCpl)  return '#16a34a';
-      if (cpl > avgCpl)  return '#d97706';
-      return 'var(--ink)';
-    };
-
-    return (
-      <div key={key} className="seo-section">
-        <h3 className="seo-section__title">
-          Campaigns <span className="seo-badge">{badge}</span>
-          {canEdit && !isFullScan && (
-            <button className="seo-manual-edit-btn" onClick={() => isEditing ? setEditingGroup(null) : openGroupEdit(key)}>
-              <Edit2 size={11} /> {isEditing ? 'Cancel' : 'Edit'}
-            </button>
-          )}
-        </h3>
-
-        {isEditing && canEdit && (
-          <div className="seo-manual-panel">
-            <div style={{ display: 'flex', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', marginBottom: 6, padding: '0 2px' }}>
-              <span style={{ flex: 2 }}>Campaign Name</span>
-              <span style={{ width: 82 }}>Reach</span>
-              <span style={{ width: 90 }}>Impressions</span>
-              <span style={{ width: 70 }}>Clicks</span>
-              <span style={{ width: 65 }}>Leads</span>
-              <span style={{ width: 80 }}>Cost/Lead (₹)</span>
-              <span style={{ width: 100 }}>Amount Spent (₹)</span>
-              <span style={{ width: 26 }} />
-            </div>
-            {editGroup.campaigns.map((c, i) => {
-              return (
-                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                  <input className="form-input seo-inline-input" placeholder="Campaign name" value={c.name}        onChange={(e) => updCampaign(key, i, { name: e.target.value })}        style={{ flex: 2 }} />
-                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.reach}       onChange={(e) => updCampaign(key, i, { reach: e.target.value })}       style={{ width: 82 }} />
-                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.impressions} onChange={(e) => updCampaign(key, i, { impressions: e.target.value })} style={{ width: 90 }} />
-                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.clicks}      onChange={(e) => updCampaign(key, i, { clicks: e.target.value })}      style={{ width: 70 }} />
-                  <input className="form-input seo-inline-input" placeholder="0" type="number" value={c.leads}         onChange={(e) => updCampaign(key, i, { leads: e.target.value })}         style={{ width: 65 }} />
-                  <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost_per_lead} onChange={(e) => updCampaign(key, i, { cost_per_lead: e.target.value })} style={{ width: 80 }} />
-                  <input className="form-input seo-inline-input" placeholder="0.00" type="number" value={c.cost}         onChange={(e) => updCampaign(key, i, { cost: e.target.value })}         style={{ width: 100 }} />
-                  <button className="seo-manual-del" onClick={() => removeCampaign(key, i)}><Trash2 size={13} /></button>
-                </div>
-              );
-            })}
-
-            <div className="seo-manual-actions" style={{ justifyContent: 'flex-start', marginBottom: 14 }}>
-              <button className="seo-manual-add" onClick={() => addCampaign(key)}>
-                <Plus size={12} /> Add campaign
-              </button>
-            </div>
-
-            <div className="seo-inline-field" style={{ marginBottom: 16 }}>
-              <label className="seo-inline-label">Key Insights</label>
-              <textarea
-                className="form-input seo-inline-input"
-                rows={3}
-                style={{ width: '100%' }}
-                placeholder="Key insights for this channel…"
-                value={editGroup.key_insights}
-                onChange={(e) => updGroup(key, { key_insights: e.target.value })}
-              />
-            </div>
-
-            <div className="seo-manual-actions">
-              <button className="seo-inline-save" onClick={saveGroup} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-            </div>
-          </div>
-        )}
-
-        {hasData && !isEditing && (
-          <>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="seo-table">
-                <thead>
-                  <tr>
-                    <th>Campaigns</th>
-                    <th style={{ textAlign: 'right' }}>Reach</th>
-                    <th style={{ textAlign: 'right' }}>Impressions</th>
-                    <th style={{ textAlign: 'right' }}>Clicks</th>
-                    <th style={{ textAlign: 'right' }}>Leads</th>
-                    <th style={{ textAlign: 'right' }}>Cost/Lead</th>
-                    <th style={{ textAlign: 'right' }}>Amount Spent</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.campaigns.map((c, i) => {
-                    const leads = Number(c.leads) || 0;
-                    const cost  = Number(c.cost)  || 0;
-                    const cpl   = Number(c.cost_per_lead) || null;
-                    return (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600 }}>{c.name || '—'}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtNum(Number(c.reach) || 0)}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtNum(Number(c.impressions) || 0)}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtNum(Number(c.clicks) || 0)}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{leads > 0 ? fmtNum(leads) : '—'}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: cplColor(cpl) }}>
-                          {cpl !== null ? fmtCur(cpl) : '—'}
-                        </td>
-                        <td style={{ textAlign: 'right' }}>{cost > 0 ? fmtCur(cost) : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                  {/* Total row */}
-                  <tr style={{ background: 'var(--bg-sand,#f5f5f0)', fontWeight: 700 }}>
-                    <td style={{ fontWeight: 700, color: 'var(--ink)' }}>Total</td>
-                    <td style={{ textAlign: 'right' }}>{fmtNum(totals.reach)}</td>
-                    <td style={{ textAlign: 'right' }}>{fmtNum(totals.impressions)}</td>
-                    <td style={{ textAlign: 'right' }}>{fmtNum(totals.clicks)}</td>
-                    <td style={{ textAlign: 'right' }}>{fmtNum(totals.leads)}</td>
-                    <td style={{ textAlign: 'right', color: '#16a34a', fontWeight: 700 }}>
-                      {avgCpl !== null ? fmtCur(avgCpl) : '—'}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>{totals.cost > 0 ? fmtCur(totals.cost) : '—'}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {group.key_insights && (
-              <div style={{ marginTop: 14, padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Key Insights</p>
-                <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{group.key_insights}</p>
-              </div>
-            )}
-          </>
-        )}
-
-        {!hasData && !isEditing && canEdit && (
-          <p className="page-subtitle" style={{ padding: '12px 0' }}>Click Edit to add {label} campaigns.</p>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -481,10 +308,10 @@ export default function Ads() {
                 onClick={() => { setCustomStart(''); setCustomEnd(''); }}
               >✕</button>
             )}
-            {(selectedClient || isFullScan) && (
+            {selectedClient && (
               <button
                 className="seo-download-btn"
-                onClick={() => downloadPDF(isFullScan ? 'All Clients (Full Scan)' : selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
+                onClick={() => downloadPDF(selectedClient?.name ?? 'Client', manual, customStart, customEnd)}
                 title="Download PDF"
               >
                 <Download size={13} /> Download PDF
@@ -550,8 +377,8 @@ export default function Ads() {
             {clients.map((c) => (
               <div key={c.id} className="seo-client-wrap">
                 <button
-                  className={`seo-client-btn${!isFullScan && selectedClient?.id === c.id ? ' active' : ''}`}
-                  onClick={() => { setIsFullScan(false); setSelectedClient(c); setEditingClientId(null); setEditingGroup(null); }}
+                  className={`seo-client-btn${selectedClient?.id === c.id ? ' active' : ''}`}
+                  onClick={() => { setSelectedClient(c); setEditingClientId(null); }}
                 >
                   <span>{c.name}</span>
                   {canEdit && (
@@ -560,7 +387,6 @@ export default function Ads() {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (editingClientId === c.id) { setEditingClientId(null); return; }
-                        setIsFullScan(false);
                         setSelectedClient(c);
                         setEditingClientId(c.id);
                         setCfCustomerId(c.ads_customer_id || '');
@@ -600,33 +426,48 @@ export default function Ads() {
           )}
         </div>
 
-        {/* ── Summary cards ── */}
-        {hasSomeData && (
-          <div className="seo-cards" style={{ marginBottom: 8 }}>
-            {[
-              { label: 'Campaigns',    value: String(allCampaigns.length) },
-              { label: 'Total Reach',  value: fmtNum(overallTotals.reach) },
-              { label: 'Impressions',  value: fmtNum(overallTotals.impressions) },
-              { label: 'Clicks',       value: fmtNum(overallTotals.clicks) },
-              { label: 'Total Leads',  value: fmtNum(overallTotals.leads) },
-              { label: 'Avg Cost/Lead', value: overallCpl !== null ? fmtCur(overallCpl) : '—' },
-              { label: 'Total Spent',  value: overallTotals.cost > 0 ? fmtCur(overallTotals.cost) : '—' },
-            ].map(({ label, value }) => (
-              <div key={label} className="seo-card">
-                <div><p className="seo-card__val">{value}</p><p className="seo-card__label">{label}</p></div>
-              </div>
-            ))}
-          </div>
+        {clientsError && <p role="alert" style={{ fontSize: 13, color: '#dc2626' }}>{clientsError}</p>}
+        {selectedClient && <>
+          {manualError && <p role="alert" style={{ fontSize: 13, color: '#dc2626', background: 'rgba(220,38,38,0.06)', padding: '8px 12px', borderRadius: 8 }}>{manualError}</p>}
+          {undatedHidden > 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '0 0 8px' }}>{undatedHidden} imported {undatedHidden === 1 ? 'entry has' : 'entries have'} no dates, so {undatedHidden === 1 ? "it isn't" : "they aren't"} counted for the selected dates. Clear the dates to include {undatedHidden === 1 ? 'it' : 'them'}.</p>}
+          <AdsCampaigns
+            clientId={selectedClient.id}
+            platform={platform}
+            onPlatformChange={setPlatform}
+            reportRows={manual[platform].campaigns}
+            onChanged={() => setReportTick((t) => t + 1)}
+            canEdit={canEdit}
+            canDelete={['admin', 'manager'].includes(user?.role ?? '')}
+            googleLive={!!selectedClient.ads_customer_id}
+          />
+          {(canEdit || manual[platform].key_insights) && (
+            <div className="seo-section">
+              <h3 className="seo-section__title">Key insights <span className="seo-badge">{GROUPS.find((g) => g.key === platform)!.badge}</span>
+                {notesState && saveTarget === 'insights' && <span role="status" style={{ fontSize: 11, fontWeight: 600, marginLeft: 8, color: notesState === 'error' ? '#dc2626' : 'var(--ink-muted)' }}>
+                  {notesState === 'saving' ? 'Saving…' : notesState === 'saved' ? 'Saved' : "Couldn't save — check your connection and edit again"}
+                </span>}
+              </h3>
+              {canEdit && !manualError ? (
+                <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical' }} placeholder="What stood out on this platform for the period…"
+                  value={manual[platform].key_insights}
+                  onChange={(e) => { const updated = { ...manual, [platform]: { ...manual[platform], key_insights: e.target.value } }; setManual(updated); saveNotes(selectedClient.id, updated, 'insights'); }} />
+              ) : <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{manual[platform].key_insights}</p>}
+            </div>
+          )}
+        </>}
+        {!selectedClient && !clientsError && (
+          <p style={{ fontSize: 13, color: 'var(--ink-muted)', textAlign: 'center', padding: '48px 0' }}>{clients.length ? 'Pick a client above to see its ads.' : 'No clients yet.'}</p>
         )}
 
-        {/* ── Per-platform campaign tables ── */}
-        {GROUPS.map(renderGroupSection)}
-
         {/* ── Notes ── */}
-        {(canEdit || manual.notes) && (
+        {selectedClient && (canEdit || manual.notes) && (
           <div className="seo-section">
-            <h3 className="seo-section__title">Notes</h3>
-            {canEdit ? (
+            <h3 className="seo-section__title">Notes
+              {notesState && saveTarget === 'notes' && <span role="status" style={{ fontSize: 11, fontWeight: 600, marginLeft: 8, color: notesState === 'error' ? '#dc2626' : 'var(--ink-muted)' }}>
+                {notesState === 'saving' ? 'Saving…' : notesState === 'saved' ? 'Saved' : "Couldn't save — check your connection and edit again"}
+              </span>}
+            </h3>
+            {canEdit && !manualError ? (
               <textarea
                 className="form-input"
                 rows={4}
@@ -636,10 +477,7 @@ export default function Ads() {
                 onChange={(e) => {
                   const updated = { ...manual, notes: e.target.value };
                   setManual(updated);
-                  api.put(`/ads/manual/${selectedClient?.id}`, {
-                    notes: updated.notes,
-                    campaigns_manual: { google: updated.google, linkedin: updated.linkedin, meta: updated.meta },
-                  }).catch(() => {});
+                  saveNotes(selectedClient!.id, updated);
                 }}
               />
             ) : (
@@ -648,11 +486,12 @@ export default function Ads() {
           </div>
         )}
         {/* ── Ad Approval Status ── */}
-        {selectedClient?.ads_customer_id && (
+        {platform === 'google' && selectedClient?.ads_customer_id && (
           <div className="seo-section">
             <h3 className="seo-section__title">Ad Approval Status</h3>
             {approvalsLoading && <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>Fetching ad approvals…</p>}
-            {!approvalsLoading && adApprovals.length === 0 && (
+            {!approvalsLoading && approvalsError && <p role="alert" style={{ fontSize: 13, color: '#dc2626' }}>{approvalsError}</p>}
+            {!approvalsLoading && !approvalsError && adApprovals.length === 0 && (
               <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>No active ads found.</p>
             )}
             {!approvalsLoading && adApprovals.length > 0 && (

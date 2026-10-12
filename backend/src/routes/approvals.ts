@@ -156,17 +156,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .join('tasks as t', 'ap.task_id', 't.id')
       .join('projects as p', 'ap.project_id', 'p.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
-      .leftJoin('users as sub', 't.created_by', 'sub.id')
+      .leftJoin('users as sub', 'ap.submitted_by', 'sub.id')
       .leftJoin(
         db('task_assignees').where('assignee_role', 'employee').groupBy('task_id').select('task_id', db.raw('MIN(user_id) as user_id')).as('emp_ta'),
         'emp_ta.task_id', 'ap.task_id'
       )
       .leftJoin('users as worker', 'worker.id', 'emp_ta.user_id')
+      .leftJoin('users as xa', 'xa.id', 't.xlr8_assignee_id')
       .leftJoin('xlr8_ticket_types as xtt', 'xtt.id', 't.ticket_type_id')
       .select(
         'ap.*',
         't.title as task_title',
-        't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
+        't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id', 'xa.role as xlr8_assignee_role',
         'p.name as project_name',
         'c.name as client_name',
         'sub.name as submitted_by_name',
@@ -221,13 +222,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .orWhereRaw(`(ap.workflow_type = 'xlr8' AND EXISTS (
             SELECT 1 FROM xlr8_ticket_log log WHERE log.task_id = ap.task_id AND log.actor_id = ?
           ))`, [userId])
-          .orWhereRaw(`(ap.workflow_type = 'xlr8' AND t.xlr8_assignee_id = ? AND ap.status = 'pending_manager' AND EXISTS (
-            SELECT 1 FROM task_assignees ta
-            JOIN xlr8_ticket_types xtt2 ON xtt2.id = t.ticket_type_id
-            WHERE ta.task_id = t.id AND ta.user_id = ?
-            AND xtt2.stages IS NOT NULL AND t.xlr8_stage_idx IS NOT NULL
-            AND json_extract(xtt2.stages, '$[' || CAST(t.xlr8_stage_idx AS TEXT) || '].reviewer') = 1
-          ))`, [userId, userId]);
+          // Ticket waiting in review with this employee as the reviewer (works on SQLite and MySQL)
+          .orWhereRaw(`(ap.workflow_type = 'xlr8' AND t.xlr8_assignee_id = ? AND t.xlr8_status = 'pending_manager')`, [userId]);
       });
     }
 

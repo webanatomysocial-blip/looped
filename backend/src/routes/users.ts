@@ -106,7 +106,8 @@ router.get('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRe
     ];
     const users = await getDB()('users as u')
       .leftJoin('client_companies as cc', 'u.client_company_id', 'cc.id')
-      .select(...selectCols);
+      .select(...selectCols)
+      .orderBy('u.name');
     res.json(await attachCategories(users));
   } catch {
     res.status(500).json({ error: 'Server error' });
@@ -118,7 +119,8 @@ router.get('/by-role/:role', requireRoles('admin', 'manager'), async (req: AuthR
   try {
     const users = await getDB()('users')
       .where({ role: req.params.role })
-      .select('id', 'name', 'email', 'role', 'avatar_color', 'avatar_url', 'pod');
+      .select('id', 'name', 'email', 'role', 'avatar_color', 'avatar_url', 'pod')
+      .orderBy('name');
     res.json(await attachCategories(users));
   } catch {
     res.status(500).json({ error: 'Server error' });

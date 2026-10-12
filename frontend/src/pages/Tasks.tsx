@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import SendBackStagePicker from '../components/UI/SendBackStagePicker';
 
 const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
 function parseTs(s: any): Date {
@@ -62,12 +63,23 @@ import { useAuth } from '../contexts/AuthContext';
 import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi } from '../services/api';
 import { Task, Project, User } from '../types';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
+import CustomStagesModal, { CustomStages } from '../components/UI/CustomStagesModal';
+import ReviewAttachments from '../components/UI/ReviewAttachments';
+import StageChecklist from '../components/UI/StageChecklist';
+import ChecklistEditor, { CheckItem, cleanItems, forCurrentStage, StageTag } from '../components/UI/ChecklistEditor';
+
+// Stages customised in the form live here (not in the template list) until the ticket is submitted
+const CUSTOM_TYPE_ID = -1;
 import '../css/pages/Tasks.css';
 
 export default function Tasks() {
   const { user } = useAuth();
   const [tasks, setTasks]       = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Every project, for the create form; picking another pod's project needs that pod manager's approval
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
+  const [resubmitOf, setResubmitOf] = useState<number | null>(null);
+  const [shownPods, setShownPods] = useState<string[]>([]);
   const [users, setUsers]       = useState<User[]>([]);
   const [loading, setLoading]   = useState(true);
   const [showModal, setShowModal]               = useState(false);
@@ -87,7 +99,7 @@ export default function Tasks() {
   const [expandedTaskId, setExpandedTaskId]     = useState<number | null>(null);
   const [expandedLog, setExpandedLog]           = useState<Record<number, any[]>>({});
   const [editForm, setEditForm]                 = useState({ title: '', description: '', due_date: '', due_time: '', est_hours: '', est_minutes: '0', working_person_id: '', task_manager_id: '' });
-  const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean }[]>([]);
+  const [editChecklist, setEditChecklist]       = useState<{ id: number; text: string; completed: boolean; was: boolean; stage_name?: string | null }[]>([]);
   const [editStageAssignments, setEditStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }>>({});
   const [editStageSearchOpen, setEditStageSearchOpen] = useState<Record<number, boolean>>({});
   const [editStageSearchTerm, setEditStageSearchTerm] = useState<Record<number, string>>({});
@@ -103,9 +115,20 @@ export default function Tasks() {
     est_hours: '', est_minutes: '0',
     ticket_type_id: '', priority: 'medium',
   });
-  const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[] }[]>([]);
+  const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[]; is_custom?: boolean | number; final_approval?: any }[]>([]);
+  const [customStagesOpen, setCustomStagesOpen] = useState<'new' | 'edit' | null>(null);
+  const setFormCustomStages = (c: CustomStages | null) => setTicketTypes(prev => [
+    ...prev.filter(t => t.id !== CUSTOM_TYPE_ID),
+    ...(c ? [{ id: CUSTOM_TYPE_ID, name: c.name, stages: c.stages, checklist: [], is_custom: true, final_approval: c.final_approval }] : []),
+  ]);
+  const formCustomStages = (): CustomStages | null => {
+    if (String(form.ticket_type_id) !== String(CUSTOM_TYPE_ID)) return null;
+    const t = ticketTypes.find(x => x.id === CUSTOM_TYPE_ID);
+    return t ? { name: t.name, stages: t.stages, final_approval: t.final_approval } : null;
+  };
   // stageAssignments[stage_idx] = { user_ids, est_hours, est_minutes, skipped, is_reviewer }
-  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean }>>({});
+  const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean; checklist?: CheckItem[]; skip_checklist?: boolean }>>({});
+  const [stageChecklistOpen, setStageChecklistOpen] = useState<Record<number, boolean>>({});
   const [stageSearchOpen, setStageSearchOpen] = useState<Record<number, boolean>>({});
   const [stageSearchTerm, setStageSearchTerm] = useState<Record<number, string>>({});
   // XLR8 ticket workflow modal
@@ -114,6 +137,7 @@ export default function Tasks() {
   const [ticketActionLoading, setTicketActionLoading] = useState(false);
   const [ticketDeclineComment, setTicketDeclineComment] = useState('');
   const [showTicketDecline, setShowTicketDecline] = useState(false);
+  const [ticketReturnIdx, setTicketReturnIdx] = useState<number | null>(null);
   const [doneConfirmTask, setDoneConfirmTask] = useState<Task | null>(null);
   const [doneModalChecklist, setDoneModalChecklist] = useState<{ id: number; text: string; completed: boolean }[]>([]);
   const [doneDeliverables, setDoneDeliverables] = useState<{ id: number; type: string; name: string; url: string }[]>([]);
@@ -135,6 +159,7 @@ export default function Tasks() {
     setLoading(false);
     if (canCreate) {
       try { const u = await usersApi.list(); setUsers(u.data); } catch {}
+      try { const ap = await projectsApi.listAll(); setAllProjects(ap.data); } catch {}
     }
   };
 
@@ -153,7 +178,6 @@ export default function Tasks() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
     const isXlr8 = !!form.ticket_type_id;
 
     if (isXlr8) {
@@ -189,30 +213,33 @@ export default function Tasks() {
       }
       // Block if stage est hours exceed total est hours
       const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
-      const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+      const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (v.skipped ? 0 : (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0)), 0);
       if (totalMin > 0 && allocMin > totalMin) {
         alert('Stage estimated hours exceed the total estimated time. Please reduce stage hours or increase the total.');
         return;
       }
       try {
-        const sa = Object.entries(stageAssignments)
-          .map(([idx, v]) => {
+        const sa = (tt2?.stages || []).map((stg: any, idx: number) => {
+            const v = stageAssignments[idx] || { user_ids: [], est_hours: '', est_minutes: '0' };
             const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
-            const stg = tt2?.stages[Number(idx)];
             const isReviewer = v.is_reviewer || stg?.type === 'manager' || stg?.type === 'admin' || stg?.reviewer === true;
-            return { stage_idx: Number(idx), user_ids: v.user_ids, est_hours: dec, skipped: !!v.skipped, is_reviewer: !!isReviewer };
+            // Each stage's own checklist (edited here, or the type's default); skip_checklist = this stage gets none
+            return { stage_idx: idx, user_ids: v.user_ids, est_hours: v.skipped ? 0 : dec, skipped: !!v.skipped, is_reviewer: !!isReviewer, checklist: cleanItems(v.checklist ?? stg?.checklist), skip_checklist: !!v.skip_checklist };
           })
-          .filter(s => s.user_ids.length > 0 || s.est_hours > 0 || s.skipped);
-        await xlr8Api.createTicket({
+          .filter((s: any) => s.user_ids.length > 0 || s.est_hours > 0 || s.skipped || s.checklist.length > 0 || s.skip_checklist);
+        const r = await xlr8Api.createTicket({
           title: form.title,
           description: form.description || null,
           project_id: Number(form.project_id),
-          ticket_type_id: Number(form.ticket_type_id),
+          ...(formCustomStages() ? { custom_stages: formCustomStages() } : { ticket_type_id: Number(form.ticket_type_id) }),
           due_date: form.due_date || null,
           stage_assignments: sa,
           priority: form.priority || 'medium',
+          replaces_id: resubmitOf,
         });
         setShowModal(false);
+        setResubmitOf(null);
+        if (r.data?.crosspod_pending?.length) alert(`Sent to the ${r.data.crosspod_pending.map(podName).join(' & ')} manager for approval. The ticket starts once they approve.`);
         load();
       } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
       return;
@@ -236,9 +263,12 @@ export default function Tasks() {
         estimated_hours: estHrs,
         priority: form.priority || 'medium',
         approval_flow: approvalFlow.map(u => u.id),
+        replaces_id: resubmitOf,
       });
       if (res.data.warnings?.length) setCapacityWarnings(res.data.warnings);
       setShowModal(false);
+      setResubmitOf(null);
+      if (res.data?.crosspod_pending?.length) alert(`Sent to the ${res.data.crosspod_pending.map(podName).join(' & ')} manager for approval. The task starts once they approve.`);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
@@ -252,7 +282,7 @@ export default function Tasks() {
         await xlr8Api.createTicket({
           title: form.title, description: form.description || null,
           project_id: Number(form.project_id),
-          ticket_type_id: form.ticket_type_id ? Number(form.ticket_type_id) : undefined,
+          ...(formCustomStages() ? { custom_stages: formCustomStages() } : { ticket_type_id: form.ticket_type_id ? Number(form.ticket_type_id) : undefined }),
           due_date: form.due_date || null,
           draft: true,
         } as any);
@@ -310,7 +340,7 @@ export default function Tasks() {
   const ticketReview = async (action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) => {
     if (!ticketActionTask) return;
     setTicketActionLoading(true);
-    try { await xlr8Api.reviewTicket(ticketActionTask.id, action, comment, skip_admin); setTicketActionTask(null); setShowTicketDecline(false); load(); }
+    try { await xlr8Api.reviewTicket(ticketActionTask.id, action, comment, skip_admin, action === 'decline' ? ticketReturnIdx : undefined); setTicketActionTask(null); setShowTicketDecline(false); load(); }
     finally { setTicketActionLoading(false); }
   };
 
@@ -334,7 +364,7 @@ export default function Tasks() {
 
   const ticketMarkDone = async (taskId: number) => {
     try { await xlr8Api.markDone(taskId); load(); }
-    catch {}
+    catch (err: any) { alert(err?.response?.data?.error || "Couldn't mark this as done"); }
   };
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -383,7 +413,7 @@ export default function Tasks() {
       setDoneLinkInput('');
       try {
         const [full, delivs] = await Promise.all([tasksApi.get(taskId), tasksApi.getDeliverables(taskId)]);
-        setDoneModalChecklist((full.data.checklist || []).filter((i: any) => i.completed));
+        setDoneModalChecklist(forCurrentStage<any>(full.data.checklist || [], full.data).filter((i: any) => i.text?.trim()).map((i: any) => ({ ...i, completed: !!i.completed })));
         setDoneDeliverables(delivs.data || []);
       } catch { /* show modal without checklist */ }
       return;
@@ -407,11 +437,10 @@ export default function Tasks() {
       try { const r = await tasksApi.addDeliverableLink(doneConfirmTask.id, doneLinkInput.trim()); setDoneDeliverables(prev => [...prev, r.data]); } catch {}
       setDoneLinkInput('');
     }
-    if (doneConfirmTask.ticket_type_id) {
-      await xlr8Api.markDone(doneConfirmTask.id);
-    } else {
-      await tasksApi.timer(doneConfirmTask.id, 'done');
-    }
+    try {
+      if (doneConfirmTask.ticket_type_id) await xlr8Api.markDone(doneConfirmTask.id);
+      else await tasksApi.timer(doneConfirmTask.id, 'done');
+    } catch (err: any) { alert(err?.response?.data?.error || "Couldn't mark this as done"); return; }
     setDoneConfirmTask(null);
     setDoneModalChecklist([]);
     setDoneDeliverables([]);
@@ -446,7 +475,7 @@ export default function Tasks() {
     setEditStageAssignments({});
     try {
       const res = await tasksApi.get(task.id);
-      setEditChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed })));
+      setEditChecklist((res.data.checklist || []).map((c: any) => ({ id: c.id, text: c.text, completed: !!c.completed, was: !!c.completed, stage_name: c.stage_name })));
       // Build editStageAssignments from task_assignees grouped by stage_idx
       const saMap: Record<number, { user_ids: number[]; est_hours: string; est_minutes: string }> = {};
       for (const sa of (res.data.stage_assignees || [])) {
@@ -456,7 +485,7 @@ export default function Tasks() {
           const m = sa.est_hours ? Math.round((Number(sa.est_hours) % 1) * 60) : 0;
           saMap[idx] = { user_ids: [], est_hours: h > 0 ? String(h) : '', est_minutes: m > 0 ? String(m) : '0' };
         }
-        if (sa.user_id != null) saMap[idx].user_ids.push(sa.user_id);
+        if (sa.user_id != null && saMap[idx].user_ids.length === 0) saMap[idx].user_ids.push(sa.user_id);
       }
       setEditStageAssignments(saMap);
     } catch { setEditChecklist([]); }
@@ -495,7 +524,7 @@ export default function Tasks() {
       });
       // Save any checklist item completions toggled during edit
       await Promise.all(
-        editChecklist.map(item => tasksApi.updateChecklist(editTask.id, item.id, item.completed))
+        editChecklist.filter(item => item.completed !== item.was).map(item => tasksApi.updateChecklist(editTask.id, item.id, item.completed))
       );
       setEditTask(null);
       load();
@@ -535,6 +564,86 @@ export default function Tasks() {
     if (!emp?.pod) return '';
     const mgr = users.find(u => u.role === 'manager' && u.pod === emp.pod);
     return mgr ? String(mgr.id) : '';
+  };
+
+  const pickerProjects = allProjects.length ? allProjects : projects;
+  const uniqUsers = <T extends { id: number }>(list: T[]) => [...new Map(list.map(u => [u.id, u])).values()];
+  const podName = (pod?: string | null) => pod === 'pod1' ? 'Pod 1' : pod === 'pod2' ? 'Pod 2' : (pod || '');
+
+  // Mirrors backend crossPodsFor: other pods touched by the chosen project or assigned employees
+  const crossPodsPreview = (): string[] => {
+    if (user?.role === 'admin' || !user?.pod) return [];
+    const pods = new Set<string>();
+    if (user.role === 'employee' && ticketTypes.find(t => String(t.id) === String(form.ticket_type_id))?.is_custom) pods.add(user.pod);
+    const proj = pickerProjects.find(p => String(p.id) === String(form.project_id));
+    if (proj?.pod && proj.pod !== user.pod) pods.add(proj.pod);
+    const ids = form.ticket_type_id
+      ? Object.values(stageAssignments).filter(v => !v.skipped).flatMap(v => v.user_ids)
+      : [Number(form.working_person_id)].filter(Boolean);
+    for (const id of ids) {
+      const u = users.find(x => x.id === id);
+      if ((u?.role === 'employee' || u?.role === 'manager') && u.pod && u.pod !== user.pod) pods.add(u.pod);
+    }
+    return [...pods];
+  };
+
+  // Manager can act on a cross-pod request only if it's waiting on their pod
+  const canDecide = (task: any) => {
+    if (user?.role === 'admin') return true;
+    if (user?.role !== 'manager') return false;
+    if (!task.crosspod_pods) return true;
+    try { return (JSON.parse(task.crosspod_pods) as string[]).includes(user.pod ?? ''); } catch { return true; }
+  };
+
+  const decide = async (task: any, action: 'approve' | 'reject') => {
+    let comment: string | undefined;
+    if (action === 'reject' && task.crosspod_pods) {
+      const c = window.prompt('Reason for rejecting (sent to the creator):');
+      if (c === null) return;
+      comment = c;
+    }
+    try {
+      const r = await tasksApi.managerApprove(task.id, action, comment);
+      if (r.data?.crosspod_pending?.length) alert(`Approved. Still waiting on ${r.data.crosspod_pending.map(podName).join(', ')} manager.`);
+    } catch (err: any) { alert(err.response?.data?.error || 'Could not update task'); }
+    load(podTab);
+  };
+
+  // Reopen the create form with a rejected cross-pod task so the creator can fix and resend it
+  const openResubmit = async (task: any) => {
+    const full = (await tasksApi.get(task.id)).data;
+    const isTemplate = ticketTypes.some(t => t.id === full.ticket_type_id && !t.is_custom);
+    if (full.ticket_type_id && !isTemplate) {
+      const tk = (await xlr8Api.getTicket(task.id)).data;
+      setFormCustomStages({ name: tk.ticket_type_name || 'Custom stages', stages: tk.stages || [], final_approval: tk.final_approval });
+    } else setFormCustomStages(null);
+    const sa: Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; checklist?: CheckItem[]; skip_checklist?: boolean }> = {};
+    const stageItems = ((full.checklist ?? []) as any[]).filter(c => c.stage_idx != null);
+    if (full.ticket_type_id) for (const i of [...new Set(stageItems.map(c => Number(c.stage_idx)))]) {
+      sa[i] = { user_ids: [], est_hours: '', est_minutes: '0', checklist: stageItems.filter(c => Number(c.stage_idx) === i).map(c => ({ text: c.text })) };
+    }
+    for (const a of (full.stage_assignees ?? task.assignees ?? []) as any[]) {
+      if (a.stage_idx == null) continue;
+      const i = Number(a.stage_idx);
+      const h = Number(a.est_hours) || 0;
+      if (!sa[i] || sa[i].est_hours === '') sa[i] = { user_ids: sa[i]?.user_ids ?? [], checklist: sa[i]?.checklist, est_hours: String(Math.floor(h)), est_minutes: String(Math.round((h % 1) * 60)) };
+      if (a.skipped) sa[i].skipped = true;
+      if (a.user_id && sa[i].user_ids.length === 0) sa[i].user_ids.push(a.user_id);
+    }
+    const est = Number(full.estimated_hours) || 0;
+    setForm({
+      title: full.title, description: full.description || '', project_id: String(full.project_id),
+      working_person_id: full.assigned_to && !full.ticket_type_id ? String(full.assigned_to) : '', task_manager_id: '',
+      due_date: full.due_date ? String(full.due_date).slice(0, 10) : '', due_time: full.due_time || '18:00',
+      checklist: (full.checklist ?? []).some((c: any) => c.stage_idx == null) ? full.checklist.filter((c: any) => c.stage_idx == null).map((c: any) => ({ text: c.text, checked: !!c.completed })) : [{ text: '', checked: false }],
+      est_hours: est ? String(Math.floor(est)) : '', est_minutes: est ? String(Math.round((est % 1) * 60)) : '0',
+      ticket_type_id: !full.ticket_type_id ? '' : isTemplate ? String(full.ticket_type_id) : String(CUSTOM_TYPE_ID), priority: full.priority || 'medium',
+    });
+    setStageAssignments(sa);
+    setApprovalFlow([]);
+    setCapacityWarnings([]);
+    setResubmitOf(task.id);
+    setShowModal(true);
   };
 
   const [page, setPage] = useState(1);
@@ -617,7 +726,7 @@ export default function Tasks() {
                 <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
                   🔁 Recurring Task
                 </button>
-                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setShowModal(true); }}>
+                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); }}>
                   <Plus size={14} /> New task
                 </button>
               </div>
@@ -764,12 +873,22 @@ export default function Tasks() {
                             ＋ Accept &amp; Assign
                           </button>
                         );
-                        if (needsReview && isManagerOnly) return (
+                        // Employee reviewer stages are reviewed by that employee, not the manager
+                        const empReviewer = (task as any).xlr8_assignee_role === 'employee';
+                        if (needsReview && isManagerOnly && !empReviewer) return (
                           <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
                             ✓ Review
                           </button>
                         );
-                        if (s === 'pending_assignee' && user?.role === 'employee' && (isAssignee || !task.xlr8_assignee_id)) return (
+                        if (needsReview && empReviewer && isAssignee) return (
+                          <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
+                            ✓ Review
+                          </button>
+                        );
+                        if (needsReview && empReviewer && isManagerOnly) return (
+                          <span className="ticket-pill ticket-pill--muted">Awaiting {(task as any).xlr8_assignee_name?.split(' ')[0] || 'reviewer'}'s review</span>
+                        );
+                        if (s === 'pending_assignee' && ((user?.role === 'employee' && (isAssignee || !task.xlr8_assignee_id)) || (user?.role === 'manager' && isAssignee))) return (
                           <div style={{ display: 'flex', gap: 5 }}>
                             <button className="ticket-icon-btn ticket-icon-btn--green" title="Accept ticket" onClick={() => ticketEmployeeAccept(task.id)}><Check size={11} /></button>
                             {task.xlr8_assignee_id && <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={11} /></button>}
@@ -786,13 +905,13 @@ export default function Tasks() {
                         if (s === 'pending_client') return (
                           <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                             <span className="ticket-pill ticket-pill--muted">Awaiting client</span>
-                            {isManager && <button className="ticket-pill ticket-pill--green" onClick={async () => { if (confirm('Close without client sign-off?')) { await xlr8Api.clientApprove(task.id); load(); } }}>Close</button>}
+                            {isManager && <button className="ticket-pill ticket-pill--green" onClick={async () => { if (confirm('Close without client sign-off?')) { try { await xlr8Api.closeTicket(task.id); load(); } catch (e: any) { alert(e.response?.data?.error || (e.response?.status === 404 ? 'Close is not available on this server yet — redeploy the backend' : `Could not close ticket (${e.response?.status ?? e.message})`)); } } }}>Close</button>}
                           </div>
                         );
                         return null;
                       })()}
                       {/* Pre-accept / Pre-decline for future XLR8 stages */}
-                      {task.ticket_type_id && user?.role === 'employee' && (() => {
+                      {task.ticket_type_id && (user?.role === 'employee' || user?.role === 'manager') && (() => {
                         const myAssignment = task.assignees?.find((a: any) => a.user_id === user.id && a.assignee_role === 'employee');
                         const currentIdx = (task as any).xlr8_stage_idx ?? 0;
                         return myAssignment && myAssignment.stage_idx !== currentIdx && myAssignment.acceptance_status === 'pending';
@@ -828,7 +947,7 @@ export default function Tasks() {
                         }}>In Review</span>
                       )}
                       {/* Timer controls — regular accepted tasks OR XLR8 in_progress tickets */}
-                      {user?.role === 'employee' && task.status !== 'completed' &&
+                      {(user?.role === 'employee' || (user?.role === 'manager' && !!task.ticket_type_id)) && task.status !== 'completed' &&
                         (task.ticket_type_id
                           ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id
                           : task.status !== 'in_review' && task.my_acceptance_status === 'accepted') && (
@@ -851,16 +970,40 @@ export default function Tasks() {
                         </>
                       )}
                       {/* Approve / Reject for pending_approval tasks */}
-                      {task.status === 'pending_approval' && (user?.role === 'manager' || user?.role === 'admin') && (
+                      {(task as any).crosspod_pods && (
+                        <span title={(() => { try { return (JSON.parse((task as any).crosspod_reasons || '[]') as { text: string }[]).map(r => '• ' + r.text).join('\n') || 'Waiting for manager approval'; } catch { return 'Waiting for manager approval'; } })()} style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', background: 'rgba(245,158,11,0.12)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)' }}>
+                          Awaiting {(() => { try { return (JSON.parse((task as any).crosspod_pods) as string[]).map(podName).join(' & '); } catch { return ''; } })()} manager
+                        </span>
+                      )}
+                      {(task as any).crosspod_pods && task.status === 'pending_approval' && user?.role !== 'employee' && canDecide(task) && (
+                        <button title="Change the request, then create it" onClick={(e) => { e.stopPropagation(); openResubmit(task); }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid var(--sand-border)', background: 'transparent', color: 'var(--ink)' }}>
+                          <Pencil size={10} /> Edit &amp; create
+                        </button>
+                      )}
+                      {task.status === 'draft' && (task as any).crosspod_note && (
+                        <>
+                          <span title={(task as any).crosspod_note} style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', background: 'rgba(220,38,38,0.08)', color: 'var(--red)', border: '1px solid rgba(220,38,38,0.25)' }}>
+                            Rejected — {(task as any).crosspod_note}
+                          </span>
+                          {(task as any).created_by === user?.id && (
+                            <button title="Edit and send again for approval" onClick={(e) => { e.stopPropagation(); openResubmit(task); }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(244,115,38,0.3)', background: 'rgba(244,115,38,0.08)', color: 'var(--orange)' }}>
+                              <Send size={10} /> Edit &amp; resend
+                            </button>
+                          )}
+                        </>
+                      )}
+                      {task.status === 'pending_approval' && canDecide(task) && (
                         <>
                           <button
                             title="Approve task"
-                            onClick={async (e) => { e.stopPropagation(); await tasksApi.managerApprove(task.id, 'approve'); load(podTab); }}
+                            onClick={async (e) => { e.stopPropagation(); await decide(task, 'approve'); }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(22,163,74,0.3)', background: 'rgba(22,163,74,0.08)', color: 'var(--green)' }}
                           >✓ Approve</button>
                           <button
                             title="Reject task"
-                            onClick={async (e) => { e.stopPropagation(); await tasksApi.managerApprove(task.id, 'reject'); load(podTab); }}
+                            onClick={async (e) => { e.stopPropagation(); await decide(task, 'reject'); }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(220,38,38,0.3)', background: 'rgba(220,38,38,0.08)', color: 'var(--red)' }}
                           >✕ Reject</button>
                         </>
@@ -869,7 +1012,12 @@ export default function Tasks() {
                       {canCreate && user?.role !== 'employee' && task.assignees?.some(a => a.acceptance_status === 'declined') && task.status !== 'completed' && (
                         <button
                           title="Assignee declined — reassign task"
-                          onClick={() => openEdit(task)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if ((task as any).ticket_type_id && (task as any).xlr8_status === 'pending_manager' && (task as any).xlr8_assignee_id) {
+                              openTicketAction(task).then(() => setShowTicketDecline(true));
+                            } else openEdit(task);
+                          }}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, letterSpacing: '0.03em', whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(231,76,60,0.3)', background: 'rgba(231,76,60,0.08)', color: 'var(--red)' }}
                         >
                           <Send size={10} /> Reassign
@@ -941,23 +1089,61 @@ export default function Tasks() {
                 <div className="drawer-info-card">
                   <div className="drawer-info-field">
                     <div className="drawer-info-label">Project *</div>
-                    <select className="form-input" style={{ fontSize: 12 }} value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value, ticket_type_id: '' })} required>
-                      <option value="">Select…</option>
-                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    {(() => {
+                      // Own pod (and pod-less) projects first; other pods stay folded until asked for
+                      const myPod = user?.pod;
+                      const isOther = (p: any) => !!myPod && !!p.pod && p.pod !== myPod;
+                      const mine = pickerProjects.filter(p => !isOther(p));
+                      const otherPods = [...new Set(pickerProjects.filter(isOther).map((p: any) => p.pod as string))];
+                      const selectedIsOther = pickerProjects.some(p => String(p.id) === String(form.project_id) && isOther(p));
+                      return (
+                        <select className="form-input" style={{ fontSize: 12 }} value={form.project_id} required
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v.startsWith('__showpod:')) { setShownPods(prev => [...prev, v.slice(10)]); return; }
+                            setForm({ ...form, project_id: v, ticket_type_id: '' });
+                          }}>
+                          <option value="">Select…</option>
+                          {myPod ? (
+                            <optgroup label={`${podName(myPod)} projects`}>
+                              {mine.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </optgroup>
+                          ) : mine.map((p) => <option key={p.id} value={p.id}>{p.name}{p.pod ? ` · ${podName(p.pod)}` : ''}</option>)}
+                          {otherPods.map(pod => {
+                            const list = pickerProjects.filter((p: any) => p.pod === pod);
+                            const open = shownPods.includes(pod) || (selectedIsOther && list.some(p => String(p.id) === String(form.project_id)));
+                            return open ? (
+                              <optgroup key={pod} label={`${podName(pod)} projects — need ${podName(pod)} manager approval`}>
+                                {list.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </optgroup>
+                            ) : (
+                              <option key={pod} value={`__showpod:${pod}`}>＋ Show {podName(pod)} projects ({list.length})…</option>
+                            );
+                          })}
+                        </select>
+                      );
+                    })()}
                   </div>
                   {form.project_id && (
                       <div className="drawer-info-field">
                         <div className="drawer-info-label">Ticket Type <span style={{ fontWeight: 400, color: 'var(--ink-muted)' }}>(optional)</span></div>
                         <select className="form-input" style={{ fontSize: 12 }} value={form.ticket_type_id} onChange={(e) => {
+                          if (e.target.value === '__custom__') { setCustomStagesOpen('new'); return; }
                           const tt = ticketTypes.find(t => String(t.id) === e.target.value);
-                          const checklist = tt?.checklist?.filter((i: any) => i.text?.trim()).length ? tt.checklist.filter((i: any) => i.text?.trim()).map((i: any) => ({ text: i.text, checked: !!i.checked })) : [{ text: '', checked: false }];
                           setStageAssignments({});
-                          setForm({ ...form, ticket_type_id: e.target.value, checklist });
+                          setStageChecklistOpen({});
+                          setForm({ ...form, ticket_type_id: e.target.value, checklist: tt ? [] : [{ text: '', checked: false }] });
                         }} required>
                           <option value="">Select type…</option>
-                          {ticketTypes.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
+                          {ticketTypes.filter(t => !t.is_custom || String(t.id) === String(form.ticket_type_id)).map((t) => <option key={t.id} value={t.id}>{t.is_custom ? 'Custom: ' : ''}{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
+                          <option value="__custom__">＋ Customise stages…</option>
                         </select>
+                        {ticketTypes.find(t => String(t.id) === String(form.ticket_type_id))?.is_custom ? (
+                          <button type="button" onClick={() => setCustomStagesOpen('edit')}
+                            style={{ marginTop: 4, fontSize: 11, fontWeight: 600, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent, #2563eb)' }}>
+                            Edit custom stages
+                          </button>
+                        ) : null}
                       </div>
                   )}
                   <div className="drawer-info-field">
@@ -997,7 +1183,7 @@ export default function Tasks() {
 
                 {/* XLR8 Stages panel — shown when a ticket type is selected */}
                 {(() => {
-                  const selProj = projects.find(p => String(p.id) === String(form.project_id));
+                  const selProj = pickerProjects.find(p => String(p.id) === String(form.project_id));
                   if (!form.ticket_type_id) return null;
                   const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
                   if (!tt || tt.stages.length === 0) return null;
@@ -1006,11 +1192,12 @@ export default function Tasks() {
                     const mgr = selProj?.members?.find((m: any) => m.role === 'manager');
                     return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
-                  const employees = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
+                  // Anyone who can do stage work: employees and managers
+                  const employees = users.filter(u => ['employee', 'manager'].includes(u.role) && (!projPod || u.pod === projPod));
 
                   // Allocation tracker
                   const totalMin = (Number(form.est_hours) || 0) * 60 + (Number(form.est_minutes) || 0);
-                  const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+                  const allocMin = Object.values(stageAssignments).reduce((sum, v) => sum + (v.skipped ? 0 : (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0)), 0);
                   const remMin = totalMin - allocMin;
                   const fmtMin = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
 
@@ -1018,8 +1205,10 @@ export default function Tasks() {
                     if (!totalMin) return;
                     const REVIEW_MIN = 2;
                     const isReviewStageType = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
-                    const reviewCount = tt.stages.filter(isReviewStageType).length;
-                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageType(tt.stages[i]));
+                    // Skipped stages get no time; split only across the stages that will run
+                    const live = (i: number) => !(stageAssignments[i] as any)?.skipped;
+                    const reviewCount = tt.stages.filter((st: any, i: number) => live(i) && isReviewStageType(st)).length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => live(i) && !isReviewStageType(tt.stages[i]));
                     const empTotal = Math.floor(totalMin * 0.8) - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
@@ -1028,7 +1217,7 @@ export default function Tasks() {
                       const next = { ...prev };
                       tt.stages.forEach((s: any, i: number) => {
                         const isReview = isReviewStageType(s);
-                        const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
+                        const m = !live(i) ? 0 : isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
                       return next;
@@ -1054,6 +1243,12 @@ export default function Tasks() {
                             </button>
                           </div>
                         )}
+                        {totalMin === 0 && tt.stages.length > 0 && (
+                          <button type="button" disabled title="Set Est. time above to split it across the stages"
+                            style={{ fontSize: 11, padding: '2px 8px', background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 6, cursor: 'not-allowed', color: 'var(--ink-muted)' }}>
+                            Split equally · set Est. time first
+                          </button>
+                        )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                         {tt.stages.map((s: any, idx: number) => {
@@ -1066,17 +1261,17 @@ export default function Tasks() {
                           const podManagers = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
                           // Cross Pod: employees from OTHER pods
                           const otherPod = projPod === 'pod1' ? 'pod2' : projPod === 'pod2' ? 'pod1' : null;
-                          const crossPodEmployees = users.filter(u => u.role === 'employee' && (otherPod ? u.pod === otherPod : u.pod !== projPod) &&
+                          const crossPodEmployees = users.filter(u => ['employee', 'manager'].includes(u.role) && (otherPod ? u.pod === otherPod : u.pod !== projPod) &&
                             u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase())
                           );
                           const isCrossPod = !isReviewer && !!sa.cross_pod && !!projPod;
-                          const catEmployees = isReviewer ? [] : [
+                          const catEmployees = isReviewer ? [] : uniqUsers([
                             ...employees.filter(u =>
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
                             ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : []),
-                          ];
+                          ]);
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
@@ -1085,7 +1280,7 @@ export default function Tasks() {
                           const pool = isReviewer ? reviewPool : isCrossPod ? crossPodEmployees : catEmployees;
                           const selectedUsers = users.filter(u => sa.user_ids.includes(u.id));
                           const unselectedUsers = pool.filter(u => !sa.user_ids.includes(u.id));
-                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean }>) =>
+                          const updateSa = (patch: Partial<{ user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean; checklist?: CheckItem[]; skip_checklist?: boolean }>) =>
                             setStageAssignments(prev => ({ ...prev, [idx]: { ...(prev[idx] || { user_ids: [], est_hours: '', est_minutes: '0' }), ...patch } }));
                           const bgColor = isAdmin ? 'rgba(234,88,12,0.05)' : isManager ? 'rgba(74,144,226,0.05)' : isEmpReviewer ? 'rgba(34,197,94,0.05)' : 'var(--surface-raised, #f8f8f8)';
                           const labelColor = isAdmin ? 'var(--orange, #ea580c)' : isManager ? 'var(--blue, #1a5fa0)' : isEmpReviewer ? '#16a34a' : 'var(--ink)';
@@ -1132,6 +1327,33 @@ export default function Tasks() {
                                   title="Minutes"
                                 />}
                               </div>
+                              {!isSkipped && (() => {
+                                const items: CheckItem[] = sa.checklist ?? (s.checklist || []);
+                                const open = !!stageChecklistOpen[idx];
+                                const count = cleanItems(items).length;
+                                return (
+                                  <div style={{ paddingLeft: 26, marginBottom: 8 }}>
+                                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                      <button type="button" aria-expanded={open} disabled={!!sa.skip_checklist}
+                                        onClick={() => setStageChecklistOpen(p => ({ ...p, [idx]: !open }))}
+                                        title="Checklist only the person on this stage sees and ticks"
+                                        style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${count && !sa.skip_checklist ? '#6366f1' : 'var(--sand-border)'}`, background: open ? 'rgba(99,102,241,0.08)' : 'transparent', color: sa.skip_checklist ? 'var(--ink-muted)' : count ? '#4f46e5' : 'var(--ink-muted)', cursor: sa.skip_checklist ? 'default' : 'pointer', opacity: sa.skip_checklist ? 0.5 : 1 }}>
+                                        ☑ Checklist{count ? ` (${count})` : ''}
+                                      </button>
+                                      <button type="button" onClick={() => updateSa({ skip_checklist: !sa.skip_checklist })}
+                                        title={sa.skip_checklist ? 'This stage has no checklist — click to use one' : 'Optional: no checklist for this stage'}
+                                        style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${sa.skip_checklist ? '#ef4444' : 'var(--sand-border)'}`, background: sa.skip_checklist ? 'rgba(239,68,68,0.1)' : 'transparent', color: sa.skip_checklist ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer' }}>
+                                        {sa.skip_checklist ? '✕ Checklist skipped' : 'Skip checklist'}
+                                      </button>
+                                    </div>
+                                    {open && !sa.skip_checklist && (
+                                      <div style={{ marginTop: 8 }}>
+                                        <ChecklistEditor items={items} onChange={c => updateSa({ checklist: c })} label={label || `Stage ${idx + 1}`} />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                               {!isSkipped && <div style={{ paddingLeft: 26 }}>
                                 {selectedUsers.length > 0 && (
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
@@ -1148,7 +1370,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                     {unselectedUsers.map(u => (
                                       <button key={u.id} type="button"
-                                        onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
+                                        onClick={() => updateSa({ user_ids: [u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                         <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span>{u.name.split(' ')[0]}</span>
@@ -1165,7 +1387,7 @@ export default function Tasks() {
                                       onClick={() => setStageSearchOpen(prev => ({ ...prev, [idx]: true }))}
                                       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', fontSize: 11, background: 'var(--surface)', border: `1px solid ${isCrossPod ? '#f59e0b' : 'var(--sand-border)'}`, borderRadius: 6, cursor: 'pointer', color: isCrossPod ? '#b45309' : 'inherit' }}
                                     >
-                                      {isCrossPod ? `Search ${otherPod === 'pod1' ? 'Pod 1' : 'Pod 2'} Employees` : 'Search Project Employees'}
+                                      Search All Employees
                                     </button>
                                   </div>
                                 )}
@@ -1174,7 +1396,7 @@ export default function Tasks() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                       <input
                                         type="text"
-                                        placeholder="Search employees..."
+                                        placeholder="Search employees & managers..."
                                         value={stageSearchTerm[idx] || ''}
                                         onChange={e => setStageSearchTerm(prev => ({ ...prev, [idx]: e.target.value }))}
                                         className="form-input"
@@ -1184,17 +1406,19 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {stageSearchTerm[idx] && (isCrossPod ? crossPodEmployees : [...employees, ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : [])])
+                                      {stageSearchTerm[idx] && uniqUsers([...users.filter(u => ['employee', 'manager'].includes(u.role)), ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : [])])
                                         .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
-                                            onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
+                                            title={u.pod && projPod && u.pod !== projPod ? `${u.name} — ${podName(u.pod)} (cross pod, needs their manager's approval)` : u.name}
+                                            onClick={() => updateSa({ user_ids: [u.id], ...(u.role === 'employee' && u.pod && projPod && u.pod !== projPod ? { cross_pod: true } : {}) })}
                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                             <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                               {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                                             </span>
                                             <span>{u.name.split(' ')[0]}</span>
+                                            {u.pod && projPod && u.pod !== projPod && <span style={{ fontSize: 9, fontWeight: 700, color: '#b45309' }}>{podName(u.pod)}</span>}
                                           </button>
                                       ))}
                                       {!stageSearchTerm[idx] && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Type a name to search...</span>}
@@ -1216,6 +1440,16 @@ export default function Tasks() {
                 })()}
 
 
+                {(() => {
+                  const pods = crossPodsPreview();
+                  if (!pods.length) return null;
+                  return (
+                    <div style={{ fontSize: 12, color: '#92400e', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8, padding: '8px 12px' }}>
+                      <strong>Needs approval:</strong> the {pods.map(podName).join(' & ')} manager has to approve this before it starts. They can also edit it. If they reject it, it comes back to you to edit and resend.
+                    </div>
+                  );
+                })()}
+
                 {/* Capacity warnings */}
                 {capacityWarnings.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1227,8 +1461,8 @@ export default function Tasks() {
                   </div>
                 )}
 
-                {/* Checklist */}
-                <div className="drawer-section">
+                {/* Checklist — plain tasks only; tickets have one per stage */}
+                {!form.ticket_type_id && <div className="drawer-section">
                   <div className="drawer-section-title" style={{ justifyContent: 'space-between' }}>
                     <span>Checklist Goals <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--ink-muted)' }}>({form.checklist.filter(i => i.checked && i.text).length}/{form.checklist.filter(i => i.text).length} pre-checked)</span></span>
                     <button type="button" onClick={addItem} className="checklist-add-btn"><Plus size={11} /> Add item</button>
@@ -1255,7 +1489,7 @@ export default function Tasks() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </div>}
 
               </div>
 
@@ -1468,6 +1702,7 @@ export default function Tasks() {
                           <span style={{ fontSize: 13, flex: 1, color: item.completed ? 'var(--ink-muted)' : 'var(--ink)' }}>
                             {item.text}
                           </span>
+                          <StageTag name={item.stage_name} />
                         </div>
                       ))}
                     </div>
@@ -1484,10 +1719,10 @@ export default function Tasks() {
                     const mgr = proj?.members?.find((m: any) => m.role === 'manager');
                     return mgr?.pod || (mgr ? users.find(u => u.id === mgr.user_id)?.pod : null);
                   })();
-                  const empPool = users.filter(u => u.role === 'employee' && (!projPod || u.pod === projPod));
+                  const empPool = users.filter(u => ['employee', 'manager'].includes(u.role) && (!projPod || u.pod === projPod));
 
                   const totalMinE = (Number(editForm.est_hours) || 0) * 60 + (Number(editForm.est_minutes) || 0);
-                  const allocMinE = Object.values(editStageAssignments).reduce((sum, v) => sum + (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0), 0);
+                  const allocMinE = Object.values(editStageAssignments).reduce((sum, v: any) => sum + (v.skipped ? 0 : (Number(v.est_hours) || 0) * 60 + (Number(v.est_minutes) || 0)), 0);
                   const remMinE = totalMinE - allocMinE;
                   const fmtMinE = (m: number) => { const abs = Math.abs(m); return `${m < 0 ? '-' : ''}${Math.floor(abs / 60)}h ${abs % 60}m`; };
 
@@ -1495,8 +1730,10 @@ export default function Tasks() {
                     if (!totalMinE) return;
                     const REVIEW_MIN = 2;
                     const isReviewStageTypeE = (s: any) => s.type === 'manager' || s.type === 'admin' || s.reviewer === true;
-                    const reviewCount = tt.stages.filter(isReviewStageTypeE).length;
-                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => !isReviewStageTypeE(tt.stages[i]));
+                    // Skipped stages get no time; split only across the stages that will run
+                    const live = (i: number) => !(editStageAssignments[i] as any)?.skipped;
+                    const reviewCount = tt.stages.filter((st: any, i: number) => live(i) && isReviewStageTypeE(st)).length;
+                    const empIndices = tt.stages.map((_: any, i: number) => i).filter((i: number) => live(i) && !isReviewStageTypeE(tt.stages[i]));
                     const empTotal = Math.floor(totalMinE * 0.8) - reviewCount * REVIEW_MIN;
                     const empCount = empIndices.length;
                     const perEmpMin = empCount > 0 ? Math.floor(empTotal / empCount) : 0;
@@ -1505,7 +1742,7 @@ export default function Tasks() {
                       const next = { ...prev };
                       tt.stages.forEach((s: any, i: number) => {
                         const isReview = isReviewStageTypeE(s);
-                        const m = isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
+                        const m = !live(i) ? 0 : isReview ? REVIEW_MIN : perEmpMin + (empIndices[0] === i ? empRem : 0);
                         next[i] = { ...(next[i] || { user_ids: [] }), est_hours: String(Math.floor(m / 60)), est_minutes: String(m % 60) };
                       });
                       return next;
@@ -1541,13 +1778,13 @@ export default function Tasks() {
                           const isReviewer = isManager || isAdmin;
                           const editProjMemberIds = new Set((proj?.members || []).map((m: any) => m.user_id));
                           const podManagers2 = users.filter(u => u.role === 'manager' && (!projPod || u.pod === projPod));
-                          const catEmployees = isReviewer ? [] : [
+                          const catEmployees = isReviewer ? [] : uniqUsers([
                             ...empPool.filter(u =>
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
                             ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers2 : []),
-                          ];
+                          ]);
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
                             : isManager
@@ -1602,7 +1839,7 @@ export default function Tasks() {
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                     {unselectedUsers.map(u => (
                                       <button key={u.id} type="button"
-                                        onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
+                                        onClick={() => updateSa({ user_ids: [u.id] })}
                                         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                         <MiniAvatar name={u.name} color={u.avatar_color} avatarUrl={u.avatar_url} size={18} fontSize={8} />
                                         <span>{u.name.split(' ')[0]}</span>
@@ -1627,7 +1864,7 @@ export default function Tasks() {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                                       <input
                                         type="text"
-                                        placeholder="Search employees..."
+                                        placeholder="Search employees & managers..."
                                         value={editStageSearchTerm[idx] || ''}
                                         onChange={e => setEditStageSearchTerm(prev => ({ ...prev, [idx]: e.target.value }))}
                                         className="form-input"
@@ -1637,12 +1874,12 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setEditStageSearchOpen(prev => ({ ...prev, [idx]: false })); setEditStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {editStageSearchTerm[idx] && [...empPool, ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers2 : [])]
+                                      {editStageSearchTerm[idx] && uniqUsers(users.filter(u => ['employee', 'manager'].includes(u.role)))
                                         .filter(u => u.name.toLowerCase().includes(editStageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
                                           <button key={u.id} type="button"
-                                            onClick={() => updateSa({ user_ids: [...sa.user_ids, u.id] })}
+                                            onClick={() => updateSa({ user_ids: [u.id] })}
                                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: '1px dashed var(--sand-border)', borderRadius: 99, padding: '3px 8px 3px 4px', fontSize: 11, cursor: 'pointer', color: 'var(--ink-muted)' }}>
                                             <span style={{ width: 18, height: 18, borderRadius: '50%', background: u.avatar_color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                               {u.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
@@ -1892,15 +2129,15 @@ export default function Tasks() {
 
             {/* Footer */}
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--sand-border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {doneModalChecklist.length === 0 || doneModalChecklist.every(i => i.completed) ? (
-                <button className="drawer-submit" onClick={confirmDone} style={{ background: 'var(--green)' }}>
-                  <Check size={15} /> Yes, mark as complete
-                </button>
-              ) : (
-                <button className="drawer-submit" onClick={confirmDone}>
-                  Mark as done anyway
-                </button>
+              {doneModalChecklist.some(i => !i.completed) && (
+                <div role="status" style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '8px 12px', textAlign: 'center' }}>
+                  Tick all {doneModalChecklist.filter(i => !i.completed).length} remaining checklist item{doneModalChecklist.filter(i => !i.completed).length > 1 ? 's' : ''} to mark this as done.
+                </div>
               )}
+              <button className="drawer-submit" onClick={confirmDone} disabled={doneModalChecklist.some(i => !i.completed)}
+                style={{ background: 'var(--green)', opacity: doneModalChecklist.some(i => !i.completed) ? 0.4 : 1, cursor: doneModalChecklist.some(i => !i.completed) ? 'not-allowed' : 'pointer' }}>
+                <Check size={15} /> Yes, mark as complete
+              </button>
               <button className="drawer-cancel" onClick={() => { setDoneConfirmTask(null); setDoneModalChecklist([]); setDoneDeliverables([]); setDoneLinkInput(''); }}>
                 Go back
               </button>
@@ -1909,6 +2146,26 @@ export default function Tasks() {
         </div>
       )}
       {/* XLR8 Ticket Action Modal */}
+      {customStagesOpen && (() => {
+        const current = customStagesOpen === 'edit' ? formCustomStages() : null;
+        return (
+          <CustomStagesModal
+            existing={current}
+            needsApproval={user?.role === 'employee'}
+            onClose={() => setCustomStagesOpen(null)}
+            onSaved={(c) => {
+              setFormCustomStages(c);
+              // Keep people already picked for stages that still exist
+              setStageAssignments(prev => customStagesOpen === 'edit'
+                ? Object.fromEntries(Object.entries(prev).filter(([i]) => Number(i) < c.stages.length))
+                : {});
+              setForm(f => ({ ...f, ticket_type_id: String(CUSTOM_TYPE_ID) }));
+              setCustomStagesOpen(null);
+            }}
+          />
+        );
+      })()}
+
       {ticketActionTask && (
         <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setTicketActionTask(null); }}>
           <div className="modal" style={{ width: '100%', maxWidth: 440 }}>
@@ -1939,13 +2196,16 @@ export default function Tasks() {
                   </div>
                 </div>
               )}
+              {ticketActionTask.xlr8_assignee_id && <ReviewAttachments taskId={ticketActionTask.id} />}
+              {ticketActionTask.xlr8_assignee_id && <StageChecklist taskId={ticketActionTask.id} />}
               {ticketActionTask.xlr8_assignee_id && !showTicketDecline && (
                 <p style={{ fontSize: 13, color: 'var(--ink-muted)' }}>
-                  The assignee has submitted their work. Approve to move forward or decline to send it back.
+                  Open the attachments above, then approve to move forward or decline to send it back.
                 </p>
               )}
               {showTicketDecline && (
                 <div>
+                  <SendBackStagePicker ticketId={ticketActionTask.id} value={ticketReturnIdx} onChange={setTicketReturnIdx} />
                   <label className="form-label">Reason for declining</label>
                   <textarea className="form-input" rows={3} value={ticketDeclineComment} onChange={(e) => setTicketDeclineComment(e.target.value)} placeholder="What needs to be changed?" />
                 </div>

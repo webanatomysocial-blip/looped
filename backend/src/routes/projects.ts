@@ -16,10 +16,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .leftJoin('users as u', 'p.created_by', 'u.id')
       .select('p.*', 'c.name as client_name', 'u.name as created_by_name');
 
+    // scope=all: task-creation picker lists every project; other-pod choices go through cross-pod approval
+    const allScope = req.query.scope === 'all' && role !== 'client';
     if (role === 'client') {
       query = query
         .join('project_members as pm', 'p.id', 'pm.project_id')
         .where('pm.user_id', userId);
+    } else if (allScope) {
+      // no pod/membership filter
     } else if (role === 'employee') {
       query = query
         .join('project_members as pm', 'p.id', 'pm.project_id')
@@ -42,6 +46,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .whereIn('pm.project_id', projectIds)
           .select('pm.project_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'u.pod')
       : [];
+
+    // The task-form picker only needs identity + pod + members; never expose other pods' hours or spend
+    if (allScope) {
+      res.json(projects.map((p: any) => ({
+        id: p.id, name: p.name, pod: p.pod, client_company_id: p.client_company_id, client_name: p.client_name,
+        members: members.filter((m: any) => m.project_id === p.id),
+      })));
+      return;
+    }
 
     // Aggregate total hours_logged per project from time_logs (with hourly_rate or user salary for cost)
     const hoursAgg = projectIds.length

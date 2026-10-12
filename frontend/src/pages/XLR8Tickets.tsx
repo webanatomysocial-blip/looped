@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout/Layout';
+import SendBackStagePicker from '../components/UI/SendBackStagePicker';
 import { xlr8Api, projectsApi, categoriesApi, tasksApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import StageChecklist from '../components/UI/StageChecklist';
 import {
   RiAddLine, RiTimeLine, RiCheckLine, RiUserLine, RiLoader4Line, RiArrowRightLine,
   RiCloseLine, RiCheckboxCircleLine, RiAttachmentLine, RiLinkM, RiExternalLinkLine,
@@ -15,7 +17,7 @@ interface Ticket {
   id: number; title: string; description?: string; status: string; xlr8_status: string;
   xlr8_stage_idx: number; ticket_type_id: number; ticket_type_name: string;
   project_id: number; project_name: string; creator_id: number; creator_name: string; creator_color: string;
-  assignee_name?: string; assignee_color?: string; assignee_avatar_url?: string | null; xlr8_assignee_id?: number;
+  assignee_name?: string; assignee_color?: string; assignee_avatar_url?: string | null; assignee_role?: string; xlr8_assignee_id?: number;
   stages: Stage[]; final_approval: FinalApproval; created_at: string;
 }
 
@@ -26,6 +28,10 @@ const STATUS_LABELS: Record<string, string> = {
   pending_admin: 'Admin Review',
   pending_client: 'Client Review',
   completed: 'Completed',
+  pending_crosspod: 'Awaiting Approval',
+  crosspod_rejected: 'Request Rejected',
+  needs_reassignment: 'Needs Reassignment',
+  pending_approval: 'Pending Approval',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -35,6 +41,10 @@ const STATUS_COLOR: Record<string, string> = {
   pending_admin: '#7c3aed',
   pending_client: 'var(--ink-muted)',
   completed: 'var(--green)',
+  pending_crosspod: '#b45309',
+  crosspod_rejected: 'var(--red)',
+  needs_reassignment: 'var(--red)',
+  pending_approval: '#b45309',
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -98,6 +108,7 @@ export default function XLR8Tickets() {
   const [eligible, setEligible] = useState<any[] | null>(null); // employees to pick from
   const [declineComment, setDeclineComment] = useState('');
   const [showDecline, setShowDecline] = useState(false);
+  const [returnIdx, setReturnIdx] = useState<number | null>(null);
   const [showEmployeeDecline, setShowEmployeeDecline] = useState(false);
   const [employeeDeclineComment, setEmployeeDeclineComment] = useState('');
   const [showDoneModal, setShowDoneModal] = useState(false);
@@ -195,6 +206,7 @@ export default function XLR8Tickets() {
     }
     setActionLoading(true);
     try { await xlr8Api.markDone(selected.id); setShowDoneModal(false); await refresh(); }
+    catch (err: any) { alert(err?.response?.data?.error || "Couldn't mark this as done"); }
     finally { setActionLoading(false); }
   };
 
@@ -208,7 +220,7 @@ export default function XLR8Tickets() {
   const decline = async () => {
     if (!selected) return;
     setActionLoading(true);
-    try { await xlr8Api.reviewTicket(selected.id, 'decline', declineComment); await refresh(); setShowDecline(false); }
+    try { await xlr8Api.reviewTicket(selected.id, 'decline', declineComment, undefined, returnIdx); await refresh(); setShowDecline(false); }
     finally { setActionLoading(false); }
   };
 
@@ -222,7 +234,7 @@ export default function XLR8Tickets() {
   const clientApprove = async () => {
     if (!selected) return;
     setActionLoading(true);
-    try { await xlr8Api.clientApprove(selected.id); await refresh(); }
+    try { await (user?.role === 'client' ? xlr8Api.clientApprove(selected.id) : xlr8Api.closeTicket(selected.id)); await refresh(); }
     finally { setActionLoading(false); }
   };
 
@@ -249,7 +261,8 @@ export default function XLR8Tickets() {
     : role === 'client'
     ? ['pending_client', 'completed']
     : ['pending_manager', 'pending_assignee', 'in_progress', 'pending_admin', 'pending_client', 'completed'];
-
+  // Requests waiting on a pod manager get their own column, only when there are any
+  if (role !== 'employee' && role !== 'client' && visibleTickets.some(t => t.xlr8_status === 'pending_crosspod')) COLS.unshift('pending_crosspod');
   for (const col of COLS) grouped[col] = [];
   for (const t of visibleTickets) {
     if (grouped[t.xlr8_status]) grouped[t.xlr8_status].push(t);
@@ -275,7 +288,12 @@ export default function XLR8Tickets() {
     const isManager = ['admin', 'manager'].includes(role!);
     const isAssignee = selected.xlr8_assignee_id === userId;
 
-    if (s === 'pending_manager' && isManager) {
+    // Employee reviewer stage: only that employee (or an admin) reviews it
+    const empReviewStage = s === 'pending_manager' && selected.assignee_role === 'employee';
+    if (empReviewStage && role === 'manager' && !isAssignee) {
+      return <p style={{ marginTop: 12, fontSize: 13, color: 'var(--ink-muted)' }}>Waiting for {selected.assignee_name || 'the reviewer'} to review this stage.</p>;
+    }
+    if (s === 'pending_manager' && (isManager || (empReviewStage && isAssignee))) {
       // Has assignee = work was done, needs review; no assignee = needs initial acceptance
       const needsReview = !!selected.xlr8_assignee_id;
 
@@ -472,10 +490,12 @@ export default function XLR8Tickets() {
                 )}
 
                 {/* Actions */}
+                {selected && ['pending_manager', 'pending_admin'].includes(selected.xlr8_status) && <StageChecklist key={`${selected.id}-${selected.xlr8_stage_idx}`} taskId={selected.id} />}
                 {renderActions()}
 
                 {showDecline && (
                   <div style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)', borderRadius: 8 }}>
+                    <SendBackStagePicker ticketId={selected.id} value={returnIdx} onChange={setReturnIdx} />
                     <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Reason for decline:</p>
                     <textarea
                       className="form-input"
@@ -695,6 +715,14 @@ function formatAction(action: string): string {
     admin_approved: 'gave final approval',
     client_approved: 'approved as client',
     completed: 'marked ticket completed',
+    admin_declined: 'sent the work back',
+    client_declined: 'requested changes as client',
+    closed_without_client: 'closed without client sign-off',
+    stage_pre_accepted: 'accepted a future stage',
+    stage_pre_declined: 'declined a future stage',
+    crosspod_requested: 'requested manager approval',
+    crosspod_approved: 'approved the request',
+    crosspod_rejected: 'rejected the request',
   };
   return map[action] || action;
 }

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Search, CheckCircle2, Circle, Link2, Paperclip, ArrowRight } from 'lucide-react';
+import { Search, Link2, Paperclip, ArrowRight } from 'lucide-react';
 import { tasksApi } from '../../services/api';
 
 type ReviewData = { deliverables: any[]; checklist: any[] };
@@ -29,7 +29,6 @@ export function ReviewAlert({ task, role, reviewData, onLoad }: Props) {
   const delivs = reviewData?.deliverables || [];
   const links = delivs.filter((d: any) => d.type === 'link');
   const files = delivs.filter((d: any) => d.type === 'file');
-  const checklist = reviewData?.checklist || [];
 
   return (
     <div style={{ background: s.bg, border: `1.5px solid ${s.border}`, borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -41,17 +40,6 @@ export function ReviewAlert({ task, role, reviewData, onLoad }: Props) {
       <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
         {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}</span>
       </div>
-      {checklist.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Checklist</div>
-          {checklist.map((c: any, i: number) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)' }}>
-              {c.completed ? <CheckCircle2 size={12} color="var(--green)" /> : <Circle size={12} color="var(--ink-muted)" />}
-              {c.text}
-            </div>
-          ))}
-        </div>
-      )}
       {(links.length > 0 || files.length > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Deliverables</div>

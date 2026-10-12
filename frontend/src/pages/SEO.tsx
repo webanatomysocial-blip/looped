@@ -943,7 +943,13 @@ export default function SEO() {
   const canEdit   = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'employee';
 
   const [clients, setClients]           = useState<Client[]>([]);
-  const [projects, setProjects]         = useState<SeoProject[]>([]);
+  // SEO employees get two tabs: projects they're on, and every project
+  const isSeoEmployee = user?.role === 'employee' && (user?.categories?.some((c: any) => /seo/i.test(c.name)) ?? false);
+  const [projectTab, setProjectTab]     = useState<'assigned' | 'all'>('assigned');
+  const [assignedProjects, setAssignedProjects] = useState<SeoProject[]>([]);
+  const [allProjects, setAllProjects]   = useState<SeoProject[]>([]);
+  const projects = isSeoEmployee && projectTab === 'all' ? allProjects : assignedProjects;
+  const setProjects = (fn: (prev: SeoProject[]) => SeoProject[]) => { setAssignedProjects(fn); setAllProjects(fn); };
   const [selectedProject, setSelectedProject] = useState<SeoProject | null>(null);
   // Derived: the client_company_id of the selected project (used for SEO API calls)
   const selectedClientId = selectedProject?.client_company_id ?? null;
@@ -1037,15 +1043,16 @@ export default function SEO() {
 
   useEffect(() => {
     // Load projects for SEO tabs
+    const toSeo = (rows: any[]): SeoProject[] => rows
+      .map((p: any) => ({ id: p.id, name: p.name, client_company_id: p.client_company_id, ga_property_id: p.ga_property_id ?? null, gsc_site_url: p.gsc_site_url ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
     projectsApi.list().then((r) => {
-      const projs: SeoProject[] = r.data.map((p: any) => ({
-        id: p.id, name: p.name, client_company_id: p.client_company_id,
-        ga_property_id: p.ga_property_id ?? null, gsc_site_url: p.gsc_site_url ?? null,
-      }));
-      setProjects(projs);
+      const projs = toSeo(r.data);
+      setAssignedProjects(projs);
       const first = projs.find((p) => p.ga_property_id);
-      if (first) setSelectedProject(first);
+      if (first) setSelectedProject((sp) => sp ?? first);
     }).catch(() => {});
+    if (isSeoEmployee) seoApi.allProjects().then((r) => setAllProjects(toSeo(r.data))).catch(() => {});
     // Still need clients list for the config panel (GA/GSC save goes to client_company)
     seoApi.clients().then((r) => setClients(r.data)).catch(() => {});
   }, []);
@@ -1499,6 +1506,17 @@ export default function SEO() {
 
         {/* ── Project selector + inline config ── */}
         <div className="seo-nav">
+          {isSeoEmployee && (
+            <div role="tablist" aria-label="Which projects to show" style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              {(['assigned', 'all'] as const).map((t) => (
+                <button key={t} role="tab" aria-selected={projectTab === t} onClick={() => setProjectTab(t)}
+                  style={{ fontSize: 12, fontWeight: 700, padding: '5px 14px', borderRadius: 99, cursor: 'pointer', border: '1px solid var(--border, #e5e7eb)', background: projectTab === t ? 'var(--ink)' : 'var(--surface, #fff)', color: projectTab === t ? '#fff' : 'var(--ink)' }}>
+                  {t === 'assigned' ? `Assigned (${assignedProjects.length})` : `All (${allProjects.length})`}
+                </button>
+              ))}
+            </div>
+          )}
+          {projects.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '4px 0' }}>{projectTab === 'assigned' && isSeoEmployee ? "You're not assigned to any projects yet — check the All tab." : 'No projects to show.'}</p>}
           <div className="seo-client-row">
             {projects.map((proj) => (
               <div key={proj.id} className="seo-client-wrap">

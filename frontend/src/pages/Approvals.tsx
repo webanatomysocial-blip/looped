@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { StageTag } from '../components/UI/ChecklistEditor';
+import { createPortal } from 'react-dom';
+import SendBackStagePicker from '../components/UI/SendBackStagePicker';
+import ReviewAttachments from '../components/UI/ReviewAttachments';
+import StageChecklist from '../components/UI/StageChecklist';
 import { format } from 'date-fns';
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, CheckCheck, RotateCcw, Play, Pause, Clock, Paperclip, Link2, ExternalLink } from 'lucide-react';
 import XLR8StageFlow from '../components/UI/XLR8StageFlow';
@@ -146,7 +151,9 @@ export default function Approvals() {
 
   // Review modal state
   const [reviewModal, setReviewModal]   = useState<Approval | null>(null);
+  const [linksPopup, setLinksPopup]     = useState<{ title: string; items: any[] | null } | null>(null);
   const [action, setAction]             = useState<'approve' | 'reject' | 'request_revision'>('approve');
+  const [returnIdx, setReturnIdx]       = useState<number | null>(null);
   const [notes, setNotes]               = useState('');
   const [submitting, setSubmitting]     = useState(false);
   // Next-stage assignment after approval
@@ -189,8 +196,13 @@ export default function Approvals() {
       : `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
   };
 
-  const startReviewTimer = async (taskId: number, e: React.MouseEvent) => {
+  const startReviewTimer = async (taskId: number, e: React.MouseEvent, title?: string) => {
     e.stopPropagation();
+    // Open the attachments popup immediately on every Start/Resume, then fill it in
+    setLinksPopup({ title: title || 'Attachments', items: null });
+    tasksApi.getDeliverables(taskId)
+      .then((r) => setLinksPopup((p) => p && { ...p, items: r.data || [] }))
+      .catch(() => setLinksPopup((p) => p && { ...p, items: [] }));
     try {
       await tasksApi.timer(taskId, 'start');
       setTimers((prev) => ({ ...prev, [taskId]: { seconds: prev[taskId]?.seconds ?? 0, running: true } }));
@@ -198,7 +210,7 @@ export default function Approvals() {
       intervals.current[taskId] = setInterval(() => {
         setTimers((prev) => ({ ...prev, [taskId]: { ...prev[taskId], seconds: (prev[taskId]?.seconds ?? 0) + 1 } }));
       }, 1000);
-    } catch { alert('Failed to start timer'); }
+    } catch { setLinksPopup(null); alert('Failed to start timer'); }
   };
 
   const pauseReviewTimer = async (taskId: number, e: React.MouseEvent) => {
@@ -251,7 +263,7 @@ export default function Approvals() {
     // XLR8: use the live xlr8_status from the task, not the potentially stale approval status
     if (a.workflow_type === 'xlr8') {
       const live = (a as any).xlr8_status ?? a.status;
-      if (user.role === 'manager') return live === 'pending_manager';
+      if (user.role === 'manager') return live === 'pending_manager' && (a as any).xlr8_assignee_role !== 'employee';
       if (user.role === 'admin')   return live === 'pending_admin';
       if (user.role === 'client')  return live === 'pending_client';
       // Reviewer-stage employee: can act when it's their turn as the xlr8_assignee
@@ -308,18 +320,18 @@ export default function Approvals() {
         let res: any = null;
         if (st === 'pending_admin') {
           if (action === 'reject') {
-            await xlr8Api.adminDecline(tid, notes || undefined);
+            await xlr8Api.adminDecline(tid, notes || undefined, returnIdx);
           } else if (skipType === 'send_client') {
             await xlr8Api.adminSendClient(tid, notes || undefined);
           } else {
             await xlr8Api.adminApprove(tid, notes || undefined);
           }
         } else if (st === 'pending_client') {
-          await xlr8Api.clientApprove(tid);
+          await (user?.role === 'client' ? xlr8Api.clientApprove(tid) : xlr8Api.closeTicket(tid));
         } else {
           // pending_manager — manager review; skip_admin=true bypasses admin stage
           const xlr8Action = action === 'approve' ? 'approve' : 'decline';
-          res = await xlr8Api.reviewTicket(tid, xlr8Action, notes, skipType === 'skip_admin');
+          res = await xlr8Api.reviewTicket(tid, xlr8Action, notes, skipType === 'skip_admin', xlr8Action === 'decline' ? returnIdx : undefined);
         }
         setReviewModal(null);
         setSteps((prev) => { const next = { ...prev }; delete next[reviewModal.id]; return next; });
@@ -483,7 +495,7 @@ export default function Approvals() {
                           <button
                             className="btn-secondary"
                             style={{ padding: '7px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: t.running ? 'var(--orange)' : undefined }}
-                            onClick={(e) => t.running ? pauseReviewTimer(a.task_id, e) : startReviewTimer(a.task_id, e)}
+                            onClick={(e) => t.running ? pauseReviewTimer(a.task_id, e) : startReviewTimer(a.task_id, e, a.title)}
                           >
                             {t.running ? <><Pause size={12} /> Pause</> : <><Play size={12} /> {hasTime ? 'Resume' : 'Start Review'}</>}
                           </button>
@@ -731,7 +743,8 @@ export default function Approvals() {
                               fontSize: 13, color: 'var(--ink)',
                             }}>
                               <span style={{ color: 'var(--green)', fontWeight: 800, fontSize: 14, lineHeight: 1 }}>✓</span>
-                              {item.text}
+                              <span style={{ flex: 1 }}>{item.text}</span>
+                              <StageTag name={(item as any).stage_name} />
                             </div>
                           ))}
                         </div>
@@ -754,6 +767,8 @@ export default function Approvals() {
           onClose={() => setReviewModal(null)}
         >
           <div className="drawer-body">
+            {reviewModal.task_id && <ReviewAttachments taskId={reviewModal.task_id} />}
+            {reviewModal.task_id && <StageChecklist taskId={reviewModal.task_id} />}
             <p className="review-desc">
               {isNewWorkflow(reviewModal) ? (
                 <>
@@ -814,6 +829,10 @@ export default function Approvals() {
                 </button>
               )}
             </div>
+
+            {reviewModal.workflow_type === 'xlr8' && action === 'reject' && reviewModal.task_id && ((reviewModal as any).xlr8_status ?? reviewModal.status) !== 'pending_client' && (
+              <SendBackStagePicker ticketId={reviewModal.task_id} value={returnIdx} onChange={setReturnIdx} />
+            )}
 
             <div>
               <label className="form-label">
@@ -895,6 +914,29 @@ export default function Approvals() {
           </div>
         </div>
       )}
-    </Layout>
+      {linksPopup && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '12vh' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(26,26,26,0.4)' }} onClick={() => setLinksPopup(null)} />
+          <div role="dialog" aria-label="Submitted attachments" style={{ position: 'relative', background: 'var(--surface, #fff)', borderRadius: 14, width: '92%', maxWidth: 440, padding: '18px 20px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)' }}>Submitted attachments</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', margin: '2px 0 12px' }}>{linksPopup.title}</div>
+            {linksPopup.items === null && <p style={{ fontSize: 13, color: 'var(--ink-muted)', margin: 0 }}>Loading attachments…</p>}
+            {linksPopup.items?.length === 0 && <p style={{ fontSize: 13, color: 'var(--ink-muted)', margin: 0 }}>Nothing was attached to this work. Check the description and stage flow instead.</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '50vh', overflowY: 'auto' }}>
+              {(linksPopup.items ?? []).map((d: any) => (
+                <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', color: 'var(--ink)', textDecoration: 'none', fontSize: 13 }}>
+                  {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || d.url}</span>
+                  <ExternalLink size={12} color="var(--ink-muted)" />
+                </a>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: '10px 0 0' }}>Your review timer is running.</p>
+            <button className="btn-primary" style={{ marginTop: 12, width: '100%' ,textAlign:"center"}} onClick={() => setLinksPopup(null)}>Close</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+</Layout>
   );
 }

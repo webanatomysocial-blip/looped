@@ -1,7 +1,8 @@
 import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
-import { advanceToStage } from './xlr8';
+import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
+import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
 async function pauseActiveSession(db: any, userId: number): Promise<void> {
@@ -69,7 +70,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         'a.name as assigned_name',
         'a.avatar_color as assigned_color',
         'cr.name as created_by_name',
-        'xa.name as xlr8_assignee_name'
+        'xa.name as xlr8_assignee_name',
+        'xa.role as xlr8_assignee_role'
       );
 
     if (project_id) query = query.where('t.project_id', project_id);
@@ -79,6 +81,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       // OR the task has no pod assignment at all (visible in all pod tabs to prevent tasks being hidden).
       query = query.where(function (this: any) {
         this.where('p.pod', pod as string)
+          .orWhere('t.created_by', userId)
+          .orWhere('t.xlr8_assignee_id', userId)
+          .orWhereIn('t.id', function (this: any) {
+            this.select('task_id').from('task_assignees').where('user_id', userId);
+          })
           .orWhereIn('t.id', function (this: any) {
             this.select('ta.task_id')
               .from('task_assignees as ta')
@@ -118,8 +125,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       // Include tasks assigned to this employee (pending OR accepted) so they can see and act on pending tasks.
       query = query.whereRaw(
         `(t.created_by = ?
-          OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?)
-          OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))`,
+          OR (t.crosspod_pods IS NULL AND t.crosspod_note IS NULL AND (
+            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?)
+            OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))))`,
         [userId, userId, userId]
       );
     } else if (role === 'admin' || role === 'manager') {
@@ -187,7 +195,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         my_acceptance_status: assigneeRows.find((a: any) => Number(a.task_id) === tid && Number(a.user_id) === userId)?.acceptance_status ?? null,
         timer_running: activeTimerSet.has(tid),
         active_runner_ids: activeRunnerRows.filter((r: any) => Number(r.task_id) === tid).map((r: any) => Number(r.user_id)),
-        has_rejected_approval: rejectedSet.has(tid),
+        has_rejected_approval: !t.ticket_type_id && rejectedSet.has(tid),
       };
     });
 
@@ -227,7 +235,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       .first();
     if (!task) { res.status(404).json({ error: 'Not found' }); return; }
 
-    const checklist = await db('task_checklist').where({ task_id: req.params.id });
+    const checklist = await db('task_checklist').where({ task_id: req.params.id }).orderByRaw('COALESCE(stage_idx, -1)').orderBy('id');
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
       .leftJoin(db('task_sessions').where('ended_at', null).select('user_id', 'task_id').as('ts'), function() {
@@ -257,7 +265,9 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         xlr8_final_approval = typeof tt.final_approval === 'string' ? JSON.parse(tt.final_approval || '{}') : (tt.final_approval ?? {});
       }
     }
-    res.json({ ...task, checklist, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval });
+    const stageName = (i: number) => { const st = (xlr8_stages as any[] | null)?.[i]; return st?.type === 'admin' ? 'Admin review' : st?.category_name || `Stage ${i + 1}`; };
+    const labelled = checklist.map((c: any) => ({ ...c, stage_name: c.stage_idx == null ? null : stageName(Number(c.stage_idx)) }));
+    res.json({ ...task, checklist: labelled, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval });
   } catch (e: any) {
     console.error('GET /tasks/:id error:', e?.message, e?.stack);
     res.status(500).json({ error: 'Server error' });
@@ -280,6 +290,10 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
 
     const workerId  = working_person_id  ? Number(working_person_id)  : null;
     const managerId = task_manager_id    ? Number(task_manager_id)    : null;
+    // Decided up front so a task held for approval doesn't pause anyone's timer
+    const projectRow = await db('projects').where({ id: project_id }).select('pod', 'name').first();
+    const reasons = isDraft ? [] : await approvalReasons(db, req.user!, projectRow ?? {}, workerId ? [{ user_id: workerId }] : []);
+    const pods = reasonPods(reasons);
 
     const [id] = await db.transaction(async (trx) => {
     const inserted = await trx('tasks').insert({
@@ -319,7 +333,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
 
     // Auto-pause active session if high/urgent priority (inside transaction so pause + insert are atomic)
     const effectivePriority2 = priority || 'medium';
-    if (workerId && ['high', 'urgent'].includes(effectivePriority2)) {
+    if (workerId && !pods.length && ['high', 'urgent'].includes(effectivePriority2)) {
       await pauseActiveSession(trx, workerId);
     }
 
@@ -330,6 +344,13 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const warnings: string[] = [];
     if (isDraft) { res.status(201).json({ id, warnings }); return; }
     const project = await db('projects').where({ id: project_id }).first();
+
+    const replaced = await discardRejected(db, req.body.replaces_id, req.user!);
+    await creditRequester(db, id, replaced, req.user!);
+    if (pods.length) {
+      await holdForCrossPod(db, { id, title, project_id, isTicket: false }, reasons, req.user!);
+      res.status(201).json({ id, warnings, crosspod_pending: pods }); return;
+    }
 
     // Notify about pause or assignment
     const effectivePriority = priority || 'medium';
@@ -515,18 +536,24 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
   }
 });
 
-// PUT update checklist item
+// PUT update checklist item — a stage's items are ticked by that stage's person (or a manager/admin)
 router.put('/:taskId/checklist/:itemId', async (req: AuthRequest, res: Response) => {
-  const { completed } = req.body;
+  const completed = !!req.body.completed;
   try {
     const db = getDB();
-    await db('task_checklist').where({ id: req.params.itemId, task_id: req.params.taskId }).update({ completed });
-    const total = await db('task_checklist').where({ task_id: req.params.taskId }).count('* as count').first();
-    const done = await db('task_checklist').where({ task_id: req.params.taskId, completed: true }).count('* as count').first();
-    await db('tasks').where({ id: req.params.taskId }).update({
-      checklist_total: (total as any).count,
-      checklist_done: (done as any).count,
-    });
+    const taskId = Number(req.params.taskId);
+    const item = await db('task_checklist').where({ id: req.params.itemId, task_id: taskId }).first();
+    if (!item) { res.status(404).json({ error: 'Checklist item not found' }); return; }
+    const { role, id: userId } = req.user!;
+    if (!['admin', 'manager'].includes(role)) {
+      const task = await db('tasks').where({ id: taskId }).first('assigned_to', 'created_by');
+      const onTask = item.stage_idx == null
+        ? task?.assigned_to === userId || !!(await db('task_assignees').where({ task_id: taskId, user_id: userId }).first())
+        : !!(await db('task_assignees').where({ task_id: taskId, user_id: userId, stage_idx: item.stage_idx }).first());
+      if (!onTask) { res.status(403).json({ error: item.stage_idx == null ? "Only people on this task can tick its checklist" : "Only the person on this stage can tick its checklist" }); return; }
+    }
+    await db('task_checklist').where({ id: item.id }).update({ completed });
+    await refreshChecklistCounts(db, taskId);
     res.json({ message: 'Updated' });
   } catch (err) {
     console.error(err);
@@ -552,7 +579,9 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
     await db('task_sessions').where({ task_id: tid }).delete();
     await db('task_assignees').where({ task_id: tid }).delete();
     await db('task_checklist').where({ task_id: tid }).delete();
+    const typeRow = await db('tasks').where({ id: tid }).select('ticket_type_id').first();
     await db('tasks').where({ id: tid }).delete();
+    await dropCustomTypeIfUnused(db, typeRow?.ticket_type_id);
     res.json({ message: 'Deleted' });
 
     // Reschedule affected users so freed capacity gets filled by remaining tasks
@@ -573,6 +602,49 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
     const task = await db('tasks').where({ id: req.params.id }).first();
     if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
     if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Task is not pending approval' }); return; }
+
+    const crossPods: string[] = task.crosspod_pods ? JSON.parse(task.crosspod_pods) : [];
+    if (crossPods.length) {
+      const me = await db('users').where({ id: req.user!.id }).select('pod', 'name').first();
+      if (req.user!.role === 'manager' && !crossPods.includes(me?.pod)) {
+        res.status(403).json({ error: `Waiting for the ${crossPods.join(', ')} manager to approve` }); return;
+      }
+      const actorName = me?.name || req.user!.name;
+      const stillPending = () => db('tasks').where({ id: task.id, status: 'pending_approval', crosspod_pods: task.crosspod_pods });
+      const alreadyHandled = () => res.status(409).json({ error: 'This request was already handled — refresh to see its current state' });
+      if (action === 'reject') {
+        const note = String(req.body.comment || '').trim() || 'Rejected';
+        const n = await stillPending().update({
+          status: 'draft', crosspod_pods: null, crosspod_note: `${actorName}: ${note}`,
+          ...(task.ticket_type_id ? { xlr8_status: 'crosspod_rejected' } : {}),
+        });
+        if (!n) { alreadyHandled(); return; }
+        if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_rejected', 'pending_crosspod', 'crosspod_rejected', note);
+        await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tasks`, 'task', task.project_id);
+        res.json({ ok: true, status: 'draft' }); return;
+      }
+      const remaining = req.user!.role === 'admin' ? [] : crossPods.filter((p) => p !== me?.pod);
+      if (remaining.length) {
+        if (!(await stillPending().update({ crosspod_pods: JSON.stringify(remaining) }))) { alreadyHandled(); return; }
+        if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_approved', 'pending_crosspod', null, `Still waiting on ${remaining.join(', ')}`);
+        res.json({ ok: true, status: 'pending_approval', crosspod_pending: remaining }); return;
+      }
+      if (!(await stillPending().update({ status: 'todo', crosspod_pods: null, crosspod_note: null, ...(task.ticket_type_id ? { xlr8_status: 'pending_manager' } : {}) }))) { alreadyHandled(); return; }
+      if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_approved', 'pending_crosspod', null);
+      await createNotification(task.created_by, `${actorName} approved "${task.title}" — it's now live`, 'task', task.project_id);
+      if (task.ticket_type_id) {
+        await activateTicket(db, task.id, { id: task.created_by, name: (await db('users').where({ id: task.created_by }).select('name').first())?.name || 'Creator' });
+      } else {
+        if (task.assigned_to && ['high', 'urgent'].includes(task.priority)) await pauseActiveSession(db, task.assigned_to);
+        if (task.assigned_to && task.assigned_to !== task.created_by) {
+          const proj = await db('projects').where({ id: task.project_id }).select('name').first();
+          await createNotification(task.assigned_to, `You have been assigned task "${task.title}" in ${proj?.name || 'a project'}`, 'task', task.project_id);
+        }
+        import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(task.id, db)).catch(() => {});
+      }
+      res.json({ ok: true, status: 'todo' }); return;
+    }
+
     if (action === 'reject') {
       await db('tasks').where({ id: req.params.id }).update({ status: 'draft' });
       res.json({ ok: true, status: 'draft' });
@@ -729,6 +801,8 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
       }
 
     } else if (action === 'done') {
+      const open = await uncheckedItems(db, Number(taskId));
+      if (open.length) { res.status(400).json({ error: uncheckedError(open), unchecked: open }); return; }
       // End the active session and write time_log
       const doneSession = await db('task_sessions')
         .where({ task_id: taskId, user_id: userId }).whereNull('ended_at').first();
@@ -1033,8 +1107,9 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
 
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
+      .leftJoin(db('task_sessions').whereNull('ended_at').select('user_id', 'task_id').as('ts'), function () { this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id'); })
       .where({ 'ta.task_id': row.task_id })
-      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url');
+      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
 
     const isProd = process.env.NODE_ENV === 'production';
     const secSQL = isProd

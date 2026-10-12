@@ -61,6 +61,7 @@ export const categoriesApi = {
 
 export const projectsApi = {
   list: () => api.get('/projects'),
+  listAll: () => api.get('/projects', { params: { scope: 'all' } }),
   get: (id: number) => api.get(`/projects/${id}`),
   create: (data: any) => api.post('/projects', data),
   update: (id: number, data: any) => api.put(`/projects/${id}`, data),
@@ -80,7 +81,7 @@ export const tasksApi = {
     api.put(`/tasks/${taskId}/checklist/${itemId}`, { completed }),
   delete: (id: number) => api.delete(`/tasks/${id}`),
   accept: (id: number, action: 'accept' | 'decline') => api.post(`/tasks/${id}/accept`, { action }),
-  managerApprove: (id: number, action: 'approve' | 'reject') => api.post(`/tasks/${id}/manager-approve`, { action }),
+  managerApprove: (id: number, action: 'approve' | 'reject', comment?: string) => api.post(`/tasks/${id}/manager-approve`, { action, comment }),
   timer: (id: number, action: 'start' | 'pause' | 'done') => api.post(`/tasks/${id}/timer`, { action }),
   getDeliverables: (id: number) => api.get(`/tasks/${id}/deliverables`),
   addDeliverableLink: (id: number, url: string, name?: string) => api.post(`/tasks/${id}/deliverables/link`, { url, name }),
@@ -184,6 +185,7 @@ export const adsApi = {
 
 export const seoApi = {
   clients: () => api.get('/seo/clients'),
+  allProjects: () => api.get('/seo/all-projects'),
   report: (clientId: number, range: string, startDate?: string, endDate?: string, country?: string, compareStart?: string, compareEnd?: string, projectId?: number) =>
     api.get(`/seo/report/${clientId}`, { params: { range, startDate, endDate, country, compareStart, compareEnd, ...(projectId ? { projectId } : {}) } }),
   configClient: (clientId: number, data: { ga_property_id: string; gsc_site_url: string }) =>
@@ -259,6 +261,8 @@ export const calendarApi = {
   getEvents: (month: string) => api.get('/calendar/events', { params: { month } }),
   getWeek: (start: string) => api.get('/calendar/week', { params: { start } }),
   updateSlotTime: (slotId: number, start_hour: number) => api.patch(`/calendar/slot/${slotId}/time`, { start_hour }),
+  moveOptions: (task_id: number, stage: number | null, days: string[]) => api.get('/calendar/move-options', { params: { task_id, stage: stage ?? '', days: days.join(',') } }),
+  moveWork: (task_id: number, stage: number | null, date: string | null, times?: Record<string, number>) => api.post('/calendar/move', { task_id, stage, date, times }),
   updateRecurringTime: (recurringTaskId: number, date: string, start_hour: number) => api.patch(`/calendar/recurring/${recurringTaskId}/time`, { start_hour, date }),
   schedule: (all?: boolean) => api.post('/calendar/schedule', { all }),
   listRecurring: () => api.get('/calendar/recurring'),
@@ -287,12 +291,14 @@ export const xlr8Api = {
   stagePreAccept: (id: number) => api.post(`/xlr8/tickets/${id}/stage-pre-accept`),
   stagePreDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/stage-pre-decline`, { comment }),
   markDone: (id: number) => api.post(`/xlr8/tickets/${id}/done`),
-  reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean) =>
-    api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin }),
+  reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean, target_stage_idx?: number | null) =>
+    api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin, target_stage_idx }),
+  returnStages: (id: number) => api.get<{ idx: number; name: string; assignee: string | null }[]>(`/xlr8/tickets/${id}/return-stages`),
   adminApprove: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment }),
-  adminDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-decline`, { comment }),
+  adminDecline: (id: number, comment?: string, target_stage_idx?: number | null) => api.post(`/xlr8/tickets/${id}/admin-decline`, { comment, target_stage_idx }),
   adminSendClient: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-send-client`, { comment }),
   clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),
+  closeTicket: (id: number) => api.post(`/xlr8/tickets/${id}/close`, {}),
 };
 
 export const regularisationApi = {

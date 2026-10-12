@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { GoogleAuth } from 'google-auth-library';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { visibleCompanyIds } from '../utils/companyAccess';
+import { seoVisibleCompanyIds, isSeoEmployee } from '../utils/companyAccess';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
@@ -72,10 +72,22 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    const ids = await visibleCompanyIds(db, role, userId);
+    const ids = await seoVisibleCompanyIds(db, role, userId);
     const q = db('client_companies').select('id', 'name', 'ga_property_id', 'gsc_site_url').orderBy('name');
     if (ids !== null) { if (!ids.length) { res.json([]); return; } q.whereIn('id', ids); }
     res.json(await q);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/seo/all-projects — every project with its GA4/GSC setup, A–Z (SEO employees' "All" tab)
+router.get('/all-projects', async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const { role, id: userId } = req.user!;
+    if (role !== 'admin' && !(await isSeoEmployee(db, role, userId))) { res.status(403).json({ error: 'Only SEO team members can see all projects' }); return; }
+    res.json(await db('projects').select('id', 'name', 'client_company_id', 'ga_property_id', 'gsc_site_url').orderBy('name'));
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
@@ -136,7 +148,7 @@ router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   }
   if (role !== 'admin') {
     const db = getDB();
-    const ids = await visibleCompanyIds(db, role, userId);
+    const ids = await seoVisibleCompanyIds(db, role, userId);
     if (ids !== null && !ids.map(String).includes(String(req.params.id))) {
       res.status(403).json({ error: 'Access denied' }); return;
     }
@@ -175,7 +187,7 @@ router.get('/report/:clientId', async (req: AuthRequest, res: Response) => {
         res.status(403).json({ error: 'Access denied' }); return;
       }
     } else if (role !== 'admin') {
-      const ids = await visibleCompanyIds(db, role, userId);
+      const ids = await seoVisibleCompanyIds(db, role, userId);
       if (ids !== null && !ids.map(String).includes(String(req.params.clientId))) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
@@ -515,7 +527,7 @@ router.put('/manual/:clientId', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     if (role !== 'admin') {
-      const ids = await visibleCompanyIds(db, role, userId);
+      const ids = await seoVisibleCompanyIds(db, role, userId);
       if (ids !== null && !ids.map(String).includes(String(req.params.clientId))) {
         res.status(403).json({ error: 'Access denied' }); return;
       }
@@ -715,16 +727,10 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       { name: 'sessions' }, { name: 'activeUsers' }, { name: 'newUsers' },
     ];
 
-    // Use stored manual comparison range, or auto-compute previous period (same as dashboard)
-    let compareStart = shareRow.compare_start || null;
-    let compareEnd   = shareRow.compare_end   || null;
-    if (!compareStart || !compareEnd) {
-      const diffDays = Math.round((new Date(ga4End!).getTime() - new Date(ga4Start!).getTime()) / 86400000) + 1;
-      const prevEndDate   = new Date(ga4Start!); prevEndDate.setDate(prevEndDate.getDate() - 1);
-      const prevStartDate = new Date(prevEndDate); prevStartDate.setDate(prevStartDate.getDate() - diffDays + 1);
-      compareStart = prevStartDate.toISOString().slice(0, 10);
-      compareEnd   = prevEndDate.toISOString().slice(0, 10);
-    }
+    // Compare only when the link was made with a comparison range; otherwise no up/down indicators at all
+    const compareStart = shareRow.compare_start || null;
+    const compareEnd   = shareRow.compare_end   || null;
+    const hasCompare = !!(compareStart && compareEnd);
 
     const [trafficRes, acquisitionRes, engagementRes, demoRes, gscRes, gscQueriesRes, prevEngagementRes, prevAcquisitionRes] = await Promise.allSettled([
       fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({
@@ -763,8 +769,8 @@ publicSeoRouter.get('/:token', async (req: Request, res: Response) => {
       siteUrl
         ? queryGSC(siteUrl, headers, gscStart!, gscEnd!, 'query')
         : Promise.resolve(null),
-      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json()),
-      fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json()),
+      hasCompare ? fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], metrics: engagementMetrics }) }).then((r) => r.json()) : Promise.resolve(null),
+      !hasCompare ? Promise.resolve(null) : fetch(ga4Base, { method: 'POST', headers, body: JSON.stringify({ dateRanges: [{ startDate: compareStart, endDate: compareEnd }], dimensions: [{ name: 'sessionDefaultChannelGrouping' }], metrics: [{ name: 'sessions' }, { name: 'activeUsers' }], orderBys: [{ metric: { metricName: 'sessions' }, desc: true }], limit: 10 }) }).then((r) => r.json()),
     ]);
 
     const eng = engagementRes.status === 'fulfilled' && engagementRes.value?.rows?.[0]?.metricValues

@@ -181,15 +181,59 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                 ))}
               </div>
 
-              {/* Manager approve/reject for pending_approval tasks */}
-              {task.status === 'pending_approval' && (user?.role === 'manager' || user?.role === 'admin') && (
+              {/* Approval request: who it's waiting on, or why it was sent back */}
+              {(() => {
+                const podLabel = (p: string) => p === 'pod1' ? 'Pod 1' : p === 'pod2' ? 'Pod 2' : p;
+                let waiting: string[] = [];
+                try { waiting = task.crosspod_pods ? JSON.parse(task.crosspod_pods) : []; } catch { waiting = []; }
+                let reasons: { pod: string; text: string }[] = [];
+                try { reasons = task.crosspod_reasons ? JSON.parse(task.crosspod_reasons) : []; } catch { reasons = []; }
+                if (waiting.length && task.status === 'pending_approval') return (
+                  <div style={{ marginTop: 16, fontSize: 12, color: '#92400e', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div><strong>Waiting for approval</strong> from the {waiting.map(podLabel).join(' & ')} manager. Nothing starts and assignees aren't notified until it's approved.</div>
+                    {reasons.length > 0 && (
+                      <ul style={{ margin: '8px 0 0', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {reasons.map((r, i) => {
+                          const pending = waiting.includes(r.pod);
+                          const mine = user?.role === 'manager' && user?.pod === r.pod;
+                          return (
+                            <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: pending ? '#92400e' : 'var(--ink-muted)' }}>
+                              <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 99, marginTop: 1, background: mine && pending ? '#b45309' : pending ? 'rgba(180,83,9,0.15)' : 'rgba(22,163,74,0.12)', color: mine && pending ? '#fff' : pending ? '#b45309' : 'var(--green)' }}>
+                                {mine && pending ? 'Your approval' : pending ? `${podLabel(r.pod)} manager` : `✓ ${podLabel(r.pod)} approved`}
+                              </span>
+                              <span style={{ textDecoration: pending ? 'none' : 'line-through' }}>{r.text}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                );
+                if (task.crosspod_note && task.status === 'draft') return (
+                  <div style={{ marginTop: 16, fontSize: 12, color: 'var(--red)', background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 8, padding: '10px 12px' }}>
+                    <strong>Request rejected</strong> — {task.crosspod_note}
+                    {task.created_by === user?.id && <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>Use <strong>Edit &amp; resend</strong> on this task in the Tasks list to fix it and send it again.</div>}
+                  </div>
+                );
+                return null;
+              })()}
+
+              {/* Manager approve/reject for pending_approval tasks — only someone who can decide sees the buttons */}
+              {task.status === 'pending_approval' && (user?.role === 'admin' || (user?.role === 'manager' && (() => {
+                try { return !task.crosspod_pods || (JSON.parse(task.crosspod_pods) as string[]).includes(user?.pod ?? ''); } catch { return true; }
+              })())) && (
                 <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                   <button
-                    onClick={async () => { await tasksApi.managerApprove(taskId, 'approve'); const r = await tasksApi.get(taskId); setTask(r.data); }}
+                    onClick={async () => { try { await tasksApi.managerApprove(taskId, 'approve'); } catch (e: any) { alert(e.response?.data?.error || 'Could not approve'); } const r = await tasksApi.get(taskId); setTask(r.data); }}
                     style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
                   >✓ Approve Task</button>
                   <button
-                    onClick={async () => { await tasksApi.managerApprove(taskId, 'reject'); const r = await tasksApi.get(taskId); setTask(r.data); }}
+                    onClick={async () => {
+                      let comment: string | undefined;
+                      if (task.crosspod_pods) { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
+                      try { await tasksApi.managerApprove(taskId, 'reject', comment); } catch (e: any) { alert(e.response?.data?.error || 'Could not reject'); }
+                      const r = await tasksApi.get(taskId); setTask(r.data);
+                    }}
                     style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: '1.5px solid var(--red)', background: 'transparent', color: 'var(--red)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
                   >✕ Reject</button>
                 </div>
