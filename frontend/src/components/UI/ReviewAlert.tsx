@@ -46,11 +46,13 @@ export function ReviewAlert({ task, role, reviewData, onLoad }: Props) {
           {links.map((d: any) => (
             <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: s.color, textDecoration: 'underline' }}>
               <Link2 size={11} /> {d.name || d.url}
+              {d.uploader_name && <span style={{ fontSize: 10, color: 'var(--ink-muted)', marginLeft: 4 }}>· {d.uploader_name}{d.stage_name ? ` (${d.stage_name})` : ''}</span>}
             </a>
           ))}
           {files.map((d: any) => (
             <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: s.color, textDecoration: 'underline' }}>
               <Paperclip size={11} /> {d.name}
+              {d.uploader_name && <span style={{ fontSize: 10, color: 'var(--ink-muted)', marginLeft: 4 }}>· {d.uploader_name}{d.stage_name ? ` (${d.stage_name})` : ''}</span>}
             </a>
           ))}
         </div>

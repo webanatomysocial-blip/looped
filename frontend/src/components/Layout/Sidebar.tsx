@@ -12,6 +12,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi, messagesApi } from '../../services/api';
 import { Role } from '../../types';
 import '../../css/Layout/Sidebar.css';
+import { passesCategoryGate } from '../../utils/pageAccess';
 
 type NavItem = { to: string; icon: React.ElementType; label: string };
 type NavGroup = { top: NavItem[]; more: NavItem[] };
@@ -165,6 +166,9 @@ export default function Sidebar() {
     top  = NAV[user.role].top;
     more = NAV[user.role].more;
   }
+  // Hide links the route guard would bounce (e.g. SEO for a non-SEO employee)
+  top  = top.filter(n => passesCategoryGate(user, n.to));
+  more = more.filter(n => passesCategoryGate(user, n.to));
   const initials = user.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 
   const renderItem = ({ to, icon: Icon, label }: NavItem) => {

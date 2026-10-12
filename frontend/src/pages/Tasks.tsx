@@ -58,6 +58,7 @@ function fmtHours(h: number): string {
 import Badge from '../components/UI/Badge';
 import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import IdCardModal from '../components/UI/IdCardModal';
+import AttachmentMeta from '../components/UI/AttachmentMeta';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
 import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi } from '../services/api';
@@ -1268,7 +1269,7 @@ export default function Tasks() {
                           const catEmployees = isReviewer ? [] : uniqUsers([
                             ...employees.filter(u =>
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
-                              (projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
+                              (u.role === 'employee' && projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
                             ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : []),
                           ]);
@@ -2076,7 +2077,10 @@ export default function Tasks() {
               {doneDeliverables.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: 'var(--bg-sand)', borderRadius: 8, border: '1px solid var(--sand-border)' }}>
                   {d.type === 'file' ? <Paperclip size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} /> : <Link2 size={13} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />}
-                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--ink)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <a href={d.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                    <AttachmentMeta d={d} />
+                  </div>
                   <ExternalLink size={11} style={{ color: 'var(--ink-muted)', flexShrink: 0 }} />
                   <button onClick={async () => { await tasksApi.deleteDeliverable(doneConfirmTask!.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'var(--ink-muted)' }}><Trash2 size={13} /></button>
                 </div>

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { canSeeSeo, canSeeAds } from './utils/pageAccess';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
@@ -36,14 +37,29 @@ import CalendarPage from './pages/Calendar';
 import RegularisationPage from './pages/Regularisation';
 
 function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; roles?: string[]; guard?: (user: any) => boolean }) {
-  const { user, loading } = useAuth();
+  const { user, loading, refreshUser } = useAuth();
   const location = useLocation();
+  // Path we re-checked against the server before denying (null = not checked yet)
+  const [recheckedFor, setRecheckedFor] = useState<string | null>(null);
+  // If user has explicit page_permissions, grant access even if role wouldn't normally allow it
+  const hasExplicitPermission = user?.page_permissions?.includes(location.pathname) ?? false;
+  const denied = !!user && (
+    (roles && !roles.includes(user.role) && !hasExplicitPermission) ||
+    (guard && !hasExplicitPermission && !guard(user))
+  );
+  // Access may have just been granted (new page permission or category) — fetch the
+  // latest user once before bouncing to the dashboard, instead of needing a page refresh
+  useEffect(() => {
+    if (denied && recheckedFor !== location.pathname) {
+      refreshUser().catch(() => {}).finally(() => setRecheckedFor(location.pathname));
+    }
+  }, [denied, location.pathname, recheckedFor]);
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  // If user has explicit page_permissions, grant access even if role wouldn't normally allow it
-  const hasExplicitPermission = user.page_permissions?.includes(location.pathname) ?? false;
-  if (roles && !roles.includes(user.role) && !hasExplicitPermission) return <Navigate to="/dashboard" replace />;
-  if (guard && !hasExplicitPermission && !guard(user)) return <Navigate to="/dashboard" replace />;
+  if (denied) {
+    if (recheckedFor !== location.pathname) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
+    return <Navigate to="/dashboard" replace />;
+  }
   return <>{children}</>;
 }
 
@@ -153,7 +169,7 @@ function AppRoutes() {
       <Route path="/seo" element={
         <PrivateRoute
           roles={['admin', 'manager', 'employee']}
-          guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /seo/i.test(c.name)) ?? false)}
+          guard={canSeeSeo}
         >
           <SEO />
         </PrivateRoute>
@@ -169,7 +185,7 @@ function AppRoutes() {
       <Route path="/ads" element={
         <PrivateRoute
           roles={['admin', 'manager', 'employee']}
-          guard={(u) => u.role !== 'employee' || (u.categories?.some((c: any) => /ads/i.test(c.name)) ?? false)}
+          guard={canSeeAds}
         >
           <Ads />
         </PrivateRoute>

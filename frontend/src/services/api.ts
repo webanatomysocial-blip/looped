@@ -294,7 +294,7 @@ export const xlr8Api = {
   reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean, target_stage_idx?: number | null) =>
     api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin, target_stage_idx }),
   returnStages: (id: number) => api.get<{ idx: number; name: string; assignee: string | null }[]>(`/xlr8/tickets/${id}/return-stages`),
-  adminApprove: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment }),
+  adminApprove: (id: number, comment?: string, skipClient?: boolean) => api.post(`/xlr8/tickets/${id}/admin-approve`, { comment, skip_client: skipClient }),
   adminDecline: (id: number, comment?: string, target_stage_idx?: number | null) => api.post(`/xlr8/tickets/${id}/admin-decline`, { comment, target_stage_idx }),
   adminSendClient: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/admin-send-client`, { comment }),
   clientApprove: (id: number) => api.post(`/xlr8/tickets/${id}/client-approve`),

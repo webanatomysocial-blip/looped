@@ -292,14 +292,14 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
 
     // Fetch latest rejection comment for XLR8 tasks sent back for rework (pending_assignee or in_progress after a decline)
     const reworkCandidateIds = allTasks.filter((t: any) => t.ticket_type_id && ['pending_assignee', 'in_progress'].includes(t.xlr8_status)).map((t: any) => t.id);
-    const rejectionLogs: Record<number, { actor: string; comment: string }> = {};
+    const rejectionLogs: Record<number, { actor: string; comment: string; to_stage: string | null }> = {};
     if (reworkCandidateIds.length) {
       const logs = await db('xlr8_ticket_log as l')
         .join('users as u', 'l.actor_id', 'u.id')
         .whereIn('l.task_id', reworkCandidateIds)
         .whereIn('l.action', ['manager_declined', 'admin_declined'])
         .orderBy('l.created_at', 'desc')
-        .select('l.task_id', 'l.comment', 'u.name as actor', 'l.created_at');
+        .select('l.task_id', 'l.comment', 'u.name as actor', 'l.created_at', 'l.from_stage_idx', 'l.to_stage_idx');
       // Only attach rejection_log if the decline happened AFTER the last approval/start
       // so we don't show stale rejections for tasks that have since progressed
       const lastProgressLogs = await db('xlr8_ticket_log as l')
@@ -311,12 +311,45 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       for (const r of lastProgressLogs) {
         if (!lastProgressAt[r.task_id]) lastProgressAt[r.task_id] = new Date(r.created_at).getTime();
       }
+      // This user's own work on each task — once they redo their stage, the rejection is handled
+      const myWorkLogs = await db('xlr8_ticket_log')
+        .whereIn('task_id', reworkCandidateIds)
+        .where('actor_id', userId)
+        .whereIn('action', ['work_done', 'employee_accepted'])
+        .select('task_id', 'created_at');
+      const myLastWorkAt: Record<number, number> = {};
+      for (const r of myWorkLogs) {
+        const at = new Date(r.created_at).getTime();
+        if (at > (myLastWorkAt[r.task_id] ?? 0)) myLastWorkAt[r.task_id] = at;
+      }
+      const taskById = new Map<number, any>(allTasks.map((t: any) => [t.id, t]));
+      // Name of the stage each decline sent the ticket back to, e.g. "Stage 1 (UI/UX Designer)"
+      const typeIds = [...new Set(allTasks.map((t: any) => t.ticket_type_id).filter(Boolean))];
+      const stagesByType: Record<number, any[]> = {};
+      for (const tt of typeIds.length ? await db('xlr8_ticket_types').whereIn('id', typeIds).select('id', 'stages') : []) {
+        try { stagesByType[tt.id] = typeof tt.stages === 'string' ? JSON.parse(tt.stages) : (tt.stages || []); } catch { stagesByType[tt.id] = []; }
+      }
+      const stageLabel = (typeId: number, idx: number | null) => {
+        if (idx == null) return null;
+        const st = stagesByType[typeId]?.[idx];
+        const name = st?.type === 'admin' ? 'Admin Review' : st?.category_name || (st?.reviewer ? 'Manager Review' : null);
+        return name ? `Stage ${idx + 1} (${name})` : `Stage ${idx + 1}`;
+      };
+      const seen = new Set<number>();
       for (const row of logs) {
-        if (!rejectionLogs[row.task_id]) {
-          const declineAt = new Date(row.created_at ?? 0).getTime();
-          const progressAt = lastProgressAt[row.task_id] ?? 0;
-          if (declineAt > progressAt) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment };
-        }
+        if (seen.has(row.task_id)) continue;
+        seen.add(row.task_id); // only the latest decline counts
+        const declineAt = new Date(row.created_at ?? 0).getTime();
+        const progressAt = lastProgressAt[row.task_id] ?? 0;
+        // Later stages that the decline sent back past also have to redo their work,
+        // so their assignee sees why the task is back until they submit again
+        const t = taskById.get(row.task_id);
+        const cur = t?.xlr8_stage_idx;
+        const redoneDownstream = t?.xlr8_assignee_id === userId && cur != null &&
+          row.to_stage_idx != null && row.from_stage_idx != null &&
+          cur > row.to_stage_idx && cur <= row.from_stage_idx &&
+          (myLastWorkAt[row.task_id] ?? 0) < declineAt;
+        if (declineAt > progressAt || redoneDownstream) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment, to_stage: stageLabel(t?.ticket_type_id, row.to_stage_idx) };
       }
     }
 

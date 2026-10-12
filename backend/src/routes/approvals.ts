@@ -227,7 +227,15 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const approvals = await query.orderBy('ap.created_at', 'desc');
+    // XLR8 tickets get a new approval row on every resubmission; show one card per ticket
+    // (its stage flow already lists every rejection), keeping the latest row
+    const seenXlr8 = new Set<number>();
+    const approvals = (await query.orderBy('ap.created_at', 'desc').orderBy('ap.id', 'desc')).filter((a: any) => {
+      if (a.workflow_type !== 'xlr8') return true;
+      if (seenXlr8.has(a.task_id)) return false;
+      seenXlr8.add(a.task_id);
+      return true;
+    });
 
     // Attach the approval flow chain for custom-workflow approvals
     const customIds = approvals.filter((a: any) => a.workflow_type === 'custom').map((a: any) => a.task_id);

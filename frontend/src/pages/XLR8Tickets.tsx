@@ -8,6 +8,7 @@ import {
   RiAddLine, RiTimeLine, RiCheckLine, RiUserLine, RiLoader4Line, RiArrowRightLine,
   RiCloseLine, RiCheckboxCircleLine, RiAttachmentLine, RiLinkM, RiExternalLinkLine,
 } from 'react-icons/ri';
+import AttachmentMeta from '../components/UI/AttachmentMeta';
 
 interface Stage { category_id: number; category_name: string }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
@@ -524,7 +525,10 @@ export default function XLR8Tickets() {
                           {d.type === 'file'
                             ? <RiAttachmentLine style={{ fontSize: 13, color: 'var(--ink-muted)', flexShrink: 0 }} />
                             : <RiLinkM style={{ fontSize: 13, color: 'var(--ink-muted)', flexShrink: 0 }} />}
-                          <span style={{ fontSize: 12, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: 'block', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                            <AttachmentMeta d={d} />
+                          </span>
                           <RiExternalLinkLine style={{ fontSize: 11, color: 'var(--ink-muted)', flexShrink: 0 }} />
                         </a>
                       ))}
@@ -634,7 +638,10 @@ export default function XLR8Tickets() {
               {doneDeliverables.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                   <span style={{ fontSize: 11, color: '#64748b' }}>{d.type === 'file' ? '📎' : '🔗'}</span>
-                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <a href={d.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                    <AttachmentMeta d={d} />
+                  </div>
                   <button onClick={async () => { await tasksApi.deleteDeliverable(selected.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>×</button>
                 </div>
               ))}

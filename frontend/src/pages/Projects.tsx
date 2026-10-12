@@ -84,6 +84,7 @@ export default function Projects() {
   // Member picker tabs
   const [memberTab, setMemberTab] = useState<MemberTab>('admins');
   const [empSubTab, setEmpSubTab] = useState<string>('all');
+  const [empPod, setEmpPod] = useState<'all' | 'pod1' | 'pod2'>('all');
 
   const [form, setForm] = useState({
     name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [] as number[],
@@ -280,10 +281,17 @@ export default function Projects() {
     if (memberTab === 'admins')   return users.filter((u) => u.role === 'admin');
     if (memberTab === 'managers') return users.filter((u) => u.role === 'manager');
     // Manager sees only their pod's employees; admin sees all
-    const emps = users.filter((u) => u.role === 'employee' && (user?.role !== 'manager' || !user?.pod || u.pod === user.pod));
+    const emps = users.filter((u) => u.role === 'employee' && (user?.role !== 'manager' || !user?.pod || u.pod === user.pod)
+      && (empPod === 'all' || u.pod === empPod));
     if (empSubTab === 'all') return emps;
     return emps.filter((u) => u.categories?.some((c) => String(c.id) === empSubTab));
   };
+
+  // Pod filter is only useful when the viewer can see more than one pod's employees
+  const showPodFilter = !(user?.role === 'manager' && user?.pod);
+  const podCount = (p: 'all' | 'pod1' | 'pod2') =>
+    users.filter((u) => u.role === 'employee' && (p === 'all' || u.pod === p)
+      && (empSubTab === 'all' || u.categories?.some((c) => String(c.id) === empSubTab))).length;
 
   const empCategories = categories.filter((cat) =>
     users.some((u) => u.role === 'employee'
@@ -504,6 +512,7 @@ export default function Projects() {
                 <tr>
                   <th className="proj-th">Project</th>
                   <th className="proj-th">Client</th>
+                  <th className="proj-th">Pod</th>
                   <th className="proj-th">Type</th>
                   <th className="proj-th">Stage</th>
                   {user?.role === 'admin' && <th className="proj-th">Health</th>}
@@ -533,6 +542,13 @@ export default function Projects() {
                       </td>
                       <td className="proj-td proj-client">
                         {project.client_name || '—'}
+                      </td>
+                      <td className="proj-td">
+                        {project.pod ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap', background: project.pod === 'pod1' ? 'rgba(14,165,233,0.1)' : 'rgba(234,88,12,0.1)', color: project.pod === 'pod1' ? '#0369a1' : '#c2410c' }}>
+                            {project.pod === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                          </span>
+                        ) : <span style={{ color: 'var(--ink-muted)' }}>—</span>}
                       </td>
                       <td className="proj-td">
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: project.service_type === 'xlr8' ? 'rgba(99,102,241,0.1)' : 'rgba(0,0,0,0.06)', color: project.service_type === 'xlr8' ? '#4f46e5' : 'var(--ink-muted)' }}>
@@ -913,7 +929,7 @@ export default function Projects() {
                         return (
                           <button key={tab} type="button"
                             className={`member-role-tab${memberTab === tab ? ' active' : ''}`}
-                            onClick={() => { setMemberTab(tab); setEmpSubTab('all'); }}
+                            onClick={() => { setMemberTab(tab); setEmpSubTab('all'); setEmpPod('all'); }}
                             style={lockedForManager ? { opacity: 0.5, cursor: 'default', pointerEvents: 'none' } : {}}>
                             {tab.charAt(0).toUpperCase() + tab.slice(1)}
                             {sel > 0 && <span className="member-role-tab__badge">{sel}</span>}
@@ -922,6 +938,15 @@ export default function Projects() {
                         );
                       })}
                     </div>
+                    {memberTab === 'employees' && showPodFilter && (
+                      <div className="member-cat-tabs" style={{ marginTop: 6 }}>
+                        {(['all', 'pod1', 'pod2'] as const).map((p) => (
+                          <button key={p} type="button" className={`member-cat-tab${empPod === p ? ' active' : ''}`} onClick={() => setEmpPod(p)}>
+                            {p === 'all' ? 'All pods' : p === 'pod1' ? 'Pod 1' : 'Pod 2'} ({podCount(p)})
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {memberTab === 'employees' && empCategories.length > 0 && (
                       <div className="member-cat-tabs" style={{ marginTop: 6 }}>
                         <button type="button" className={`member-cat-tab${empSubTab === 'all' ? ' active' : ''}`} onClick={() => setEmpSubTab('all')}>All</button>

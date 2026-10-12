@@ -406,6 +406,8 @@ router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response
       }
     }
 
+    // Role/category/pod drive page access — refresh the user's open sessions
+    io.to(`user:${req.params.id}`).emit('permissions_updated');
     res.json({ message: 'Updated' });
   } catch {
     res.status(500).json({ error: 'Server error' });

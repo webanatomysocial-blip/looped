@@ -137,9 +137,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         [userId, userId]
       );
     } else if (role === 'client') {
-      query = query
-        .join('project_members as pm', 'p.id', 'pm.project_id')
-        .where('pm.user_id', userId);
+      // Same scope as the client's project list: their company's projects plus direct memberships
+      const clientUser = await db('users').where({ id: userId }).select('client_company_id').first();
+      const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
+      query = query.where(function (this: any) {
+        this.whereIn('t.project_id', memberProjectIds);
+        if (clientUser?.client_company_id) this.orWhere('p.client_company_id', clientUser.client_company_id);
+      });
     }
 
     const tasks = await query.orderBy('t.created_at', 'desc');
@@ -961,6 +965,32 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
 
 // ── Deliverables (files + links attached at done) ────────────────────────────
 
+// Label each attachment with the XLR8 stage it was added on, e.g. "UI/UX Designer"
+async function labelDeliverables(db: any, taskId: any, rows: any[]) {
+  const task = await db('tasks').where({ id: taskId }).select('ticket_type_id').first();
+  let stages: any[] = [];
+  if (task?.ticket_type_id) {
+    const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).select('stages').first();
+    try { stages = typeof tt?.stages === 'string' ? JSON.parse(tt.stages) : (tt?.stages || []); } catch { stages = []; }
+  }
+  const userStages: Record<number, number[]> = {};
+  if (stages.length) {
+    const assignees = await db('task_assignees').where({ task_id: taskId }).whereNotNull('stage_idx').select('user_id', 'stage_idx');
+    for (const a of assignees) (userStages[a.user_id] ||= []).push(a.stage_idx);
+  }
+  const stageName = (idx: number) => {
+    const st = stages[idx];
+    if (!st) return null;
+    return st.type === 'admin' ? 'Admin Review' : st.category_name || (st.reviewer ? 'Manager Review' : `Stage ${idx + 1}`);
+  };
+  return rows.map((r: any) => {
+    // Older rows have no stage_idx: use the uploader's stage when they only work one stage on this ticket
+    const own = userStages[r.uploaded_by] || [];
+    const idx = r.stage_idx ?? (own.length === 1 ? own[0] : null);
+    return { ...r, stage_idx: idx, stage_name: idx != null ? stageName(idx) : null };
+  });
+}
+
 router.get('/:id/deliverables', async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const rows = await db('task_deliverables as d')
@@ -968,35 +998,40 @@ router.get('/:id/deliverables', async (req: AuthRequest, res: Response) => {
     .where('d.task_id', req.params.id)
     .select('d.*', 'u.name as uploader_name')
     .orderBy('d.created_at', 'asc');
-  res.json(rows);
+
+  res.json(await labelDeliverables(db, req.params.id, rows));
 });
 
 router.post('/:id/deliverables/link', async (req: AuthRequest, res: Response) => {
   const { url, name } = req.body;
   if (!url) { res.status(400).json({ error: 'url required' }); return; }
   const db = getDB();
+  const stage = await db('tasks').where({ id: req.params.id }).select('ticket_type_id', 'xlr8_stage_idx').first();
   const [id] = await db('task_deliverables').insert({
     task_id: req.params.id,
     uploaded_by: req.user!.id,
+    stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null,
     type: 'link',
     name: name || url,
     url,
   });
-  res.json({ id, type: 'link', name: name || url, url });
+  res.json((await labelDeliverables(db, req.params.id, [{ id, type: 'link', name: name || url, url, uploaded_by: req.user!.id, uploader_name: req.user!.name, stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null }]))[0]);
 });
 
 router.post('/:id/deliverables/file', deliverableUpload.single('file'), async (req: AuthRequest, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'file required' }); return; }
   const db = getDB();
   const url = `/uploads/deliverables/${req.file.filename}`;
+  const stage = await db('tasks').where({ id: req.params.id }).select('ticket_type_id', 'xlr8_stage_idx').first();
   const [id] = await db('task_deliverables').insert({
     task_id: req.params.id,
     uploaded_by: req.user!.id,
+    stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null,
     type: 'file',
     name: req.file.originalname,
     url,
   });
-  res.json({ id, type: 'file', name: req.file.originalname, url });
+  res.json((await labelDeliverables(db, req.params.id, [{ id, type: 'file', name: req.file.originalname, url, uploaded_by: req.user!.id, uploader_name: req.user!.name, stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null }]))[0]);
 });
 
 router.delete('/:taskId/deliverables/:id', async (req: AuthRequest, res: Response) => {
@@ -1137,7 +1172,9 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
     const deliverables = await db('task_deliverables as d')
       .leftJoin('users as u', 'd.uploaded_by', 'u.id')
       .where({ 'd.task_id': row.task_id })
-      .select('d.*', 'u.name as uploader_name');
+      .select('d.*', 'u.name as uploader_name')
+      .orderBy('d.created_at', 'asc')
+      .then((rows: any[]) => labelDeliverables(db, row.task_id, rows));
 
     let activity_log: any[] = [];
     if (task.ticket_type_id) {

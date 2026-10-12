@@ -19,9 +19,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // scope=all: task-creation picker lists every project; other-pod choices go through cross-pod approval
     const allScope = req.query.scope === 'all' && role !== 'client';
     if (role === 'client') {
-      query = query
-        .join('project_members as pm', 'p.id', 'pm.project_id')
-        .where('pm.user_id', userId);
+      // Clients see their company's projects, plus any they were added to directly
+      const clientUser = await db('users').where({ id: userId }).select('client_company_id').first();
+      const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
+      query = query.where(function (this: any) {
+        this.whereIn('p.id', memberProjectIds);
+        if (clientUser?.client_company_id) this.orWhere('p.client_company_id', clientUser.client_company_id);
+      });
     } else if (allScope) {
       // no pod/membership filter
     } else if (role === 'employee') {
@@ -371,6 +375,7 @@ router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Respo
     await db('approvals').where({ project_id: pid }).delete();
     await db('assets').where({ project_id: pid }).update({ project_id: null });
     await db('messages').where({ project_id: pid }).delete();
+    await db('notifications').where({ project_id: pid }).delete();
     await db('project_members').where({ project_id: pid }).delete();
     await db('projects').where({ id: pid }).delete();
 

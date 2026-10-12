@@ -259,7 +259,15 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                     {deliverables.map((d: any) => (
                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
                         {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
-                        <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                          {(d.uploader_name || d.stage_name) && (
+                            <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginTop: 2 }}>
+                              {d.uploader_name && <>Added by <strong style={{ fontWeight: 600 }}>{d.uploader_name}</strong></>}
+                              {d.stage_name && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.1)', color: '#4f46e5', fontWeight: 600 }}>{d.stage_name}</span>}
+                            </div>
+                          )}
+                        </div>
                         <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
                         <button onClick={() => removeDeliverable(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, flexShrink: 0 }}>
                           <Trash2 size={11} color="#ef4444" />
@@ -314,7 +322,15 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
                     {deliverables.map((d: any) => (
                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
                         {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
-                        <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                          {(d.uploader_name || d.stage_name) && (
+                            <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginTop: 2 }}>
+                              {d.uploader_name && <>Added by <strong style={{ fontWeight: 600 }}>{d.uploader_name}</strong></>}
+                              {d.stage_name && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 4, background: 'rgba(99,102,241,0.1)', color: '#4f46e5', fontWeight: 600 }}>{d.stage_name}</span>}
+                            </div>
+                          )}
+                        </div>
                         <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
                         <button onClick={() => removeDeliverable(d.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}><Trash2 size={11} color="#ef4444" /></button>
                       </div>

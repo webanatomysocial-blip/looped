@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api, regularisationApi } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
+import AttachmentMeta from '../components/UI/AttachmentMeta';
 
 
 
@@ -500,7 +501,7 @@ export default function Home() {
                 {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
                 {task.rejection_log && (
                   <span style={{ marginLeft: 8, fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>
-                    Returned by {task.rejection_log.actor}
+                    Returned by {task.rejection_log.actor}{task.rejection_log.to_stage ? ` to ${task.rejection_log.to_stage}` : ''}
                   </span>
                 )}
               </div>
@@ -595,7 +596,7 @@ export default function Home() {
                         <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{task.title}</span>
                         {task.rejection_log && (
                           <span style={{ fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 4, padding: '1px 7px', fontWeight: 600, flexShrink: 0 }}>
-                            Returned by {task.rejection_log.actor}
+                            Returned by {task.rejection_log.actor}{task.rejection_log.to_stage ? ` to ${task.rejection_log.to_stage}` : ''}
                           </span>
                         )}
                         {task.xlr8_status && task.xlr8_status !== 'pending_assignee' && (
@@ -1215,7 +1216,10 @@ export default function Home() {
               {doneDeliverables.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8f7f4', borderRadius: 8, border: '1px solid #e8e3da' }}>
                   <span style={{ fontSize: 11 }}>{d.type === 'file' ? '📎' : '🔗'}</span>
-                  <a href={d.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#1a1a1a', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <a href={d.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                    <AttachmentMeta d={d} />
+                  </div>
                   <button onClick={async () => { await tasksApi.deleteDeliverable(doneConfirmTask!.id, d.id); setDoneDeliverables(prev => prev.filter(x => x.id !== d.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 16 }}>×</button>
                 </div>
               ))}

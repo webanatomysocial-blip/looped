@@ -904,7 +904,10 @@ router.post('/tickets/:id/admin-approve', async (req: AuthRequest, res: Response
 
   // Final admin approval
   const approval = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['rejected']).first();
-  if (finalApproval.clientOptional) {
+  // Admin chose "Skip Client" — complete now instead of sending for client review
+  const skipClient = req.body.skip_client === true;
+  if (skipClient) await appendLog(ticket.id, req.user!, 'admin_skip_client', 'pending_admin', 'completed', req.body.comment);
+  if (finalApproval.clientOptional && !skipClient) {
     await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_client' });
     if (approval) await db('approvals').where({ id: approval.id }).update({ status: 'pending_client', workflow_type: 'xlr8', admin_approved_by: req.user!.id, admin_approved_at: new Date() });
     const clientUsers = await db('users as u')
@@ -1098,9 +1101,17 @@ export async function advanceToStage(
       const nextTaskStatus = alreadyAccepted ? 'in_progress' : 'todo';
       await db('tasks').where({ id: ticket.id }).update({ xlr8_status: nextXlr8Status, xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: nextTaskStatus });
       await appendLog(ticket.id, actor, 'next_stage', fromState, nextXlr8Status, `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
-      const notifMsg = alreadyAccepted
-        ? `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active`
-        : `Ticket "${ticket.title}" has been assigned to you`;
+      // Back here because a later decline sent the ticket to an earlier stage?
+      const decline = await db('xlr8_ticket_log')
+        .where({ task_id: ticket.id }).whereIn('action', ['manager_declined', 'admin_declined'])
+        .orderBy('created_at', 'desc').first();
+      const isRework = decline && decline.to_stage_idx != null && decline.from_stage_idx != null &&
+        targetIdx > decline.to_stage_idx && targetIdx <= decline.from_stage_idx;
+      const notifMsg = isRework
+        ? `Ticket "${ticket.title}" is back with you for rework — ${decline.actor_name} sent it back${decline.comment ? `: "${decline.comment}"` : ''}`
+        : alreadyAccepted
+          ? `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active`
+          : `Ticket "${ticket.title}" has been assigned to you`;
       await createNotification(pre.user_id!, notifMsg, 'task', ticket.project_id);
       // Reschedule the new stage assignee
       import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(pre.user_id!, db)).catch(() => {});

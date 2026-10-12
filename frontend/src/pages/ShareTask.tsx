@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { assigneeChip } from '../components/UI/assigneeChip';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import AttachmentMeta from '../components/UI/AttachmentMeta';
 
 const API = '/api';
 
@@ -375,7 +376,10 @@ export default function ShareTask() {
                   {deliverables.map((d: any) => (
                     <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.06)', textDecoration: 'none', color: '#1a1a1a', fontSize: 13, fontWeight: 500 }}>
                       <span style={{ fontSize: 16 }}>{d.type === 'file' ? '📎' : '🔗'}</span>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || d.url}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || d.url}</span>
+                        <AttachmentMeta d={d} />
+                      </span>
                       <span style={{ fontSize: 10, color: '#78716c' }}>↗</span>
                     </a>
                   ))}

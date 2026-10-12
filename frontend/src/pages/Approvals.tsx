@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { approvalsApi, tasksApi, xlr8Api } from '../services/api';
 import { Approval, ApprovalStatus, ApprovalStep, WorkflowType, ChecklistItem } from '../types';
 import '../css/pages/Approvals.css';
+import AttachmentMeta from '../components/UI/AttachmentMeta';
 
 // ─── State machine definition (mirrors backend) ───────────────────────────────
 
@@ -322,7 +323,8 @@ export default function Approvals() {
           if (action === 'reject') {
             await xlr8Api.adminDecline(tid, notes || undefined, returnIdx);
           } else if (skipType === 'send_client') {
-            await xlr8Api.adminSendClient(tid, notes || undefined);
+            // "Skip Client": approve and complete without client review
+            await xlr8Api.adminApprove(tid, notes || undefined, true);
           } else {
             await xlr8Api.adminApprove(tid, notes || undefined);
           }
@@ -607,7 +609,10 @@ export default function Approvals() {
                                     {deliverables.map((d: any) => (
                                       <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
                                         {d.type === 'file' ? <Paperclip size={13} color="var(--ink-muted)" /> : <Link2 size={13} color="var(--ink-muted)" />}
-                                        <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--ink)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
+                                          <AttachmentMeta d={d} />
+                                        </div>
                                         <ExternalLink size={11} color="var(--ink-muted)" style={{ flexShrink: 0 }} />
                                       </div>
                                     ))}

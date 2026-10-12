@@ -1472,6 +1472,10 @@ async function createSchema(): Promise<void> {
         t.timestamps(true, true);
       });
     }
+    // XLR8 stage the ticket was on when this was attached (null for plain tasks / older rows)
+    if (!(await db.schema.hasColumn('task_deliverables', 'stage_idx'))) {
+      await db.schema.table('task_deliverables', (t) => t.integer('stage_idx').nullable());
+    }
   });
 
   // message_reads — last-seen timestamp per user per chat (internal) and per project (client messages)
@@ -1593,16 +1597,6 @@ async function createSchema(): Promise<void> {
       });
     }
   });
-
-  // Fix stale XLR8 rejections: approvals stuck as work_in_progress with no active pending state
-  // (from old rejection code that set work_in_progress instead of rejected)
-  const staleApIds = await db('approvals as ap')
-    .join('tasks as t', 't.id', 'ap.task_id')
-    .where('ap.status', 'work_in_progress')
-    .where('ap.workflow_type', 'xlr8')
-    .whereNotIn('t.xlr8_status', ['pending_manager', 'pending_admin', 'pending_client'])
-    .pluck('ap.id');
-  if (staleApIds.length) await db('approvals').whereIn('id', staleApIds).update({ status: 'rejected' });
 
   // Fix XLR8 tasks where initial manager approval didn't trigger advanceToStage
   // (old manager-approve route just set status='todo' but left xlr8_status='pending_approval')
