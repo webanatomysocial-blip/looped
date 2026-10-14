@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SendBackStagePicker from '../components/UI/SendBackStagePicker';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
 function parseTs(s: any): Date {
@@ -61,7 +62,7 @@ import IdCardModal from '../components/UI/IdCardModal';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
 import Drawer from '../components/UI/Drawer';
 import { useAuth } from '../contexts/AuthContext';
-import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi } from '../services/api';
+import { tasksApi, projectsApi, usersApi, approvalsApi, capacityApi, xlr8Api, calendarApi, categoriesApi } from '../services/api';
 import { Task, Project, User } from '../types';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import CustomStagesModal, { CustomStages } from '../components/UI/CustomStagesModal';
@@ -76,6 +77,8 @@ import '../css/pages/Tasks.css';
 export default function Tasks() {
   const { user } = useAuth();
   const [tasks, setTasks]       = useState<Task[]>([]);
+  const location = useLocation();
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   // Every project, for the create form; picking another pod's project needs that pod manager's approval
   const [allProjects, setAllProjects] = useState<Project[]>([]);
@@ -131,6 +134,34 @@ export default function Tasks() {
   const [stageAssignments, setStageAssignments] = useState<Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; is_reviewer?: boolean; cross_pod?: boolean; checklist?: CheckItem[]; skip_checklist?: boolean }>>({});
   const [stageChecklistOpen, setStageChecklistOpen] = useState<Record<number, boolean>>({});
   const [stageSearchOpen, setStageSearchOpen] = useState<Record<number, boolean>>({});
+  // Inline "+ add stage" between stages: which gap is open, and the category picked there
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [insertCat, setInsertCat] = useState('');
+  // Insert a stage at position `at`. The ticket switches to its own copy of the stages
+  // (the ticket type template is untouched); picks for later stages move down with them.
+  const insertStage = (at: number, catValue: string) => {
+    const tt = ticketTypes.find(t => String(t.id) === String(form.ticket_type_id));
+    if (!tt) return;
+    const cat = categories.find(c => String(c.id) === catValue);
+    const stage = catValue === 'admin' ? { type: 'admin' as const }
+      : cat ? { type: 'employee' as const, category_id: cat.id, category_name: cat.name } : null;
+    if (!stage) return;
+    const stages = [...tt.stages.slice(0, at), stage, ...tt.stages.slice(at)];
+    setFormCustomStages({
+      name: tt.is_custom ? tt.name : `${tt.name} (edited)`,
+      stages,
+      final_approval: { adminRequired: true, adminSkippable: true, clientOptional: true, ...(tt.final_approval || {}) },
+    });
+    const shift = <T,>(rec: Record<number, T>): Record<number, T> =>
+      Object.fromEntries(Object.entries(rec).map(([k, v]) => [Number(k) >= at ? Number(k) + 1 : Number(k), v]));
+    setStageAssignments(prev => shift(prev));
+    setStageChecklistOpen(prev => shift(prev));
+    setStageSearchOpen(prev => shift(prev));
+    setForm(f => ({ ...f, ticket_type_id: String(CUSTOM_TYPE_ID) }));
+    setInsertAt(null);
+    setInsertCat('');
+  };
   const [stageSearchTerm, setStageSearchTerm] = useState<Record<number, string>>({});
   // XLR8 ticket workflow modal
   const [ticketActionTask, setTicketActionTask] = useState<any>(null);
@@ -168,6 +199,7 @@ export default function Tasks() {
 
   useEffect(() => {
     if (canCreate) xlr8Api.getTicketTypes().then((r) => setTicketTypes(r.data)).catch(() => {});
+    if (canCreate) categoriesApi.list().then((r) => setCategories(r.data || [])).catch(() => {});
   }, [canCreate]);
 
   useEffect(() => {
@@ -486,7 +518,9 @@ export default function Tasks() {
           const m = sa.est_hours ? Math.round((Number(sa.est_hours) % 1) * 60) : 0;
           saMap[idx] = { user_ids: [], est_hours: h > 0 ? String(h) : '', est_minutes: m > 0 ? String(m) : '0' };
         }
-        if (sa.user_id != null && saMap[idx].user_ids.length === 0) saMap[idx].user_ids.push(sa.user_id);
+        // Someone who declined isn't pre-filled: the stage opens empty so the manager picks who goes there
+        // (re-picking the same person asks them again)
+        if (sa.user_id != null && sa.acceptance_status !== 'declined' && saMap[idx].user_ids.length === 0) saMap[idx].user_ids.push(sa.user_id);
       }
       setEditStageAssignments(saMap);
     } catch { setEditChecklist([]); }
@@ -496,6 +530,15 @@ export default function Tasks() {
       try { const r = await xlr8Api.getTicketLog(task.id); setTaskLog(r.data); } catch { /* ignore */ }
     }
   };
+
+  // Dashboard "Reassign" sends us here with the task to fix; open its edit form once tasks load
+  useEffect(() => {
+    const id = (location.state as any)?.reassignTaskId;
+    if (!id || !tasks.length) return;
+    const t = tasks.find(x => Number(x.id) === Number(id));
+    navigate(location.pathname, { replace: true, state: null });
+    if (t) openEdit(t);
+  }, [tasks, location.state]);
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1225,6 +1268,38 @@ export default function Tasks() {
                     });
                   };
 
+                  // "+" between stages; opens a category picker for a new stage at that position
+                  const inserter = (at: number) => insertAt === at ? (
+                    <div key={`ins-${at}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px dashed var(--sand-border)', background: 'var(--surface)' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>New stage {at + 1}</span>
+                      <select className="form-input" autoFocus value={insertCat} onChange={e => setInsertCat(e.target.value)}
+                        aria-label={`Category for new stage ${at + 1}`} style={{ flex: 1, fontSize: 12, marginBottom: 0, padding: '4px 8px' }}>
+                        <option value="">Pick a category…</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value="admin">Admin Review</option>
+                      </select>
+                      <button type="button" disabled={!insertCat} onClick={() => insertStage(at, insertCat)}
+                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', background: insertCat ? 'var(--ink)' : 'var(--sand-border)', color: '#fff', cursor: insertCat ? 'pointer' : 'default' }}>
+                        Add
+                      </button>
+                      <button type="button" onClick={() => { setInsertAt(null); setInsertCat(''); }}
+                        style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--sand-border)', background: 'none', cursor: 'pointer', color: 'var(--ink-muted)' }}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div key={`ins-${at}`} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '-4px 0' }}>
+                      <div style={{ flex: 1, height: 1, background: 'var(--sand-border)' }} />
+                      <button type="button" onClick={() => { setInsertAt(at); setInsertCat(''); }}
+                        title={at === tt.stages.length ? 'Add a stage at the end' : `Add a stage before stage ${at + 1}`}
+                        aria-label={at === tt.stages.length ? 'Add a stage at the end' : `Add a stage before stage ${at + 1}`}
+                        style={{ width: 22, height: 22, borderRadius: 99, border: '1px solid var(--sand-border)', background: 'var(--surface)', color: 'var(--ink-muted)', cursor: 'pointer', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                        +
+                      </button>
+                      <div style={{ flex: 1, height: 1, background: 'var(--sand-border)' }} />
+                    </div>
+                  );
+
                   return (
                     <div className="drawer-section">
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -1271,7 +1346,7 @@ export default function Tasks() {
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (u.role === 'employee' && projectMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
-                            ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : []),
+                            ...(((s.category_name || '').trim().toLowerCase() === 'manager') ? podManagers : []),
                           ]);
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')
@@ -1289,7 +1364,9 @@ export default function Tasks() {
                           const isSkipped = !!sa.skipped;
                           const showReviewBadge = (isReviewer || isEmpReviewer || sa.is_reviewer) && !isSkipped;
                           return (
-                            <div key={idx} style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${isSkipped ? '#d1d5db' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(0,0,0,0.02)' : bgColor, opacity: isSkipped ? 0.55 : 1, transition: 'opacity 0.15s' }}>
+                            <React.Fragment key={idx}>
+                            {idx > 0 && inserter(idx)}
+                            <div style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${isSkipped ? '#d1d5db' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(0,0,0,0.02)' : bgColor, opacity: isSkipped ? 0.55 : 1, transition: 'opacity 0.15s' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isSkipped ? 0 : 8 }}>
                                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', width: 18, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
                                 <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: isSkipped ? 'var(--ink-muted)' : labelColor, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1407,7 +1484,7 @@ export default function Tasks() {
                                       <button type="button" onClick={() => { setStageSearchOpen(prev => ({ ...prev, [idx]: false })); setStageSearchTerm(prev => ({ ...prev, [idx]: '' })); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--ink-muted)' }}>Close</button>
                                     </div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                      {stageSearchTerm[idx] && uniqUsers([...users.filter(u => ['employee', 'manager'].includes(u.role)), ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers : [])])
+                                      {stageSearchTerm[idx] && uniqUsers([...users.filter(u => ['employee', 'manager'].includes(u.role)), ...(((s.category_name || '').trim().toLowerCase() === 'manager') ? podManagers : [])])
                                         .filter(u => u.name.toLowerCase().includes(stageSearchTerm[idx].toLowerCase()))
                                         .filter(u => !sa.user_ids.includes(u.id))
                                         .map(u => (
@@ -1432,9 +1509,13 @@ export default function Tasks() {
                                 {pool.length === 0 && isReviewer && <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Any {isAdmin ? 'admin' : 'manager'} can review</span>}
                               </div>}
                             </div>
-                            
+                            </React.Fragment>
                           );
                         })}
+                        {inserter(tt.stages.length)}
+                        {insertAt != null && user?.role === 'employee' && (
+                          <div style={{ fontSize: 11, color: '#92400e' }}>Tickets with edited stages go to your pod manager for approval first.</div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1784,7 +1865,7 @@ export default function Tasks() {
                               u.categories?.some((c: any) => c.name.toLowerCase() === (s.category_name || '').toLowerCase()) ||
                               (editProjMemberIds.has(u.id) && (!u.categories || u.categories.length === 0))
                             ),
-                            ...(((s.category_name || '').toLowerCase().includes('manager')) ? podManagers2 : []),
+                            ...(((s.category_name || '').trim().toLowerCase() === 'manager') ? podManagers2 : []),
                           ]);
                           const reviewPool = isAdmin
                             ? users.filter(u => u.role === 'admin')

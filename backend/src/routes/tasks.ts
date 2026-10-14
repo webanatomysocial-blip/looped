@@ -2,7 +2,7 @@ import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
-import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused } from './xlr8';
+import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
 async function pauseActiveSession(db: any, userId: number): Promise<void> {
@@ -384,6 +384,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     if (managerId && managerId !== req.user!.id) {
       await createNotification(managerId, `You are managing task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
     }
+    if (workerId) await notifyAdminCrossPod(db, req.user!, { title, project_id }, projectRow ?? {}, [{ user_id: workerId }]);
 
     res.status(201).json({ id, warnings });
 

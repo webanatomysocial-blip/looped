@@ -166,6 +166,31 @@ export async function approvalReasons(
   return out;
 }
 
+// Admins skip cross-pod approval, but the other pod's manager should still hear that their
+// people were put on another pod's project. FYI only — the task is not held.
+export async function notifyAdminCrossPod(
+  db: any, actor: { id: number; name: string; role: string },
+  task: { title: string; project_id: number },
+  project: { name?: string; pod?: string | null },
+  assignments: { user_id: number; stage_idx?: number | null; stage_name?: string }[],
+) {
+  if (actor.role !== 'admin' || !project.pod) return;
+  const ids = [...new Set(assignments.map((a) => a.user_id).filter(Boolean))];
+  if (!ids.length) return;
+  const users = await db('users').whereIn('id', ids).whereIn('role', ['employee', 'manager']).whereNotNull('pod').whereNot('pod', project.pod).select('id', 'name', 'pod');
+  const byPod: Record<string, string[]> = {};
+  for (const u of users) {
+    const where = assignments.filter((a) => a.user_id === u.id && a.stage_idx != null)
+      .map((a) => `stage ${Number(a.stage_idx) + 1}${a.stage_name ? ` (${a.stage_name})` : ''}`);
+    (byPod[u.pod] ||= []).push(`${u.name}${where.length ? ` to ${where.join(', ')}` : ''}`);
+  }
+  for (const [pod, people] of Object.entries(byPod)) {
+    const mgrs = await db('users').where({ role: 'manager', pod }).select('id');
+    const msg = `${actor.name} (admin) assigned your ${podLabel(pod)} ${people.length === 1 ? 'member' : 'members'} ${people.join('; ')} on "${task.title}" in ${project.name || 'a project'} (${podLabel(project.pod)})`;
+    for (const m of mgrs) await createNotification(m.id, msg, 'task', task.project_id);
+  }
+}
+
 export async function holdForCrossPod(db: any, task: { id: number; title: string; project_id: number; isTicket: boolean; customStages?: boolean }, reasons: ApprovalReason[], actor: { id: number; name: string }) {
   const pods = reasonPods(reasons);
   await db('tasks').where({ id: task.id }).update({
@@ -468,6 +493,7 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
   }
 
   await activateTicket(db, id, req.user!);
+  await notifyAdminCrossPod(db, req.user!, { title: title.trim(), project_id }, project, assignments);
   res.status(201).json({ id });
   } catch (e: any) {
     console.error('POST /xlr8/tickets error:', e?.message, e?.stack);
@@ -530,7 +556,9 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
     if (sa.user_ids.length > 0) {
       for (const uid of sa.user_ids) {
         const prev = prevByKey.get(`${sa.stage_idx}:${uid}`);
-        rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: prev?.acceptance_status || 'pending', stage_idx: sa.stage_idx, est_hours: estH, schedule_anchor: prev?.schedule_anchor ?? null, ...keep });
+        // Re-picking someone who declined this stage asks them again
+        const status = !prev?.acceptance_status || prev.acceptance_status === 'declined' ? 'pending' : prev.acceptance_status;
+        rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: status, stage_idx: sa.stage_idx, est_hours: estH, schedule_anchor: prev?.schedule_anchor ?? null, ...keep });
       }
     } else if (estH || keep.skipped) {
       rows.push({ task_id: ticket.id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, ...keep });
@@ -556,8 +584,8 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
     }
   }
 
-  // Notify only people newly put on a stage
-  for (const r of rows.filter(r => r.user_id && !prevByKey.has(`${r.stage_idx}:${r.user_id}`))) {
+  // Notify people newly put on a stage, and anyone re-asked after declining it
+  for (const r of rows.filter(r => r.user_id && (!prevByKey.has(`${r.stage_idx}:${r.user_id}`) || prevByKey.get(`${r.stage_idx}:${r.user_id}`)?.acceptance_status === 'declined'))) {
     await createNotification(r.user_id, `You've been assigned to stage ${(r.stage_idx ?? 0) + 1} of "${ticket.title}" — please accept or decline`, 'task', ticket.project_id);
   }
 

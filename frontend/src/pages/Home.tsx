@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { forCurrentStage } from '../components/UI/ChecklistEditor';
 import { format } from 'date-fns';
 import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar, { MiniAvatar } from '../components/UI/Avatar';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
@@ -57,6 +57,7 @@ function getDeadlineInfo(due_date: string | null, due_time: string | null): { la
 
 export default function Home() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState<CapacityData | null>(null);
   // elapsed counts seconds since the last API fetch — added on top of the
   // already-baked tracked_seconds values so nothing is counted twice.
@@ -421,6 +422,10 @@ export default function Home() {
                       <span style={{ fontSize: 12, color: '#64748b' }}> declined stage {(d.stage_idx ?? 0) + 1} of </span>
                       <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setViewTask(d.task_id)}>{d.title}</span>
                     </div>
+                    <button type="button" onClick={() => navigate('/tasks', { state: { reassignTaskId: d.task_id } })}
+                      style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 99, border: '1.5px solid rgba(220,38,38,0.35)', background: '#fff', color: '#dc2626', cursor: 'pointer' }}>
+                      Reassign stage {(d.stage_idx ?? 0) + 1}
+                    </button>
                   </div>
                   {d.reason && (
                     <div style={{ fontSize: 12, color: '#7f1d1d', background: 'rgba(220,38,38,0.07)', borderRadius: 6, padding: '5px 8px', fontStyle: 'italic', marginLeft: 34 }}>
