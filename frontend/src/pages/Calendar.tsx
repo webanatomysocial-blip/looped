@@ -637,7 +637,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
         const tone = crossAway ? toneKey(dragPos!.day < today || optionsError ? 'bad' : ao ? (ao.allowed ? ao.tone : 'bad') : 'ok')
           : dragPos ? (v?.tone === 'bad' ? 'bad' : v?.tone === 'warn' ? 'risk' : 'ok') : toast!.tone === 'bad' ? 'bad' : 'ok';
         return (
-          <div role="status" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 5000, maxWidth: 'min(520px, calc(100vw - 32px))', background: 'var(--bg-white, #fff)', border: `1.5px solid ${TONE[tone].border}`, borderLeft: `4px solid ${TONE[tone].color}`, borderRadius: 10, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,0.16)', fontSize: 12, lineHeight: 1.45, color: 'var(--ink)', display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div role="status" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 5000, maxWidth: 'min(520px, calc(100vw - 32px))', background: '#fff', border: `1.5px solid ${TONE[tone].border}`, borderLeft: `4px solid ${TONE[tone].color}`, borderRadius: 10, padding: '10px 14px', boxShadow: '0 8px 28px rgba(0,0,0,0.16)', fontSize: 12, lineHeight: 1.45, color: 'var(--ink)', display: 'flex', gap: 12, alignItems: 'center' }}>
             {crossAway ? (() => {
               const o = options?.[dragPos!.day];
               if (dragPos!.day < today) return <div style={{ fontWeight: 800, color: TONE.bad.color }}>✕ That day has passed</div>;
@@ -671,8 +671,8 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
       {confirm && createPortal((() => {
         const p = confirm.preview, t = TONE[toneKey(p.tone)];
         return (
-          <div onClick={() => setConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 5001, background: 'rgba(15,23,42,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-            <div role="dialog" aria-modal="true" aria-labelledby="move-title" onClick={e => e.stopPropagation()} style={{ width: 'min(480px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: 'var(--bg-white, #fff)', borderRadius: 12, borderTop: `4px solid ${t.color}`, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', color: 'var(--ink)', fontSize: 13, lineHeight: 1.5 }}>
+          <div onClick={() => setConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 5001, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="move-title" onClick={e => e.stopPropagation()} style={{ width: 'min(480px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: '#fff', borderRadius: 12, borderTop: `4px solid ${t.color}`, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', color: 'var(--ink)', fontSize: 13, lineHeight: 1.5 }}>
               <div id="move-title" style={{ fontSize: 15, fontWeight: 800, color: t.color, marginBottom: 2 }}>{p.tone === 'bad' ? '✕ ' : '⚠ '}{p.headline}</div>
               <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 12 }}>"{confirm.title}"</div>
               {p.moved && (
