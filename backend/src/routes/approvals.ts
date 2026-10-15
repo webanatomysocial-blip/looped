@@ -227,6 +227,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // One task's approval (task drawer) — same visibility rules as the full list
+    if (req.query.task_id) query = query.where('ap.task_id', Number(req.query.task_id));
+
     // XLR8 tickets get a new approval row on every resubmission; show one card per ticket
     // (its stage flow already lists every rejection), keeping the latest row
     const seenXlr8 = new Set<number>();

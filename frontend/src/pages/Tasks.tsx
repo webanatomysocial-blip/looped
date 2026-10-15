@@ -1124,7 +1124,7 @@ export default function Tasks() {
       </div>
 
       {/* ── Task View Canvas ── */}
-      {viewTask && <TaskViewDrawer taskId={viewTask} onClose={() => setViewTask(null)} />}
+      {viewTask && <TaskViewDrawer taskId={viewTask} onClose={() => setViewTask(null)} showApproval onChanged={() => load(podTab)} />}
 
       {showModal && (
         <div className="drawer-overlay">

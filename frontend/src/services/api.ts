@@ -105,7 +105,7 @@ export const capacityApi = {
 };
 
 export const approvalsApi = {
-  list: (pod?: string) => api.get('/approvals', { params: pod ? { pod } : {} }),
+  list: (pod?: string, taskId?: number) => api.get('/approvals', { params: { ...(pod ? { pod } : {}), ...(taskId ? { task_id: taskId } : {}) } }),
   submit: (data: any) => api.post('/approvals', data),
   review: (id: number, action: 'approve' | 'reject' | 'request_revision', notes?: string) =>
     api.put(`/approvals/${id}`, { action, notes }),

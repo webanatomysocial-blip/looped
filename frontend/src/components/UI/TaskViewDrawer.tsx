@@ -6,6 +6,7 @@ import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
 import { tasksApi, xlr8Api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
+import TaskApprovalSection from '../approvals/TaskApprovalSection';
 
 const URL_RE = /(https?:\/\/[^\s]+)/g;
 function linkifyText(text: string) {
@@ -20,6 +21,10 @@ function linkifyText(text: string) {
 interface Props {
   taskId: number;
   onClose: () => void;
+  // Show the task's approval (Start Review, Review…) at the top of Info — Tasks page only
+  showApproval?: boolean;
+  // Called after an approval action so the page behind can refresh
+  onChanged?: () => void;
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -32,9 +37,11 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 
-export default function TaskViewDrawer({ taskId, onClose }: Props) {
+export default function TaskViewDrawer({ taskId, onClose, showApproval = false, onChanged }: Props) {
   const { user } = useAuth();
   const [task, setTask] = useState<any>(null);
+  // Bumped after an approval action to reload the task (status, stage flow)
+  const [reloadKey, setReloadKey] = useState(0);
   const [log, setLog]   = useState<any[]>([]);
   const [deliverables, setDeliverables] = useState<any[]>([]);
   const [linkInput, setLinkInput] = useState('');
@@ -111,6 +118,16 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
       .finally(() => setLoading(false));
   }, [taskId]);
 
+  // After an approval action: refresh in place (no reset), so the approval section and its popups stay
+  useEffect(() => {
+    if (!reloadKey) return;
+    tasksApi.get(taskId).then(r => {
+      setTask(r.data);
+      if (r.data.ticket_type_id) xlr8Api.getTicketLog(taskId).then(lr => setLog(lr.data)).catch(() => {});
+    }).catch(() => {});
+    tasksApi.getDeliverables(taskId).then(dr => setDeliverables(dr.data || [])).catch(() => {});
+  }, [reloadKey]);
+
   // Tick elapsed seconds so live-running stage tracked time stays accurate
   useEffect(() => {
     setDrawerElapsed(0);
@@ -155,6 +172,9 @@ export default function TaskViewDrawer({ taskId, onClose }: Props) {
 
           {task && tab === 'info' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {showApproval && (
+                <TaskApprovalSection taskId={taskId} onChanged={() => { setReloadKey(k => k + 1); onChanged?.(); }} />
+              )}
               {/* Meta */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
