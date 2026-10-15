@@ -87,7 +87,7 @@ export default function Projects() {
   const [empPod, setEmpPod] = useState<'all' | 'pod1' | 'pod2'>('all');
 
   const [form, setForm] = useState({
-    name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [] as number[],
+    name: '', is_adhoc: false, client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [] as number[],
     service_type: 'per_project' as 'per_project' | 'xlr8',
     budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
     monthly_hours_bucket: '', billing_cycle_start_day: '1',
@@ -147,7 +147,7 @@ export default function Projects() {
 
   const openCreate = () => {
     setEditProject(null);
-    setForm({ name: '', client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [],
+    setForm({ name: '', is_adhoc: false, client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [],
       service_type: 'per_project', budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
       monthly_hours_bucket: '', billing_cycle_start_day: '1',
       pod: 'pod1', briefing_doc: '', project_drive_doc: '', description: '' });
@@ -162,6 +162,7 @@ export default function Projects() {
     setEditProject(p);
     setForm({
       name: p.name,
+      is_adhoc: !!(p as any).is_adhoc,
       client_company_id: String(p.client_company_id || ''),
       start_date: p.start_date || '',
       due_date: p.due_date || '',
@@ -193,6 +194,7 @@ export default function Projects() {
         // Admin create: new flow — no member_ids, send pod + docs
         await projectsApi.create({
           name: form.name,
+          is_adhoc: form.is_adhoc,
           client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
           service_type: form.service_type,
           pod: form.pod,
@@ -210,6 +212,7 @@ export default function Projects() {
       } else {
         const payload = {
           name: form.name,
+          is_adhoc: form.is_adhoc,
           client_company_id: form.client_company_id ? Number(form.client_company_id) : null,
           start_date: form.start_date || null,
           due_date: form.due_date || null,
@@ -533,6 +536,9 @@ export default function Projects() {
                     >
                       <td className="proj-td">
                         <span className="proj-name">{project.name}</span>
+                        {(project as any).is_adhoc ? (
+                          <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(168,85,247,0.12)', color: '#7e22ce', fontWeight: 700 }}>Adhoc</span>
+                        ) : null}
                         {project.manager_status === 'pending_manager' && (
                           <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'var(--amber-100,#fef3c7)', color: 'var(--amber-700,#92400e)', fontWeight: 600 }}>Pending</span>
                         )}
@@ -649,8 +655,15 @@ export default function Projects() {
           <form onSubmit={handleSubmit} style={{ display: 'contents' }}>
             <div className="drawer-body">
               <div>
-                <label className="form-label">Company name *</label>
-                <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus readOnly={!!(editProject && user?.role === 'manager')} style={editProject && user?.role === 'manager' ? { background: 'var(--bg-sand)', color: 'var(--ink-muted)', cursor: 'default' } : {}} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <label className="form-label" htmlFor="proj-name" style={{ margin: 0 }}>Company name *</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: 'var(--ink)', cursor: editProject && user?.role === 'manager' ? 'default' : 'pointer' }}>
+                    <input type="checkbox" checked={form.is_adhoc} disabled={!!(editProject && user?.role === 'manager')}
+                      onChange={(e) => setForm({ ...form, is_adhoc: e.target.checked })} />
+                    Adhoc project
+                  </label>
+                </div>
+                <input id="proj-name" className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required autoFocus readOnly={!!(editProject && user?.role === 'manager')} style={editProject && user?.role === 'manager' ? { background: 'var(--bg-sand)', color: 'var(--ink-muted)', cursor: 'default' } : {}} />
               </div>
 
               <div>

@@ -42,7 +42,7 @@ function DescEditor({ value, onChange, placeholder }: { value: string; onChange:
   );
 }
 import { format } from 'date-fns';
-import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink } from 'lucide-react';
+import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink, ChevronDown } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
@@ -77,6 +77,16 @@ import '../css/pages/Tasks.css';
 export default function Tasks() {
   const { user } = useAuth();
   const [tasks, setTasks]       = useState<Task[]>([]);
+  // "New ▾" menu: Task / Recurring task; closes on outside click
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const close = (e: MouseEvent) => { if (!newMenuRef.current?.contains(e.target as Node)) setNewMenuOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setNewMenuOpen(false); };
+    document.addEventListener('mousedown', close); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+  }, [newMenuOpen]);
   const location = useLocation();
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -766,13 +776,25 @@ export default function Tasks() {
             </div>
             {/* Right: actions */}
             {canCreate && (
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 14px' }} onClick={() => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); }}>
-                  🔁 Recurring Task
+              <div ref={newMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+                <button className="btn-primary" aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen(o => !o)}>
+                  <Plus size={14} /> Create task <ChevronDown size={14} />
                 </button>
-                <button className="btn-primary" onClick={() => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); }}>
-                  <Plus size={14} /> New task
-                </button>
+                {newMenuOpen && (
+                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
+                    {[
+                      { label: 'Task', hint: 'One-off task or ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
+                      { label: 'Recurring task', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
+                    ].map(item => (
+                      <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--ink)' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-sand)')} onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                        {item.icon}
+                        <span><span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.label}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--ink-muted)' }}>{item.hint}</span></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

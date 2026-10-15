@@ -1559,6 +1559,10 @@ async function createSchema(): Promise<void> {
   if (!hasProjectDesc) {
     await db.schema.table('projects', (t) => { t.text('description').nullable(); });
   }
+  // Adhoc flag: a one-off project; otherwise behaves exactly like a normal project
+  if (!(await db.schema.hasColumn('projects', 'is_adhoc'))) {
+    await db.schema.table('projects', (t) => { t.boolean('is_adhoc').notNullable().defaultTo(false); });
+  }
 
   await db.schema.hasTable('task_share_tokens').then(async (exists) => {
     if (!exists) {
