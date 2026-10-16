@@ -44,11 +44,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // Must be assigned to this task (via task_assignees OR xlr8_assignee_id)
     const assigned = await db('task_assignees').where({ task_id, user_id: userId }).first();
     const xlr8Assigned = await db('tasks').where({ id: task_id, xlr8_assignee_id: userId }).first();
-    if (!assigned && !xlr8Assigned) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
+    if (!assigned && !xlr8Assigned) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
 
     // No duplicate pending request
     const existing = await db('regularisation_requests').where({ task_id, user_id: userId, status: 'pending' }).first();
-    if (existing) { res.status(409).json({ error: 'A pending request already exists for this task' }); return; }
+    if (existing) { res.status(409).json({ error: 'A pending request already exists for this ticket' }); return; }
 
     const [id] = await db('regularisation_requests').insert({
       task_id, user_id: userId, reason: reason || null,

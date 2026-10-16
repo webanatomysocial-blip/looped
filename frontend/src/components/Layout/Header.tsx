@@ -154,7 +154,7 @@ export default function Header({ action }: HeaderProps) {
             <Search size={14} />
             <input
               className="app-header__search-input"
-              placeholder="Search tasks or client…"
+              placeholder="Search tickets or client…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               onFocus={() => { if (results.length) setShowDrop(true); }}

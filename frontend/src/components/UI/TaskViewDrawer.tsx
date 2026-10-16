@@ -179,7 +179,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
               {/* Meta */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
-                  { label: 'Task Key', value: (() => {
+                  { label: 'Ticket Key', value: (() => {
                     const mon = task.created_at ? (() => { const s = String(task.created_at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return new Date(Number(s) || iso).toLocaleString('en-US', { month: 'short' }).toUpperCase(); })() : '';
                     const proj = (task.project_name || '').replace(/\s+/g, '').toUpperCase().slice(0, 8);
                     return (
@@ -233,7 +233,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                 if (task.crosspod_note && task.status === 'draft') return (
                   <div style={{ marginTop: 16, fontSize: 12, color: 'var(--red)', background: 'rgba(220,38,38,0.06)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 8, padding: '10px 12px' }}>
                     <strong>Request rejected</strong> — {task.crosspod_note}
-                    {task.created_by === user?.id && <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>Use <strong>Edit &amp; resend</strong> on this task in the Tasks list to fix it and send it again.</div>}
+                    {task.created_by === user?.id && <div style={{ color: 'var(--ink-muted)', marginTop: 4 }}>Use <strong>Edit &amp; resend</strong> on this ticket in the Tickets list to fix it and send it again.</div>}
                   </div>
                 );
                 return null;
@@ -247,7 +247,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                   <button
                     onClick={async () => { try { await tasksApi.managerApprove(taskId, 'approve'); } catch (e: any) { alert(e.response?.data?.error || 'Could not approve'); } const r = await tasksApi.get(taskId); setTask(r.data); }}
                     style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
-                  >✓ Approve Task</button>
+                  >✓ Approve Ticket</button>
                   <button
                     onClick={async () => {
                       let comment: string | undefined;

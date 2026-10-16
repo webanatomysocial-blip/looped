@@ -101,7 +101,7 @@ export default function Regularisation() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font)' }}>
                     <thead>
                       <tr>
-                        {['Task', 'Employee', 'Est.', 'Tracked', 'Overdue by', 'Buffer (20%)', 'Reason', ''].map((h) => (
+                        {['Ticket', 'Employee', 'Est.', 'Tracked', 'Overdue by', 'Buffer (20%)', 'Reason', ''].map((h) => (
                           <th key={h} style={{ padding: '14px 20px', fontSize: 12, fontWeight: 600, color: 'var(--ink-muted)', textAlign: 'left', borderBottom: '1px solid rgba(229,223,211,0.55)', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
@@ -156,7 +156,7 @@ export default function Regularisation() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font)' }}>
                     <thead>
                       <tr>
-                        {['Task', 'Employee', 'Est.', 'Tracked', 'New Est.', 'Reason', 'Status', 'Reviewed by'].map((h) => (
+                        {['Ticket', 'Employee', 'Est.', 'Tracked', 'New Est.', 'Reason', 'Status', 'Reviewed by'].map((h) => (
                           <th key={h} style={{ padding: '14px 20px', fontSize: 12, fontWeight: 600, color: 'var(--ink-muted)', textAlign: 'left', borderBottom: '1px solid rgba(229,223,211,0.55)', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>

@@ -170,7 +170,7 @@ export default function XLR8Page() {
                       <tr>
                         <th>Date</th>
                         <th>Employee</th>
-                        <th>Task</th>
+                        <th>Ticket</th>
                         <th>Hours</th>
                         <th>Notes</th>
                       </tr>

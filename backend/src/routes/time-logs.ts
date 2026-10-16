@@ -214,7 +214,7 @@ router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res:
   try {
     const db = getDB();
     const task = await db('tasks').where({ id: task_id }).select('project_id').first();
-    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+    if (!task) { res.status(404).json({ error: 'Ticket not found' }); return; }
 
     let rate = hourly_rate != null ? Number(hourly_rate) : null;
     if (rate == null) {

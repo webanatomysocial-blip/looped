@@ -344,7 +344,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
     .filter(x => x.used > DAY_CAP);
   const titles: Record<string, string> = {};
   for (const t of Object.values(data.byDay).flat() as any[]) titles[t.id] = t.title;
-  const healthRows = Object.entries(data.health || {}).map(([id, h]) => ({ id, title: titles[id] || 'Task', h }));
+  const healthRows = Object.entries(data.health || {}).map(([id, h]) => ({ id, title: titles[id] || 'Ticket', h }));
   const groups = {
     bad: healthRows.filter(r => r.h.state === 'impossible' || r.h.state === 'overdue'),
     risk: healthRows.filter(r => r.h.state === 'risk'),
@@ -535,9 +535,9 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                         const openKey = `${task.id}_${task.scheduled_stage ?? ''}`;
                         const blocker = task.blocking_stage_name || 'An earlier stage';
                         const lockReason = task.slot_id == null ? null
-                          : day < today ? "This day has passed. Past work can't be moved — log time on the task instead."
+                          : day < today ? "This day has passed. Past work can't be moved — log time on the ticket instead."
                           : task.ticket_type_id && task.scheduled_stage != null && task.scheduled_stage > (task.xlr8_stage_idx ?? 0) ? `${blocker} isn't finished yet. ${task.stage_name || 'This stage'} can't be scheduled until ${task.blocking_stage_name || 'it'} is done — it unlocks automatically then.`
-                          : (earliestOpen[openKey] ?? day) < day ? `This task has ${blockCount[openKey]} blocks this week. Move the first one (${fmtDate(earliestOpen[openKey])}) — the later blocks follow it.`
+                          : (earliestOpen[openKey] ?? day) < day ? `This ticket has ${blockCount[openKey]} blocks this week. Move the first one (${fmtDate(earliestOpen[openKey])}) — the later blocks follow it.`
                           : null;
                         const canDrag = canDragBase(task, isPlaceholder, taskDragKey) && !lockReason;
                         const health: Health | undefined = data.health?.[task.id];
@@ -871,7 +871,7 @@ export default function CalendarPage() {
       setCalendarRefresh(n => n + 1);
     }
     async function deleteRt(id: number) {
-      if (!confirm('Delete this recurring task?')) return;
+      if (!confirm('Delete this recurring ticket?')) return;
       await calendarApi.deleteRecurring(id);
       calendarApi.listRecurring().then(r => setRecurringList(r.data));
       setCalendarRefresh(n => n + 1);
@@ -946,7 +946,7 @@ export default function CalendarPage() {
           {showRecurring && (
             <div style={{ width: 280, flexShrink: 0, background: 'var(--bg-white)', border: '1px solid var(--sand-border)', borderRadius: 14, overflow: 'hidden' }}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--sand-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Recurring Tasks</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Recurring Tickets</span>
                 <span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{recurringList.length}</span>
               </div>
               <div style={{ overflowY: 'auto', maxHeight: 480 }}>
@@ -984,7 +984,7 @@ export default function CalendarPage() {
             <div className="drawer-backdrop" onClick={() => setSelectedRecurring(null)} />
             <div className="drawer-panel">
               <div className="drawer-header">
-                <div className="drawer-header__label">Recurring Task</div>
+                <div className="drawer-header__label">Recurring Ticket</div>
                 <div className="drawer-header__row">
                   <Repeat size={16} color="#818cf8" />
                   <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', flex: 1 }}>{selectedRecurring.title}</span>
@@ -1020,7 +1020,7 @@ export default function CalendarPage() {
                 </div>
               )}
               <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
-                This recurring task hasn't been generated as an active task yet for this date. It will appear once the scheduler runs.
+                This recurring ticket hasn't been generated as an active ticket yet for this date. It will appear once the scheduler runs.
               </p>
               </div>
             </div>
@@ -1033,7 +1033,7 @@ export default function CalendarPage() {
             <div className="drawer-backdrop" onClick={() => setModal(false)} />
             <div className="drawer-panel">
               <div className="drawer-header">
-                <div className="drawer-header__label">{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</div>
+                <div className="drawer-header__label">{editing ? 'Edit Recurring Ticket' : 'New Recurring Ticket'}</div>
                 <div className="drawer-header__row">
                   <div style={{ fontSize:18, fontWeight:800, color:'var(--ink)', flex:1 }}>{form.title.trim() || 'Repeats on a schedule'}</div>
                   <button type="button" className="drawer-close" onClick={()=>setModal(false)}>×</button>
@@ -1113,7 +1113,7 @@ export default function CalendarPage() {
                 </div>
               </div>
               <div className="drawer-footer">
-                <button type="button" className="drawer-submit" disabled={!form.title} onClick={saveForm}>{editing ? 'Save Changes' : 'Create Recurring Task'}</button>
+                <button type="button" className="drawer-submit" disabled={!form.title} onClick={saveForm}>{editing ? 'Save Changes' : 'Create Recurring Ticket'}</button>
                 <button type="button" className="drawer-cancel" onClick={()=>setModal(false)}>Cancel</button>
               </div>
             </div>

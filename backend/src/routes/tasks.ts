@@ -379,10 +379,10 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const effectivePriority = priority || 'medium';
     if (workerId && ['high', 'urgent'].includes(effectivePriority)) {
       if (workerId !== req.user!.id) {
-        await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${title}" assigned — your active task was paused`, 'task', project_id);
+        await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${title}" assigned — your active ticket was paused`, 'task', project_id);
       }
     } else if (workerId && workerId !== req.user!.id) {
-      await createNotification(workerId, `You have been assigned task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
+      await createNotification(workerId, `You have been assigned ticket "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
     }
     if (workerId && estimated_hours) {
       const row = await db('tasks as t')
@@ -401,7 +401,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
       }
     }
     if (managerId && managerId !== req.user!.id) {
-      await createNotification(managerId, `You are managing task "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
+      await createNotification(managerId, `You are managing ticket "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
     }
     if (workerId) await notifyAdminCrossPod(db, req.user!, { title, project_id }, projectRow ?? {}, [{ user_id: workerId }]);
 
@@ -440,7 +440,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
     // Employees can only update tasks they are assigned to
     if (req.user!.role === 'employee') {
       const assigned = await db('task_assignees').where({ task_id: req.params.id, user_id: req.user!.id }).first();
-      if (!assigned) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
+      if (!assigned) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
     }
 
     // Role-based assignee update (from edit drawer) — skip for XLR8 tickets; stage assignments are managed via PUT /stage-assignments
@@ -471,14 +471,14 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
           // Always pause active session for high/urgent — regardless of who is creating/re-assigning
           await pauseActiveSession(db, workerId);
           if (workerId !== req.user!.id || isNewWorker) {
-            await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} task "${taskRow?.title}" assigned — your active task was paused`, 'task', taskRow?.project_id);
+            await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${taskRow?.title}" assigned — your active ticket was paused`, 'task', taskRow?.project_id);
           }
         } else if (isNewWorker && workerId !== req.user!.id) {
-          await createNotification(workerId, `You have been assigned task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+          await createNotification(workerId, `You have been assigned ticket "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
         }
       }
       if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager?.user_id)) {
-        await createNotification(managerId, `You are managing task "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
+        await createNotification(managerId, `You are managing ticket "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
       }
     } else if (!taskForCheck?.ticket_type_id && assignee_ids !== undefined) {
       const ids: number[] = Array.isArray(assignee_ids) ? assignee_ids : (assignee_ids ? [Number(assignee_ids)] : []);
@@ -574,7 +574,7 @@ router.put('/:taskId/checklist/:itemId', async (req: AuthRequest, res: Response)
       const onTask = item.stage_idx == null
         ? task?.assigned_to === userId || !!(await db('task_assignees').where({ task_id: taskId, user_id: userId }).first())
         : !!(await db('task_assignees').where({ task_id: taskId, user_id: userId, stage_idx: item.stage_idx }).first());
-      if (!onTask) { res.status(403).json({ error: item.stage_idx == null ? "Only people on this task can tick its checklist" : "Only the person on this stage can tick its checklist" }); return; }
+      if (!onTask) { res.status(403).json({ error: item.stage_idx == null ? "Only people on this ticket can tick its checklist" : "Only the person on this stage can tick its checklist" }); return; }
     }
     await db('task_checklist').where({ id: item.id }).update({ completed });
     await refreshChecklistCounts(db, taskId);
@@ -612,7 +612,7 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
     const { scheduleUser } = await import('../services/scheduler');
     for (const uid of affectedUsers) await scheduleUser(uid, db);
   } catch (err) {
-    console.error('Delete task error:', err);
+    console.error('Delete ticket error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -624,8 +624,8 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
   try {
     const db = getDB();
     const task = await db('tasks').where({ id: req.params.id }).first();
-    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
-    if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Task is not pending approval' }); return; }
+    if (!task) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Ticket is not pending approval' }); return; }
 
     const crossPods: string[] = task.crosspod_pods ? JSON.parse(task.crosspod_pods) : [];
     if (crossPods.length) {
@@ -644,7 +644,7 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
         });
         if (!n) { alreadyHandled(); return; }
         if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_rejected', 'pending_crosspod', 'crosspod_rejected', note);
-        await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tasks`, 'task', task.project_id);
+        await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tickets`, 'task', task.project_id);
         res.json({ ok: true, status: 'draft' }); return;
       }
       const remaining = req.user!.role === 'admin' ? [] : crossPods.filter((p) => p !== me?.pod);
@@ -662,7 +662,7 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
         if (task.assigned_to && ['high', 'urgent'].includes(task.priority)) await pauseActiveSession(db, task.assigned_to);
         if (task.assigned_to && task.assigned_to !== task.created_by) {
           const proj = await db('projects').where({ id: task.project_id }).select('name').first();
-          await createNotification(task.assigned_to, `You have been assigned task "${task.title}" in ${proj?.name || 'a project'}`, 'task', task.project_id);
+          await createNotification(task.assigned_to, `You have been assigned ticket "${task.title}" in ${proj?.name || 'a project'}`, 'task', task.project_id);
         }
         import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(task.id, db)).catch(() => {});
       }
@@ -698,7 +698,7 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
     const db = getDB();
     const userId = req.user!.id;
     const row = await db('task_assignees').where({ task_id: req.params.id, user_id: userId }).first();
-    if (!row) { res.status(403).json({ error: 'Not assigned to this task' }); return; }
+    if (!row) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
 
     await db('task_assignees')
       .where({ task_id: req.params.id, user_id: userId })
@@ -1158,7 +1158,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
       .where('t.id', row.task_id)
       .select('t.*', 'p.name as project_name', 'c.name as client_name', 'a.name as assigned_name', 'cr.name as created_by_name')
       .first();
-    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+    if (!task) { res.status(404).json({ error: 'Ticket not found' }); return; }
 
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
@@ -1214,7 +1214,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
 
     res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables, activity_log, comments });
   } catch (e: any) {
-    console.error('Public task error:', e?.message);
+    console.error('Public ticket error:', e?.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

@@ -183,7 +183,7 @@ export default function Home() {
     }
     setDeclineModal(null);
     setDeclineComment('');
-    setToast('Task declined');
+    setToast('Ticket declined');
     setTimeout(() => setToast(null), 3000);
     load();
     if (user?.role === 'admin' || user?.role === 'manager') {
@@ -215,7 +215,7 @@ export default function Home() {
       const thisTask = (data?.tasks ?? []).find((t: any) => t.id === taskId);
       if (urgentBlocking.length > 0 && !['high', 'urgent'].includes(thisTask?.priority ?? '')) {
         const names = urgentBlocking.map((t: any) => `"${t.title}" (${t.priority})`).join(', ');
-        if (!window.confirm(`You have urgent/high priority task(s) pending: ${names}.\n\nAre you sure you want to work on a lower-priority task instead?`)) return;
+        if (!window.confirm(`You have urgent/high priority ticket(s) pending: ${names}.\n\nAre you sure you want to work on a lower-priority ticket instead?`)) return;
       }
     }
     // Auto-accept returned XLR8 tasks when employee hits Start
@@ -360,11 +360,11 @@ export default function Home() {
             <div className="cap-header__meta">
               <span className="cap-header__meta-item">
                 <span className="cap-header__meta-dot" style={{ background: 'var(--blue)' }} />
-                {(data?.tasks ?? []).filter((t) => t.status !== 'pending_approval' && t.acceptance_status === 'pending').length} pending tasks
+                {(data?.tasks ?? []).filter((t) => t.status !== 'pending_approval' && t.acceptance_status === 'pending').length} pending tickets
               </span>
               <span className="cap-header__meta-item">
                 <span className="cap-header__meta-dot" style={{ background: 'var(--orange)' }} />
-                {(data?.tasks ?? []).filter((t) => t.timer_running).length > 0 ? '1 task running' : 'No active task'}
+                {(data?.tasks ?? []).filter((t) => t.timer_running).length > 0 ? '1 ticket running' : 'No active ticket'}
               </span>
             </div>
           </div>
@@ -447,7 +447,7 @@ export default function Home() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <AlertTriangle size={16} color="#92400e" />
                 <span style={{ fontWeight: 700, fontSize: 14, color: '#92400e' }}>
-                  {pendingApproval.length} task{pendingApproval.length > 1 ? 's' : ''} awaiting your approval
+                  {pendingApproval.length} ticket{pendingApproval.length > 1 ? 's' : ''} awaiting your approval
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -585,7 +585,7 @@ export default function Home() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <AlertTriangle size={16} color="var(--orange, #f59e0b)" />
                 <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>
-                  {pending.length} task{pending.length > 1 ? 's' : ''} waiting for your acceptance
+                  {pending.length} ticket{pending.length > 1 ? 's' : ''} waiting for your acceptance
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>— accept to start working and see them on your calendar</span>
               </div>
@@ -695,7 +695,7 @@ export default function Home() {
             <div className="home-section__header">
               <div>
                 <div className="home-section__title">Today's Priorities</div>
-                <div className="home-section__sub">Accept tasks and track time</div>
+                <div className="home-section__sub">Accept tickets and track time</div>
               </div>
               <div className="home-section__filter">
                 {([
@@ -731,7 +731,7 @@ export default function Home() {
             <div className="cap-task-list">
               {visibleTasks.length === 0 && (
                 <div className="empty-state" style={{ padding: '32px 20px' }}>
-                  No tasks found
+                  No tickets found
                 </div>
               )}
               {paginatedPriority.map((task) => {
@@ -977,7 +977,7 @@ export default function Home() {
               <div className="card" style={{ padding: '22px 24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <div>
-                    <div className="home-section__title">Recurring Tasks</div>
+                    <div className="home-section__title">Recurring Tickets</div>
                     <div className="home-section__sub">Today's scheduled recurring work</div>
                   </div>
                 </div>
@@ -1019,7 +1019,7 @@ export default function Home() {
             <div className="card" style={{ padding: '22px 24px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <div className="home-section__title">Tasks for Today</div>
+                  <div className="home-section__title">Tickets for Today</div>
                   <div className="home-section__sub">Keep your projects on track</div>
                 </div>
                 <Link to="/tasks" style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 3, textDecoration: 'none' }}>
@@ -1053,7 +1053,7 @@ export default function Home() {
                     </div>
                     <div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{completed}/{total}</div>
-                      <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>tasks completed</div>
+                      <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>tickets completed</div>
                       {isOverCapacity && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--red)', fontWeight: 700, marginTop: 8 }}>
                           <AlertTriangle size={11} /> Over daily capacity
@@ -1096,7 +1096,7 @@ export default function Home() {
               <div className="card" style={{ padding: '18px 24px', border: '1.5px solid #86efac', background: 'linear-gradient(135deg,#f0fdf4 0%,#fff 100%)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                   <CheckCircle size={16} color="#16a34a" />
-                  <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>Approved Tasks</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: '#15803d' }}>Approved Tickets</span>
                   <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
                     {visibleApproved.length}
                   </span>
@@ -1172,7 +1172,7 @@ export default function Home() {
           }}>
             <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e8e3da' }}>
               <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#888', marginBottom: 4 }}>
-                {doneModalChecklist.length > 0 ? 'Task Checklist' : 'Mark as Done'}
+                {doneModalChecklist.length > 0 ? 'Ticket Checklist' : 'Mark as Done'}
               </div>
               <div style={{ fontSize: 16, fontWeight: 800, color: '#1a1a1a', marginBottom: 2 }}>{doneConfirmTask.title}</div>
               {doneModalChecklist.length > 0 && (() => {
@@ -1187,7 +1187,7 @@ export default function Home() {
               })()}
               {doneModalChecklist.length === 0 && (
                 <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>
-                  Have you completed everything for this task?
+                  Have you completed everything for this ticket?
                 </div>
               )}
             </div>
@@ -1291,7 +1291,7 @@ export default function Home() {
       {declineModal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
           <div style={{ background: '#ffffff', borderRadius: 14, padding: 28, width: 380, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0' }}>
-            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Decline Task</h3>
+            <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Decline Ticket</h3>
             <p style={{ margin: '0 0 14px', fontSize: 13, color: '#64748b' }}>
               <strong style={{ color: '#0f172a' }}>{declineModal.task.title}</strong> — please provide a reason for declining.
             </p>
@@ -1334,7 +1334,7 @@ export default function Home() {
             </div>
             <textarea
               autoFocus
-              placeholder="Reason (optional) — e.g. task was more complex than expected…"
+              placeholder="Reason (optional) — e.g. ticket was more complex than expected…"
               value={regulariseReason}
               onChange={(e) => setRegulariseReason(e.target.value)}
               style={{ width: '100%', minHeight: 80, borderRadius: 8, border: '1.5px solid #e2e8f0', padding: '10px 12px', fontSize: 13, color: '#0f172a', background: '#f8fafc', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', outline: 'none' }}

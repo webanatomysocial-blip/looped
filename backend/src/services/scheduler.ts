@@ -31,7 +31,7 @@ export function startRecurringTaskScheduler(): void {
       const { generateTodayInstances } = await import('../routes/calendar');
       const count = await generateTodayInstances();
       console.log(`[scheduler] Generated ${count} recurring task instances`);
-    } catch (err) { console.error('[scheduler] Recurring task error:', err); }
+    } catch (err) { console.error('[scheduler] Recurring ticket error:', err); }
   });
   console.log('[scheduler] Recurring task scheduler started (daily 00:05)');
 }

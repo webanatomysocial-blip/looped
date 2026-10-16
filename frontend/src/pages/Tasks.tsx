@@ -312,7 +312,7 @@ export default function Tasks() {
       if (res.data.warnings?.length) setCapacityWarnings(res.data.warnings);
       setShowModal(false);
       setResubmitOf(null);
-      if (res.data?.crosspod_pending?.length) alert(`Sent to the ${res.data.crosspod_pending.map(podName).join(' & ')} manager for approval. The task starts once they approve.`);
+      if (res.data?.crosspod_pending?.length) alert(`Sent to the ${res.data.crosspod_pending.map(podName).join(' & ')} manager for approval. The ticket starts once they approve.`);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
@@ -437,7 +437,7 @@ export default function Tasks() {
         if (total > capacityHours) {
           const assignee = users.find((u) => u.id === uid);
           const limitLabel = capacityDays > 1 ? `${capacityDays} days × 7h = ${capacityHours}h` : '7h';
-          warns.push(`${assignee?.name || 'Assignee'} will be over capacity — ${res.data.estimated_hours_assigned.toFixed(1)}h already assigned + ${estHrs.toFixed(1)}h this task = ${total.toFixed(1)} / ${limitLabel}`);
+          warns.push(`${assignee?.name || 'Assignee'} will be over capacity — ${res.data.estimated_hours_assigned.toFixed(1)}h already assigned + ${estHrs.toFixed(1)}h this ticket = ${total.toFixed(1)} / ${limitLabel}`);
         }
       }
       setCapacityWarnings(warns);
@@ -493,7 +493,7 @@ export default function Tasks() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this task?')) return;
+    if (!confirm('Delete this ticket?')) return;
     try { await tasksApi.delete(id); load(); }
     catch (err: any) { alert(err.response?.data?.error || 'Delete failed'); }
   };
@@ -660,7 +660,7 @@ export default function Tasks() {
     try {
       const r = await tasksApi.managerApprove(task.id, action, comment);
       if (r.data?.crosspod_pending?.length) alert(`Approved. Still waiting on ${r.data.crosspod_pending.map(podName).join(', ')} manager.`);
-    } catch (err: any) { alert(err.response?.data?.error || 'Could not update task'); }
+    } catch (err: any) { alert(err.response?.data?.error || 'Could not update ticket'); }
     load(podTab);
   };
 
@@ -740,9 +740,9 @@ export default function Tasks() {
       <div className="page-wrap">
         <div className="tasks-top">
           <div>
-            <h2 className="page-title">{user?.role === 'employee' ? 'My Tasks' : 'All Tasks'}</h2>
+            <h2 className="page-title">{user?.role === 'employee' ? 'My Tickets' : 'All Tickets'}</h2>
             <p className="page-subtitle">
-              {filtered.length} task{filtered.length !== 1 ? 's' : ''}
+              {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
               {filtered.filter((t) => t.status === 'overdue').length > 0 &&
                 ` · ${filtered.filter((t) => t.status === 'overdue').length} overdue`}
             </p>
@@ -796,13 +796,13 @@ export default function Tasks() {
             {canCreate && (
               <div ref={newMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
                 <button className="btn-primary" aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen(o => !o)}>
-                  <Plus size={14} /> Create task <ChevronDown size={14} />
+                  <Plus size={14} /> Create ticket <ChevronDown size={14} />
                 </button>
                 {newMenuOpen && (
                   <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
                     {[
-                      { label: 'Task', hint: 'One-off task or ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
-                      { label: 'Recurring task', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
+                      { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
+                      { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
                     ].map(item => (
                       <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--ink)' }}
@@ -824,7 +824,7 @@ export default function Tasks() {
           <table className="data-table">
             <thead>
               <tr>
-                {['Task', 'Priority', 'Project', 'Assigned to', 'Created by', 'Task with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
+                {['Ticket', 'Priority', 'Project', 'Assigned to', 'Created by', 'Ticket with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
                   <th key={h}>{h}</th>
                 ))}
               </tr>
@@ -1001,13 +1001,13 @@ export default function Tasks() {
                         <>
                           <button
                             className="icon-action"
-                            title="Accept task"
+                            title="Accept ticket"
                             style={{ background: 'rgba(76,175,125,0.12)', color: 'var(--green)' }}
                             onClick={() => handleAccept(task.id, 'accept')}
                           ><Check size={12} /></button>
                           <button
                             className="icon-action danger"
-                            title="Decline task"
+                            title="Decline ticket"
                             onClick={() => handleAccept(task.id, 'decline')}
                           ><X size={12} /></button>
                         </>
@@ -1072,12 +1072,12 @@ export default function Tasks() {
                       {task.status === 'pending_approval' && canDecide(task) && (
                         <>
                           <button
-                            title="Approve task"
+                            title="Approve ticket"
                             onClick={async (e) => { e.stopPropagation(); await decide(task, 'approve'); }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(22,163,74,0.3)', background: 'rgba(22,163,74,0.08)', color: 'var(--green)' }}
                           >✓ Approve</button>
                           <button
-                            title="Reject task"
+                            title="Reject ticket"
                             onClick={async (e) => { e.stopPropagation(); await decide(task, 'reject'); }}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(220,38,38,0.3)', background: 'rgba(220,38,38,0.08)', color: 'var(--red)' }}
                           >✕ Reject</button>
@@ -1086,7 +1086,7 @@ export default function Tasks() {
                       {/* Re-assign when employee declined */}
                       {canCreate && user?.role !== 'employee' && task.assignees?.some(a => a.acceptance_status === 'declined') && task.status !== 'completed' && (
                         <button
-                          title="Assignee declined — reassign task"
+                          title="Assignee declined — reassign ticket"
                           onClick={(e) => {
                             e.stopPropagation();
                             if ((task as any).ticket_type_id && (task as any).xlr8_status === 'pending_manager' && (task as any).xlr8_assignee_id) {
@@ -1109,13 +1109,13 @@ export default function Tasks() {
                         </button>
                       )}
                       {(user?.role === 'admin' || user?.role === 'manager') && task.status !== 'completed' && (
-                        <button className="icon-action" title="Edit task" onClick={() => openEdit(task)}>
+                        <button className="icon-action" title="Edit ticket" onClick={() => openEdit(task)}>
                           <Pencil size={11} />
                         </button>
                       )}
                       {(user?.role === 'admin' || user?.role === 'manager') && (
-                        <button className="icon-action danger" onClick={() => handleDelete(task.id)}>
-                          <span style={{ fontSize: 14, fontWeight: 700 }}>×</span>
+                        <button className="icon-action danger" title="Delete ticket" aria-label="Delete ticket" onClick={() => handleDelete(task.id)}>
+                          <Trash2 size={14} />
                         </button>
                       )}
                     </div>
@@ -1124,7 +1124,7 @@ export default function Tasks() {
               </React.Fragment>
               ))}
               {filtered.length === 0 && !loading && (
-                <tr><td colSpan={10} className="empty-state">No tasks found</td></tr>
+                <tr><td colSpan={10} className="empty-state">No tickets found</td></tr>
               )}
             </tbody>
           </table>
@@ -1147,7 +1147,7 @@ export default function Tasks() {
                 <div className="drawer-header__row">
                   <input
                     className="drawer-title-input"
-                    placeholder="Task title…"
+                    placeholder="Ticket title…"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
                     required
@@ -1415,7 +1415,7 @@ export default function Tasks() {
                                 )}
                                 {/* Skip toggle */}
                                 <button type="button" onClick={() => updateSa({ skipped: !sa.skipped })}
-                                  title={isSkipped ? 'Stage skipped — click to include' : 'Click to skip this stage for this task'}
+                                  title={isSkipped ? 'Stage skipped — click to include' : 'Click to skip this stage for this ticket'}
                                   style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${isSkipped ? '#ef4444' : 'var(--sand-border)'}`, background: isSkipped ? 'rgba(239,68,68,0.1)' : 'transparent', color: isSkipped ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}>
                                   {isSkipped ? '✕ Skipped' : 'Skip'}
                                 </button>
@@ -1656,7 +1656,7 @@ export default function Tasks() {
             <form onSubmit={handleEditSubmit} style={{ display: 'contents' }}>
 
               <div className="drawer-header">
-                <div className="drawer-header__label">Edit Task</div>
+                <div className="drawer-header__label">Edit Ticket</div>
                 <div className="drawer-header__row">
                   <input
                     className="drawer-title-input"
@@ -2127,7 +2127,7 @@ export default function Tasks() {
             {/* Header */}
             <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--sand-border)' }}>
               <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-muted)', marginBottom: 4 }}>
-                {doneModalChecklist.length > 0 ? 'Task Checklist' : 'Mark as Done'}
+                {doneModalChecklist.length > 0 ? 'Ticket Checklist' : 'Mark as Done'}
               </div>
               <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', marginBottom: 2 }}>{doneConfirmTask.title}</div>
               {doneModalChecklist.length > 0 && (() => {
@@ -2142,7 +2142,7 @@ export default function Tasks() {
               })()}
               {doneModalChecklist.length === 0 && (
                 <div style={{ fontSize: 13, color: 'var(--ink-muted)', marginTop: 4 }}>
-                  Have you completed everything for this task?
+                  Have you completed everything for this ticket?
                 </div>
               )}
             </div>
@@ -2369,7 +2369,7 @@ export default function Tasks() {
           <div className="drawer-backdrop" onClick={() => setShowRecurringModal(false)} />
           <div className="drawer-panel">
             <div className="drawer-header">
-              <div className="drawer-header__label">New Recurring Task</div>
+              <div className="drawer-header__label">New Recurring Ticket</div>
               <div className="drawer-header__row">
                 <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', flex: 1 }}>{recurringForm.title.trim() || 'Repeats on a schedule'}</div>
                 <button type="button" className="drawer-close" onClick={() => setShowRecurringModal(false)}>×</button>
@@ -2470,7 +2470,7 @@ export default function Tasks() {
                   });
                   setShowRecurringModal(false);
                 } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
-              }}><Plus size={15} /> Create Recurring Task</button>
+              }}><Plus size={15} /> Create Recurring Ticket</button>
               <button type="button" className="drawer-cancel" onClick={() => setShowRecurringModal(false)}>Cancel</button>
             </div>
           </div>

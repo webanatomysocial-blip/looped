@@ -393,12 +393,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const task = await db('tasks').where({ id: task_id }).first();
-    if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+    if (!task) { res.status(404).json({ error: 'Ticket not found' }); return; }
 
     // Block duplicate active approvals
     const existing = await db('approvals').where({ task_id })
       .whereNotIn('status', ['approved', 'rejected']).first();
-    if (existing) { res.status(409).json({ error: 'Approval already pending for this task' }); return; }
+    if (existing) { res.status(409).json({ error: 'Approval already pending for this ticket' }); return; }
 
     // Determine workflow type from submitter role + whether project has clients
     const projectClients = await db('project_members as pm')
@@ -476,7 +476,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     // XLR8 approvals are managed exclusively via /api/xlr8/tickets/:id/* routes
     if (approval.workflow_type === 'xlr8') {
-      res.status(400).json({ error: 'XLR8 approvals must be actioned via the Tasks page workflow buttons' });
+      res.status(400).json({ error: 'XLR8 approvals must be actioned via the Tickets page workflow buttons' });
       return;
     }
 

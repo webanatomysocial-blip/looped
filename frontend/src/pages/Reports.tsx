@@ -110,8 +110,8 @@ export default function Reports() {
   const stats = [
     { label: 'Total projects',    value: summary?.total_projects },
     { label: 'Active projects',   value: summary?.active_projects },
-    { label: 'Total tasks',       value: summary?.total_tasks },
-    { label: 'Completed tasks',   value: summary?.completed_tasks },
+    { label: 'Total tickets',       value: summary?.total_tasks },
+    { label: 'Completed tickets',   value: summary?.completed_tasks },
     { label: 'Pending approvals', value: summary?.pending_approvals },
     { label: 'Team members',      value: summary?.total_users },
   ];
@@ -162,7 +162,7 @@ export default function Reports() {
             </div>
             <div className="reports-charts">
               <div className="report-card">
-                <p className="report-card__title">Task Completion</p>
+                <p className="report-card__title">Ticket Completion</p>
                 <div className="report-ring-wrap">
                   <div className="report-ring">
                     <svg width="110" height="110" style={{ transform: 'rotate(-90deg)' }}>
@@ -177,13 +177,13 @@ export default function Reports() {
                     </div>
                   </div>
                   <div className="report-ring-info">
-                    <p>Task Completion</p>
-                    <span>{summary?.completed_tasks} of {summary?.total_tasks} tasks completed</span>
+                    <p>Ticket Completion</p>
+                    <span>{summary?.completed_tasks} of {summary?.total_tasks} tickets completed</span>
                   </div>
                 </div>
               </div>
               <div className="report-card">
-                <p className="report-card__title">Tasks by Status</p>
+                <p className="report-card__title">Tickets by Status</p>
                 {tasksByStatus.map(({ status, count }) => {
                   const total = tasksByStatus.reduce((s, t) => s + Number(t.count), 0);
                   const pct = total ? Math.round((Number(count) / total) * 100) : 0;
@@ -263,7 +263,7 @@ export default function Reports() {
                     )}
                     <div className="rp-kpi">
                       <span className="rp-kpi__val">{totalTasks}</span>
-                      <span className="rp-kpi__label">Total Tasks</span>
+                      <span className="rp-kpi__label">Total Tickets</span>
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val" style={{ color: 'var(--green)' }}>{completedCount}</span>
@@ -283,7 +283,7 @@ export default function Reports() {
                   {totalTasks > 0 && (
                     <div style={{ marginBottom: 24 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-muted)', marginBottom: 6 }}>
-                        <span>Overall Completion</span><span>{completedCount}/{totalTasks} tasks</span>
+                        <span>Overall Completion</span><span>{completedCount}/{totalTasks} tickets</span>
                       </div>
                       <div className="report-bar-wrap" style={{ height: 10 }}>
                         <div className="report-bar-fill" style={{ width: `${pct}%`, background: 'var(--green)' }} />
@@ -294,7 +294,7 @@ export default function Reports() {
                   {/* Task status breakdown */}
                   {totalTasks > 0 && (
                     <div style={{ marginBottom: 28 }}>
-                      <p className="report-section-label">Task Status Breakdown</p>
+                      <p className="report-section-label">Ticket Status Breakdown</p>
                       <div className="rp-status-grid">
                         {Object.entries(counts).map(([status, count]) => (
                           <div key={status} className="rp-status-chip" style={{ borderColor: STATUS_BAR_COLOR[status] }}>
@@ -339,7 +339,7 @@ export default function Reports() {
 
                     {/* By Task */}
                     <div>
-                      <p className="report-section-label">Hours by Task</p>
+                      <p className="report-section-label">Hours by Ticket</p>
                       {projReport.by_task.length === 0
                         ? <p className="page-subtitle">No time logged yet</p>
                         : projReport.by_task.sort((a: any, b: any) => b.total_hours - a.total_hours).map((t: any) => {
@@ -380,7 +380,7 @@ export default function Reports() {
                               <tr>
                                 <th>Date</th>
                                 <th>Employee</th>
-                                <th>Task</th>
+                                <th>Ticket</th>
                                 <th>Hours</th>
                                 <th>Notes</th>
                               </tr>
@@ -466,7 +466,7 @@ export default function Reports() {
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val">{totalTasks}</span>
-                      <span className="rp-kpi__label">Tasks Assigned</span>
+                      <span className="rp-kpi__label">Tickets Assigned</span>
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val" style={{ color: 'var(--green)' }}>{completedCount}</span>
@@ -485,7 +485,7 @@ export default function Reports() {
                   {/* Task status breakdown */}
                   {totalTasks > 0 && (
                     <div style={{ marginBottom: 28 }}>
-                      <p className="report-section-label">Task Status Breakdown</p>
+                      <p className="report-section-label">Ticket Status Breakdown</p>
                       <div className="rp-status-grid">
                         {Object.entries(counts).map(([status, count]) => (
                           <div key={status} className="rp-status-chip" style={{ borderColor: STATUS_BAR_COLOR[status] }}>
@@ -547,7 +547,7 @@ export default function Reports() {
                               <tr>
                                 <th>Date</th>
                                 <th>Project</th>
-                                <th>Task</th>
+                                <th>Ticket</th>
                                 <th>Hours</th>
                                 <th>Notes</th>
                               </tr>
@@ -704,7 +704,7 @@ export default function Reports() {
                           <tr>
                             <th>Date</th>
                             <th>Employee</th>
-                            <th>Task</th>
+                            <th>Ticket</th>
                             <th>Hours</th>
                             <th>Notes</th>
                           </tr>

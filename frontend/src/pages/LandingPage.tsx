@@ -64,9 +64,9 @@ export default function LandingPage() {
         <p className="lp-section-sub">Every module is designed around the real delivery workflows of digital marketing teams.</p>
         <div className="lp-feature-grid">
           {[
-            { icon: '📋', bg: 'rgba(74,144,226,0.1)', title: 'Project & Task Management', desc: 'Create projects, assign tasks, set deadlines, and track estimated vs. actual hours with a full role-based acceptance chain.' },
+            { icon: '📋', bg: 'rgba(74,144,226,0.1)', title: 'Project & Ticket Management', desc: 'Create projects, assign tickets, set deadlines, and track estimated vs. actual hours with a full role-based acceptance chain.' },
             { icon: '⏱', bg: 'rgba(76,175,125,0.1)', title: 'Live Time Tracking', desc: 'Built-in start/pause timer on every task. Tracked seconds roll up into daily capacity reports per team member.' },
-            { icon: '👥', bg: 'rgba(245,196,24,0.1)', title: 'Team Capacity Dashboard', desc: 'See who is working on what right now. Filter by pod, date, or overdue tasks. Visual progress bars per member.' },
+            { icon: '👥', bg: 'rgba(245,196,24,0.1)', title: 'Team Capacity Dashboard', desc: 'See who is working on what right now. Filter by pod, date, or overdue tickets. Visual progress bars per member.' },
             { icon: '✅', bg: 'rgba(76,175,125,0.1)', title: 'Approval Workflows', desc: 'Manager → admin → client sequential approval flows. Rejection notes loop back to the assignee automatically.' },
             { icon: '📊', bg: 'rgba(74,144,226,0.1)', title: 'SEO Analytics (GA4)', desc: 'Connect GA4 and Search Console per client. View traffic, acquisition, engagement, and rankings in one report.' },
             { icon: '📢', bg: 'rgba(244,115,38,0.1)', title: 'Ads Analytics', desc: 'Pull live Google Ads campaigns, metrics, and ad approval status straight from the Google Ads API.' },
@@ -167,7 +167,7 @@ export default function LandingPage() {
             <p className="lp-section-sub">Loooped connects every stage of client delivery — no tool switching.</p>
             <div className="lp-workflow">
               {[
-                { n: '1', title: 'Create a project, assign tasks', desc: 'Set budgets, due dates, estimated hours. Assign tasks with role-based acceptance — manager, employee, or reviewer.' },
+                { n: '1', title: 'Create a project, assign tickets', desc: 'Set budgets, due dates, estimated hours. Assign tickets with role-based acceptance — manager, employee, or reviewer.' },
                 { n: '2', title: 'Team tracks time and submits', desc: 'Built-in timers log actual hours. When work is done it enters the approval chain — manager, admin, then client.' },
                 { n: '3', title: 'Connect analytics per client', desc: 'Link GA4, Search Console, and Google Ads per client. Data pulls automatically into each analytics dashboard.' },
                 { n: '4', title: 'Generate and share reports', desc: 'Create secure share links with date ranges. Each link preserves a snapshot of the data for that exact period.' },

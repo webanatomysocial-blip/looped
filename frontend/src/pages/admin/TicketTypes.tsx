@@ -126,7 +126,7 @@ export default function TicketTypes() {
             </button>
             <div>
               <h2 className="page-title">Choose a Template</h2>
-              <p className="page-subtitle">Select a task type — stages are set automatically. You can adjust them before saving.</p>
+              <p className="page-subtitle">Select a ticket type — stages are set automatically. You can adjust them before saving.</p>
             </div>
           </div>
 

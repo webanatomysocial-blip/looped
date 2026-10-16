@@ -292,7 +292,7 @@ export default function ShareTask() {
     if (!token) return;
     axios.get(`${API}/public/task/${token}`)
       .then(r => setTask(r.data))
-      .catch(() => setError('This task link is invalid or has been revoked.'));
+      .catch(() => setError('This ticket link is invalid or has been revoked.'));
   }, [token]);
 
   if (error) return (
@@ -340,7 +340,7 @@ export default function ShareTask() {
           {/* Info grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
             {[
-              { label: 'Task Key', value: <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{taskKey}</span> },
+              { label: 'Ticket Key', value: <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{taskKey}</span> },
               { label: 'Due Date', value: task.due_date ? new Date(task.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—' },
               { label: 'Created by', value: task.created_by_name || '—' },
               { label: 'Priority', value: <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: priorityStyle.bg, color: priorityStyle.color, textTransform: 'capitalize' }}>{task.priority || 'medium'}</span> },
@@ -446,14 +446,14 @@ export default function ShareTask() {
               );
             }) : (
               <div style={{ fontSize: 13, color: '#78716c', fontStyle: 'italic' }}>
-                {task.ticket_type_id ? 'No workflow history yet.' : 'Activity log is available for XLR8 workflow tasks only.'}
+                {task.ticket_type_id ? 'No workflow history yet.' : 'Activity log is available for XLR8 workflow tickets only.'}
               </div>
             )}
           </div>
         )}
 
         <div style={{ textAlign: 'center', fontSize: 11, color: '#a8a29e', marginTop: 32 }}>
-          This is a live task link — it always reflects the latest status.
+          This is a live ticket link — it always reflects the latest status.
         </div>
       </div>
     </div>

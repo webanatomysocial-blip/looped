@@ -157,7 +157,7 @@ export async function approvalReasons(
       if (u.pod === me.pod) continue;
       const where = assignments.filter((a) => a.user_id === u.id && a.stage_idx != null)
         .map((a) => `stage ${Number(a.stage_idx) + 1}${a.stage_name ? ` (${a.stage_name})` : ''}`);
-      out.push({ pod: u.pod, text: `${me.name} (${podLabel(me.pod)}) assigned your ${podLabel(u.pod)} member ${u.name}${where.length ? ` to ${where.join(', ')}` : ' to this task'}` });
+      out.push({ pod: u.pod, text: `${me.name} (${podLabel(me.pod)}) assigned your ${podLabel(u.pod)} member ${u.name}${where.length ? ` to ${where.join(', ')}` : ' to this ticket'}` });
     }
   }
   if (customStageCount && actor.role === 'employee') {

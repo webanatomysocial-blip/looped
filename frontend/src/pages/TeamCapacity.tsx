@@ -69,7 +69,7 @@ export default function TeamCapacityPage() {
             <h2 className="page-title">Team Capacity</h2>
             <p className="page-subtitle">
               {showOverdue
-                ? 'Tasks past their due date'
+                ? 'Tickets past their due date'
                 : dateFilter
                   ? new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
                   : new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -144,7 +144,7 @@ export default function TeamCapacityPage() {
             <div className="tc-summary-div" />
             <div className="tc-summary-stat">
               <span className="tc-summary-val">{totalTasks}</span>
-              <span className="tc-summary-lbl">Open tasks</span>
+              <span className="tc-summary-lbl">Open tickets</span>
             </div>
           </div>
         )}
@@ -164,10 +164,10 @@ export default function TeamCapacityPage() {
             {/* Table header */}
             <div className="tc-list-header">
               <div className="tc-col-member">Member</div>
-              <div className="tc-col-active">Active Task</div>
+              <div className="tc-col-active">Active Ticket</div>
               <div className="tc-col-bar">Today's Progress</div>
               <div className="tc-col-hrs">Tracked</div>
-              <div className="tc-col-tasks">Tasks</div>
+              <div className="tc-col-tasks">Tickets</div>
             </div>
 
             {paginated.map((member, idx) => {
@@ -200,7 +200,7 @@ export default function TeamCapacityPage() {
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 1 }}>
-                          {member.tasks.length} task{member.tasks.length !== 1 ? 's' : ''} assigned
+                          {member.tasks.length} ticket{member.tasks.length !== 1 ? 's' : ''} assigned
                         </div>
                       </div>
                     </div>

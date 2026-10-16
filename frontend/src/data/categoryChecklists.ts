@@ -141,7 +141,7 @@ export const CATEGORY_CHECKLISTS: Record<string, CategoryChecklist> = {
       { text: 'Client feedback addressed',           checked: true  },
       { text: 'Final QA completed',                  checked: true  },
       { text: 'Client approval received',            checked: true  },
-      { text: 'Task marked complete',                checked: true  },
+      { text: 'Ticket marked complete',                checked: true  },
     ],
   },
 };

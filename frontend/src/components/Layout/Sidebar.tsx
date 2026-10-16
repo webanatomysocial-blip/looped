@@ -22,7 +22,7 @@ const NAV: Record<Role, NavGroup> = {
     top: [
       { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
       { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
-      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tickets' },
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
@@ -47,7 +47,7 @@ const NAV: Record<Role, NavGroup> = {
     top: [
       { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
       { to: '/projects',           icon: RiFolderOpenLine, label: 'Projects' },
-      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tickets' },
       { to: '/team-capacity',      icon: RiHeartPulseLine, label: 'Team Capacity' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
@@ -66,7 +66,7 @@ const NAV: Record<Role, NavGroup> = {
   employee: {
     top: [
       { to: '/dashboard',          icon: RiDashboardLine,  label: 'Dashboard' },
-      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tasks' },
+      { to: '/tasks',              icon: RiCheckboxLine,   label: 'Tickets' },
       { to: '/calendar',           icon: RiCalendarLine,   label: 'Calendar' },
       { to: '/approvals',          icon: RiThumbUpLine,    label: 'Approvals' },
       { to: '/assets',             icon: RiArchiveLine,    label: 'Assets' },
@@ -134,7 +134,7 @@ export default function Sidebar() {
   const MASTER_NAV: (NavItem & { section: 'top' | 'more' })[] = [
     { to: '/dashboard',          icon: RiDashboardLine,      label: 'Dashboard',      section: 'top' },
     { to: '/projects',           icon: RiFolderOpenLine,     label: 'Projects',       section: 'top' },
-    { to: '/tasks',              icon: RiCheckboxLine,       label: 'Tasks',          section: 'top' },
+    { to: '/tasks',              icon: RiCheckboxLine,       label: 'Tickets',          section: 'top' },
     { to: '/team-capacity',      icon: RiHeartPulseLine,     label: 'Team Capacity',  section: 'top' },
     { to: '/calendar',           icon: RiCalendarLine,       label: 'Calendar',       section: 'top' },
     { to: '/approvals',          icon: RiThumbUpLine,        label: 'Approvals',      section: 'top' },

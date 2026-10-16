@@ -112,7 +112,7 @@ export default function EmployeeProfileModal({ userId, onClose }: Props) {
 
             {/* Stats */}
             <div style={{ display: 'flex', gap: 8 }}>
-              <StatBox value={profile?.overdue_tasks ?? '—'} label="Overdue Tasks" color="#ef4444" />
+              <StatBox value={profile?.overdue_tasks ?? '—'} label="Overdue Tickets" color="#ef4444" />
               <StatBox value={profile?.achievements ?? '—'} label="Achievements" color="#22c55e" />
               <StatBox value="—" label="Certificates" color="#f59e0b" />
               <StatBox value="—" label="Awards" color="#a78bfa" />

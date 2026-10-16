@@ -626,7 +626,7 @@ export default function XLR8Tickets() {
             <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#64748b', marginBottom: 4 }}>Mark as Done</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{selected.title}</div>
-              <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Have you completed everything for this task?</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Have you completed everything for this ticket?</div>
             </div>
 
             {/* Deliverables */}

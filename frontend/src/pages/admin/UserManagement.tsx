@@ -15,7 +15,7 @@ const defaultForm = { name: '', email: '', password: '', role: 'employee' as Rol
 const ALL_PAGES = [
   { slug: '/dashboard',       label: 'Dashboard',      group: 'Core' },
   { slug: '/projects',        label: 'Projects',        group: 'Core' },
-  { slug: '/tasks',           label: 'Tasks',           group: 'Core' },
+  { slug: '/tasks',           label: 'Tickets',           group: 'Core' },
   { slug: '/team-capacity',   label: 'Team Capacity',   group: 'Core' },
   { slug: '/calendar',        label: 'Calendar',        group: 'Core' },
   { slug: '/approvals',       label: 'Approvals',       group: 'Core' },
@@ -451,8 +451,8 @@ export default function UserManagement() {
 
               <div className="modal-info" style={{ fontSize: 12 }}>
                 <strong>Admin</strong> — full access, create users<br />
-                <strong>Manager</strong> — projects, tasks, approve step 1<br />
-                <strong>Employee</strong> — assigned tasks, submit for approval<br />
+                <strong>Manager</strong> — projects, tickets, approve step 1<br />
+                <strong>Employee</strong> — assigned tickets, submit for approval<br />
                 <strong>Client</strong> — view projects, review completed work
               </div>
             </div>

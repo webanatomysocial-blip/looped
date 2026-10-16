@@ -76,7 +76,7 @@ export default function UrgentTaskAlert({ tasks, onDismiss }: Props) {
                 {task.project_name && <span>Project: <strong>{task.project_name}</strong></span>}
                 {task.due_date && <span>Due: <strong>{task.due_date}</strong></span>}
                 {task.timer_running === false && (
-                  <span style={{ color: s.icon, fontWeight: 600 }}>⏸ Your previous task was auto-paused</span>
+                  <span style={{ color: s.icon, fontWeight: 600 }}>⏸ Your previous ticket was auto-paused</span>
                 )}
               </div>
             </div>
