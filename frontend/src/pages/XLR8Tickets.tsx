@@ -24,11 +24,11 @@ interface Ticket {
 
 const STATUS_LABELS: Record<string, string> = {
   pending_manager: 'Needs Manager',
-  pending_assignee: 'Awaiting Acceptance',
-  in_progress: 'In Progress',
+  pending_assignee: 'Waiting',
+  in_progress: 'Working',
   pending_admin: 'Admin Review',
   pending_client: 'Client Review',
-  completed: 'Completed',
+  completed: 'Approved',
   pending_crosspod: 'Awaiting Approval',
   crosspod_rejected: 'Request Rejected',
   needs_reassignment: 'Needs Reassignment',

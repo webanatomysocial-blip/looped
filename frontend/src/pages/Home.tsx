@@ -277,10 +277,10 @@ export default function Home() {
     (t.due_date && t.due_date < today) ||
     (effectiveEst(t) > 0 && ['accepted', 'review'].includes(t.acceptance_status) && liveSeconds(t) > effectiveEst(t))
   ));
-  const todayTasks = allTasksRaw.filter(t => t.status !== 'pending_approval' && (!t.due_date || t.due_date === today || t.status === 'completed'));
   const allTasks = allTasksRaw.filter(t => t.status !== 'completed' && t.status !== 'pending_approval');
-  const pendingTasks  = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'pending' || t.acceptance_status == null));
-  const acceptedTasks = todayTasks.filter(t => t.status !== 'completed' && (t.acceptance_status === 'accepted' || (t.acceptance_status as string) === 'upcoming'));
+  // Pending / Accepted are views of the same list as "All", so a task never vanishes when you switch tabs
+  const pendingTasks  = allTasks.filter(t => t.acceptance_status === 'pending' || t.acceptance_status == null);
+  const acceptedTasks = allTasks.filter(t => t.acceptance_status === 'accepted' || (t.acceptance_status as string) === 'upcoming');
 
   const visibleApproved = approvedTasks.filter(a => !dismissedApprovedIds.has(a.id));
   const visibleRejected = allTasksRaw.filter(t => t.has_rejected_approval && !dismissedRejectedIds.has(t.id));

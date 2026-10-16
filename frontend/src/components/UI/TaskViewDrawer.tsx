@@ -7,6 +7,7 @@ import { tasksApi, xlr8Api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
 import TaskApprovalSection from '../approvals/TaskApprovalSection';
+import { taskStage, reworkFromLog, TASK_STAGE_LABELS, TASK_STAGE_BADGE } from '../../utils/taskStatus';
 
 const URL_RE = /(https?:\/\/[^\s]+)/g;
 function linkifyText(text: string) {
@@ -190,7 +191,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                       </div>
                     );
                   })() },
-                  { label: 'Status', value: <span className={`badge badge--${task.status}`}>{({ pending_approval: 'Pending Approval', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[task.status] ?? task.status}</span> },
+                  { label: 'Status', value: (() => { const st = taskStage({ ...task, in_rework: task.ticket_type_id ? reworkFromLog(log) : false }); return <span className={`badge badge--${TASK_STAGE_BADGE[st]}`}>{TASK_STAGE_LABELS[st]}</span>; })() },
                   { label: 'Due Date', value: task.due_date ? format(new Date(task.due_date + 'T00:00:00'), 'MMM d, yyyy') : '—' },
                   { label: 'Created by', value: task.created_by_name || '—' },
                 ].map(({ label, value }) => (

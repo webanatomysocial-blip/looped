@@ -3,6 +3,7 @@ import { assigneeChip } from '../components/UI/assigneeChip';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
+import { fmtVersion, ticketVersion } from '../utils/ticketVersion';
 
 const API = '/api';
 
@@ -77,7 +78,7 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
 
   const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
   const skippedIdxSet = new Set(stageAssignees.filter((a: any) => a.skipped).map((a: any) => Number(a.stage_idx)));
-  type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string };
+  type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string; employeeDecline?: boolean };
   const declineEvents: DeclineEvent[] = [];
   let trackedIdx = 0, lastAdminIdx = -1, lastManagerIdx = -1;
   for (const entry of log) {
@@ -101,7 +102,7 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
       declineEvents.push({ fromIdx, toIdx: pi >= 0 ? pi : 0, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
       trackedIdx = pi >= 0 ? pi : 0; lastManagerIdx = -1;
     } else if (entry.action === 'employee_declined') {
-      declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '' });
+      declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', employeeDecline: true });
     }
   }
 
@@ -136,8 +137,18 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
       isActive: task.xlr8_status === 'pending_client' });
   }
 
+  // Version after each event: work rejections bump the last number, employee declines don't
+  let rejSoFar = 0;
+  const versionAfter = declineEvents.map(ev => (ev.employeeDecline ? null : ++rejSoFar));
+
   return (
     <div style={{ overflowX: 'auto', position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#78716c' }}>
+        Version
+        <span title="Each rejection adds 1 to the last number" style={{ fontWeight: 800, fontSize: 11, color: '#1a1a1a', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '1px 7px', fontVariantNumeric: 'tabular-nums' }}>
+          {ticketVersion(log)}
+        </span>
+      </div>
       <div style={{ width: 'max-content' }}>
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
           {stages.map((stage: any, i: number) => {
@@ -248,6 +259,7 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
                   <span style={{ fontWeight: 700, color: ei === declineEvents.length - 1 ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
                   {ev.actor_name && <span style={{ color: '#78716c', marginLeft: 4 }}>by {ev.actor_name}</span>}
                   {ev.at && <span style={{ color: '#78716c', marginLeft: 4 }}>· {fmtTs(ev.at)}</span>}
+                  {versionAfter[ei] != null && <span style={{ color: '#78716c', marginLeft: 4 }}>· {fmtVersion(versionAfter[ei]! - 1)} → <strong style={{ color: '#1a1a1a' }}>{fmtVersion(versionAfter[ei]!)}</strong></span>}
                   {ev.comment && <span style={{ color: '#b91c1c', fontStyle: 'italic', marginLeft: 4 }}>— "{ev.comment}"</span>}
                 </div>
               </div>
@@ -263,7 +275,7 @@ export default function ShareTask() {
   const { token } = useParams<{ token: string }>();
   const [task, setTask] = useState<any>(null);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState<'info' | 'activity'>('info');
+  const [tab, setTab] = useState<'info' | 'comments' | 'activity'>('info');
 
   useEffect(() => {
     document.documentElement.style.overflow = 'auto';
@@ -305,6 +317,7 @@ export default function ShareTask() {
   const statusStyle = STATUS_COLORS[task.status] || STATUS_COLORS.todo;
   const priorityStyle = PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium;
   const activityLog: any[] = task.activity_log || [];
+  const comments: any[] = task.comments || [];
   const deliverables: any[] = task.deliverables || [];
   const hasStages = task.ticket_type_id && (task.xlr8_stages?.length > 0);
 
@@ -341,9 +354,9 @@ export default function ShareTask() {
 
           {/* Tabs */}
           <div style={{ display: 'flex', borderTop: '1px solid rgba(0,0,0,0.07)', marginTop: 4 }}>
-            {(['info', 'activity'] as const).map(t => (
+            {(['info', 'comments', 'activity'] as const).map(t => (
               <button key={t} onClick={() => setTab(t)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 18px', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: tab === t ? '#1a1a1a' : '#78716c', borderBottom: tab === t ? '2px solid #1a1a1a' : '2px solid transparent', marginBottom: -1 }}>
-                {t === 'info' ? 'Info' : 'Activity Log'}
+                {t === 'info' ? 'Info' : t === 'comments' ? `Comments${comments.length ? ` (${comments.length})` : ''}` : 'Activity Log'}
               </button>
             ))}
           </div>
@@ -387,6 +400,34 @@ export default function ShareTask() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── Comments tab (read-only) ── */}
+        {tab === 'comments' && (
+          <div style={{ borderRadius: 16, border: '1px solid rgba(255,255,255,0.7)', background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(16px)', padding: '20px 24px' }}>
+            {comments.filter(c => !c.parent_id).length > 0 ? comments.filter(c => !c.parent_id).map((c: any) => (
+              <div key={c.id} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Avatar name={c.user_name || '?'} color={c.avatar_color} size={28} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12 }}><strong style={{ color: '#1a1a1a' }}>{c.user_name}</strong> <span style={{ color: '#78716c', fontSize: 10, marginLeft: 4 }}>{fmtTs(c.created_at)}</span></div>
+                    <div style={{ fontSize: 13, color: '#1a1a1a', marginTop: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{linkify(c.comment || '')}</div>
+                  </div>
+                </div>
+                {comments.filter(r => r.parent_id === c.id).map((r: any) => (
+                  <div key={r.id} style={{ display: 'flex', gap: 8, marginLeft: 38, marginTop: 8, paddingLeft: 10, borderLeft: '2px solid rgba(0,0,0,0.08)' }}>
+                    <Avatar name={r.user_name || '?'} color={r.avatar_color} size={22} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11 }}><strong style={{ color: '#1a1a1a' }}>{r.user_name}</strong> <span style={{ color: '#78716c', fontSize: 10, marginLeft: 4 }}>{fmtTs(r.created_at)}</span></div>
+                      <div style={{ fontSize: 12, color: '#1a1a1a', marginTop: 2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{linkify(r.comment || '')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )) : (
+              <div style={{ fontSize: 13, color: '#78716c', fontStyle: 'italic' }}>No comments yet.</div>
+            )}
+          </div>
         )}
 
         {/* ── Activity Log tab ── */}

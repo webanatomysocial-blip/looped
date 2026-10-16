@@ -96,12 +96,12 @@ export const STATUS_META: Record<ApprovalStatus, { label: string; color: string 
   pending_client:        { label: 'Pending Client',          color: '#9b59b6' },
   pending_admin_final:   { label: 'Admin Final Review',      color: 'var(--orange)' },
   pending_manager_final: { label: 'Manager Confirmation',    color: 'var(--yellow)' },
-  work_in_progress:      { label: 'In Progress',             color: 'var(--blue)' },
+  work_in_progress:      { label: 'Working',                 color: 'var(--blue)' },
   pending_review:        { label: 'Pending Review',          color: 'var(--orange)' },
   revision_requested:    { label: 'Revision Requested',      color: 'var(--red)' },
-  pending_custom:        { label: 'In Review',               color: 'var(--blue)' },
+  pending_custom:        { label: 'Submitted',               color: 'var(--blue)' },
   approved:              { label: 'Approved',                color: 'var(--green)' },
-  rejected:              { label: 'Rejected',                color: 'var(--red)' },
+  rejected:              { label: 'Rework',                  color: 'var(--red)' },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

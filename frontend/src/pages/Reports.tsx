@@ -14,8 +14,8 @@ const STATUS_BAR_COLOR: Record<string, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review',
-  overdue: 'Overdue', completed: 'Completed',
+  todo: 'Waiting / Accepted', in_progress: 'Working', in_review: 'Submitted',
+  overdue: 'Overdue', completed: 'Approved',
 };
 
 const STAT_VARIANT = ['yellow', 'green', 'blue', 'green', 'orange', 'purple'];
@@ -267,7 +267,7 @@ export default function Reports() {
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val" style={{ color: 'var(--green)' }}>{completedCount}</span>
-                      <span className="rp-kpi__label">Completed</span>
+                      <span className="rp-kpi__label">Approved</span>
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val">{pct}%</span>
@@ -470,7 +470,7 @@ export default function Reports() {
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val" style={{ color: 'var(--green)' }}>{completedCount}</span>
-                      <span className="rp-kpi__label">Completed</span>
+                      <span className="rp-kpi__label">Approved</span>
                     </div>
                     <div className="rp-kpi">
                       <span className="rp-kpi__val">{pct}%</span>

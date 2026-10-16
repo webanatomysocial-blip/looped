@@ -2,12 +2,12 @@ import '../../css/UI/Badge.css';
 
 const LABELS: Record<string, string> = {
   active:            'Active',
-  in_review:         'In Review',
+  in_review:         'Submitted',
   on_hold:           'On hold',
-  completed:         'Completed',
+  completed:         'Approved',
   draft:             'Draft',
-  todo:              'To Do',
-  in_progress:       'In Progress',
+  todo:              'Waiting',
+  in_progress:       'Working',
   overdue:           'Delayed',
   stage_done:        'Stage done',
   pending_approval:  'Pending Approval',

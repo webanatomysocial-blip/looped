@@ -191,6 +191,24 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     );
     const activeTimerSet = new Set<number>((activeSessionIds as any[]).map(Number));
 
+    // Tickets being reworked: the latest step was a rejection and it hasn't been resubmitted yet
+    const ticketIds = tasks.filter((t: any) => t.ticket_type_id && t.status !== 'completed').map((t: any) => Number(t.id));
+    const reworkSet = new Set<number>();
+    if (ticketIds.length) {
+      const steps = await db('xlr8_ticket_log')
+        .whereIn('task_id', ticketIds)
+        .whereIn('action', ['manager_declined', 'admin_declined', 'work_done', 'next_stage', 'sent_to_admin', 'manager_approved', 'admin_approved', 'completed'])
+        .orderBy('created_at', 'desc').orderBy('id', 'desc')
+        .select('task_id', 'action');
+      const seen = new Set<number>();
+      for (const r of steps) {
+        const id = Number(r.task_id);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        if (r.action === 'manager_declined' || r.action === 'admin_declined') reworkSet.add(id);
+      }
+    }
+
     const result = tasks.map((t: any) => {
       const tid = Number(t.id);
       return {
@@ -200,6 +218,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         timer_running: activeTimerSet.has(tid),
         active_runner_ids: activeRunnerRows.filter((r: any) => Number(r.task_id) === tid).map((r: any) => Number(r.user_id)),
         has_rejected_approval: !t.ticket_type_id && rejectedSet.has(tid),
+        in_rework: reworkSet.has(tid),
       };
     });
 
@@ -1186,7 +1205,14 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
         .orderBy('l.created_at', 'asc');
     }
 
-    res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables, activity_log });
+    // Comment thread, read-only on the share page
+    const comments = await db('task_comments as c')
+      .join('users as u', 'c.user_id', 'u.id')
+      .where('c.task_id', row.task_id)
+      .select('c.id', 'c.parent_id', 'c.comment', 'c.created_at', 'u.name as user_name', 'u.avatar_color')
+      .orderBy('c.created_at', 'asc');
+
+    res.json({ ...task, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, deliverables, activity_log, comments });
   } catch (e: any) {
     console.error('Public task error:', e?.message);
     res.status(500).json({ error: 'Server error' });

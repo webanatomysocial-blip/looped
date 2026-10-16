@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SendBackStagePicker from '../components/UI/SendBackStagePicker';
+import { taskStage, TASK_STAGE_LABELS, TASK_STAGE_BADGE } from '../utils/taskStatus';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
@@ -702,11 +703,28 @@ export default function Tasks() {
 
   const [page, setPage] = useState(1);
   const [dateFilter, setDateFilter] = useState('');
+  // Dashboard "Open task" sends us here: show the task's page, highlight its row, open its drawer
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  useEffect(() => {
+    const id = Number((location.state as any)?.openTaskId);
+    if (!id || !tasks.length) return;
+    navigate(location.pathname, { replace: true, state: null });
+    const idx = tasks.findIndex(x => Number(x.id) === id);
+    if (idx >= 0) {
+      setFilterStatus('all');
+      setDateFilter('');
+      setPage(Math.floor(idx / PAGE_SIZE) + 1);
+      setHighlightId(id);
+      setTimeout(() => document.getElementById(`task-row-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+      setTimeout(() => setHighlightId(h => (h === id ? null : h)), 4000);
+    }
+    setViewTask(id);
+  }, [tasks, location.state]);
   const [previewUser, setPreviewUser] = useState<{ name: string; role?: string; avatar_url: string } | null>(null);
 
-  const statuses = ['all', 'pending_approval', 'draft', 'todo', 'in_progress', 'in_review', 'overdue', 'completed'];
+  const statuses = ['all', 'pending_approval', 'draft', 'waiting', 'accepted', 'working', 'submitted', 'rework', 'overdue', 'approved'];
   const filtered = tasks.filter((t) => {
-    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+    if (filterStatus !== 'all' && taskStage(t) !== filterStatus) return false;
     if (dateFilter) {
       const createdDate = t.created_at ? String(t.created_at).slice(0, 10) : '';
       if (createdDate !== dateFilter) return false;
@@ -748,7 +766,7 @@ export default function Tasks() {
               <div className="filter-bar">
                 {statuses.map((s) => (
                   <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                    {({ all: 'All', pending_approval: 'Pending Approval', draft: 'Draft', todo: 'To Do', in_progress: 'In Progress', in_review: 'In Review', overdue: 'Delayed', completed: 'Completed' } as Record<string,string>)[s] ?? s}
+                    {(TASK_STAGE_LABELS as Record<string, string>)[s] ?? s}
                   </button>
                 ))}
               </div>
@@ -814,7 +832,7 @@ export default function Tasks() {
             <tbody>
               {paginated.map((task) => (
                 <React.Fragment key={task.id}>
-                <tr>
+                <tr id={`task-row-${task.id}`} style={highlightId === task.id ? { background: 'rgba(124,58,237,0.10)', boxShadow: 'inset 3px 0 0 #7c3aed', transition: 'background 0.4s' } : { transition: 'background 0.4s' }}>
                   <td>
                     <div className="task-cell-main" style={{ cursor: 'pointer' }} onClick={() => setViewTask(task.id)}>
                       <div className={`task-status-dot task-status-dot--${task.status}`} />
@@ -917,7 +935,7 @@ export default function Tasks() {
                       ? <Badge status="pending_approval" />
                       : task.ticket_type_id && user?.role === 'employee' && task.xlr8_assignee_id !== user?.id && task.xlr8_status !== 'completed'
                         ? <Badge status="stage_done" />
-                        : <Badge status={task.status} />}
+                        : <span className={`badge badge--${TASK_STAGE_BADGE[taskStage(task)]}`}>{TASK_STAGE_LABELS[taskStage(task)]}</span>}
                   </td>
                   <td>
                     {task.checklist_total > 0
@@ -939,18 +957,9 @@ export default function Tasks() {
                             ＋ Accept &amp; Assign
                           </button>
                         );
-                        // Employee reviewer stages are reviewed by that employee, not the manager
+                        // Employee reviewer stages are reviewed by that employee, not the manager.
+                        // Reviewing itself happens in the task drawer (click the task), not from the row.
                         const empReviewer = (task as any).xlr8_assignee_role === 'employee';
-                        if (needsReview && isManagerOnly && !empReviewer) return (
-                          <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
-                            ✓ Review
-                          </button>
-                        );
-                        if (needsReview && empReviewer && isAssignee) return (
-                          <button className="ticket-pill ticket-pill--orange" onClick={() => openTicketAction(task)}>
-                            ✓ Review
-                          </button>
-                        );
                         if (needsReview && empReviewer && isManagerOnly) return (
                           <span className="ticket-pill ticket-pill--muted">Awaiting {(task as any).xlr8_assignee_name?.split(' ')[0] || 'reviewer'}'s review</span>
                         );
@@ -1010,7 +1019,7 @@ export default function Tasks() {
                           padding: '3px 10px', borderRadius: 99,
                           background: 'rgba(155,89,182,0.12)', color: 'var(--purple)',
                           border: '1px solid rgba(155,89,182,0.22)', whiteSpace: 'nowrap',
-                        }}>In Review</span>
+                        }}>Submitted</span>
                       )}
                       {/* Timer controls — regular accepted tasks OR XLR8 in_progress tickets */}
                       {(user?.role === 'employee' || (user?.role === 'manager' && !!task.ticket_type_id)) && task.status !== 'completed' &&
@@ -2356,12 +2365,17 @@ export default function Tasks() {
 
       {/* Recurring Task Modal */}
       {showRecurringModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowRecurringModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: 600, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid var(--sand-border)' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>New Recurring Task</div>
+        <div className="drawer-overlay">
+          <div className="drawer-backdrop" onClick={() => setShowRecurringModal(false)} />
+          <div className="drawer-panel">
+            <div className="drawer-header">
+              <div className="drawer-header__label">New Recurring Task</div>
+              <div className="drawer-header__row">
+                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', flex: 1 }}>{recurringForm.title.trim() || 'Repeats on a schedule'}</div>
+                <button type="button" className="drawer-close" onClick={() => setShowRecurringModal(false)}>×</button>
+              </div>
             </div>
-            <div style={{ padding: '20px 28px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label className="form-label">Title *</label>
                 <input className="form-input" value={recurringForm.title} onChange={e => setRecurringForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Weekly report every Monday" autoFocus />
@@ -2439,9 +2453,8 @@ export default function Tasks() {
                 <input type="url" className="form-input" value={recurringForm.doc_link} onChange={e => setRecurringForm(f => ({ ...f, doc_link: e.target.value }))} placeholder="https://docs.google.com/…" />
               </div>
             </div>
-            <div style={{ padding: '14px 28px', borderTop: '1px solid var(--sand-border)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn-secondary" onClick={() => setShowRecurringModal(false)}>Cancel</button>
-              <button className="btn-primary" disabled={!recurringForm.title.trim()} onClick={async () => {
+            <div className="drawer-footer">
+              <button type="button" className="drawer-submit" disabled={!recurringForm.title.trim()} onClick={async () => {
                 try {
                   await calendarApi.createRecurring({
                     ...recurringForm,
@@ -2457,7 +2470,8 @@ export default function Tasks() {
                   });
                   setShowRecurringModal(false);
                 } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
-              }}>Create</button>
+              }}><Plus size={15} /> Create Recurring Task</button>
+              <button type="button" className="drawer-cancel" onClick={() => setShowRecurringModal(false)}>Cancel</button>
             </div>
           </div>
         </div>

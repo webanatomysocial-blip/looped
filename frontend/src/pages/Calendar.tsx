@@ -980,15 +980,18 @@ export default function CalendarPage() {
 
         {/* ── Recurring event detail popup ── */}
         {selectedRecurring && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)' }}
-            onClick={() => setSelectedRecurring(null)}>
-            <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: 400, boxShadow: '0 24px 64px rgba(0,0,0,0.18)', border: '1px solid rgba(255,255,255,0.8)' }}
-              onClick={e => e.stopPropagation()}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                <Repeat size={16} color="#818cf8" />
-                <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>{selectedRecurring.title}</span>
-                <button onClick={() => setSelectedRecurring(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-muted)', padding: 2 }}>✕</button>
+          <div className="drawer-overlay">
+            <div className="drawer-backdrop" onClick={() => setSelectedRecurring(null)} />
+            <div className="drawer-panel">
+              <div className="drawer-header">
+                <div className="drawer-header__label">Recurring Task</div>
+                <div className="drawer-header__row">
+                  <Repeat size={16} color="#818cf8" />
+                  <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', flex: 1 }}>{selectedRecurring.title}</span>
+                  <button type="button" className="drawer-close" onClick={() => setSelectedRecurring(null)}>×</button>
+                </div>
               </div>
+              <div className="drawer-body">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
                 {[
                   { label: 'Date', value: selectedRecurring.date },
@@ -1019,18 +1022,24 @@ export default function CalendarPage() {
               <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
                 This recurring task hasn't been generated as an active task yet for this date. It will appear once the scheduler runs.
               </p>
+              </div>
             </div>
           </div>
         )}
 
         {/* ── Recurring task modal ── */}
         {modal && (
-          <div style={{ position:'fixed', inset:0, zIndex:600, background:'rgba(0,0,0,0.3)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center' }} onClick={() => setModal(false)}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:'#fff', borderRadius:20, width:600, maxWidth:'95vw', maxHeight:'90vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.15)' }}>
-              <div style={{ padding:'20px 28px 16px', borderBottom:'1px solid var(--sand-border)' }}>
-                <div style={{ fontSize:16, fontWeight:800, color:'var(--ink)' }}>{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</div>
+          <div className="drawer-overlay">
+            <div className="drawer-backdrop" onClick={() => setModal(false)} />
+            <div className="drawer-panel">
+              <div className="drawer-header">
+                <div className="drawer-header__label">{editing ? 'Edit Recurring Task' : 'New Recurring Task'}</div>
+                <div className="drawer-header__row">
+                  <div style={{ fontSize:18, fontWeight:800, color:'var(--ink)', flex:1 }}>{form.title.trim() || 'Repeats on a schedule'}</div>
+                  <button type="button" className="drawer-close" onClick={()=>setModal(false)}>×</button>
+                </div>
               </div>
-              <div style={{ padding:'20px 28px', overflowY:'auto', display:'flex', flexDirection:'column', gap:14 }}>
+              <div className="drawer-body" style={{ display:'flex', flexDirection:'column', gap:14 }}>
                 <div>
                   <label className="form-label">Title *</label>
                   <input className="form-input" value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Weekly report" autoFocus />
@@ -1103,9 +1112,9 @@ export default function CalendarPage() {
                   <input className="form-input" type="url" value={(form as any).doc_link} onChange={e=>setForm(f=>({...f,doc_link:e.target.value}))} placeholder="https://docs.google.com/…" />
                 </div>
               </div>
-              <div style={{ padding:'14px 28px', borderTop:'1px solid var(--sand-border)', display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button className="btn-secondary" onClick={()=>setModal(false)}>Cancel</button>
-                <button className="btn-primary" disabled={!form.title} onClick={saveForm}>{editing ? 'Save Changes' : 'Create'}</button>
+              <div className="drawer-footer">
+                <button type="button" className="drawer-submit" disabled={!form.title} onClick={saveForm}>{editing ? 'Save Changes' : 'Create Recurring Task'}</button>
+                <button type="button" className="drawer-cancel" onClick={()=>setModal(false)}>Cancel</button>
               </div>
             </div>
           </div>

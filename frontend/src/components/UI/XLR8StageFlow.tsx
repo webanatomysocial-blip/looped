@@ -3,6 +3,7 @@ import { assigneeChip } from './assigneeChip';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Clock } from 'lucide-react';
 import { MiniAvatar } from './Avatar';
+import { fmtVersion, ticketVersion } from '../../utils/ticketVersion';
 
 export function fmtSec(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -29,7 +30,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
   const lastWasRejected = lastLogEntry && !lastLogEntry.action.includes('stage_pre_declined') &&
     (lastLogEntry.action.includes('declined') || lastLogEntry.action.includes('reject'));
 
-  type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string; fromLabel: string; toLabel: string };
+  type DeclineEvent = { fromIdx: number; toIdx: number; comment: string | null; at: string; actor_name: string; fromLabel: string; toLabel: string; employeeDecline?: boolean };
   const stageTypeOf = (s: any) => s?.type === 'manager' ? 'manager' : s?.type === 'admin' ? 'admin' : s?.reviewer ? 'admin' : 'employee';
   // A stage index is fully skipped only if every row for it is marked skipped (a null-user placeholder + skipped=1)
   const stageIdxSet = [...new Set(stageAssignees.map((a: any) => Number(a.stage_idx)))];
@@ -85,7 +86,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
       declineEvents.push({ fromIdx, toIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(fromIdx), toLabel: stageLabelOf(toIdx) });
       trackedIdx = toIdx; lastManagerIdx = -1;
     } else if (entry.action === 'employee_declined') {
-      declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(trackedIdx), toLabel: stageLabelOf(trackedIdx) });
+      declineEvents.push({ fromIdx: trackedIdx, toIdx: trackedIdx, comment: entry.comment ?? null, at: entry.created_at, actor_name: entry.actor_name ?? '', fromLabel: stageLabelOf(trackedIdx), toLabel: stageLabelOf(trackedIdx), employeeDecline: true });
     }
   }
 
@@ -98,9 +99,18 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
   // Stage that rejected (red) and stage the work was sent back to (amber, active again)
   const rejectedStageIdx = !lastWasRejected ? -1 : isEmployeeDecline ? currentIdx : (lastEvent?.fromIdx ?? -1);
   const redoIdx = lastWasRejected && !isEmployeeDecline ? currentIdx : -1;
+  // Version after each event: work rejections bump the last number, employee declines don't
+  let rejSoFar = 0;
+  const versionAfter = declineEvents.map(ev => (ev.employeeDecline ? null : ++rejSoFar));
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-muted)' }}>
+        Version
+        <span title="Each rejection adds 1 to the last number" style={{ fontWeight: 800, fontSize: 11, color: 'var(--ink)', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 6, padding: '1px 7px', fontVariantNumeric: 'tabular-nums' }}>
+          {ticketVersion(log)}
+        </span>
+      </div>
       <div style={{ overflowX: 'auto', position: 'relative' }}>
         <div style={{ width: 'max-content' }}>
           <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 0, marginTop: 10 }}>
@@ -300,6 +310,9 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                             <span style={{ fontWeight: 700, color: isLast ? '#ef4444' : '#f87171' }}>Rejection {ei + 1}</span>
                             {ev.actor_name && <span style={{ color: 'var(--ink-muted)' }}>by <strong style={{ color: 'var(--ink)' }}>{ev.actor_name}</strong></span>}
                             {atStr && <span style={{ color: 'var(--ink-muted)' }}>· {atStr}</span>}
+                            {versionAfter[ei] != null && (
+                              <span style={{ color: 'var(--ink-muted)', fontVariantNumeric: 'tabular-nums' }}>· {fmtVersion(versionAfter[ei]! - 1)} → <strong style={{ color: 'var(--ink)' }}>{fmtVersion(versionAfter[ei]!)}</strong></span>
+                            )}
                           </div>
                           {ev.fromIdx !== ev.toIdx && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontSize: 10, color: 'var(--ink-muted)' }}>

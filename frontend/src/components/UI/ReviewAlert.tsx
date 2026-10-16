@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Search, Link2, Paperclip, ArrowRight } from 'lucide-react';
 import { tasksApi } from '../../services/api';
 
@@ -19,6 +19,7 @@ interface Props {
 
 export function ReviewAlert({ task, role, reviewData, onLoad }: Props) {
   const s = ROLE_STYLE[role] ?? ROLE_STYLE.employee;
+  const navigate = useNavigate();
 
   if (!reviewData) {
     Promise.all([tasksApi.getDeliverables(task.id), tasksApi.get(task.id)])
@@ -57,9 +58,10 @@ export function ReviewAlert({ task, role, reviewData, onLoad }: Props) {
           ))}
         </div>
       )}
-      <Link to="/approvals" style={{ alignSelf: 'flex-start', background: s.color, color: '#fff', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 5 }}>
-        Go to Approvals <ArrowRight size={13} />
-      </Link>
+      <button type="button" onClick={() => navigate('/tasks', { state: { openTaskId: task.id } })}
+        style={{ alignSelf: 'flex-start', background: s.color, color: '#fff', border: 'none', cursor: 'pointer', borderRadius: 8, padding: '7px 16px', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+        Open task <ArrowRight size={13} />
+      </button>
     </div>
   );
 }
