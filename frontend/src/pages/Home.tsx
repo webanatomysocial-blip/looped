@@ -13,6 +13,7 @@ import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api, regularisati
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
+import { fmtDate } from '../utils/date';
 
 
 
@@ -50,7 +51,7 @@ function getDeadlineInfo(due_date: string | null, due_time: string | null): { la
     const m = Math.round((diffHrs - h) * 60);
     return { label: `Due in ${h}h${m > 0 ? ` ${m}m` : ''}`, urgent: false, overdue: false };
   }
-  const dateStr = deadline.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const dateStr = fmtDate(deadline);
   const timeStr = due_time ? ` at ${deadline.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '';
   return { label: `Due ${dateStr}${timeStr}`, urgent: false, overdue: false };
 }
@@ -342,7 +343,7 @@ export default function Home() {
         {/* <div style={{ marginBottom: 20 }}>
           <h2 className="page-title">Home</h2>
           <p className="page-subtitle" style={{ marginTop: 2 }}>
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            {new Date().toLocaleDateString('en-US', { weekday: 'long' })}, {fmtDate(new Date())}
           </p>
         </div> */}
 
@@ -455,7 +456,7 @@ export default function Home() {
                   <div key={task.id} style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                     <div>
                       <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setViewTask(task.id)}>{task.title}</span>
-                      <span style={{ fontSize: 12, color: '#64748b' }}> · {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+                      <span style={{ fontSize: 12, color: '#64748b' }}> · {task.project_name}{task.due_date ? ` · Due ${fmtDate(task.due_date)}` : ''}</span>
                       {task.crosspod_pods && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 99, background: 'rgba(245,158,11,0.15)', color: '#b45309' }}>Request{task.created_by_name ? ` · from ${task.created_by_name}` : ''}</span>}
                       {(() => {
                         // Why this needs approval — managers see the lines for their pod, admins see all
@@ -503,7 +504,7 @@ export default function Home() {
                 <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', background: 'rgba(37,99,235,0.1)', borderRadius: 99, padding: '2px 8px' }}>Stage Assignment</span>
               </div>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
-                {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}</span>
+                {task.title} <span style={{ fontWeight: 400, color: 'var(--ink-muted)', fontSize: 12 }}>· {task.project_name}{task.due_date ? ` · Due ${fmtDate(task.due_date)}` : ''}</span>
                 {task.rejection_log && (
                   <span style={{ marginLeft: 8, fontSize: 11, background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderRadius: 4, padding: '1px 7px', fontWeight: 600 }}>
                     Returned by {task.rejection_log.actor}{task.rejection_log.to_stage ? ` to ${task.rejection_log.to_stage}` : ''}
@@ -609,7 +610,7 @@ export default function Home() {
                         )}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 2 }}>
-                        {task.project_name}{task.due_date ? ` · Due ${task.due_date}` : ''}
+                        {task.project_name}{task.due_date ? ` · Due ${fmtDate(task.due_date)}` : ''}
                       </div>
                       {task.rejection_log?.comment && (
                         <div style={{ fontSize: 11, color: '#ef4444', marginTop: 4, fontStyle: 'italic' }}>
@@ -665,7 +666,7 @@ export default function Home() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {overCap && <span style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>Today is over capacity ({todayHours.toFixed(1)}h / {DAY_CAP}h)</span>}
                 {overdue.map(t => (
-                  <span key={t.id} style={{ fontSize: 12, fontWeight: 600, color: '#dc2626' }}>"{t.title}" is overdue — due {t.due_date}</span>
+                  <span key={t.id} style={{ fontSize: 12, fontWeight: 600, color: '#dc2626' }}>"{t.title}" is overdue — due {fmtDate(t.due_date)}</span>
                 ))}
               </div>
             </div>

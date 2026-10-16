@@ -4,6 +4,7 @@ import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { seoApi, usersApi, projectsApi } from '../services/api';
 import '../css/pages/SEO.css';
+import { fmtDate } from '../utils/date';
 
 type Range = '7d' | '28d' | '90d' | 'custom';
 
@@ -687,7 +688,7 @@ ${manual.gmb_locations.map((loc) => {
           </tr>`;
     }).join('');
 
-  const fmtD = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const fmtD = (d: Date) => fmtDate(d);
   const today = new Date();
   const daysAgo = (n: number) => { const d = new Date(today); d.setDate(d.getDate() - n); return d; };
   const [rStart, rEnd] = range === 'custom' && customStart && customEnd
@@ -696,7 +697,7 @@ ${manual.gmb_locations.map((loc) => {
     : range === '28d' ? [daysAgo(28), today]
     : [daysAgo(90), today];
   const rangeLabel = `${fmtD(rStart)} – ${fmtD(rEnd)}`;
-  const dateStr = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  const dateStr = fmtDate(new Date());
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>SEO &amp; Social Analytics Report — ${clientName}</title>
@@ -1281,7 +1282,7 @@ export default function SEO() {
                       <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 10 }}>No saved reports yet.</p>
                     )}
                     {savedReports.map((r: any) => {
-                      const dateLabel = r.start_date && r.end_date ? `${r.start_date} → ${r.end_date}` : r.range || '28d';
+                      const dateLabel = r.start_date && r.end_date ? `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}` : r.range || '28d';
                       const shareLink = r.share_token ? `${window.location.origin}/share/${r.share_token}` : null;
                       return (
                         <div key={r.id} style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--bg-sand, #f9f9f6)', borderRadius: 7, border: '1px solid var(--border)' }}>
@@ -1616,7 +1617,7 @@ export default function SEO() {
                   {selectedClient ? selectedClient.name : 'Report'} — {range === '28d' ? 'Last 28 Days' : range === '7d' ? 'Last 7 Days' : range === '90d' ? 'Last 90 Days' : `${customStart} to ${customEnd}`}
                 </h1>
                 <p style={{ fontSize: 13, color: '#94a3b8', margin: 0, fontWeight: 500 }}>
-                  Generated {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · {agencyName || 'Loooped'} Report Module
+                  Generated {fmtDate(new Date())} · {agencyName || 'Loooped'} Report Module
                 </p>
               </div>
 

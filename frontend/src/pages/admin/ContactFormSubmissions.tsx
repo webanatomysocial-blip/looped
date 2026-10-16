@@ -4,6 +4,7 @@ import Layout from '../../components/Layout/Layout';
 import Breadcrumb from '../../components/ContactForms/Breadcrumb';
 import { contactFormsApi } from '../../services/api';
 import '../../css/pages/ContactForms.css';
+import { fmtDateTime } from '../../utils/date';
 
 interface FileRecord { stored: string; original: string; fieldname: string; }
 
@@ -98,7 +99,7 @@ export default function ContactFormSubmissions() {
     const data = rows.map((s) => [
       s.form_name,
       ...cols.map((col) => s.data[col] ?? ''),
-      new Date((String(s.created_at).includes("T")||String(s.created_at).includes("Z")?String(s.created_at):String(s.created_at).replace(" ","T")+"Z")).toLocaleString(),
+      fmtDateTime(s.created_at),
     ]);
     const csv = [header, ...data].map((r) => r.map(csvEscape).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -191,7 +192,7 @@ export default function ContactFormSubmissions() {
                           {s.data[col] ?? ''}
                         </td>
                       ))}
-                      <td style={{ whiteSpace: 'nowrap' }}>{new Date((String(s.created_at).includes("T")||String(s.created_at).includes("Z")?String(s.created_at):String(s.created_at).replace(" ","T")+"Z")).toLocaleString()}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(s.created_at)}</td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <button
                           className="btn-ghost"
@@ -226,7 +227,7 @@ export default function ContactFormSubmissions() {
               <div>
                 <h3 className="modal-title">{detail.form_name}</h3>
                 <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>
-                  {new Date((String(detail.created_at).includes("T")||String(detail.created_at).includes("Z")?String(detail.created_at):String(detail.created_at).replace(" ","T")+"Z")).toLocaleString()}
+                  {fmtDateTime(detail.created_at)}
                 </p>
               </div>
               <button className="modal-close" onClick={() => setDetail(null)}>✕</button>

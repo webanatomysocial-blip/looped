@@ -6,6 +6,7 @@ import { notificationsApi, tasksApi, projectsApi, usersApi } from '../../service
 import IdCardModal from '../UI/IdCardModal';
 import EmployeeProfileModal from '../UI/EmployeeProfileModal';
 import '../../css/Layout/Header.css';
+import { fmtDate } from '../../utils/date';
 
 interface HeaderProps {
   /** Optional CTA button shown on the right (e.g. "New project") */
@@ -16,7 +17,7 @@ interface HeaderProps {
 
 function formatDate() {
   const d = new Date();
-  return d.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  return `${d.toLocaleDateString('en-US', { weekday: 'long' })}, ${fmtDate(d)}`;
 }
 
 

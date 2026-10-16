@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { authApi } from '../services/api';
 import '../css/pages/Login.css';
 
 
@@ -10,6 +11,20 @@ export default function Login() {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // "Forgot password?" — email a one-time reset link
+  const [mode, setMode] = useState<'login' | 'forgot'>('login');
+  const [resetMsg, setResetMsg] = useState('');
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setResetMsg(''); setLoading(true);
+    try {
+      const r = await authApi.forgotPassword(email);
+      setResetMsg(r.data?.message || 'If an account exists for that email, a reset link has been sent.');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Could not send the reset link. Try again.');
+    } finally { setLoading(false); }
+  };
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
@@ -44,11 +59,27 @@ export default function Login() {
         </div>
 
         <div className="card" style={{ padding: '28px' }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', marginBottom: 4 }}>Welcome back</h2>
-          <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 24 }}>Sign in to your workspace</p>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', marginBottom: 4 }}>{mode === 'login' ? 'Welcome back' : 'Reset your password'}</h2>
+          <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 24 }}>{mode === 'login' ? 'Sign in to your workspace' : "Enter your account email and we'll send you a reset link."}</p>
 
           {error && <div className="modal-error" style={{ marginBottom: 16 }}>{error}</div>}
 
+          {mode === 'forgot' ? (
+            <form onSubmit={handleForgot} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {resetMsg && <div role="status" style={{ fontSize: 13, color: '#166534', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 10, padding: '10px 12px' }}>{resetMsg} Check your inbox (and spam folder).</div>}
+              <div>
+                <label className="form-label" htmlFor="forgot-email">Email</label>
+                <input id="forgot-email" type="email" className="form-input" placeholder="you@agency.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+              </div>
+              <div style={{ paddingTop: 4 }}>
+                <button type="submit" disabled={loading} className="login-submit">{loading ? 'Sending…' : 'Send reset link'}</button>
+              </div>
+              <button type="button" onClick={() => { setMode('login'); setError(''); setResetMsg(''); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--ink-muted)', fontWeight: 600 }}>
+                ← Back to sign in
+              </button>
+            </form>
+          ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <label className="form-label">Email</label>
@@ -63,7 +94,13 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="form-label" htmlFor="login-password">Password</label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <label className="form-label" htmlFor="login-password">Password</label>
+                <button type="button" onClick={() => { setMode('forgot'); setError(''); setResetMsg(''); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--accent, #2563eb)', padding: 0 }}>
+                  Forgot password?
+                </button>
+              </div>
               <div style={{ position: 'relative' }}>
                 <input
                   id="login-password"
@@ -94,6 +131,7 @@ export default function Login() {
               </button>
             </div>
           </form>
+          )}
 
 
         </div>

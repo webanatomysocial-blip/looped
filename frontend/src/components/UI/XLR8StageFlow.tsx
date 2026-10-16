@@ -286,7 +286,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                     {(() => {
                       const last = realArcs[realArcs.length - 1];
                       const midX = (cardCenterX(last.fromIdx) + cardCenterX(last.toIdx)) / 2;
-                      const atStr = last.at ? (() => { const s = String(last.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })() : null;
+                      const atStr = last.at ? (() => { const s = String(last.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'dd-MM-yyyy, h:mm a'); })() : null;
                       return (
                         <div style={{ position: 'absolute', top: baseArcH - 10, left: midX, transform: 'translateX(-50%)' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 99, padding: '3px 10px', fontSize: 10, fontWeight: 700, color: '#ef4444', whiteSpace: 'nowrap' }}>
@@ -300,7 +300,7 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                 )}
                 <div style={{ marginTop: realArcs.length > 0 ? maxArcH - 8 : 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {declineEvents.map((ev, ei) => {
-                    const atStr = ev.at ? (() => { const s = String(ev.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })() : null;
+                    const atStr = ev.at ? (() => { const s = String(ev.at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'dd-MM-yyyy, h:mm a'); })() : null;
                     const isLast = ei === declineEvents.length - 1;
                     return (
                       <div key={ei} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 11, background: isLast ? 'rgba(239,68,68,0.04)' : 'transparent', borderRadius: 8, padding: '6px 8px' }}>

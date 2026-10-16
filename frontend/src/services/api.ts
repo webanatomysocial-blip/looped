@@ -22,6 +22,8 @@ api.interceptors.response.use(
 export const authApi = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }),
   me: () => api.get('/auth/me'),
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
 };
 
 export const usersApi = {
@@ -72,6 +74,9 @@ export const projectsApi = {
 };
 
 export const tasksApi = {
+  listDeleted: () => api.get('/tasks/deleted'),
+  restoreDeleted: (id: number) => api.post(`/tasks/deleted/${id}/restore`),
+  purgeDeleted: (id: number) => api.delete(`/tasks/deleted/${id}`),
   list: (projectId?: number, pod?: string) => api.get('/tasks', { params: { ...(projectId ? { project_id: projectId } : {}), ...(pod ? { pod } : {}) } }),
   getApprovalFlow: (taskId: number) => api.get(`/tasks/${taskId}/approval-flow`),
   get: (id: number) => api.get(`/tasks/${id}`),

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
+import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
 import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
@@ -245,6 +246,57 @@ router.get('/:id/approval-flow', async (req: AuthRequest, res: Response) => {
 });
 
 // GET single task with checklist
+// ── Deleted tab ──────────────────────────────────────────────────────────────
+// Admins see every deleted ticket; managers see their pod's projects and ones they deleted
+router.get('/deleted', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    await ensureTrashTable(db);
+    let q = db('deleted_tasks as d')
+      .leftJoin('projects as p', 'p.id', 'd.project_id')
+      .leftJoin('users as u', 'u.id', 'd.deleted_by')
+      .select('d.id', 'd.task_id', 'd.title', 'd.project_id', 'd.deleted_at', 'p.name as project_name', 'p.pod', 'u.name as deleted_by_name')
+      .orderBy('d.deleted_at', 'desc');
+    if (req.user!.role === 'manager') {
+      const me = await db('users').where({ id: req.user!.id }).select('pod').first();
+      q = q.where(function (this: any) { this.where('d.deleted_by', req.user!.id); if (me?.pod) this.orWhere('p.pod', me.pod); });
+    }
+    res.json(await q);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/deleted/:id/restore', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    await ensureTrashTable(db);
+    const row = await db('deleted_tasks').where({ id: req.params.id }).first();
+    if (!row) { res.status(404).json({ error: 'Not in Deleted' }); return; }
+    const snap = JSON.parse(row.snapshot);
+    if (snap.task.project_id && !(await db('projects').where({ id: snap.task.project_id }).first())) {
+      res.status(400).json({ error: "Its project no longer exists, so this ticket can't be restored" }); return;
+    }
+    await restoreTicket(db, snap);
+    await db('deleted_tasks').where({ id: row.id }).delete();
+    res.json({ message: 'Restored', task_id: snap.task.id });
+    // Put restored work back on people's calendars
+    const ids = new Set<number>([snap.task.assigned_to, ...(snap.rows?.task_assignees || []).map((a: any) => a.user_id)].filter(Boolean));
+    const { scheduleUser } = await import('../services/scheduler');
+    for (const uid of ids) await scheduleUser(uid, db).catch(() => {});
+  } catch (err: any) {
+    console.error('Restore ticket error:', err);
+    res.status(500).json({ error: err?.message?.includes('already exists') ? err.message : 'Could not restore this ticket' });
+  }
+});
+
+router.delete('/deleted/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    await ensureTrashTable(db);
+    await db('deleted_tasks').where({ id: req.params.id }).delete();
+    res.json({ message: 'Deleted forever' });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
@@ -596,6 +648,12 @@ router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest,
     const affectedUsers = new Set<number>();
     if (task?.assigned_to) affectedUsers.add(task.assigned_to);
     for (const a of assignees) if (a.user_id) affectedUsers.add(a.user_id);
+
+    // Keep a full copy in the Deleted tab so it can be restored
+    const snap = await snapshotTicket(db, Number(tid));
+    if (!snap) { res.status(404).json({ error: 'Ticket not found' }); return; }
+    await ensureTrashTable(db);
+    await db('deleted_tasks').insert({ task_id: snap.task.id, title: snap.task.title, project_id: snap.task.project_id ?? null, deleted_by: req.user!.id, snapshot: JSON.stringify(snap) });
 
     await db('approval_steps').whereIn('approval_id', db('approvals').where({ task_id: tid }).select('id')).delete();
     await db('approvals').where({ task_id: tid }).delete();

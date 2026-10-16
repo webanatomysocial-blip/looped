@@ -6,6 +6,7 @@ import Layout from '../components/Layout/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { usersApi, localSeoApi, appSettingsApi } from '../services/api';
 import '../css/pages/LocalSEO.css';
+import { fmtDateTime } from '../utils/date';
 
 interface GridPoint {
   lat: number;
@@ -338,7 +339,7 @@ export default function LocalSEO() {
               <div className="lseo-stats-keyword">{activeKeyword}</div>
               {checkedAt && (
                 <div style={{ fontSize: 10, color: 'var(--ink-muted)', marginTop: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  {new Date(checkedAt).toLocaleString()}
+                  {fmtDateTime(checkedAt)}
                   <button className="lseo-recheck-btn" onClick={recheck} disabled={checking} title="Re-check">
                     <RiRefreshLine size={12} style={{ animation: checking ? 'spin 1s linear infinite' : 'none' }} />
                   </button>

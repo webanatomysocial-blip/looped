@@ -192,7 +192,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                     );
                   })() },
                   { label: 'Status', value: (() => { const st = taskStage({ ...task, in_rework: task.ticket_type_id ? reworkFromLog(log) : false }); return <span className={`badge badge--${TASK_STAGE_BADGE[st]}`}>{TASK_STAGE_LABELS[st]}</span>; })() },
-                  { label: 'Due Date', value: task.due_date ? format(new Date(task.due_date + 'T00:00:00'), 'MMM d, yyyy') : '—' },
+                  { label: 'Due Date', value: task.due_date ? format(new Date(task.due_date + 'T00:00:00'), 'dd-MM-yyyy') : '—' },
                   { label: 'Created by', value: task.created_by_name || '—' },
                 ].map(({ label, value }) => (
                   <div key={label}>
@@ -379,7 +379,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                       <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{ACTION_LABELS[entry.action] || entry.action}</span></span>
                       <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>
-                        {(() => { const s = String(entry.created_at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'MMM d, h:mm a'); })()}
+                        {(() => { const s = String(entry.created_at); const iso = s.includes('T') || s.includes('Z') || s.includes('+') ? s : s.replace(' ', 'T') + 'Z'; return format(new Date(Number(s) || iso), 'dd-MM-yyyy, h:mm a'); })()}
                       </span>
                     </div>
                     {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}

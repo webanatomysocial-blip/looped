@@ -6,6 +6,7 @@ import { calendarApi, usersApi, projectsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { ChevronLeft, ChevronRight, Calendar, Clock, Repeat, CheckCircle, Zap, TrendingUp, Minus, AlertTriangle, FolderOpen } from 'lucide-react';
 import '../css/pages/Calendar.css';
+import { fmtDate as fmtDDMMYYYY } from '../utils/date';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -20,10 +21,7 @@ const PRIORITY_CONFIG: Record<string, { color: string; bg: string; border: strin
 };
 
 function toYM(y: number, m: number) { return `${y}-${String(m).padStart(2,'0')}`; }
-function fmtDate(d: string) {
-  const [y, m, day] = d.split('-');
-  return `${parseInt(day)} ${MONTH_NAMES[parseInt(m)-1].slice(0,3)}`;
-}
+function fmtDate(d: string) { return fmtDDMMYYYY(d); }
 function getMondayOf(date: Date): Date {
   const d = new Date(date);
   const dow = d.getDay();
@@ -843,13 +841,9 @@ export default function CalendarPage() {
 
   function weekLabel() {
     const fri = new Date(monday); fri.setDate(monday.getDate() + 4);
-    const m1 = MONTH_NAMES[monday.getMonth()].slice(0,3);
-    const m2 = MONTH_NAMES[fri.getMonth()].slice(0,3);
-    const sameMonth = monday.getMonth() === fri.getMonth();
-    return sameMonth
-      ? `${m1} ${monday.getDate()} – ${fri.getDate()}, ${monday.getFullYear()}`
-      : `${m1} ${monday.getDate()} – ${m2} ${fri.getDate()}, ${monday.getFullYear()}`;
+    return `${fmtDDMMYYYY(monday)} – ${fmtDDMMYYYY(fri)}`;
   }
+
 
   function openCreate() {
     setEditing(null);

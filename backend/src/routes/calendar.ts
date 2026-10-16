@@ -22,16 +22,8 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
       'p.name as project_name'
     );
 
-  if (user.role === 'admin') {
-    // admin sees all
-  } else if (user.role === 'manager') {
-    const mgr = await db('users').where({ id: user.id }).select('pod').first();
-    if (mgr?.pod) {
-      query = query.where('u.pod', mgr.pod);
-    }
-  } else {
-    query = query.where('rt.assigned_to', user.id);
-  }
+  // Calendar shows only your own recurring tickets — even ones you created for someone else
+  query = query.where('rt.assigned_to', user.id);
 
   const rows = await query.orderBy('rt.created_at', 'desc');
   res.json(rows.map(r => ({ ...r, recurrence_days: r.recurrence_days ? (typeof r.recurrence_days === 'string' ? JSON.parse(r.recurrence_days) : r.recurrence_days) : [] })));
@@ -118,8 +110,9 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
 
   let tasks: any[];
 
-  // For employees: use task_schedule_slots so monthly view is consistent with weekly view
-  if (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'client') {
+  // Everyone (admins and managers too) sees only their own schedule — task_schedule_slots,
+  // same as the weekly view. Only clients get the project-wide due-date view below.
+  if (user.role !== 'client') {
     const slotRows = await db('task_schedule_slots as s')
       .join('tasks as t', 's.task_id', 't.id')
       .leftJoin('users as a', 't.assigned_to', 'a.id')
@@ -356,41 +349,8 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
     let slotRows: any[] = slotRowsRaw;
 
-    // Admin/manager: also load all accepted tasks as overview (is_overview=true, excluded from capacity)
+    // Admin/manager see only their own calendar (no overview of other people's tickets)
     if (user.role === 'admin' || user.role === 'manager') {
-      const slottedIds = new Set(slotRowsRaw.map((r: any) => r.id));
-      const overviewTasks = await db('tasks as t')
-        .leftJoin('projects as p', 't.project_id', 'p.id')
-        .whereNotNull('t.due_date')
-        .whereBetween('t.due_date', [weekStart, weekEnd])
-        .whereNotIn('t.status', ['completed', 'draft'])
-        .whereRaw(`NOT EXISTS (
-          SELECT 1 FROM task_assignees ta2
-          WHERE ta2.task_id = t.id
-            AND (ta2.assignee_role IS NULL OR ta2.assignee_role NOT IN ('admin','client'))
-            AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
-        )`)
-        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
-          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
-          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`))
-        .orderByRaw("CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END");
-      // Also fetch completed tasks (no slots left after scheduler clears them)
-      const completedOverview = await db('tasks as t')
-        .leftJoin('projects as p', 't.project_id', 'p.id')
-        .where('t.status', 'completed')
-        .whereNotNull('t.due_date')
-        .whereBetween('t.due_date', [weekStart, weekEnd])
-        .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',
-          't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.assigned_to',
-          'p.name as project_name', db.raw(`${trackedSubSQL} as tracked_seconds`));
-      // All overview tasks are marked is_overview — they show as chips, not counted in personal capacity
-      const overviewRows = overviewTasks
-        .filter((t: any) => !slottedIds.has(t.id))
-        .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
-      const completedRows = completedOverview
-        .filter((t: any) => !slottedIds.has(t.id))
-        .map((t: any) => ({ ...t, slot_date: t.due_date, slot_hours: 0, scheduled_stage: null, user_est_hours: t.estimated_hours || 0, is_overview: true }));
-      slotRows = [...slotRowsRaw, ...overviewRows, ...completedRows];
       // Trigger scheduler for admin/manager so their personally assigned tasks get real slots
       if (slotRowsRaw.length === 0) {
         import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(user.id, db)).catch(() => {});
@@ -649,7 +609,11 @@ export type MoveIssue = { tone: 'warn' | 'bad'; what: string; why: string; fix: 
 export type MovePreview = { tone: 'ok' | 'warn' | 'bad'; allowed: boolean; headline: string; moved?: MoveChange; issues: MoveIssue[]; changes: MoveChange[]; buffer: number | null; deadlineBefore?: { state: Health['state']; buffer: number }; deadlineAfter?: { state: Health['state']; buffer: number } };
 export type Downstream = { name: string; userName: string; hours: number; busy: Record<string, number> };
 
-const dayLabel = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+// "Wed 14-10-2026" — weekday plus DD-MM-YYYY, same date format as the rest of the app
+const dayLabel = (d: string) => {
+  const [y, m, day] = d.split('-');
+  return `${new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short' })} ${day}-${m}-${y}`;
+};
 const span = (a: string, b: string) => a === b ? dayLabel(a) : `${dayLabel(a)} – ${dayLabel(b)}`;
 const blocksText = (slots: Slot[]) => slots.length ? slots.map(x => `${dayLabel(x.slot_date)} ${fmtH(x.hours)}`).join(', ') : 'not scheduled';
 

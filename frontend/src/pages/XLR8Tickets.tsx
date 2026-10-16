@@ -9,6 +9,7 @@ import {
   RiCloseLine, RiCheckboxCircleLine, RiAttachmentLine, RiLinkM, RiExternalLinkLine,
 } from 'react-icons/ri';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
+import { fmtDateTime } from '../utils/date';
 
 interface Stage { category_id: number; category_name: string }
 interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clientOptional: boolean }
@@ -552,7 +553,7 @@ export default function XLR8Tickets() {
                             <span style={{ color: 'var(--ink-muted)' }}>{formatAction(entry.action)}</span>
                             {entry.comment && <span> — <em>{entry.comment}</em></span>}
                           </p>
-                          <p style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{parseTs(entry.created_at).toLocaleString()}</p>
+                          <p style={{ fontSize: 10, color: 'var(--ink-muted)' }}>{fmtDateTime(parseTs(entry.created_at))}</p>
                         </div>
                       </div>
                     ))}

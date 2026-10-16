@@ -622,7 +622,7 @@ export default function Projects() {
                       </td>
                       <td className="proj-td proj-td--due">
                         <span className="proj-due">
-                          {project.due_date ? format(parseISO(project.due_date), 'MMM dd, yyyy') : '—'}
+                          {project.due_date ? format(parseISO(project.due_date), 'dd-MM-yyyy') : '—'}
                         </span>
                         {user?.role === 'admin' && (
                           <button
@@ -1160,8 +1160,8 @@ export default function Projects() {
                     {[
                       { label: 'Status', value: detailProject.status.replace('_', ' ') },
                       { label: 'Client', value: detailProject.client_name || '—' },
-                      { label: 'Start Date', value: detailProject.start_date ? format(parseISO(detailProject.start_date), 'MMM dd, yyyy') : '—' },
-                      { label: 'Due Date', value: detailProject.due_date ? format(parseISO(detailProject.due_date), 'MMM dd, yyyy') : '—' },
+                      { label: 'Start Date', value: detailProject.start_date ? format(parseISO(detailProject.start_date), 'dd-MM-yyyy') : '—' },
+                      { label: 'Due Date', value: detailProject.due_date ? format(parseISO(detailProject.due_date), 'dd-MM-yyyy') : '—' },
                     ].map(({ label, value }) => (
                       <div key={label} style={{ background: 'var(--bg-sand, #f8f5f0)', borderRadius: 8, padding: '10px 12px' }}>
                         <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--ink-muted)', marginBottom: 3 }}>{label}</div>

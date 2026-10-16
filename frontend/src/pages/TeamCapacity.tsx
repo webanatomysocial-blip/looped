@@ -10,6 +10,7 @@ import { TeamMemberCapacity } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import '../css/pages/Home.css';
 import '../css/pages/TeamCapacity.css';
+import { fmtDate } from '../utils/date';
 
 function fmtHrs(sec: number) {
   return (sec / 3600).toFixed(1);
@@ -71,8 +72,8 @@ export default function TeamCapacityPage() {
               {showOverdue
                 ? 'Tickets past their due date'
                 : dateFilter
-                  ? new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-                  : new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                  ? `${new Date(dateFilter + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' })}, ${fmtDate(dateFilter)}`
+                  : `${new Date().toLocaleDateString('en-US', { weekday: 'long' })}, ${fmtDate(new Date())}`}
               {!loading && !dateFilter && !showOverdue && ` · ${activeCount} of ${team.length} members working now`}
             </p>
           </div>

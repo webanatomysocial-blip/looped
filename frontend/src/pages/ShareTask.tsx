@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
 import { fmtVersion, ticketVersion } from '../utils/ticketVersion';
+import { fmtDate, fmtDateTime } from '../utils/date';
 
 const API = '/api';
 
@@ -23,8 +24,7 @@ function fmtSec(s: number) {
 
 function fmtTs(ts: any) {
   try {
-    const d = new Date(Number(ts) || ts);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return fmtDateTime(ts, '');
   } catch { return ''; }
 }
 
@@ -341,7 +341,7 @@ export default function ShareTask() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
             {[
               { label: 'Ticket Key', value: <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13 }}>{taskKey}</span> },
-              { label: 'Due Date', value: task.due_date ? new Date(task.due_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—' },
+              { label: 'Due Date', value: fmtDate(task.due_date) },
               { label: 'Created by', value: task.created_by_name || '—' },
               { label: 'Priority', value: <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: priorityStyle.bg, color: priorityStyle.color, textTransform: 'capitalize' }}>{task.priority || 'medium'}</span> },
             ].map(({ label, value }) => (

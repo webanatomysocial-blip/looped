@@ -63,7 +63,7 @@ export default function ApprovalCard({ a, actions, expanded = false, onToggle, c
             <>
               <p className="approval-card__title">{a.title}</p>
               <p className="approval-card__meta">
-                {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(parseTs(a.created_at), 'MMM d')}
+                {a.project_name}{a.client_name ? ` · ${a.client_name}` : ''} · {format(parseTs(a.created_at), 'dd-MM-yyyy')}
               </p>
               {a.submitted_by_name && (
                 <div className="approval-card__meta" style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -212,7 +212,7 @@ export default function ApprovalCard({ a, actions, expanded = false, onToggle, c
                                 {acted.action === 'approve' ? '✓ Approved' : '✗ Rejected'} by {acted.actor_name}
                               </span>
                               <span style={{ color: 'var(--ink-muted)' }}>
-                                {format(parseTs(acted.acted_at), 'MMM d, h:mm a')}
+                                {format(parseTs(acted.acted_at), 'dd-MM-yyyy, h:mm a')}
                               </span>
                               {acted.comments && (
                                 <span style={{ color: 'var(--ink-muted)', fontStyle: 'italic' }}>"{acted.comments}"</span>
@@ -296,7 +296,7 @@ export default function ApprovalCard({ a, actions, expanded = false, onToggle, c
                               <span style={{ fontWeight: 700 }}>
                                 {acted.action === 'approve' ? '✓' : '✗'} {acted.actor_name}
                               </span>
-                              <span style={{ color: 'var(--ink-muted)' }}>{format(parseTs(acted.acted_at), 'MMM d')}</span>
+                              <span style={{ color: 'var(--ink-muted)' }}>{format(parseTs(acted.acted_at), 'dd-MM-yyyy')}</span>
                             </div>
                           )}
                         </div>
@@ -335,7 +335,7 @@ export default function ApprovalCard({ a, actions, expanded = false, onToggle, c
                     <div className="timeline-chip-dot" style={{ background: step.done ? 'var(--green)' : step.active ? 'var(--yellow)' : 'var(--sand-border)' }} />
                     {step.label}
                     {step.done && step.date && (
-                      <span style={{ opacity: 0.6, fontSize: 10 }}>{format(parseTs(step.date), 'MMM d')}</span>
+                      <span style={{ opacity: 0.6, fontSize: 10 }}>{format(parseTs(step.date), 'dd-MM-yyyy')}</span>
                     )}
                   </div>
                   {i < arr.length - 1 && <div className="timeline-line" />}
@@ -353,7 +353,7 @@ export default function ApprovalCard({ a, actions, expanded = false, onToggle, c
               {(isNewWorkflow(a) ? steps!.filter((s: any) => s.action === 'reject') : steps!).map((step: any) => (
                 <div key={step.id} className={`approval-note${step.action === 'reject' ? ' approval-note--danger' : ''}`}>
                   <strong>
-                    {step.actor_name}{step.actor_name ? ` (${step.actor_role})` : step.actor_role} · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(parseTs(step.acted_at), 'MMM d, h:mm a')}
+                    {step.actor_name}{step.actor_name ? ` (${step.actor_role})` : step.actor_role} · {step.action === 'approve' ? '✓ Approved' : '✗ Rejected'} · {format(parseTs(step.acted_at), 'dd-MM-yyyy, h:mm a')}
                   </strong>
                   {step.comments && <span> — {step.comments}</span>}
                 </div>

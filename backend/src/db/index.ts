@@ -1478,6 +1478,18 @@ async function createSchema(): Promise<void> {
     }
   });
 
+  // password_resets — one-time "forgot password" links (only a hash of the token is stored)
+  if (!(await db.schema.hasTable('password_resets'))) {
+    await db.schema.createTable('password_resets', (t) => {
+      t.increments('id').primary();
+      t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.string('token_hash', 64).notNullable().unique();
+      t.timestamp('expires_at').notNullable();
+      t.timestamp('used_at').nullable();
+      t.timestamp('created_at').defaultTo(db.fn.now());
+    });
+  }
+
   // message_reads — last-seen timestamp per user per chat (internal) and per project (client messages)
   await db.schema.hasTable('message_reads').then(async (exists) => {
     if (!exists) {

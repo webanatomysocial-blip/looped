@@ -157,7 +157,7 @@ export default function ProjectReports() {
                       { label: 'Working Budget',  value: fmt(working) },
                       { label: 'Total Spent',     value: fmt(spent), color: spent > 0 ? 'var(--ink)' : undefined },
                       { label: 'Amount Remaining', value: fmt(remaining), color: HEALTH_COLORS[flag] },
-                      { label: 'Due',             value: project.due_date ? format(parseISO(project.due_date), 'MMM d, yyyy') : '—' },
+                      { label: 'Due',             value: project.due_date ? format(parseISO(project.due_date), 'dd-MM-yyyy') : '—' },
                     ].map(({ label, value, color }) => (
                       <div key={label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px' }}>
                         <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>{label}</p>

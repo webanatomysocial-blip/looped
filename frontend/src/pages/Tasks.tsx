@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SendBackStagePicker from '../components/UI/SendBackStagePicker';
 import { taskStage, TASK_STAGE_LABELS, TASK_STAGE_BADGE } from '../utils/taskStatus';
+import { fmtDateTime, toDate } from '../utils/date';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const URL_RE_G = /https?:\/\/[^\s<>"]+|(?<![a-zA-Z0-9@])([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(\/[^\s<>"]*)?(?=[^a-zA-Z0-9]|$)/g;
@@ -493,7 +494,7 @@ export default function Tasks() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this ticket?')) return;
+    if (!confirm('Move this ticket to Deleted? You can restore it from the Deleted tab.')) return;
     try { await tasksApi.delete(id); load(); }
     catch (err: any) { alert(err.response?.data?.error || 'Delete failed'); }
   };
@@ -702,7 +703,23 @@ export default function Tasks() {
   };
 
   const [page, setPage] = useState(1);
-  const [dateFilter, setDateFilter] = useState('');
+  // "Added on" filter: any time, today, this week (Mon–Sun), this month, or a custom from–to range
+  const [dateRange, setDateRange] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dateBounds = ((): [string, string] | null => {
+    const now = new Date();
+    if (dateRange === 'today') return [ymd(now), ymd(now)];
+    if (dateRange === 'week') {
+      const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return [ymd(mon), ymd(sun)];
+    }
+    if (dateRange === 'month') return [ymd(new Date(now.getFullYear(), now.getMonth(), 1)), ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0))];
+    if (dateRange === 'custom' && (customFrom || customTo)) return [customFrom || '0000-01-01', customTo || '9999-12-31'];
+    return null;
+  })();
   // Dashboard "Open task" sends us here: show the task's page, highlight its row, open its drawer
   const [highlightId, setHighlightId] = useState<number | null>(null);
   useEffect(() => {
@@ -712,7 +729,7 @@ export default function Tasks() {
     const idx = tasks.findIndex(x => Number(x.id) === id);
     if (idx >= 0) {
       setFilterStatus('all');
-      setDateFilter('');
+      setDateRange('all');
       setPage(Math.floor(idx / PAGE_SIZE) + 1);
       setHighlightId(id);
       setTimeout(() => document.getElementById(`task-row-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
@@ -722,12 +739,26 @@ export default function Tasks() {
   }, [tasks, location.state]);
   const [previewUser, setPreviewUser] = useState<{ name: string; role?: string; avatar_url: string } | null>(null);
 
-  const statuses = ['all', 'pending_approval', 'draft', 'waiting', 'accepted', 'working', 'submitted', 'rework', 'overdue', 'approved'];
+  const statuses = ['all', 'pending_approval', 'draft', 'waiting', 'accepted', 'working', 'submitted', 'rework', 'overdue', 'approved',
+    ...((user?.role === 'admin' || user?.role === 'manager') ? ['deleted'] : [])];
+  // Deleted tab: tickets in the recycle bin, with Restore (and Delete forever for admins)
+  const [deletedRows, setDeletedRows] = useState<any[] | null>(null);
+  const loadDeleted = () => tasksApi.listDeleted().then(r => setDeletedRows(r.data)).catch(() => setDeletedRows([]));
+  useEffect(() => { if (filterStatus === 'deleted') { setDeletedRows(null); loadDeleted(); } }, [filterStatus]);
+  const restoreDeleted = async (row: any) => {
+    try { await tasksApi.restoreDeleted(row.id); loadDeleted(); load(podTab); }
+    catch (err: any) { alert(err.response?.data?.error || 'Could not restore this ticket'); }
+  };
+  const purgeDeleted = async (row: any) => {
+    if (!confirm(`Delete "${row.title}" forever? This can't be undone.`)) return;
+    try { await tasksApi.purgeDeleted(row.id); loadDeleted(); }
+    catch (err: any) { alert(err.response?.data?.error || 'Could not delete'); }
+  };
   const filtered = tasks.filter((t) => {
     if (filterStatus !== 'all' && taskStage(t) !== filterStatus) return false;
-    if (dateFilter) {
-      const createdDate = t.created_at ? String(t.created_at).slice(0, 10) : '';
-      if (createdDate !== dateFilter) return false;
+    if (dateBounds) {
+      const created = t.created_at ? ymd(toDate(t.created_at) ?? new Date(NaN)) : '';
+      if (!created || created.startsWith('NaN') || created < dateBounds[0] || created > dateBounds[1]) return false;
     }
     return true;
   });
@@ -766,26 +797,37 @@ export default function Tasks() {
               <div className="filter-bar">
                 {statuses.map((s) => (
                   <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                    {(TASK_STAGE_LABELS as Record<string, string>)[s] ?? s}
+                    {s === 'deleted' ? 'Deleted' : (TASK_STAGE_LABELS as Record<string, string>)[s] ?? s}
                   </button>
                 ))}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2,marginTop: '-16px' }}>
                   <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
-                  <input
-                    type="date"
-                    className="form-input"
-                    style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
-                    value={dateFilter}
-                    onChange={(e) => { setDateFilter(e.target.value); setPage(1); }}
-                  />
+                  <select className="form-input" aria-label="Added on" style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
+                    value={dateRange} onChange={(e) => { setDateRange(e.target.value as any); setPage(1); }}>
+                    <option value="all">Any time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This week</option>
+                    <option value="month">This month</option>
+                    <option value="custom">Custom range…</option>
+                  </select>
                 </div>
-                {dateFilter && (
+                {dateRange === 'custom' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}>
+                    <input type="date" className="form-input" aria-label="From" title="From" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
+                      value={customFrom} max={customTo || undefined} onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }} />
+                    <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>to</span>
+                    <input type="date" className="form-input" aria-label="To" title="To" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
+                      value={customTo} min={customFrom || undefined} onChange={(e) => { setCustomTo(e.target.value); setPage(1); }} />
+                  </div>
+                )}
+                {dateRange !== 'all' && (
                   <button
                     className="filter-tab"
+                    title="Clear date filter"
                     style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
-                    onClick={() => { setDateFilter(''); setPage(1); }}
+                    onClick={() => { setDateRange('all'); setCustomFrom(''); setCustomTo(''); setPage(1); }}
                   >
                     ✕
                   </button>
@@ -820,6 +862,33 @@ export default function Tasks() {
 
         {loading && <p className="page-subtitle">Loading…</p>}
 
+        {filterStatus === 'deleted' ? (
+          <div className="tasks-table-wrap">
+            <table className="data-table">
+              <thead><tr>{['Ticket', 'Project', 'Deleted by', 'Deleted on', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+              <tbody>
+                {deletedRows === null && <tr><td colSpan={5} className="empty-state">Loading…</td></tr>}
+                {deletedRows?.length === 0 && <tr><td colSpan={5} className="empty-state">No deleted tickets</td></tr>}
+                {deletedRows?.map(row => (
+                  <tr key={row.id}>
+                    <td><p className="task-cell-title">{row.title}</p></td>
+                    <td>{row.project_name || '—'}</td>
+                    <td>{row.deleted_by_name || '—'}</td>
+                    <td>{fmtDateTime(row.deleted_at)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button className="ticket-pill ticket-pill--green" onClick={() => restoreDeleted(row)}>↺ Restore</button>
+                        {user?.role === 'admin' && (
+                          <button className="icon-action danger" title="Delete forever" aria-label="Delete forever" onClick={() => purgeDeleted(row)}><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (<>
         <div className="tasks-table-wrap">
           <table className="data-table">
             <thead>
@@ -906,7 +975,7 @@ export default function Tasks() {
                   <td>
                     {task.due_date
                       ? <span className={`task-date${task.status === 'overdue' ? ' task-date--over' : ''}`}>
-                          {format(new Date(task.due_date + 'T00:00:00'), 'MMM d')}
+                          {format(new Date(task.due_date + 'T00:00:00'), 'dd-MM-yyyy')}
                         </span>
                       : <span style={{ color: 'var(--sand-border)' }}>—</span>}
                   </td>
@@ -1130,6 +1199,7 @@ export default function Tasks() {
           </table>
         </div>
         <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
+        </>)}
       </div>
 
       {/* ── Task View Canvas ── */}
@@ -1303,16 +1373,12 @@ export default function Tasks() {
                   const inserter = (at: number) => insertAt === at ? (
                     <div key={`ins-${at}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px dashed var(--sand-border)', background: 'var(--surface)' }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>New stage {at + 1}</span>
-                      <select className="form-input" autoFocus value={insertCat} onChange={e => setInsertCat(e.target.value)}
+                      <select className="form-input" autoFocus value={insertCat} onChange={e => { if (e.target.value) insertStage(at, e.target.value); }}
                         aria-label={`Category for new stage ${at + 1}`} style={{ flex: 1, fontSize: 12, marginBottom: 0, padding: '4px 8px' }}>
                         <option value="">Pick a category…</option>
                         {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         <option value="admin">Admin Review</option>
                       </select>
-                      <button type="button" disabled={!insertCat} onClick={() => insertStage(at, insertCat)}
-                        style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: 'none', background: insertCat ? 'var(--ink)' : 'var(--sand-border)', color: '#fff', cursor: insertCat ? 'pointer' : 'default' }}>
-                        Add
-                      </button>
                       <button type="button" onClick={() => { setInsertAt(null); setInsertCat(''); }}
                         style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--sand-border)', background: 'none', cursor: 'pointer', color: 'var(--ink-muted)' }}>
                         Cancel
@@ -1700,7 +1766,7 @@ export default function Tasks() {
                       <div key={i} style={{ fontSize: 12, padding: '8px 12px', borderRadius: 7, background: isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(76,175,125,0.06)', border: `1px solid ${isDanger ? 'rgba(239,68,68,0.2)' : 'rgba(76,175,125,0.2)'}`, color: 'var(--ink)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                           <span><strong>{entry.actor_name}</strong> · <span style={{ color: 'var(--ink-muted)' }}>{actionLabels[entry.action] || entry.action}</span></span>
-                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(parseTs(entry.created_at), 'MMM d, h:mm a')}</span>
+                          <span style={{ fontSize: 10, color: 'var(--ink-muted)', whiteSpace: 'nowrap' }}>{format(parseTs(entry.created_at), 'dd-MM-yyyy, h:mm a')}</span>
                         </div>
                         {entry.comment && <div style={{ fontSize: 11, color: 'var(--ink-muted)', fontStyle: 'italic', marginTop: 3 }}>"{entry.comment}"</div>}
                       </div>

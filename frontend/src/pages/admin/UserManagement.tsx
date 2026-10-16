@@ -253,7 +253,7 @@ export default function UserManagement() {
                         </span>
                       )}
                       {(u as any).created_at && (
-                        <span style={{ fontSize: 11, color: 'var(--sand-border)' }}>{format(new Date((u as any).created_at), 'MMM d, yyyy')}</span>
+                        <span style={{ fontSize: 11, color: 'var(--sand-border)' }}>{format(new Date((u as any).created_at), 'dd-MM-yyyy')}</span>
                       )}
                     </div>
                     {u.categories && u.categories.length > 0 && (

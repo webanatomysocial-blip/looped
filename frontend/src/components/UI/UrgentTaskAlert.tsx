@@ -1,5 +1,6 @@
 import { AlertTriangle, X, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { fmtDate } from '../../utils/date';
 
 interface UrgentTask {
   id: number;
@@ -74,7 +75,7 @@ export default function UrgentTaskAlert({ tasks, onDismiss }: Props) {
 
               <div style={{ fontSize: 12, color: 'var(--ink-muted)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {task.project_name && <span>Project: <strong>{task.project_name}</strong></span>}
-                {task.due_date && <span>Due: <strong>{task.due_date}</strong></span>}
+                {task.due_date && <span>Due: <strong>{fmtDate(task.due_date)}</strong></span>}
                 {task.timer_running === false && (
                   <span style={{ color: s.icon, fontWeight: 600 }}>⏸ Your previous ticket was auto-paused</span>
                 )}

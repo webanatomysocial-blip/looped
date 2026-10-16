@@ -29,7 +29,7 @@ function formatMsgDate(d: string | Date | null | undefined) {
   if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return format(dt, 'h:mm a');
   if (isYesterday(dt)) return 'Yesterday';
-  return format(dt, 'dd/MM/yy');
+  return format(dt, 'dd-MM-yyyy');
 }
 
 function dateDivider(d: string | Date | null | undefined) {
@@ -38,7 +38,7 @@ function dateDivider(d: string | Date | null | undefined) {
   if (isNaN(dt.getTime())) return '';
   if (isToday(dt)) return 'Today';
   if (isYesterday(dt)) return 'Yesterday';
-  return format(dt, 'MMMM d, yyyy');
+  return format(dt, 'dd-MM-yyyy');
 }
 
 function renderWithMentions(text: string) {
