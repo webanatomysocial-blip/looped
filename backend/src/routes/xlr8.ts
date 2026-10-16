@@ -745,13 +745,22 @@ router.post('/tickets/:id/stage-pre-decline', async (req: AuthRequest, res: Resp
   if (!['employee', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Not authorized' }); return; }
   const db = getDB();
   const mine = () => db('task_assignees').where({ task_id: req.params.id, user_id: req.user!.id }).whereIn('assignee_role', ['employee', 'manager']);
-  const target = req.body?.stage_idx != null ? Number(req.body.stage_idx)
-    : (await mine().where((q: any) => q.whereNot('acceptance_status', 'declined').orWhereNull('acceptance_status')).orderBy('stage_idx').first())?.stage_idx;
-  const updated = target === undefined ? 0 : await (target == null ? mine().whereNull('stage_idx') : mine().where('stage_idx', target)).update({ acceptance_status: 'declined' });
+  // A specific stage, or else every stage of mine on this ticket still waiting for my answer
+  // (declining "the task" once covers all of them, so it doesn't come back for the next stage)
+  let targets: (number | null)[];
+  if (req.body?.stage_idx != null) targets = [Number(req.body.stage_idx)];
+  else {
+    const open = await mine().where((q: any) => q.where('acceptance_status', 'pending').orWhereNull('acceptance_status')).orderBy('stage_idx').select('stage_idx');
+    targets = open.length ? open.map((r: any) => r.stage_idx)
+      : [(await mine().where((q: any) => q.whereNot('acceptance_status', 'declined').orWhereNull('acceptance_status')).orderBy('stage_idx').first())?.stage_idx].filter((x) => x !== undefined);
+  }
+  let updated = 0;
+  for (const t of targets) updated += await (t == null ? mine().whereNull('stage_idx') : mine().where('stage_idx', t)).update({ acceptance_status: 'declined' });
   if (!updated) { res.status(404).json({ error: 'No assignment found' }); return; }
   const ticket = await db('tasks').where({ id: req.params.id }).first();
   if (ticket) {
-    await appendLog(ticket.id, req.user!, 'stage_pre_declined', null, null, req.body.comment || null);
+    // One log row per declined stage, tagged with the stage, so the manager sees each reason once
+    for (const t of targets) await appendLog(ticket.id, req.user!, 'stage_pre_declined', null, null, req.body.comment || null, t == null ? undefined : { from: t, to: t });
     const managers = await projectManagers(db, ticket.project_id);
     for (const m of managers) await createNotification(m.id, `${req.user!.name} declined a stage in "${ticket.title}" — reassignment needed`, 'task', ticket.project_id);
   }

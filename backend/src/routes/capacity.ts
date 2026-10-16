@@ -492,22 +492,34 @@ router.get('/check/:userId', async (req: AuthRequest, res: Response) => {
 router.get('/declined-stages', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
   const db = getDB();
   try {
-    const declined = await db('task_assignees as ta')
+    const rows = await db('task_assignees as ta')
       .join('tasks as t', 't.id', 'ta.task_id')
       .join('users as u', 'u.id', 'ta.user_id')
-      .leftJoin(
-        db('xlr8_ticket_log').whereIn('action', ['stage_pre_declined', 'employee_declined']).orderBy('created_at', 'desc').as('tl'),
-        function() { this.on('tl.task_id', 'ta.task_id').on('tl.actor_id', 'ta.user_id'); }
-      )
       .where('ta.acceptance_status', 'declined')
       .whereNotNull('ta.user_id')
       .whereNotIn('t.status', ['completed'])
       .select(
         't.id as task_id', 't.title', 't.project_id', 't.xlr8_status',
-        'ta.stage_idx', 'ta.assignee_role',
+        'ta.stage_idx', 'ta.assignee_role', 'ta.user_id',
         'u.name as declined_by', 'u.avatar_color',
-        'tl.comment as reason'
       );
+    // Reason: this stage's own decline if tagged, else the person's latest decline on the ticket
+    const logs = rows.length ? await db('xlr8_ticket_log')
+      .whereIn('task_id', [...new Set(rows.map((r: any) => r.task_id))])
+      .whereIn('action', ['stage_pre_declined', 'employee_declined'])
+      .orderBy('created_at', 'desc').orderBy('id', 'desc')
+      .select('task_id', 'actor_id', 'to_stage_idx', 'comment') : [];
+    // One row per declined stage
+    const seen = new Set<string>();
+    const declined: any[] = [];
+    for (const r of rows) {
+      const key = `${r.task_id}:${r.stage_idx}:${r.user_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const mineLogs = logs.filter((l: any) => l.task_id === r.task_id && l.actor_id === r.user_id);
+      const log = mineLogs.find((l: any) => l.to_stage_idx != null && Number(l.to_stage_idx) === Number(r.stage_idx)) ?? mineLogs[0];
+      declined.push({ ...r, reason: log?.comment ?? null });
+    }
     if (req.user!.role === 'manager') {
       const mine = await managerTaskIds(db, req.user!.id, [...new Set<number>(declined.map((d: any) => Number(d.task_id)))]);
       res.json(declined.filter((d: any) => mine.has(Number(d.task_id)))); return;
