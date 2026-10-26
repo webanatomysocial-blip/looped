@@ -1,3 +1,4 @@
+import { waitingOn, startIfAccepted } from './xlr8';
 import { Router, Response } from 'express';
 import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
@@ -97,7 +98,9 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where(function () {
         this.whereIn('ta.assignee_role', ['employee']).orWhereNull('ta.assignee_role');
       })
-      .whereNotIn('t.status', ['completed'])
+      .whereNotIn('t.status', ['completed', 'draft'])
+      // Unapproved requests: only the person who raised them can already work on them
+      .where(function () { this.whereNot('t.status', 'pending_approval').orWhere('t.created_by', userId); })
       .select(
         't.id', 't.title', 't.status', 't.due_date', 't.due_time', 't.estimated_hours', 't.priority',
         'p.name as project_name',
@@ -121,6 +124,19 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         db.raw('MIN(ta_est.est_hours) as stage_est_hours')
       )
       .groupBy('t.id');
+
+    // Current-stage person who already accepted, waiting for the rest of the ticket's people
+    for (const t of xlr8Tasks as any[]) {
+      if (t.xlr8_status !== 'pending_assignee') continue;
+      const mine = await db('task_assignees').where({ task_id: t.id, stage_idx: t.xlr8_stage_idx ?? 0, user_id: userId }).first();
+      if (mine?.acceptance_status !== 'accepted') continue;
+      const waiting = await waitingOn(db, t.id, t.xlr8_stage_idx ?? 0);
+      if (waiting.length) { t.waiting_on = waiting; continue; }
+      // Everyone has accepted but the start was missed — start it now and show it as accepted
+      await startIfAccepted(db, t.id, req.user!);
+      const now = await db('tasks').where({ id: t.id }).select('xlr8_status', 'status').first();
+      if (now?.xlr8_status === 'in_progress') Object.assign(t, { xlr8_status: 'in_progress', status: now.status, acceptance_status: 'accepted' });
+    }
 
     // For admin/manager: also include pending_admin/pending_manager XLR8 tasks needing their review (where xlr8_assignee_id may be null)
     let pendingReviewForRole: any[] = (req.user!.role === 'admin' || req.user!.role === 'manager') ? await db('tasks as t')
@@ -153,10 +169,11 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
       .where('ta.acceptance_status', 'pending')
-      .whereNotIn('ta.assignee_role', ['admin', 'client'])
+      // Review stages are only asked when work reaches them
+      .whereNotIn('ta.assignee_role', ['admin', 'client', 'manager'])
       .whereNotNull('ta.stage_idx')
       .whereNotNull('t.ticket_type_id')
-      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotIn('t.status', ['completed', 'draft', 'pending_approval'])
       .whereNull('t.crosspod_pods')
       .whereNotIn('ta.task_id', [...xlr8Ids, ...reviewRoleIds].length ? [...xlr8Ids, ...reviewRoleIds] : [0])
       .where(function () {
@@ -172,7 +189,8 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         'p.name as project_name', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id',
         db.raw("'pending' as acceptance_status"),
         db.raw("'employee' as assignee_role"),
-        'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx'
+        'ta.est_hours as stage_est_hours', 'ta.stage_idx as my_stage_idx',
+        db.raw('CASE WHEN ta.stage_idx > t.xlr8_stage_idx THEN 1 ELSE 0 END as future_stage')
       );
 
     // XLR8 future stages this user already accepted — show as upcoming so they don't vanish after accepting
@@ -185,7 +203,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .whereNotIn('ta.assignee_role', ['admin', 'client'])
       .andWhere((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       .whereNotNull('t.ticket_type_id')
-      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotIn('t.status', ['completed', 'draft', 'pending_approval'])
       .whereNull('t.crosspod_pods')
       .whereNotIn('t.xlr8_status', ['completed'])
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
@@ -322,6 +340,11 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
         const at = new Date(r.created_at).getTime();
         if (at > (myLastWorkAt[r.task_id] ?? 0)) myLastWorkAt[r.task_id] = at;
       }
+      // Starting a timer on the rework also counts as having picked it up
+      for (const sRow of await db('task_sessions').whereIn('task_id', reworkCandidateIds).where('user_id', userId).select('task_id', 'started_at')) {
+        const at = typeof sRow.started_at === 'number' || /^\d+$/.test(String(sRow.started_at)) ? Number(sRow.started_at) : new Date(sRow.started_at).getTime();
+        if (at > (myLastWorkAt[sRow.task_id] ?? 0)) myLastWorkAt[sRow.task_id] = at;
+      }
       const taskById = new Map<number, any>(allTasks.map((t: any) => [t.id, t]));
       // Name of the stage each decline sent the ticket back to, e.g. "Stage 1 (UI/UX Designer)"
       const typeIds = [...new Set(allTasks.map((t: any) => t.ticket_type_id).filter(Boolean))];
@@ -349,7 +372,8 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
           row.to_stage_idx != null && row.from_stage_idx != null &&
           cur > row.to_stage_idx && cur <= row.from_stage_idx &&
           (myLastWorkAt[row.task_id] ?? 0) < declineAt;
-        if (declineAt > progressAt || redoneDownstream) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment, to_stage: stageLabel(t?.ticket_type_id, row.to_stage_idx) };
+        const pickedUp = (myLastWorkAt[row.task_id] ?? 0) > declineAt;
+        if ((declineAt > progressAt || redoneDownstream) && !pickedUp) rejectionLogs[row.task_id] = { actor: row.actor, comment: row.comment, to_stage: stageLabel(t?.ticket_type_id, row.to_stage_idx) };
       }
     }
 
@@ -532,6 +556,165 @@ router.get('/declined-stages', requireRoles('admin', 'manager'), async (req: Aut
 });
 
 // GET /api/capacity/team — all employees' daily capacity (manager/admin only)
+// ── Per-person stats over a period: capacity, reworks, escalations, assigned, pending ──
+const toMs = (v: any): number => {
+  if (v == null || v === '') return NaN;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'number' || /^\d{10,}$/.test(String(v))) return Number(v);
+  const s = String(v);
+  return Date.parse(/^\d{4}-\d{2}-\d{2} \d/.test(s) ? s.replace(' ', 'T') + 'Z' : s);
+};
+const ymdOf = (v: any) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10));
+const isYmd = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+function workingDays(from: string, to: string): number {
+  let n = 0;
+  for (let d = new Date(from + 'T00:00:00Z'); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+    const w = d.getUTCDay(); if (w !== 0 && w !== 6) n++;
+  }
+  return n;
+}
+
+router.get('/team-stats', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const today = new Date().toISOString().slice(0, 10);
+    const from = isYmd(req.query.from) ? String(req.query.from) : today;
+    const to = isYmd(req.query.to) ? String(req.query.to) : today;
+    if (to < from) { res.status(400).json({ error: 'The end date is before the start date' }); return; }
+    const fromMs = Date.parse(from + 'T00:00:00Z'), toMs_ = Date.parse(to + 'T23:59:59.999Z');
+    const inRange = (v: any) => { const m = toMs(v); return m >= fromMs && m <= toMs_; };
+
+    let empQ = db('users').whereIn('role', ['employee', 'manager']).orderBy('name').select('id', 'name', 'avatar_color', 'avatar_url', 'role', 'pod');
+    if (req.user!.role === 'manager') {
+      const mgr = await db('users').where({ id: req.user!.id }).select('pod').first();
+      if (mgr?.pod) empQ = empQ.where('pod', mgr.pod);
+    } else if (req.query.pod) empQ = empQ.where('pod', String(req.query.pod));
+    const emps = await empQ;
+    const ids = emps.map((e: any) => e.id);
+    if (!ids.length) { res.json({ from, to, members: [] }); return; }
+
+    const dayCap = Number(process.env.WORK_DAY_HOURS) || 7;
+    const lastCounted = to > today ? today : to;
+    const availableHours = lastCounted < from ? 0 : workingDays(from, lastCounted) * dayCap;
+
+    // Logged time
+    const sessions = await db('task_sessions as s').leftJoin('tasks as t', 't.id', 's.task_id').leftJoin('projects as p', 'p.id', 't.project_id')
+      .whereIn('s.user_id', ids).where('s.session_date', '>=', from).where('s.session_date', '<=', to)
+      .select('s.user_id', 's.task_id', 's.session_date', 's.started_at', 's.ended_at', 't.title', 'p.name as project_name');
+    const now = Date.now();
+
+    // Assignments (employee/manager work, not skipped or declined)
+    const rows = await db('task_assignees as ta').join('tasks as t', 't.id', 'ta.task_id').leftJoin('projects as p', 'p.id', 't.project_id')
+      .whereIn('ta.user_id', ids).whereIn('ta.assignee_role', ['employee', 'manager'])
+      .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+      .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined'))
+      .whereNotIn('t.status', ['draft'])
+      .select('ta.user_id', 'ta.stage_idx', 'ta.acceptance_status', 'ta.est_hours', 't.estimated_hours', 't.id', 't.title', 't.status', 't.created_at', 't.due_date', 't.due_time',
+        't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id', 't.assigned_to', 'p.name as project_name');
+
+    const typeIds = [...new Set(rows.filter((r: any) => r.ticket_type_id).map((r: any) => r.ticket_type_id))];
+    const stageNames = new Map<number, string[]>();
+    for (const tt of typeIds.length ? await db('xlr8_ticket_types').whereIn('id', typeIds).select('id', 'stages') : []) {
+      let st: any[] = []; try { st = typeof tt.stages === 'string' ? JSON.parse(tt.stages) : (tt.stages || []); } catch { /* bad json */ }
+      stageNames.set(tt.id, st.map((x: any, i: number) => x?.category_name || `Stage ${i + 1}`));
+    }
+    const stageName = (r: any, idx: any) => (r.ticket_type_id && idx != null ? stageNames.get(r.ticket_type_id)?.[Number(idx)] : null) || null;
+    const brief = (r: any, extra: Record<string, any> = {}): any => ({ id: r.id, title: r.title, project_name: r.project_name, due_date: r.due_date ? ymdOf(r.due_date) : null, status: r.xlr8_status || r.status, ...extra });
+
+    // Is this person's part still to do?
+    const partOpen = (r: any) => {
+      if (r.status === 'completed' || r.xlr8_status === 'completed') return false;
+      if (!r.ticket_type_id) return !['in_review'].includes(r.status);
+      const cur = r.xlr8_stage_idx ?? 0, mine = Number(r.stage_idx ?? 0);
+      if (mine > cur) return true;
+      if (mine < cur) return false;
+      return ['pending_assignee', 'in_progress', 'pending_manager', 'pending_admin', 'needs_reassignment'].includes(r.xlr8_status);
+    };
+
+    // Reworks: work sent back to this person's stage (tickets) or rejected (plain tasks)
+    const declines = await db('xlr8_ticket_log as l').join('tasks as t', 't.id', 'l.task_id').leftJoin('projects as p', 'p.id', 't.project_id')
+      .whereIn('l.action', ['manager_declined', 'admin_declined']).whereNotNull('l.to_stage_idx')
+      .select('l.task_id', 'l.to_stage_idx', 'l.actor_name', 'l.comment', 'l.created_at', 't.id', 't.title', 't.status', 't.xlr8_status', 't.due_date', 't.ticket_type_id', 'p.name as project_name');
+    const stageOwners = await db('task_assignees').whereIn('task_id', [...new Set(declines.map((d: any) => d.task_id))].concat([0]))
+      .whereIn('user_id', ids).where('assignee_role', 'employee').select('task_id', 'stage_idx', 'user_id');
+    const rejections = await db('approvals as a').join('tasks as t', 't.id', 'a.task_id').leftJoin('projects as p', 'p.id', 't.project_id')
+      .whereNull('t.ticket_type_id').whereNotNull('a.rejected_at').whereIn('t.assigned_to', ids)
+      .select('a.rejected_at', 'a.rejection_notes', 'a.rejected_by', 't.id', 't.title', 't.status', 't.due_date', 't.assigned_to', 'p.name as project_name');
+
+    // Escalations: due in the period and missed — still with them and overdue, or their part submitted late
+    const dueEnd = (r: any) => Date.parse(`${ymdOf(r.due_date)}T${r.due_time ? String(r.due_time).slice(0, 5) : '23:59'}:59Z`);
+    const doneLogs = await db('xlr8_ticket_log').where('action', 'work_done').whereIn('actor_id', ids).select('task_id', 'actor_id', 'created_at');
+    const submitted = await db('approvals').whereNotNull('work_submitted_at').select('task_id', 'work_submitted_at');
+    // All-time time per person per ticket, to compare against their estimate
+    const allSess = await db('task_sessions').whereIn('user_id', ids).whereIn('task_id', [...new Set(rows.map((r: any) => r.id))].concat([0]))
+      .select('user_id', 'task_id', 'started_at', 'ended_at', 'session_date');
+    const spent = (uid: number, tid: number) => allSess.filter((x: any) => x.user_id === uid && x.task_id === tid)
+      .reduce((a: number, x: any) => { const v = ((x.ended_at ? toMs(x.ended_at) : now) - toMs(x.started_at)) / 1000; return a + (Number.isFinite(v) && v > 0 ? v : 0); }, 0);
+    const workedInPeriod = (uid: number, tid: number) => allSess.some((x: any) => x.user_id === uid && x.task_id === tid && ymdOf(x.session_date) >= from && ymdOf(x.session_date) <= to);
+
+    const members = emps.map((e: any) => {
+      const mySessions = sessions.filter((s: any) => s.user_id === e.id);
+      const byTask = new Map<number, any>(), byDay = new Map<string, number>();
+      let loggedSec = 0;
+      for (const s of mySessions) {
+        const sec = Math.max(0, ((s.ended_at ? toMs(s.ended_at) : now) - toMs(s.started_at)) / 1000);
+        if (!Number.isFinite(sec)) continue;
+        loggedSec += sec;
+        const day = ymdOf(s.session_date); byDay.set(day, (byDay.get(day) || 0) + sec);
+        const k = byTask.get(s.task_id) || { id: s.task_id, title: s.title, project_name: s.project_name, seconds: 0 };
+        k.seconds += sec; byTask.set(s.task_id, k);
+      }
+
+      const mine = rows.filter((r: any) => r.user_id === e.id);
+      const assignedMap = new Map<number, any>();
+      for (const r of mine) if (inRange(r.created_at) && !assignedMap.has(r.id)) assignedMap.set(r.id, r);
+      const assigned = [...assignedMap.values()].map((r) => brief(r, { stage: stageName(r, r.stage_idx) }));
+      const pending = [...assignedMap.values()].filter((r) => mine.some((m: any) => m.id === r.id && partOpen(m)))
+        .map((r) => brief(r, { stage: stageName(r, mine.find((m: any) => m.id === r.id && partOpen(m))?.stage_idx), accepted: mine.some((m: any) => m.id === r.id && m.acceptance_status === 'accepted') }));
+
+      const reworks = [
+        ...declines.filter((d: any) => inRange(d.created_at) && stageOwners.some((o: any) => o.task_id === d.task_id && o.user_id === e.id && Number(o.stage_idx) === Number(d.to_stage_idx)))
+          .map((d: any) => brief(d, { at: toMs(d.created_at), by: d.actor_name, reason: d.comment || null, stage: stageName(d, d.to_stage_idx) })),
+        ...rejections.filter((a: any) => a.assigned_to === e.id && inRange(a.rejected_at))
+          .map((a: any) => brief(a, { at: toMs(a.rejected_at), by: null, reason: a.rejection_notes || null, stage: null })),
+      ].sort((a, b) => b.at - a.at);
+
+      const escMap = new Map<string, any>();
+      // Over estimate: their time on their part went past its estimate, and they worked on it in this period
+      for (const r of mine) {
+        const est = Number(r.ticket_type_id ? r.est_hours : (r.est_hours ?? r.estimated_hours));
+        if (!(est > 0) || escMap.has(`${r.id}-over`) || !workedInPeriod(e.id, r.id)) continue;
+        const over = spent(e.id, r.id) - est * 3600;
+        if (over > 0) escMap.set(`${r.id}-over`, brief(r, { kind: 'overtime', over_seconds: Math.round(over), estimate_seconds: Math.round(est * 3600), stage: stageName(r, r.stage_idx) }));
+      }
+      for (const r of mine) {
+        if (!r.due_date || escMap.has(`${r.id}-due`)) continue;
+        const due = ymdOf(r.due_date);
+        if (due < from || due > to) continue;
+        const end = dueEnd(r);
+        const holding = r.ticket_type_id ? r.xlr8_assignee_id === e.id && ['pending_assignee', 'in_progress'].includes(r.xlr8_status) && Number(r.stage_idx) === (r.xlr8_stage_idx ?? 0)
+          : r.assigned_to === e.id && !['completed', 'in_review'].includes(r.status);
+        if (holding && now > end) { escMap.set(`${r.id}-due`, brief(r, { kind: 'overdue', days_late: Math.floor((now - end) / 86400000) + 1, stage: stageName(r, r.stage_idx) })); continue; }
+        const doneAt = r.ticket_type_id
+          ? Math.min(...doneLogs.filter((l: any) => l.task_id === r.id && l.actor_id === e.id).map((l: any) => toMs(l.created_at)).filter((m: number) => m > 0), Infinity)
+          : (r.assigned_to === e.id ? Math.min(...submitted.filter((a: any) => a.task_id === r.id).map((a: any) => toMs(a.work_submitted_at)).filter((m: number) => m > 0), Infinity) : Infinity);
+        if (Number.isFinite(doneAt) && doneAt > end) escMap.set(`${r.id}-due`, brief(r, { kind: 'late', days_late: Math.ceil((doneAt - end) / 86400000), stage: stageName(r, r.stage_idx) }));
+      }
+
+      return {
+        user_id: e.id, name: e.name, avatar_color: e.avatar_color, avatar_url: e.avatar_url, role: e.role, pod: e.pod ?? null,
+        capacity: {
+          logged_seconds: Math.round(loggedSec), available_hours: availableHours,
+          by_day: [...byDay.entries()].sort().map(([date, sec]) => ({ date, seconds: Math.round(sec) })),
+          by_task: [...byTask.values()].sort((a, b) => b.seconds - a.seconds).map((t) => ({ ...t, seconds: Math.round(t.seconds) })),
+        },
+        reworks, escalations: [...escMap.values()], assigned, pending,
+      };
+    });
+    res.json({ from, to, available_hours: availableHours, members });
+  } catch (err) { console.error('team-stats', err); res.status(500).json({ error: 'Server error' }); }
+});
+
 router.get('/team', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const today = (req.query.date as string) || new Date().toISOString().slice(0, 10);

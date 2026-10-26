@@ -3,7 +3,7 @@ import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
 import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
-import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused } from './xlr8';
+import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
 async function pauseActiveSession(db: any, userId: number): Promise<void> {
@@ -122,7 +122,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // Drafts (including rejected requests) belong to their creator only
+    query = query.where(function (this: any) { this.whereNot('t.status', 'draft').orWhere('t.created_by', userId); });
     if (role === 'employee') {
+      // Requests still waiting for a manager's approval are only shown to whoever raised them
+      query = query.where(function (this: any) { this.whereNot('t.status', 'pending_approval').orWhere('t.created_by', userId); });
       // Include tasks assigned to this employee (pending OR accepted) so they can see and act on pending tasks.
       query = query.whereRaw(
         `(t.created_by = ?
@@ -183,13 +187,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           .select('task_id', 'user_id')
       : [];
 
-    // Rejected approvals per task — use a Set for reliable number comparison
-    const rejectedSet = new Set<number>(
-      taskIds.length
-        ? (await db('approvals').whereIn('task_id', taskIds).where('status', 'rejected').select('task_id'))
-            .map((r: any) => Number(r.task_id))
-        : []
-    );
+    // In rework only while the latest review was a rejection (a resubmission opens a newer approval)
+    const rejectedSet = new Set<number>();
+    if (taskIds.length) {
+      const latest = new Map<number, string>();
+      for (const r of await db('approvals').whereIn('task_id', taskIds).orderBy('id').select('task_id', 'status')) latest.set(Number(r.task_id), r.status);
+      for (const [tid, st] of latest) if (st === 'rejected') rejectedSet.add(tid);
+    }
     const activeTimerSet = new Set<number>((activeSessionIds as any[]).map(Number));
 
     // Tickets being reworked: the latest step was a rejection and it hasn't been resubmitted yet
@@ -727,21 +731,33 @@ router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req
       res.json({ ok: true, status: 'todo' }); return;
     }
 
+    const actorName = (await db('users').where({ id: req.user!.id }).select('name').first())?.name || req.user!.name;
     if (action === 'reject') {
-      await db('tasks').where({ id: req.params.id }).update({ status: 'draft' });
+      // Back to the creator as a draft with the reason, same as a cross-pod rejection, so they can edit and resubmit
+      const note = String(req.body.comment || '').trim() || 'Rejected';
+      const n = await db('tasks').where({ id: task.id, status: 'pending_approval' }).update({
+        status: 'draft', crosspod_note: `${actorName}: ${note}`, ...(task.ticket_type_id ? { xlr8_status: 'crosspod_rejected' } : {}),
+      });
+      if (!n) { res.status(409).json({ error: 'This request was already handled — refresh to see its current state' }); return; }
+      if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_rejected', 'pending_approval', 'crosspod_rejected', note);
+      if (task.created_by !== req.user!.id) await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tickets`, 'task', task.project_id);
       res.json({ ok: true, status: 'draft' });
       return;
     }
-    // For XLR8 tickets, kick off the stage flow instead of just setting status = 'todo'
+    if (!(await db('tasks').where({ id: task.id, status: 'pending_approval' }).update({ status: 'todo', ...(task.ticket_type_id ? { xlr8_status: 'pending_manager' } : {}) }))) {
+      res.status(409).json({ error: 'This request was already handled — refresh to see its current state' }); return;
+    }
+    if (task.created_by !== req.user!.id) await createNotification(task.created_by, `${actorName} approved "${task.title}" — it's now live`, 'task', task.project_id);
     if (task.ticket_type_id) {
-      const ticketType = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
-      const pj = (v: any, fb: any) => { if (!v) return fb; if (typeof v === 'string') return JSON.parse(v); return v; };
-      const stages = pj(ticketType?.stages, []);
-      const finalApproval = pj(ticketType?.final_approval, {});
-      await advanceToStage(db, task, stages, finalApproval, task.xlr8_stage_idx ?? 0, req.user!, 'pending_approval', res);
+      // Starts the stage flow exactly like a ticket created by a manager
+      await activateTicket(db, task.id, { id: task.created_by, name: (await db('users').where({ id: task.created_by }).select('name').first())?.name || 'Creator' });
+      res.json({ ok: true, status: 'todo' });
       return;
     }
-    await db('tasks').where({ id: req.params.id }).update({ status: 'todo' });
+    if (task.assigned_to && task.assigned_to !== task.created_by) {
+      await createNotification(task.assigned_to, `You have been assigned ticket "${task.title}"`, 'task', task.project_id);
+    }
+    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(task.id, db)).catch(() => {});
     res.json({ ok: true, status: 'todo' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
@@ -757,6 +773,11 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const row = await db('task_assignees').where({ task_id: req.params.id, user_id: userId }).first();
     if (!row) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
+    const held = await db('tasks').where({ id: req.params.id }).first();
+    if (action === 'accept' && held && awaitingPodApproval(held)) { res.status(409).json({ error: AWAITING_APPROVAL }); return; }
+    if (action === 'accept' && held && (held.status === 'draft' || (held.status === 'pending_approval' && held.created_by !== userId))) {
+      res.status(409).json({ error: 'This is waiting for a manager to approve it — you can accept once it is approved' }); return;
+    }
 
     await db('task_assignees')
       .where({ task_id: req.params.id, user_id: userId })
@@ -780,6 +801,8 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
         await pauseActiveSession(db, userId);
       }
       import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(userId, db)).catch(() => {});
+      // Tickets: if this was the last acceptance, work starts now
+      if (task?.ticket_type_id) await startIfAccepted(db, task.id, req.user!);
     }
     res.json({ message: 'Updated' });
   } catch (err) {
@@ -787,6 +810,20 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+// Whose turn it is: the current ticket stage person (working or reviewing), a plain/recurring task's assignee, or a reviewer in its approval flow
+async function canWorkOn(db: any, task: any, userId: number): Promise<boolean> {
+  if (task.ticket_type_id) {
+    if (task.xlr8_assignee_id === userId && ['in_progress', 'pending_manager', 'pending_admin'].includes(task.xlr8_status)) return true;
+  } else {
+    if (task.assigned_to === userId) return true;
+    if (task.recurring_task_id && task.created_by === userId) return true;
+    const row = await db('task_assignees').where({ task_id: task.id, user_id: userId })
+      .where((q: any) => q.whereNot('acceptance_status', 'declined').orWhereNull('acceptance_status')).first();
+    if (row) return true;
+  }
+  return !!(await db('task_approval_flow').where({ task_id: task.id, user_id: userId }).first().catch(() => null));
+}
 
 // POST timer actions: start | pause | done
 router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
@@ -802,6 +839,13 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
     const today = now.toISOString().slice(0, 10);
 
     if (action === 'start') {
+      const held = await db('tasks').where({ id: taskId }).first();
+      if (held && awaitingPodApproval(held)) { res.status(409).json({ error: AWAITING_APPROVAL }); return; }
+      if (!held) { res.status(404).json({ error: 'Task not found' }); return; }
+      if (req.user!.role === 'employee' && !(await canWorkOn(db, held, userId))) {
+        res.status(403).json({ error: held.ticket_type_id ? "It isn't your turn on this ticket yet — you can start once your stage is active" : "You're not assigned to this task" });
+        return;
+      }
       // Pause any other running sessions for this user first, and write time_logs for them
       const otherOpen = await db('task_sessions')
         .where({ user_id: userId })
@@ -1116,6 +1160,9 @@ router.delete('/:taskId/deliverables/:id', async (req: AuthRequest, res: Respons
   const db = getDB();
   const row = await db('task_deliverables').where({ id: req.params.id, task_id: req.params.taskId }).first();
   if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+  if (row.uploaded_by !== req.user!.id && !['admin', 'manager'].includes(req.user!.role)) {
+    res.status(403).json({ error: 'Only the person who added this attachment, or a manager, can remove it' }); return;
+  }
   if (row.type === 'file') {
     const fp = path.join(__dirname, '../../', row.url);
     if (fs.existsSync(fp)) fs.unlinkSync(fp);

@@ -44,7 +44,7 @@ function DescEditor({ value, onChange, placeholder }: { value: string; onChange:
   );
 }
 import { format } from 'date-fns';
-import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink, ChevronDown } from 'lucide-react';
+import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
@@ -109,6 +109,8 @@ export default function Tasks() {
   const [selectedTask, setSelectedTask]         = useState<Task | null>(null);
   const [approvalTitle, setApprovalTitle]       = useState('');
   const [filterStatus, setFilterStatus]         = useState('all');
+  const [clientFilter, setClientFilter]         = useState<number | 'all'>('all');
+  const [openGroups, setOpenGroups]             = useState<Set<number>>(new Set());
   const [editTask, setEditTask]                 = useState<Task | null>(null);
   const [editTab, setEditTab]                   = useState<'edit' | 'history'>('edit');
   const [taskLog, setTaskLog]                   = useState<any[]>([]);
@@ -463,7 +465,7 @@ export default function Tasks() {
       } catch { /* show modal without checklist */ }
       return;
     }
-    tasksApi.timer(taskId, action).then(() => load());
+    tasksApi.timer(taskId, action).then(() => load()).catch((e: any) => { if (e?.response?.status !== 409) alert(e?.response?.data?.error || `Couldn't ${action} the timer — please try again`); load(); });
   };
 
   const toggleDoneItem = async (idx: number) => {
@@ -653,7 +655,7 @@ export default function Tasks() {
 
   const decide = async (task: any, action: 'approve' | 'reject') => {
     let comment: string | undefined;
-    if (action === 'reject' && task.crosspod_pods) {
+    if (action === 'reject') {
       const c = window.prompt('Reason for rejecting (sent to the creator):');
       if (c === null) return;
       comment = c;
@@ -730,7 +732,12 @@ export default function Tasks() {
     if (idx >= 0) {
       setFilterStatus('all');
       setDateRange('all');
-      setPage(Math.floor(idx / PAGE_SIZE) + 1);
+      setClientFilter('all');
+      // Grouped view: open the ticket's project row and go to that project's page
+      const pid = Number(tasks[idx].project_id);
+      const projIds = [...new Map(tasks.filter((t) => t.project_id).map((t) => [Number(t.project_id), t.project_name || ''])).entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([id]) => id);
+      setOpenGroups((s) => new Set(s).add(pid));
+      setPage(Math.floor(Math.max(0, projIds.indexOf(pid)) / PAGE_SIZE) + 1);
       setHighlightId(id);
       setTimeout(() => document.getElementById(`task-row-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
       setTimeout(() => setHighlightId(h => (h === id ? null : h)), 4000);
@@ -739,7 +746,7 @@ export default function Tasks() {
   }, [tasks, location.state]);
   const [previewUser, setPreviewUser] = useState<{ name: string; role?: string; avatar_url: string } | null>(null);
 
-  const statuses = ['all', 'pending_approval', 'draft', 'waiting', 'accepted', 'working', 'submitted', 'rework', 'overdue', 'approved',
+  const statuses = ['all', 'pending_approval', 'draft', 'rejected', 'waiting', 'accepted', 'working', 'submitted', 'rework', 'overdue', 'approved',
     ...((user?.role === 'admin' || user?.role === 'manager') ? ['deleted'] : [])];
   // Deleted tab: tickets in the recycle bin, with Restore (and Delete forever for admins)
   const [deletedRows, setDeletedRows] = useState<any[] | null>(null);
@@ -754,7 +761,18 @@ export default function Tasks() {
     try { await tasksApi.purgeDeleted(row.id); loadDeleted(); }
     catch (err: any) { alert(err.response?.data?.error || 'Could not delete'); }
   };
-  const filtered = tasks.filter((t) => {
+  // Projects that have tickets, A–Z; the dropdown and tabs both pick from these
+  const ticketProjects = [...new Map(tasks.filter((t) => t.project_id).map((t) => [Number(t.project_id), t.project_name || 'Untitled project'])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const activeProject = clientFilter;
+  const projectKey = ticketProjects.map(([id]) => id).join(',');
+  useEffect(() => {
+    if (loading) return;
+    const ids = new Set(ticketProjects.map(([id]) => id));
+    if (clientFilter !== 'all' && !ids.has(clientFilter)) setClientFilter('all');
+  }, [projectKey, loading]);
+  const pickProject = (set: (v: number | 'all') => void, v: number | 'all') => { set(v); setPage(1); };
+  const beforeProject = tasks.filter((t) => {
     if (filterStatus !== 'all' && taskStage(t) !== filterStatus) return false;
     if (dateBounds) {
       const created = t.created_at ? ymd(toDate(t.created_at) ?? new Date(NaN)) : '';
@@ -762,144 +780,18 @@ export default function Tasks() {
     }
     return true;
   });
-  const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const filtered = activeProject === 'all' ? beforeProject : beforeProject.filter((t) => Number(t.project_id) === activeProject);
+  // No client picked: one row per project, expandable to its tickets; pages count projects, not tickets
+  const groupedView = clientFilter === 'all';
+  const groups = ticketProjects
+    .map(([id, name]) => { const ts = filtered.filter((t) => Number(t.project_id) === id); return { id, name, tasks: ts, overdue: ts.filter((t) => t.status === 'overdue').length }; })
+    .filter((g) => g.tasks.length > 0);
+  const toggleGroup = (id: number) => setOpenGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const totalPages  = Math.max(1, Math.ceil((groupedView ? groups.length : filtered.length) / PAGE_SIZE));
   const paginated   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pagedGroups = groups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  return (
-    <>
-    <Layout>
-      <div className="page-wrap">
-        <div className="tasks-top">
-          <div>
-            <h2 className="page-title">{user?.role === 'employee' ? 'My Tickets' : 'All Tickets'}</h2>
-            <p className="page-subtitle">
-              {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
-              {filtered.filter((t) => t.status === 'overdue').length > 0 &&
-                ` · ${filtered.filter((t) => t.status === 'overdue').length} overdue`}
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', width: '100%' }}>
-            {/* Left: filters */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%', justifyContent: 'space-between' }}>
-              {user?.role === 'admin' && (
-                <div className="filter-bar">
-                  {(['all', 'pod1', 'pod2'] as const).map((p) => (
-                    <button
-                      key={p}
-                      className={`filter-tab${podTab === p ? ' active' : ''}`}
-                      onClick={() => setPodTab(p)}
-                    >
-                      {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="filter-bar">
-                {statuses.map((s) => (
-                  <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
-                    {s === 'deleted' ? 'Deleted' : (TASK_STAGE_LABELS as Record<string, string>)[s] ?? s}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2,marginTop: '-16px' }}>
-                  <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
-                  <select className="form-input" aria-label="Added on" style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
-                    value={dateRange} onChange={(e) => { setDateRange(e.target.value as any); setPage(1); }}>
-                    <option value="all">Any time</option>
-                    <option value="today">Today</option>
-                    <option value="week">This week</option>
-                    <option value="month">This month</option>
-                    <option value="custom">Custom range…</option>
-                  </select>
-                </div>
-                {dateRange === 'custom' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}>
-                    <input type="date" className="form-input" aria-label="From" title="From" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
-                      value={customFrom} max={customTo || undefined} onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }} />
-                    <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>to</span>
-                    <input type="date" className="form-input" aria-label="To" title="To" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
-                      value={customTo} min={customFrom || undefined} onChange={(e) => { setCustomTo(e.target.value); setPage(1); }} />
-                  </div>
-                )}
-                {dateRange !== 'all' && (
-                  <button
-                    className="filter-tab"
-                    title="Clear date filter"
-                    style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
-                    onClick={() => { setDateRange('all'); setCustomFrom(''); setCustomTo(''); setPage(1); }}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            </div>
-            {/* Right: actions */}
-            {canCreate && (
-              <div ref={newMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
-                <button className="btn-primary" aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen(o => !o)}>
-                  <Plus size={14} /> Create ticket <ChevronDown size={14} />
-                </button>
-                {newMenuOpen && (
-                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
-                    {[
-                      { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
-                      { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
-                    ].map(item => (
-                      <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--ink)' }}
-                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-sand)')} onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-                        {item.icon}
-                        <span><span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.label}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--ink-muted)' }}>{item.hint}</span></span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {loading && <p className="page-subtitle">Loading…</p>}
-
-        {filterStatus === 'deleted' ? (
-          <div className="tasks-table-wrap">
-            <table className="data-table">
-              <thead><tr>{['Ticket', 'Project', 'Deleted by', 'Deleted on', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
-              <tbody>
-                {deletedRows === null && <tr><td colSpan={5} className="empty-state">Loading…</td></tr>}
-                {deletedRows?.length === 0 && <tr><td colSpan={5} className="empty-state">No deleted tickets</td></tr>}
-                {deletedRows?.map(row => (
-                  <tr key={row.id}>
-                    <td><p className="task-cell-title">{row.title}</p></td>
-                    <td>{row.project_name || '—'}</td>
-                    <td>{row.deleted_by_name || '—'}</td>
-                    <td>{fmtDateTime(row.deleted_at)}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button className="ticket-pill ticket-pill--green" onClick={() => restoreDeleted(row)}>↺ Restore</button>
-                        {user?.role === 'admin' && (
-                          <button className="icon-action danger" title="Delete forever" aria-label="Delete forever" onClick={() => purgeDeleted(row)}><Trash2 size={14} /></button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (<>
-        <div className="tasks-table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                {['Ticket', 'Priority', 'Project', 'Assigned to', 'Created by', 'Ticket with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
-                  <th key={h}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paginated.map((task) => (
+  const renderTicket = (task: Task) => (
                 <React.Fragment key={task.id}>
                 <tr id={`task-row-${task.id}`} style={highlightId === task.id ? { background: 'rgba(124,58,237,0.10)', boxShadow: 'inset 3px 0 0 #7c3aed', transition: 'background 0.4s' } : { transition: 'background 0.4s' }}>
                   <td>
@@ -1191,14 +1083,178 @@ export default function Tasks() {
                   </td>
                 </tr>
               </React.Fragment>
-              ))}
+  );
+
+  return (
+    <>
+    <Layout>
+      <div className="page-wrap">
+        <div className="tasks-top">
+          <div>
+            <h2 className="page-title">{user?.role === 'employee' ? 'My Tickets' : 'All Tickets'}</h2>
+            <p className="page-subtitle">
+              {filtered.length} ticket{filtered.length !== 1 ? 's' : ''}
+              {filtered.filter((t) => t.status === 'overdue').length > 0 &&
+                ` · ${filtered.filter((t) => t.status === 'overdue').length} overdue`}
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+            {/* Left: filters */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%', justifyContent: 'space-between' }}>
+              {user?.role === 'admin' && (
+                <div className="filter-bar">
+                  {(['all', 'pod1', 'pod2'] as const).map((p) => (
+                    <button
+                      key={p}
+                      className={`filter-tab${podTab === p ? ' active' : ''}`}
+                      onClick={() => setPodTab(p)}
+                    >
+                      {p === 'all' ? 'All' : p === 'pod1' ? 'Pod 1' : 'Pod 2'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="filter-bar">
+                {statuses.map((s) => (
+                  <button key={s} onClick={() => { setFilterStatus(s); setPage(1); }} className={`filter-tab${filterStatus === s ? ' active' : ''}`}>
+                    {s === 'deleted' ? 'Deleted' : (TASK_STAGE_LABELS as Record<string, string>)[s] ?? s}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Clients</span>
+                  <select className="form-input" aria-label="Clients" style={{ width: 170, fontSize: 12, padding: '7px 12px' }}
+                    value={clientFilter} onChange={(e) => pickProject(setClientFilter, e.target.value === 'all' ? 'all' : Number(e.target.value))}>
+                    <option value="all">All clients</option>
+                    {ticketProjects.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 10, color: 'var(--ink-muted)', fontWeight: 600, paddingLeft: 2 }}>Added on</span>
+                  <select className="form-input" aria-label="Added on" style={{ width: 150, fontSize: 12, padding: '7px 12px' }}
+                    value={dateRange} onChange={(e) => { setDateRange(e.target.value as any); setPage(1); }}>
+                    <option value="all">Any time</option>
+                    <option value="today">Today</option>
+                    <option value="week">This week</option>
+                    <option value="month">This month</option>
+                    <option value="custom">Custom range…</option>
+                  </select>
+                </div>
+                {dateRange === 'custom' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}>
+                    <input type="date" className="form-input" aria-label="From" title="From" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
+                      value={customFrom} max={customTo || undefined} onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }} />
+                    <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>to</span>
+                    <input type="date" className="form-input" aria-label="To" title="To" style={{ width: 140, fontSize: 12, padding: '7px 10px' }}
+                      value={customTo} min={customFrom || undefined} onChange={(e) => { setCustomTo(e.target.value); setPage(1); }} />
+                  </div>
+                )}
+                {dateRange !== 'all' && (
+                  <button
+                    className="filter-tab"
+                    title="Clear date filter"
+                    style={{ padding: '7px 10px', fontSize: 11, marginTop: 18 }}
+                    onClick={() => { setDateRange('all'); setCustomFrom(''); setCustomTo(''); setPage(1); }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Right: actions */}
+            {canCreate && (
+              <div ref={newMenuRef} style={{ position: 'relative', flexShrink: 0 }}>
+                <button className="btn-primary" aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen(o => !o)}>
+                  <Plus size={14} /> Create ticket <ChevronDown size={14} />
+                </button>
+                {newMenuOpen && (
+                  <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
+                    {[
+                      { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
+                      { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
+                    ].map(item => (
+                      <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--ink)' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-sand)')} onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                        {item.icon}
+                        <span><span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.label}</span><span style={{ display: 'block', fontSize: 11, color: 'var(--ink-muted)' }}>{item.hint}</span></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {loading && <p className="page-subtitle">Loading…</p>}
+
+
+        {filterStatus === 'deleted' ? (
+          <div className="tasks-table-wrap">
+            <table className="data-table">
+              <thead><tr>{['Ticket', 'Project', 'Deleted by', 'Deleted on', ''].map(h => <th key={h}>{h}</th>)}</tr></thead>
+              <tbody>
+                {deletedRows === null && <tr><td colSpan={5} className="empty-state">Loading…</td></tr>}
+                {deletedRows?.length === 0 && <tr><td colSpan={5} className="empty-state">No deleted tickets</td></tr>}
+                {deletedRows?.map(row => (
+                  <tr key={row.id}>
+                    <td><p className="task-cell-title">{row.title}</p></td>
+                    <td>{row.project_name || '—'}</td>
+                    <td>{row.deleted_by_name || '—'}</td>
+                    <td>{fmtDateTime(row.deleted_at)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button className="ticket-pill ticket-pill--green" onClick={() => restoreDeleted(row)}>↺ Restore</button>
+                        {user?.role === 'admin' && (
+                          <button className="icon-action danger" title="Delete forever" aria-label="Delete forever" onClick={() => purgeDeleted(row)}><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (<>
+        <div className="tasks-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {['Ticket', 'Priority', 'Project', 'Assigned to', 'Created by', 'Ticket with', 'Due', 'Est.', 'Status', 'Checklist', ''].map((h) => (
+                  <th key={h}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {groupedView ? pagedGroups.map((g) => {
+                // A status/date filter shows its matches straight away; otherwise projects start collapsed
+                const open = openGroups.has(g.id) !== (filterStatus !== 'all' || dateRange !== 'all');
+                return (
+                  <React.Fragment key={`grp-${g.id}`}>
+                    <tr className="project-group-row" onClick={() => toggleGroup(g.id)} style={{ cursor: 'pointer', background: open ? 'rgba(148,163,184,0.10)' : undefined }}>
+                      <td colSpan={11}>
+                        <button type="button" aria-expanded={open} onClick={(e) => { e.stopPropagation(); toggleGroup(g.id); }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink)', font: 'inherit' }}>
+                          {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                          <span style={{ fontSize: 14, fontWeight: 700 }}>{g.name}</span>
+                          <span style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{g.tasks.length} ticket{g.tasks.length === 1 ? '' : 's'}</span>
+                          {g.overdue > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#dc2626' }}>· {g.overdue} overdue</span>}
+                        </button>
+                      </td>
+                    </tr>
+                    {open && g.tasks.map(renderTicket)}
+                  </React.Fragment>
+                );
+              }) : paginated.map(renderTicket)}
               {filtered.length === 0 && !loading && (
                 <tr><td colSpan={10} className="empty-state">No tickets found</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        <Pagination page={page} totalPages={totalPages} total={filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
+        <Pagination page={page} totalPages={totalPages} total={groupedView ? groups.length : filtered.length} pageSize={PAGE_SIZE} onPage={setPage} />
         </>)}
       </div>
 

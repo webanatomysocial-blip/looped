@@ -40,3 +40,23 @@ export async function isSeoEmployee(db: Knex, role: string, userId: number): Pro
 export async function seoVisibleCompanyIds(db: Knex, role: string, userId: number): Promise<number[] | null> {
   return (await isSeoEmployee(db, role, userId)) ? null : visibleCompanyIds(db, role, userId);
 }
+
+/** Can this user see this client company? Clients: their own; SEO pages also let SEO employees see all. */
+export async function canSeeCompany(db: Knex, user: { id: number; role: string }, companyId: any, seo = false): Promise<boolean> {
+  if (user.role === 'admin') return true;
+  if (user.role === 'client') {
+    const me = await db('users').where({ id: user.id }).select('client_company_id').first();
+    return String(me?.client_company_id) === String(companyId);
+  }
+  const ids = seo ? await seoVisibleCompanyIds(db, user.role, user.id) : await visibleCompanyIds(db, user.role, user.id);
+  return ids === null || ids.map(String).includes(String(companyId));
+}
+
+/** Express router.param guard: 403 unless the user can see the :clientId company */
+export const guardCompanyParam = (seo: boolean) => async (req: any, res: any, next: any, companyId: string) => {
+  try {
+    const { getDB } = await import('../db');
+    if (await canSeeCompany(getDB(), req.user, companyId, seo)) return next();
+    res.status(403).json({ error: 'Access denied' });
+  } catch (e) { next(e); }
+};

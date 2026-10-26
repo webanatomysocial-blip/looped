@@ -1,3 +1,4 @@
+import { guardCompanyParam } from '../utils/companyAccess';
 import { Router, Response, Request } from 'express';
 import { randomUUID } from 'crypto';
 import { getDB } from '../db';
@@ -6,6 +7,7 @@ import { visibleCompanyIds } from '../utils/companyAccess';
 
 const router = Router();
 router.use(authenticate);
+router.param('clientId', guardCompanyParam(false));
 
 // GET /api/ads/clients — list client companies with ads config
 router.get('/clients', async (req: AuthRequest, res: Response) => {
@@ -26,6 +28,7 @@ router.get('/clients', async (req: AuthRequest, res: Response) => {
 router.put('/clients/:id', async (req: AuthRequest, res: Response) => {
   const { role } = req.user!;
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Insufficient permissions' }); return; }
+  if (!(await canSeeClient(req, Number(req.params.id)))) { res.status(403).json({ error: 'Access denied' }); return; }
   try {
     const db = getDB();
     await db('client_companies').where({ id: req.params.id }).update({ ads_customer_id: req.body.ads_customer_id || null });
@@ -289,6 +292,8 @@ router.post('/share/:clientId', async (req: AuthRequest, res: Response) => {
 
 // DELETE /api/ads/share-token/:token
 router.delete('/share-token/:token', async (req: AuthRequest, res: Response) => {
+  const tokRow = await getDB()('ads_share_tokens').where({ token: req.params.token }).select('client_id').first();
+  if (tokRow && !(await canSeeClient(req, tokRow.client_id))) { res.status(403).json({ error: 'Access denied' }); return; }
   const { role } = req.user!;
   if (!['admin', 'manager'].includes(role)) { res.status(403).json({ error: 'Forbidden' }); return; }
   await getDB()('ads_share_tokens').where({ token: req.params.token }).delete();

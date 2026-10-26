@@ -8,7 +8,8 @@ import { createServer } from 'http';
 import { io } from './socket';
 dotenv.config();
 
-import { initDB } from './db';
+import { initDB, getDB } from './db';
+import { repairSkippedStageTickets } from './routes/xlr8';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import projectRoutes from './routes/projects';
@@ -145,7 +146,8 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 initDB()
-  .then(() => {
+  .then(async () => {
+    await repairSkippedStageTickets(getDB()).catch((e) => console.error('[xlr8] skip repair failed', e));
     startEmailScheduler();
     startRecurringTaskScheduler();
     httpServer.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));

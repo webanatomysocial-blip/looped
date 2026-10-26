@@ -251,7 +251,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                   <button
                     onClick={async () => {
                       let comment: string | undefined;
-                      if (task.crosspod_pods) { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
+                      { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
                       try { await tasksApi.managerApprove(taskId, 'reject', comment); } catch (e: any) { alert(e.response?.data?.error || 'Could not reject'); }
                       const r = await tasksApi.get(taskId); setTask(r.data);
                     }}

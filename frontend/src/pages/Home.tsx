@@ -150,7 +150,10 @@ export default function Home() {
       return;
     }
     // Only use xlr8 employee-accept if THIS user is the current stage assignee
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
+    if (task.ticket_type_id && (task as any).future_stage) {
+      try { await xlr8Api.stagePreAccept(task.id, (task as any).my_stage_idx); }
+      catch (e: any) { alert(e?.response?.data?.error || 'Could not accept ticket'); return; }
+    } else if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
       try {
         await xlr8Api.employeeAccept(task.id);
       } catch (e: any) {
@@ -175,13 +178,15 @@ export default function Home() {
     // XLR8 current-stage assignee: decline → revert to pending_manager
     // XLR8 pre-assigned future stage: use stage-pre-decline so comment is logged and managers notified
     // Non-XLR8: generic accept/decline
-    if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
-      await xlr8Api.employeeDecline(task.id, declineComment);
-    } else if (task.ticket_type_id) {
-      await xlr8Api.stagePreDecline(task.id, declineComment);
-    } else {
-      await tasksApi.accept(task.id, 'decline');
-    }
+    try {
+      if (task.ticket_type_id && !(task as any).future_stage && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
+        await xlr8Api.employeeDecline(task.id, declineComment);
+      } else if (task.ticket_type_id) {
+        await xlr8Api.stagePreDecline(task.id, declineComment, (task as any).my_stage_idx);
+      } else {
+        await tasksApi.accept(task.id, 'decline');
+      }
+    } catch (e: any) { alert(e?.response?.data?.error || 'Could not decline'); return; }
     setDeclineModal(null);
     setDeclineComment('');
     setToast('Ticket declined');
@@ -226,7 +231,8 @@ export default function Home() {
         try { await xlr8Api.employeeAccept(taskId); } catch { /* ignore — timer will still start */ }
       }
     }
-    await tasksApi.timer(taskId, action);
+    try { await tasksApi.timer(taskId, action); }
+    catch (e: any) { if (e?.response?.status !== 409) alert(e?.response?.data?.error || `Couldn't ${action} the timer — please try again`); load(); return; }
     if (action === 'start') setClockSlide(1);
     if (action === 'pause') setClockSlide(0);
     load();
@@ -475,7 +481,7 @@ export default function Home() {
                       <button className="cap-accept-btn cap-accept-btn--yes" style={{ padding: '6px 14px', borderRadius: 8, fontSize: 12 }} onClick={async () => { try { await tasksApi.managerApprove(task.id, 'approve'); } catch (e: any) { alert(e.response?.data?.error || 'Could not approve'); } load(); }}>✓ Approve</button>
                       <button className="cap-accept-btn cap-accept-btn--no" style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12 }} onClick={async () => {
                         let comment: string | undefined;
-                        if (task.crosspod_pods) { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
+                        { const c = window.prompt('Reason for rejecting (sent to the creator):'); if (c === null) return; comment = c; }
                         try { await tasksApi.managerApprove(task.id, 'reject', comment); } catch (e: any) { alert(e.response?.data?.error || 'Could not reject'); }
                         load();
                       }}>✕ Reject</button>
@@ -491,7 +497,7 @@ export default function Home() {
         {user?.role !== 'admin' && user?.role !== 'client' && (() => {
           const xlr8Pending = (data?.tasks ?? []).filter(t =>
             t.status !== 'pending_approval' && t.ticket_type_id && !t.timer_running && (
-              (t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending') ||
+              (t.xlr8_status === 'pending_assignee' && t.acceptance_status === 'pending' && !Array.isArray((t as any).waiting_on) && !(t as any).future_stage) ||
               (t.rejection_log && t.acceptance_status !== 'review' && t.status !== 'completed')
             )
           );
@@ -523,7 +529,7 @@ export default function Home() {
               {task.acceptance_status === 'pending' && !task.rejection_log && (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="cap-accept-btn cap-accept-btn--yes" onClick={() => handleAccept(task, 'accept')} style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13 }}>
-                    <CheckCircle size={13} /> Accept &amp; Start
+                    <CheckCircle size={13} /> Accept
                   </button>
                   <button className="cap-accept-btn cap-accept-btn--no" onClick={() => handleAccept(task, 'decline')} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13 }}>
                     <XCircle size={13} /> Decline
@@ -569,7 +575,8 @@ export default function Home() {
           const pending = (data?.tasks ?? []).filter(t =>
             t.status !== 'pending_approval' &&
             t.acceptance_status === 'pending' &&
-            !(t.ticket_type_id && t.xlr8_status === 'pending_assignee')
+            // Tickets: only later stages here; the current stage has its own "Action required" banner
+            (!t.ticket_type_id || (t as any).future_stage || t.xlr8_status !== 'pending_assignee')
           );
           if (pending.length === 0) return null;
           return (
@@ -753,6 +760,11 @@ export default function Home() {
                     <div className="cap-task-row__info">
                       <div className="cap-task-row__title" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }} onClick={() => openTaskView(task.id)}>
                         {task.title}
+                        {Array.isArray((task as any).waiting_on) && (
+                          <span title={(task as any).waiting_on.length ? `Work starts once ${(task as any).waiting_on.join(', ')} accept` : 'Starting…'} style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(245,158,11,0.10)', color: '#b45309', border: '1px solid rgba(245,158,11,0.3)' }}>
+                            Accepted · waiting on {(task as any).waiting_on.join(', ') || 'others'}
+                          </span>
+                        )}
                         {(task.acceptance_status as string) === 'upcoming' && (
                           <span title="You accepted this stage — it starts when the earlier stages finish" style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5, background: 'rgba(59,130,246,0.08)', color: 'var(--blue)', border: '1px solid rgba(59,130,246,0.25)' }}>
                             Upcoming · Stage {((task as any).my_stage_idx ?? 0) + 1}

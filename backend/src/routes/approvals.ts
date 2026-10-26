@@ -74,6 +74,14 @@ function stageIndex(wf: WFStage[], status: string): number {
   return wf.findIndex((s) => s.status === status);
 }
 
+// Client Review only applies when the project has a client login (by company or as a member)
+async function projectHasClient(db: any, projectId: number): Promise<boolean> {
+  const p = await db('projects').where({ id: projectId }).select('client_company_id').first();
+  const byCompany = p?.client_company_id && await db('users').where({ role: 'client', client_company_id: p.client_company_id }).first();
+  const byMember = await db('project_members as pm').join('users as u', 'u.id', 'pm.user_id').where('pm.project_id', projectId).where('u.role', 'client').first();
+  return !!(byCompany || byMember);
+}
+
 function nextStage(wf: WFStage[], status: string): WFStage | undefined {
   const i = stageIndex(wf, status);
   return i >= 0 ? wf[i + 1] : undefined;
@@ -293,7 +301,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       tracked_seconds_today: Math.round(timerMap[a.task_id]?.seconds ?? 0),
     }));
 
-    res.json(result);
+    // One row per task: its latest review round (earlier rounds of a resubmitted task are history)
+    const latestId = new Map<number, number>();
+    for (const a of result as any[]) if (!latestId.has(a.task_id) || a.id > latestId.get(a.task_id)!) latestId.set(a.task_id, a.id);
+    res.json((result as any[]).filter((a) => a.task_id == null || latestId.get(a.task_id) === a.id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
@@ -584,8 +595,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const clientPrefKey: 'approvals' | undefined = isClientAction ? 'approvals' : undefined;
 
+    const noClient = !(await projectHasClient(db, approval.project_id));
     if (action === 'approve') {
-      const next = nextStage(workflow, approval.status);
+      let next = nextStage(workflow, approval.status);
+      while (next && noClient && next.role === 'client') next = nextStage(workflow, next.status);
       if (next) {
         updates.status = next.status;
         await notifyByRole(db, next.role, approval.project_id,
@@ -603,7 +616,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     } else {
       // action === 'reject'
-      const prev = prevStage(workflow, approval.status);
+      let prev = prevStage(workflow, approval.status);
+      while (prev && noClient && prev.role === 'client') prev = prevStage(workflow, prev.status);
       if (prev) {
         // Return to previous stage
         updates.status = prev.status;
@@ -758,6 +772,12 @@ router.post('/:id/complete', async (req: AuthRequest, res: Response) => {
     if (!approval) { res.status(404).json({ error: 'Not found' }); return; }
     if (approval.status !== 'work_in_progress') {
       res.status(400).json({ error: 'Not in work_in_progress stage' }); return;
+    }
+    // Only the people doing the work (or a manager/admin) can submit it
+    if (!['admin', 'manager'].includes(req.user!.role)) {
+      const t = await db('tasks').where({ id: approval.task_id }).select('assigned_to').first();
+      const onIt = t?.assigned_to === req.user!.id || await db('task_assignees').where({ task_id: approval.task_id, user_id: req.user!.id }).whereNot('acceptance_status', 'declined').first();
+      if (!onIt) { res.status(403).json({ error: 'Only the people working on this can submit it' }); return; }
     }
     await db('approvals').where({ id: req.params.id }).update({
       status: 'pending_review',

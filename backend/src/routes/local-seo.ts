@@ -1,9 +1,11 @@
+import { guardCompanyParam } from '../utils/companyAccess';
 import { Router, Response } from 'express';
 import { authenticate as authMiddleware, AuthRequest } from '../middleware/auth';
 import { getDB } from '../db';
 
 const router = Router();
 router.use(authMiddleware);
+router.param('clientId', guardCompanyParam(true));
 
 function stripWww(domain: string) {
   return domain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase().trim();

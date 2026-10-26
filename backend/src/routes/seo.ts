@@ -2,13 +2,20 @@ import { Router, Request, Response } from 'express';
 import { GoogleAuth } from 'google-auth-library';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { seoVisibleCompanyIds, isSeoEmployee } from '../utils/companyAccess';
+import { seoVisibleCompanyIds, isSeoEmployee, canSeeCompany, guardCompanyParam } from '../utils/companyAccess';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 
 const router = Router();
 router.use(authenticate);
+router.param('clientId', guardCompanyParam(true));
+router.param('reportId', async (req: any, res: any, next: any, id: string) => {
+  const row = await getDB()('seo_saved_reports').where({ id }).select('client_id').first();
+  if (!row) { res.status(404).json({ error: 'Saved report not found' }); return; }
+  if (await canSeeCompany(getDB(), req.user, row.client_id, true)) return next();
+  res.status(403).json({ error: 'Access denied' });
+});
 
 function getGoogleAuth() {
   // Support both a file path and an inline JSON string

@@ -133,6 +133,8 @@ export async function projectManagers(db: any, projectId: number): Promise<{ id:
 
 export type ApprovalReason = { pod: string; text: string };
 const podLabel = (p: string) => (p === 'pod1' ? 'Pod 1' : p === 'pod2' ? 'Pod 2' : p);
+export const awaitingPodApproval = (t: { crosspod_pods?: string | null }) => !!t.crosspod_pods;
+export const AWAITING_APPROVAL = 'This task is waiting for the pod managers to approve it — you can accept and start once they have';
 export const reasonPods = (reasons: ApprovalReason[]) => [...new Set(reasons.map((r) => r.pod))];
 
 // Why a new task needs a pod manager's sign-off, one line per cause, tagged with the pod that must approve it:
@@ -162,6 +164,11 @@ export async function approvalReasons(
   }
   if (customStageCount && actor.role === 'employee') {
     out.push({ pod: me.pod, text: `${me.name} built custom stages (${customStageCount} stage${customStageCount === 1 ? '' : 's'}) instead of using a ticket type` });
+  }
+  // Cross-pod work needs both sides: the creator's own pod manager signs off too (a manager creating it counts as that sign-off)
+  if (actor.role === 'employee' && out.some((r) => r.pod !== me.pod) && !out.some((r) => r.pod === me.pod)) {
+    const others = [...new Set(out.filter((r) => r.pod !== me.pod).map((r) => podLabel(r.pod)))].join(', ');
+    out.push({ pod: me.pod, text: `${me.name} from your pod is creating cross-pod work involving ${others}` });
   }
   return out;
 }
@@ -246,6 +253,57 @@ export async function creditRequester(db: any, newId: number, old: any, actor: {
 }
 
 // Starts a created (or cross-pod-approved) ticket on its first stage and sends the usual notifications.
+// If the ticket sits on a stage where everyone is skipped, move it forward with the normal stage logic
+// (which keeps skipping, auto-starts pre-accepted people, and opens approvals). Returns true if it moved.
+export async function skipPastSkippedStage(db: any, id: number, actor: any): Promise<boolean> {
+  const ticket = await db('tasks').where({ id }).first();
+  if (!ticket?.ticket_type_id || ticket.crosspod_pods || ['completed', 'draft', 'pending_approval'].includes(ticket.xlr8_status)) return false;
+  const ticketType = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
+  const stages: any[] = pj(ticketType?.stages, []);
+  const idx = ticket.xlr8_stage_idx ?? 0;
+  if (idx >= stages.length || !(await fullySkippedIdxs(db, id)).has(idx)) return false;
+  const after: (() => void)[] = [];
+  const quietRes: any = { json: () => quietRes, status: () => quietRes, once: (_e: string, f: () => void) => { after.push(f); return quietRes; } };
+  await advanceToStage(db, ticket, stages, pj(ticketType?.final_approval, {}), idx, actor, ticket.xlr8_status, quietRes);
+  after.forEach((f) => f());
+  return true;
+}
+
+// One-off repair at startup for tickets created before leading skipped stages were handled
+export async function repairSkippedStageTickets(db: any): Promise<void> {
+  const rows = await db('tasks').whereNotNull('ticket_type_id').whereNull('crosspod_pods')
+    .whereNotIn('xlr8_status', ['completed', 'draft', 'pending_approval']).select('id', 'created_by');
+  for (const { id, created_by } of rows) {
+    try { if (await skipPastSkippedStage(db, id, { id: created_by, name: 'System' })) console.log(`[xlr8] ticket ${id}: moved past skipped stage(s)`); }
+    catch (e: any) { console.error(`[xlr8] ticket ${id}: skip repair failed`, e?.message); }
+  }
+}
+
+// "Waiting for acceptance" while the current stage's person already accepted leaves them with no Accept and no Start button
+// Work can't begin until everyone doing work on this and later (non-skipped) stages has accepted.
+// Admins only give final approval and are never asked to accept. "pre_pending" = parked during rework, not a blocker.
+export async function waitingOn(db: any, ticketId: number, fromIdx: number): Promise<string[]> {
+  return db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
+    .where('ta.task_id', ticketId).where('ta.stage_idx', '>=', fromIdx)
+    // Only the people doing the work; reviewers are asked when work reaches them
+    .where('ta.assignee_role', 'employee')
+    .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+    .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNotIn('ta.acceptance_status', ['accepted', 'pre_pending']))
+    .distinct('u.name').pluck('u.name');
+}
+
+export async function startIfAccepted(db: any, id: number, actor: any): Promise<void> {
+  const t = await db('tasks').where({ id, xlr8_status: 'pending_assignee' }).whereNull('crosspod_pods').first();
+  if (!t) return;
+  if ((await waitingOn(db, id, t.xlr8_stage_idx ?? 0)).length) return;
+  const row = pickStageRow(await db('task_assignees').where({ task_id: id, stage_idx: t.xlr8_stage_idx ?? 0, assignee_role: 'employee' }));
+  if (row?.acceptance_status !== 'accepted') return;
+  await db('tasks').where({ id, xlr8_status: 'pending_assignee' }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: row.user_id, assigned_to: row.user_id });
+  await appendLog(id, actor, 'employee_accepted', 'pending_assignee', 'in_progress', 'Everyone accepted — started');
+  if (row.user_id !== actor?.id) await createNotification(row.user_id!, `Everyone has accepted "${t.title}" — you can start working`, 'task', t.project_id);
+  import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(row.user_id!, db)).catch(() => {});
+}
+
 export async function activateTicket(db: any, id: number, actor: { id: number; name: string }) {
   const task = await db('tasks').where({ id }).first();
   const ticketType = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
@@ -256,7 +314,10 @@ export async function activateTicket(db: any, id: number, actor: { id: number; n
   const first0 = await db('task_assignees').where({ task_id: id, stage_idx: 0 }).whereNotNull('user_id').orderBy('id').first();
   const preId0 = first0?.user_id ?? null;
 
-  if (fType === 'employee' && preId0) {
+  if ((await fullySkippedIdxs(db, id)).has(0)) {
+    await appendLog(id, actor, 'created', null, task.xlr8_status);
+    await skipPastSkippedStage(db, id, actor);
+  } else if (fType === 'employee' && preId0) {
     await db('tasks').where({ id }).update({ xlr8_status: 'pending_assignee', xlr8_assignee_id: preId0, assigned_to: preId0 });
     await appendLog(id, actor, 'created', null, 'pending_assignee');
   } else if (fType === 'manager') {
@@ -289,6 +350,8 @@ export async function activateTicket(db: any, id: number, actor: { id: number; n
       await createNotification(m.id, `New ticket "${title}" created — ${stageName}`, 'task', project_id);
     }
   }
+
+  await startIfAccepted(db, id, actor);
 
   // Notify ALL pre-assigned employee stage members to pre-accept their future stage
   const allStageEmployees = await db('task_assignees')
@@ -492,6 +555,12 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
     res.status(201).json({ id, crosspod_pending: pods, custom_stages: customStages }); return;
   }
 
+  if (req.user!.role === 'employee') {
+    // Employee requests wait for a manager's approval before anyone is asked to accept or start
+    await appendLog(id, req.user!, 'created', null, 'pending_approval', 'Waiting for manager approval');
+    for (const m of await projectManagers(db, project_id)) await createNotification(m.id, `Approval needed for "${title.trim()}" from ${req.user!.name}`, 'approval', project_id);
+    res.status(201).json({ id, pending_approval: true }); return;
+  }
   await activateTicket(db, id, req.user!);
   await notifyAdminCrossPod(db, req.user!, { title: title.trim(), project_id }, project, assignments);
   res.status(201).json({ id });
@@ -589,6 +658,8 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
     await createNotification(r.user_id, `You've been assigned to stage ${(r.stage_idx ?? 0) + 1} of "${ticket.title}" — please accept or decline`, 'task', ticket.project_id);
   }
 
+  await skipPastSkippedStage(db, ticket.id, req.user!);
+  await startIfAccepted(db, ticket.id, req.user!);
   res.json({ ok: true });
   import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
 });
@@ -701,6 +772,7 @@ async function assignToEmployee(db: any, ticket: any, assignee: any, actor: any,
   if (ticket.created_by !== actor.id) {
     await createNotification(ticket.created_by, `Your ticket "${ticket.title}" was accepted and assigned to ${assignee.name}`, 'task', ticket.project_id);
   }
+  await startIfAccepted(db, ticket.id, actor);
 }
 
 // Pre-accept a future stage assignment (before it becomes the active stage)
@@ -709,9 +781,13 @@ router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Respo
   const db = getDB();
   const open = () => db('task_assignees')
     .where({ task_id: req.params.id, user_id: req.user!.id }).whereIn('assignee_role', ['employee', 'manager'])
-    .andWhere((q: any) => q.whereIn('acceptance_status', ['pending', 'pre_pending']).orWhereNull('acceptance_status'));
+    .andWhere((q: any) => q.whereIn('acceptance_status', ['pending', 'pre_pending']).orWhereNull('acceptance_status'))
+    .andWhere((q: any) => q.whereNull('skipped').orWhere('skipped', 0));
   // One stage at a time: the one asked for, else this person's earliest open stage
   const target = req.body?.stage_idx != null ? Number(req.body.stage_idx) : (await open().orderBy('stage_idx').first())?.stage_idx;
+  const held = await db('tasks').where({ id: req.params.id }).first();
+  if (held && awaitingPodApproval(held)) { res.status(409).json({ error: AWAITING_APPROVAL }); return; }
+  if (held && ['pending_approval', 'draft'].includes(held.status)) { res.status(409).json({ error: 'This ticket is waiting for a manager to approve it — you can accept once it is approved' }); return; }
   const updated = target === undefined ? 0 : await (target == null ? open().whereNull('stage_idx') : open().where('stage_idx', target)).update({ acceptance_status: 'accepted' });
   if (!updated) { res.status(404).json({ error: 'No pending assignment found' }); return; }
   const ticket = await db('tasks').where({ id: req.params.id }).first();
@@ -719,20 +795,10 @@ router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Respo
     // Accepting your own current stage starts the work, same as employee-accept
     const ownsCurrentStage = ticket.xlr8_status === 'pending_assignee' && await db('task_assignees')
       .where({ task_id: ticket.id, stage_idx: ticket.xlr8_stage_idx ?? 0, user_id: req.user!.id }).first();
-    if (ownsCurrentStage) {
-      await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
-      await appendLog(ticket.id, req.user!, 'employee_accepted', 'pending_assignee', 'in_progress');
-      import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(req.user!.id, db)).catch(() => {});
-    } else {
-      await appendLog(ticket.id, req.user!, 'stage_pre_accepted', null, null, `Pre-accepted future stage assignment`);
-    }
+    await appendLog(ticket.id, req.user!, 'stage_pre_accepted', null, null, ownsCurrentStage ? 'Accepted current stage' : 'Pre-accepted future stage assignment');
+    await startIfAccepted(db, ticket.id, req.user!);
     // If all employee stages are now accepted and ticket is pending_assignee, notify managers
-    const pending = await db('task_assignees')
-      .where({ task_id: ticket.id, assignee_role: 'employee' })
-      .whereNotNull('user_id')
-      .whereNotIn('acceptance_status', ['accepted'])
-      .count('* as n').first();
-    if (Number((pending as any)?.n) === 0) {
+    if (!(await waitingOn(db, ticket.id, ticket.xlr8_stage_idx ?? 0)).length) {
       const managers = await projectManagers(db, ticket.project_id);
       for (const m of managers) await createNotification(m.id, `All members accepted "${ticket.title}" — work can now begin`, 'task', ticket.project_id);
     }
@@ -785,7 +851,7 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
     if (!anyAssignment && !isMember) { res.status(403).json({ error: 'You are not assigned to this ticket' }); return; }
   }
 
-  await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
+  await db('tasks').where({ id: ticket.id }).update({ xlr8_assignee_id: req.user!.id, assigned_to: req.user!.id });
   // Update task_assignees for this stage: set user_id (fills null placeholder) + accepted
   const stageIdx = ticket.xlr8_stage_idx ?? 0;
   const updated = await db('task_assignees')
@@ -795,11 +861,15 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
   if (!updated) {
     await db('task_assignees').insert({ task_id: ticket.id, user_id: req.user!.id, stage_idx: stageIdx, assignee_role: 'employee', acceptance_status: 'accepted' });
   }
-  await appendLog(ticket.id, req.user!, 'employee_accepted', 'pending_assignee', 'in_progress');
+  await startIfAccepted(db, ticket.id, req.user!);
+  const waiting = await waitingOn(db, ticket.id, stageIdx);
+  if (waiting.length) await appendLog(ticket.id, req.user!, 'stage_pre_accepted', null, null, `Accepted — waiting on ${waiting.join(', ')}`);
   if (ticket.created_by !== req.user!.id) {
-    await createNotification(ticket.created_by, `${req.user!.name} accepted your ticket "${ticket.title}" and has started working`, 'task', ticket.project_id);
+    await createNotification(ticket.created_by, waiting.length
+      ? `${req.user!.name} accepted "${ticket.title}" — still waiting on ${waiting.join(', ')}`
+      : `${req.user!.name} accepted your ticket "${ticket.title}" and can start working`, 'task', ticket.project_id);
   }
-  res.json({ ok: true });
+  res.json({ ok: true, waiting_on: waiting });
   import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(req.user!.id, db)).catch(() => {});
 });
 
@@ -1133,7 +1203,7 @@ export async function advanceToStage(
     const empAp = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
     if (empAp) await db('approvals').where({ id: empAp.id }).update({ status: 'work_in_progress', workflow_type: 'xlr8' });
     if (pre) {
-      const alreadyAccepted = pre.acceptance_status === 'accepted';
+      const alreadyAccepted = pre.acceptance_status === 'accepted' && !(await waitingOn(db, ticket.id, targetIdx)).length;
       const nextXlr8Status = alreadyAccepted ? 'in_progress' : 'pending_assignee';
       const nextTaskStatus = alreadyAccepted ? 'in_progress' : 'todo';
       await db('tasks').where({ id: ticket.id }).update({ xlr8_status: nextXlr8Status, xlr8_stage_idx: targetIdx, xlr8_assignee_id: pre.user_id, assigned_to: pre.user_id, status: nextTaskStatus });

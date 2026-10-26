@@ -35,6 +35,26 @@ const upload = multer({
 const router = Router();
 router.use(authenticate);
 
+// Projects whose files this user may see: null = all (admin/manager); employees = their projects; clients = their company's
+async function visibleProjects(db: any, user: { id: number; role: string }): Promise<number[] | null> {
+  if (['admin', 'manager'].includes(user.role)) return null;
+  if (user.role === 'client') {
+    const me = await db('users').where({ id: user.id }).select('client_company_id').first();
+    return me?.client_company_id ? db('projects').where({ client_company_id: me.client_company_id }).pluck('id') : [];
+  }
+  return db('project_members').where({ user_id: user.id }).pluck('project_id');
+}
+// Read: managers/admins, the uploader, or anyone who can see the file's project
+async function canSee(db: any, user: any, row: { project_id: number | null; uploaded_by?: number; created_by?: number }) {
+  if (['admin', 'manager'].includes(user.role) || row.uploaded_by === user.id || row.created_by === user.id) return true;
+  const ids = await visibleProjects(db, user);
+  return row.project_id != null && !!ids?.includes(Number(row.project_id));
+}
+// Change/delete: managers/admins or whoever added it
+const canChange = (user: any, row: { uploaded_by?: number; created_by?: number }) =>
+  ['admin', 'manager'].includes(user.role) || row.uploaded_by === user.id || row.created_by === user.id;
+const NO_ACCESS = { error: "You don't have access to this file" };
+
 // GET folders + files for a location (project_id + optional folder_id)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -44,10 +64,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const { role, id: userId } = req.user!;
 
     // For employees: only show projects they are a member of
-    const memberProjectIds: number[] | null =
-      role === 'employee'
-        ? (await db('project_members').where({ user_id: userId }).select('project_id')).map((r: any) => r.project_id)
-        : null;
+    void role; void userId;
+    const memberProjectIds: number[] | null = await visibleProjects(db, req.user!);
 
     // If no project_id — return project list with file counts (root view)
     if (!project_id) {
@@ -125,6 +143,7 @@ router.post('/folders', async (req: AuthRequest, res: Response) => {
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
     const db = getDB();
+    if (!(await canSee(db, req.user!, { project_id: project_id || null }))) { res.status(403).json(NO_ACCESS); return; }
     const [id] = await db('asset_folders').insert({
       name: name.trim(),
       project_id: project_id || null,
@@ -142,6 +161,9 @@ router.patch('/folders/:id', async (req: AuthRequest, res: Response) => {
   const { name } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return; }
   try {
+    const f = await getDB()('asset_folders').where({ id: req.params.id }).first();
+    if (!f) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!canChange(req.user!, f)) { res.status(403).json({ error: 'Only the person who made this folder, or a manager, can rename it' }); return; }
     await getDB()('asset_folders').where({ id: req.params.id }).update({ name: name.trim() });
     res.json({ ok: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -151,6 +173,9 @@ router.patch('/folders/:id', async (req: AuthRequest, res: Response) => {
 router.delete('/folders/:id', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
+    const f = await db('asset_folders').where({ id: req.params.id }).first();
+    if (!f) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!['admin', 'manager'].includes(req.user!.role)) { res.status(403).json({ error: 'Only managers can delete folders (it removes every file inside)' }); return; }
     // Collect all nested folder ids
     const toDelete: number[] = [Number(req.params.id)];
     const queue = [Number(req.params.id)];
@@ -176,6 +201,11 @@ router.post('/', upload.single('file'), async (req: AuthRequest, res: Response) 
   if (!req.file) { res.status(400).json({ error: 'File required' }); return; }
   try {
     const db = getDB();
+    // A file with no project belongs to its uploader (e.g. ad creatives); into a project needs access to it
+    if (req.body.project_id && !(await canSee(db, req.user!, { project_id: req.body.project_id }))) {
+      fs.existsSync(req.file.path) && fs.unlinkSync(req.file.path);
+      res.status(403).json(NO_ACCESS); return;
+    }
     const [id] = await db('assets').insert({
       name: req.body.name || req.file.originalname,
       file_type: req.file.mimetype,
@@ -196,7 +226,7 @@ router.get('/:id/download', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const asset = await db('assets').where({ id: req.params.id }).first();
-    if (!asset) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!asset || !(await canSee(db, req.user!, asset))) { res.status(404).json({ error: 'Not found' }); return; }
     const filePath = path.join(uploadDir, asset.file_path);
     res.download(filePath, asset.name);
   } catch {
@@ -209,7 +239,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const asset = await db('assets').where({ id: req.params.id }).first();
-    if (!asset) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!asset || !(await canSee(db, req.user!, asset))) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!canChange(req.user!, asset)) { res.status(403).json({ error: 'Only the person who uploaded this file, or a manager, can delete it' }); return; }
     const filePath = path.join(uploadDir, asset.file_path);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     await db('assets').where({ id: req.params.id }).delete();

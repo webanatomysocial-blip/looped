@@ -15,9 +15,23 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
+    // Held cross-pod work: many start/accept buttons don't handle errors, so say why here
+    const msg = err.response?.data?.error;
+    if (err.response?.status === 409 && typeof msg === 'string' && msg.includes('waiting for the pod managers')) { window.alert(msg); err.alerted = true; }
     return Promise.reject(err);
   }
 );
+
+// Safety net: a failed save that no screen handled would otherwise do nothing visible
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (e) => {
+    const err: any = e.reason;
+    if (!err?.isAxiosError || !err.response || err.response.status === 401 || err.alerted) return;
+    if (!['post', 'put', 'patch', 'delete'].includes(String(err.config?.method))) return;
+    e.preventDefault();
+    window.alert(err.response.data?.error || `Something went wrong (${err.response.status}). Please try again.`);
+  });
+}
 
 export const authApi = {
   login: (email: string, password: string) => api.post('/auth/login', { email, password }),
@@ -105,6 +119,7 @@ export const tasksApi = {
 export const capacityApi = {
   daily: () => api.get('/capacity/daily'),
   check: (userId: number, due_date?: string) => api.get(`/capacity/check/${userId}`, { params: due_date ? { due_date } : {} }),
+  teamStats: (from: string, to: string, pod?: 'pod1' | 'pod2') => api.get('/capacity/team-stats', { params: { from, to, ...(pod ? { pod } : {}) } }),
   team: (pod?: 'pod1' | 'pod2', date?: string, overdue?: boolean) => api.get('/capacity/team', { params: { ...(pod ? { pod } : {}), ...(date ? { date } : {}), ...(overdue ? { overdue: 'true' } : {}) } }),
   declinedStages: () => api.get('/capacity/declined-stages'),
 };
@@ -293,8 +308,8 @@ export const xlr8Api = {
   assignTicket: (id: number, assignee_id: number) => api.post(`/xlr8/tickets/${id}/assign`, { assignee_id }),
   employeeAccept: (id: number) => api.post(`/xlr8/tickets/${id}/employee-accept`),
   employeeDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/employee-decline`, { comment }),
-  stagePreAccept: (id: number) => api.post(`/xlr8/tickets/${id}/stage-pre-accept`),
-  stagePreDecline: (id: number, comment?: string) => api.post(`/xlr8/tickets/${id}/stage-pre-decline`, { comment }),
+  stagePreAccept: (id: number, stage_idx?: number) => api.post(`/xlr8/tickets/${id}/stage-pre-accept`, stage_idx == null ? {} : { stage_idx }),
+  stagePreDecline: (id: number, comment?: string, stage_idx?: number) => api.post(`/xlr8/tickets/${id}/stage-pre-decline`, { comment, ...(stage_idx == null ? {} : { stage_idx }) }),
   markDone: (id: number) => api.post(`/xlr8/tickets/${id}/done`),
   reviewTicket: (id: number, action: 'approve' | 'decline', comment?: string, skip_admin?: boolean, target_stage_idx?: number | null) =>
     api.post(`/xlr8/tickets/${id}/review`, { action, comment, skip_admin, target_stage_idx }),

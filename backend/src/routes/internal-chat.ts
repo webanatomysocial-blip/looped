@@ -279,7 +279,14 @@ router.post('/:chatId/upload', upload.single('file'), async (req: AuthRequest, r
 });
 
 // POST add a member to a group chat
+const notMember = async (req: AuthRequest, res: Response) => {
+  const ok = await getDB()('internal_chat_members').where({ chat_id: req.params.chatId, user_id: req.user!.id }).first();
+  if (!ok) res.status(403).json({ error: "You're not a member of this chat" });
+  return !ok;
+};
+
 router.post('/:chatId/members', async (req: AuthRequest, res: Response) => {
+  if (await notMember(req, res)) return;
   const { user_id } = req.body;
   if (!user_id) { res.status(400).json({ error: 'user_id required' }); return; }
   try {
@@ -321,6 +328,8 @@ router.delete('/:chatId/messages/:msgId', async (req: AuthRequest, res: Response
 
 // POST toggle reaction on a message
 router.post('/:chatId/messages/:msgId/react', async (req: AuthRequest, res: Response) => {
+  if (await notMember(req, res)) return;
+  if (!(await getDB()('internal_messages').where({ id: req.params.msgId, chat_id: req.params.chatId }).first())) { res.status(404).json({ error: 'Message not found' }); return; }
   const { emoji } = req.body;
   if (!emoji) { res.status(400).json({ error: 'emoji required' }); return; }
   try {
@@ -387,6 +396,7 @@ router.post('/:chatId/leave', async (req: AuthRequest, res: Response) => {
 // POST upload group avatar
 router.post('/:chatId/avatar', upload.single('avatar'), async (req: AuthRequest, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'File required' }); return; }
+  if (await notMember(req, res)) return;
   try {
     const db = getDB();
     const chat = await db('internal_chats').where({ id: req.params.chatId, type: 'group' }).first();
@@ -401,6 +411,7 @@ router.post('/:chatId/avatar', upload.single('avatar'), async (req: AuthRequest,
 
 // PATCH rename a group chat
 router.patch('/:chatId/name', async (req: AuthRequest, res: Response) => {
+  if (await notMember(req, res)) return;
   const { name } = req.body;
   if (!name?.trim()) { res.status(400).json({ error: 'name required' }); return; }
   try {
