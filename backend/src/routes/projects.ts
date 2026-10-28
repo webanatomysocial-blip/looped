@@ -222,19 +222,24 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 });
 
 // POST create project (admin only) — sends to pod manager for acceptance
-router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
-  const { name, client_company_id, start_date, due_date, pod, briefing_doc, project_drive_doc, description, is_adhoc,
+router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  let { pod } = req.body;
+  const { name, client_company_id, start_date, due_date, briefing_doc, project_drive_doc, description, is_adhoc,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = req.body;
   if (!name) { res.status(400).json({ error: 'Name required' }); return; }
-  if (!pod) { res.status(400).json({ error: 'Pod required' }); return; }
   try {
     const db = getDB();
+    // Managers create like admins (any pod). Their own pod needs no acceptance — they are its manager
+    const me = req.user!.role === 'manager' ? await db('users').where({ id: req.user!.id }).select('pod').first() : null;
+    const isMgr = !!me && !!me.pod && me.pod === pod;
+    if (!pod) { res.status(400).json({ error: 'Pod required' }); return; }
+    if (!['pod1', 'pod2'].includes(pod)) { res.status(400).json({ error: 'Invalid pod' }); return; }
     const svcType = service_type || 'per_project';
     const [id] = await db('projects').insert({
       name, client_company_id: client_company_id || null,
       start_date: start_date ? String(start_date).slice(0, 10) : null,
       due_date: due_date ? String(due_date).slice(0, 10) : null,
-      status: 'on_hold', manager_status: 'pending_manager',
+      status: isMgr ? 'active' : 'on_hold', manager_status: isMgr ? 'accepted' : 'pending_manager',
       pod, briefing_doc: briefing_doc || null, project_drive_doc: project_drive_doc || null, description: description || null,
       created_by: req.user!.id,
       is_adhoc: !!is_adhoc,
@@ -246,10 +251,18 @@ router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) 
       billing_cycle_start_day: svcType === 'xlr8' ? (Number(billing_cycle_start_day) || 1) : null,
     });
 
-    // Always add admin as member
+    // The creator is always a member
     await db('project_members').insert({ project_id: id, user_id: req.user!.id });
 
-    // Notify pod manager
+    if (isMgr) {
+      for (const a of await db('users').where({ role: 'admin' }).select('id')) {
+        await createNotification(a.id, `${req.user!.name || 'A manager'} created project "${name}" (${pod === 'pod1' ? 'Pod 1' : 'Pod 2'})`, 'project');
+      }
+      res.status(201).json({ id, name, status: 'active', manager_status: 'accepted' });
+      return;
+    }
+
+    // Admin-created: the pod manager accepts it and picks the team
     const podManager = await db('users').where({ role: 'manager', pod }).first();
     if (podManager) {
       await createNotification(podManager.id, `New project "${name}" is waiting for your acceptance`, 'project');
@@ -354,7 +367,7 @@ router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, re
 });
 
 // DELETE project (admin only)
-router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const pid = req.params.id;

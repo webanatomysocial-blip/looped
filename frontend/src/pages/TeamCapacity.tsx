@@ -92,7 +92,9 @@ export default function TeamCapacityPage() {
   const totalPages  = Math.max(1, Math.ceil(team.length / PAGE_SIZE));
   const paginated   = team.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const sel = stats?.find((m) => m.user_id === selectedId) || null;
+  const selRaw = stats?.find((m) => m.user_id === selectedId) || null;
+  // Timers started and stopped within seconds aren't worth a line
+  const sel = selRaw && { ...selRaw, capacity: { ...selRaw.capacity, by_day: selRaw.capacity.by_day.filter((d) => d.seconds >= 60), by_task: selRaw.capacity.by_task.filter((t) => (t.seconds || 0) >= 60) } };
   const periodLabel = period === 'today' ? 'today' : `${fmtDate(range[0])} – ${fmtDate(range[1])}`;
   const activeCount = team.filter((m) => m.active_task_id !== null).length;
   const totalTracked = team.reduce((s, m) => s + m.tracked_seconds, 0);
@@ -186,22 +188,31 @@ export default function TeamCapacityPage() {
         )}
         {stats && stats.length > 0 && (
           <>
-            <div className="tc-people" role="tablist" aria-label="Team members">
-              {stats.map((m) => (
-                <button key={m.user_id} type="button" role="tab" aria-selected={m.user_id === selectedId}
-                  ref={(el) => { if (el && m.user_id === selectedId) el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }}
-                  className={`tc-person${m.user_id === selectedId ? ' tc-person--active' : ''}`} onClick={() => setSelectedId(m.user_id)}>
-                  <Avatar name={m.name} color={m.avatar_color} avatarUrl={m.avatar_url} size="sm" />
-                  <span>
-                    <span className="tc-person__name">{m.name}</span>
-                    <span className="tc-person__meta">
-                      <span>{hrs(m.capacity.logged_seconds)}</span>
-                      {m.escalations.length > 0 && <span className="tc-pill tc-pill--esc">{m.escalations.length} esc</span>}
-                      {m.pending.length > 0 && <span className="tc-pill tc-pill--pend">{m.pending.length} pending</span>}
-                    </span>
-                  </span>
-                </button>
-              ))}
+            <div className="tc-picker">
+              <label className="tc-picker__field">
+                <span className="tc-picker__lbl">Employee</span>
+                <select className="form-input" value={selectedId ?? ''} onChange={(e) => { setSelectedId(Number(e.target.value)); setSubTab('capacity'); }}>
+                  {stats.map((m) => (
+                    <option key={m.user_id} value={m.user_id}>
+                      {[m.name, hrs(m.capacity.logged_seconds), m.escalations.length ? `${m.escalations.length} escalation${m.escalations.length === 1 ? '' : 's'}` : '', m.pending.length ? `${m.pending.length} pending` : ''].filter(Boolean).join(' · ')}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {sel && (
+                <div className="tc-picker__who">
+                  <Avatar name={sel.name} color={sel.avatar_color} avatarUrl={sel.avatar_url} size="md" />
+                  <div>
+                    <div className="tc-person__name">{sel.name}</div>
+                    <div className="tc-person__meta">
+                      <span style={{ textTransform: 'capitalize' }}>{sel.role}</span>
+                      {sel.pod && <span>{sel.pod === 'pod1' ? 'Pod 1' : 'Pod 2'}</span>}
+                      {sel.escalations.length > 0 && <span className="tc-pill tc-pill--esc">{sel.escalations.length} esc</span>}
+                      {sel.pending.length > 0 && <span className="tc-pill tc-pill--pend">{sel.pending.length} pending</span>}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             {sel && (
               <div className="card" style={{ padding: '14px 18px' }}>

@@ -113,7 +113,10 @@ export default function Projects() {
   const [acceptMemberIds, setAcceptMemberIds] = useState<number[]>([]);
   const [acceptEmpSubTab, setAcceptEmpSubTab] = useState<string>('all');
 
-  const canCreate = user?.role === 'admin';
+  const canCreate = user?.role === 'admin' || user?.role === 'manager';
+  const isAdminLike = user?.role === 'admin' || user?.role === 'manager';
+  // Managers create straight into their own pod; admins send to a pod's manager
+  const createFlow = user?.role === 'admin' || user?.role === 'manager';
   const canEdit   = user?.role === 'admin' || user?.role === 'manager';
 
   const load = () => {
@@ -150,7 +153,7 @@ export default function Projects() {
     setForm({ name: '', is_adhoc: false, client_company_id: '', start_date: '', due_date: '', status: 'active', member_ids: [],
       service_type: 'per_project', budget_amount: '', budget_cutoff_pct: '', budgeted_hours: '',
       monthly_hours_bucket: '', billing_cycle_start_day: '1',
-      pod: 'pod1', briefing_doc: '', project_drive_doc: '', description: '' });
+      pod: (user?.role === 'manager' && (user as any)?.pod) || 'pod1', briefing_doc: '', project_drive_doc: '', description: '' });
     setMemberTab('admins');
     setEmpSubTab('all');
     // Refresh companies so newly created clients (with pod) show up
@@ -190,7 +193,7 @@ export default function Projects() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (!editProject && user?.role === 'admin') {
+      if (!editProject && createFlow) {
         // Admin create: new flow — no member_ids, send pod + docs
         await projectsApi.create({
           name: form.name,
@@ -518,8 +521,8 @@ export default function Projects() {
                   <th className="proj-th">Pod</th>
                   <th className="proj-th">Type</th>
                   <th className="proj-th">Stage</th>
-                  {user?.role === 'admin' && <th className="proj-th">Health</th>}
-                  {user?.role === 'admin' && <th className="proj-th proj-th--budget">Budget used</th>}
+                  {isAdminLike && <th className="proj-th">Health</th>}
+                  {isAdminLike && <th className="proj-th proj-th--budget">Budget used</th>}
                   <th className="proj-th">Team</th>
                   <th className="proj-th proj-th--right">Due</th>
                 </tr>
@@ -566,14 +569,14 @@ export default function Projects() {
                           {STAGE_LABELS[project.status]}
                         </span>
                       </td>
-                      {user?.role === 'admin' && (
+                      {isAdminLike && (
                         <td className="proj-td">
                           <span className={`proj-health proj-health--${health.level}`}>
                             {health.label}
                           </span>
                         </td>
                       )}
-                      {user?.role === 'admin' && (
+                      {isAdminLike && (
                       <td className="proj-td proj-td--budget">
                         {project.service_type === 'per_project' && project.working_budget != null ? (
                           <div>
@@ -624,7 +627,7 @@ export default function Projects() {
                         <span className="proj-due">
                           {project.due_date ? format(parseISO(project.due_date), 'dd-MM-yyyy') : '—'}
                         </span>
-                        {user?.role === 'admin' && (
+                        {isAdminLike && (
                           <button
                             className="proj-delete-btn"
                             onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}
@@ -732,10 +735,10 @@ export default function Projects() {
                 )}
               </div>
 
-              {/* Service type — toggle for admin, read-only badge for manager */}
+              {/* Service type — toggle for admins and managers */}
               <div>
                 <label className="form-label">Service type</label>
-                {user?.role === 'admin' ? (
+                {isAdminLike ? (
                   <div className="proj-svc-toggle">
                     <button type="button"
                       className={`proj-svc-btn${form.service_type === 'per_project' ? ' proj-svc-btn--active' : ''}`}
@@ -756,7 +759,7 @@ export default function Projects() {
               </div>
 
               {/* Per-project billing fields — admin only */}
-              {form.service_type === 'per_project' && user?.role === 'admin' && (
+              {form.service_type === 'per_project' && isAdminLike && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label className="form-label">Budget (₹)</label>
@@ -786,7 +789,7 @@ export default function Projects() {
               )}
 
               {/* XLR8 billing fields — admin only */}
-              {form.service_type === 'xlr8' && user?.role === 'admin' && (
+              {form.service_type === 'xlr8' && isAdminLike && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <div>
                     <label className="form-label">Budget (₹)</label>
@@ -858,7 +861,7 @@ export default function Projects() {
               )}
 
               {/* Admin create: pod + docs instead of status + members */}
-              {!editProject && user?.role === 'admin' ? (
+              {!editProject && createFlow ? (
                 <>
                   <div>
                     <label className="form-label">Send to pod *</label>
@@ -1024,7 +1027,7 @@ export default function Projects() {
             </div>
             <div className="drawer-footer">
               <button type="submit" className="drawer-submit">
-                {editProject ? 'Save changes' : (!editProject && user?.role === 'admin') ? 'Send to pod' : 'Create project'}
+                {editProject ? 'Save changes' : user?.role === 'manager' && form.pod === (user as any)?.pod ? 'Create project' : 'Send to pod'}
               </button>
               <button type="button" className="drawer-cancel" onClick={() => setShowModal(false)}>Cancel</button>
             </div>
