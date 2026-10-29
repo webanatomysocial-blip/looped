@@ -1016,6 +1016,21 @@ export default function CalendarPage() {
               <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
                 This recurring ticket hasn't been generated as an active ticket yet for this date. It will appear once the scheduler runs.
               </p>
+              <div style={{ marginTop: 16 }}>
+                <button
+                  type="button"
+                  style={{ fontSize: 12, padding: '7px 14px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
+                  onClick={async () => {
+                    const rid = selectedRecurring.recurring_task_id || selectedRecurring.id;
+                    if (rid) {
+                      await deleteRt(rid);
+                      setSelectedRecurring(null);
+                    }
+                  }}
+                >
+                  ⏹ Stop & Delete Recurring Ticket
+                </button>
+              </div>
               </div>
             </div>
           </div>

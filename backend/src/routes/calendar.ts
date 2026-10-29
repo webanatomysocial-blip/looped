@@ -118,10 +118,28 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const rt = await db('recurring_tasks').where('id', req.params.id).first();
   if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
-  if (rt.created_by !== user.id && !['admin', 'manager'].includes(user.role)) { res.status(403).json({ error: 'Only the person who set this up, or a manager, can stop it' }); return; }
-  const today = new Date().toISOString().slice(0, 10);
-  // Delete upcoming instances (today + future) — past instances keep their time logs
-  await db('tasks').where('recurring_task_id', req.params.id).where('due_date', '>=', today).delete();
+  if (rt.created_by !== user.id && !['admin', 'manager'].includes(user.role)) {
+    res.status(403).json({ error: 'Only the person who set this up, or a manager, can stop it' });
+    return;
+  }
+  const tasks = await db('tasks').where('recurring_task_id', req.params.id).select('id');
+  const taskIds = tasks.map((t: any) => t.id);
+  if (taskIds.length) {
+    const logged = await db('time_logs').whereIn('task_id', taskIds).pluck('task_id');
+    const loggedSet = new Set(logged.map(Number));
+    const toDelete = taskIds.filter((tid: number) => !loggedSet.has(tid));
+    if (toDelete.length) {
+      await db('task_sessions').whereIn('task_id', toDelete).delete().catch(() => {});
+      await db('task_assignees').whereIn('task_id', toDelete).delete().catch(() => {});
+      await db('task_checklist').whereIn('task_id', toDelete).delete().catch(() => {});
+      await db('task_comments').whereIn('task_id', toDelete).delete().catch(() => {});
+      await db('tasks').whereIn('id', toDelete).delete();
+    }
+    const toDetach = taskIds.filter((tid: number) => loggedSet.has(tid));
+    if (toDetach.length) {
+      await db('tasks').whereIn('id', toDetach).update({ recurring_task_id: null });
+    }
+  }
   await db('recurring_tasks').where('id', req.params.id).delete();
   res.json({ ok: true });
 });

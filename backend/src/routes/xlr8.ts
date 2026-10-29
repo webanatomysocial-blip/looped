@@ -81,7 +81,7 @@ async function sendBack(db: any, ticket: any, stages: any[], requested: any): Pr
 
   await db('task_sessions').where({ task_id: ticket.id }).whereNull('ended_at').update({ ended_at: new Date() });
   await db('tasks').where({ id: ticket.id }).update({
-    xlr8_status: assigneeId ? 'in_progress' : 'pending_manager', xlr8_stage_idx: targetIdx,
+    xlr8_status: assigneeId ? 'in_progress' : 'needs_reassignment', xlr8_stage_idx: targetIdx,
     xlr8_assignee_id: assigneeId, assigned_to: assigneeId, status: assigneeId ? 'in_progress' : 'todo',
   });
   // Target stage: they already accepted it once, no re-accept needed
@@ -311,7 +311,7 @@ export async function activateTicket(db: any, id: number, actor: { id: number; n
   const firstStage = stages[0];
   const { title, project_id } = task;
   const fType = firstStage ? stageType(firstStage) : null;
-  const first0 = await db('task_assignees').where({ task_id: id, stage_idx: 0 }).whereNotNull('user_id').orderBy('id').first();
+  const first0 = await db('task_assignees').where({ task_id: id, stage_idx: 0 }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).orderBy('id').first();
   const preId0 = first0?.user_id ?? null;
 
   if ((await fullySkippedIdxs(db, id)).has(0)) {
@@ -431,10 +431,13 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
     const mgr = await db('users').where({ id: req.user!.id }).select('pod').first();
     if (mgr?.pod) q = q.where('p.pod', mgr.pod);
   } else if (req.user!.role === 'employee') {
-    // Only tickets they raised or actually work on (skipped stages don't count)
+    // Only tickets they raised or actually work on (skipped stages and declined tickets don't count)
     const uid = req.user!.id;
     q = q.where((w: any) => w.where('t.created_by', uid).orWhereIn('t.id',
-      db('task_assignees').where('user_id', uid).where((x: any) => x.whereNull('skipped').orWhere('skipped', 0)).select('task_id')));
+      db('task_assignees').where('user_id', uid)
+        .where((x: any) => x.whereNull('skipped').orWhere('skipped', 0))
+        .where((x: any) => x.whereNull('acceptance_status').orWhere('acceptance_status', '!=', 'declined'))
+        .select('task_id')));
   } else if (req.user!.role === 'client') {
     const me = await db('users').where({ id: req.user!.id }).select('client_company_id').first();
     q = q.where('p.client_company_id', me?.client_company_id ?? -1);
@@ -533,13 +536,16 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
       const estH = sa.est_hours || null;
       const skipped = sa.skipped ? 1 : 0;
       const isReviewer = sa.is_reviewer ? 1 : 0;
-      if (sa.user_ids.length > 0) {
+      if (skipped) {
+        // Skipped stage: never assign a user to a skipped stage
+        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: 0, skipped: 1, is_reviewer: isReviewer });
+      } else if (sa.user_ids.length > 0) {
         for (const uid of sa.user_ids) {
-          rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped, is_reviewer: isReviewer });
+          rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped: 0, is_reviewer: isReviewer });
         }
-      } else if (estH || skipped) {
-        // No user yet (review stage with no pre-assignment, or skipped stage) — store with placeholder row
-        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped, is_reviewer: isReviewer });
+      } else if (estH) {
+        // No user yet (review stage with no pre-assignment)
+        rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped: 0, is_reviewer: isReviewer });
       }
     }
     if (rows.length > 0) await db('task_assignees').insert(rows);
@@ -595,7 +601,7 @@ router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
     )
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
-  if (req.user!.role === 'employee' && ticket.created_by !== req.user!.id && !(await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).where((x: any) => x.whereNull('skipped').orWhere('skipped', 0)).first())) {
+  if (req.user!.role === 'employee' && ticket.created_by !== req.user!.id && !(await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).where((x: any) => x.whereNull('skipped').orWhere('skipped', 0)).where((x: any) => x.whereNull('acceptance_status').orWhere('acceptance_status', '!=', 'declined')).first())) {
     res.status(404).json({ error: 'Ticket not found' }); return;
   }
   const log = await db('xlr8_ticket_log').where({ task_id: req.params.id }).orderBy('created_at', 'asc');
@@ -634,14 +640,16 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
     const estH = sa.est_hours || null;
     const flags = prevByStage.get(sa.stage_idx);
     const keep = { skipped: sa.skipped ?? flags?.skipped ?? 0, is_reviewer: sa.is_reviewer ?? flags?.is_reviewer ?? 0 };
-    if (sa.user_ids.length > 0) {
+    if (keep.skipped) {
+      rows.push({ task_id: ticket.id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: 0, ...keep });
+    } else if (sa.user_ids.length > 0) {
       for (const uid of sa.user_ids) {
         const prev = prevByKey.get(`${sa.stage_idx}:${uid}`);
         // Re-picking someone who declined this stage asks them again
         const status = !prev?.acceptance_status || prev.acceptance_status === 'declined' ? 'pending' : prev.acceptance_status;
         rows.push({ task_id: ticket.id, user_id: uid, assignee_role: sType, acceptance_status: status, stage_idx: sa.stage_idx, est_hours: estH, schedule_anchor: prev?.schedule_anchor ?? null, ...keep });
       }
-    } else if (estH || keep.skipped) {
+    } else if (estH) {
       rows.push({ task_id: ticket.id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, ...keep });
     }
   }

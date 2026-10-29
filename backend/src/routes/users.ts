@@ -128,7 +128,7 @@ router.get('/by-role/:role', requireRoles('admin', 'manager'), async (req: AuthR
 });
 
 // GET client companies (with pod from linked client user)
-router.get('/companies', requireRoles('admin', 'manager'), async (_req: AuthRequest, res: Response) => {
+router.get('/companies', requireRoles('admin', 'manager', 'employee'), async (_req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const companies = await db('client_companies as cc')

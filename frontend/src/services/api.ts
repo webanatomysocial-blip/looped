@@ -269,6 +269,7 @@ export const appSettingsApi = {
 };
 
 export const localSeoApi = {
+  clients: () => api.get('/local-seo/clients'),
   getConfig: (clientId: number) => api.get(`/local-seo/config/${clientId}`),
   saveConfig: (clientId: number, data: any) => api.put(`/local-seo/config/${clientId}`, data),
   geocode: (address: string) => api.post('/local-seo/geocode', { address }),

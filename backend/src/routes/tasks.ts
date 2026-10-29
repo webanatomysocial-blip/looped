@@ -131,9 +131,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       query = query.whereRaw(
         `(t.created_by = ?
           OR (t.crosspod_pods IS NULL AND t.crosspod_note IS NULL AND (
-            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND COALESCE(skipped, 0) = 0)
-            OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))))`,
-        [userId, userId, userId]
+            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND COALESCE(skipped, 0) = 0 AND (acceptance_status IS NULL OR acceptance_status != 'declined'))
+          )))`,
+        [userId, userId]
       );
     } else if (role === 'admin' || role === 'manager') {
       // Recurring task instances are personal — only visible to the assignee/creator, not all admins/managers

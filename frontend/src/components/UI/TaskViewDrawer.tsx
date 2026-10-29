@@ -4,7 +4,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
 import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
 import MentionField, { renderMentions, Person } from './MentionField';
-import { tasksApi, xlr8Api } from '../../services/api';
+import { tasksApi, xlr8Api, calendarApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
 import TaskApprovalSection from '../approvals/TaskApprovalSection';
@@ -148,8 +148,23 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
           <div className="drawer-header__label">
             {task?.project_name}{task?.client_name ? ` · ${task.client_name}` : ''}
           </div>
-          <div className="drawer-header__row">
-            <span className="drawer-header__title">{task?.title ?? '…'}</span>
+          <div className="drawer-header__row" style={{ alignItems: 'center', gap: 8 }}>
+            <span className="drawer-header__title" style={{ flex: 1 }}>{task?.title ?? '…'}</span>
+            {(task as any)?.recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || task?.created_by === user?.id) && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (await calendarApi.stopRecurring((task as any).recurring_task_id)) {
+                    onClose();
+                    onChanged?.();
+                  }
+                }}
+                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                title="Stop this recurring ticket"
+              >
+                ⏹ Stop recurring
+              </button>
+            )}
             <button type="button" className="drawer-close" onClick={onClose}>×</button>
           </div>
           {task && (
@@ -443,9 +458,11 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                   </div>
                   {editingComment === c.id ? (
                     <div style={{ marginTop: 6 }}>
-                      <textarea
+                      <MentionField
+                        multiline
+                        people={mentionPeople}
                         value={editText}
-                        onChange={e => setEditText(e.target.value)}
+                        onChange={setEditText}
                         autoFocus
                         rows={2}
                         style={{ width: '100%', fontSize: 12, padding: '6px 8px', borderRadius: 7, border: '1.5px solid var(--blue, #2563eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}

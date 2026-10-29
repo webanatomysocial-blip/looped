@@ -151,13 +151,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       .whereNotNull('t.xlr8_status')
       .whereIn('t.xlr8_status', ['pending_manager', 'pending_admin', 'pending_client'])
       .whereNotExists(function () {
-        this.from('approvals as ap').whereRaw('ap.task_id = t.id').whereNotIn('ap.status', ['approved', 'rejected']);
+        this.from('approvals as ap').whereRaw('ap.task_id = t.id');
       })
       .select('t.id', 't.title', 't.project_id', 't.created_by', 't.xlr8_status');
     for (const t of orphaned) {
       await db('approvals')
-        .insert({ task_id: t.id, title: t.title, project_id: t.project_id, submitted_by: t.created_by, status: t.xlr8_status, workflow_type: 'xlr8' })
-        .onConflict('task_id').ignore();
+        .insert({ task_id: t.id, title: t.title, project_id: t.project_id, submitted_by: t.created_by, status: t.xlr8_status, workflow_type: 'xlr8' });
     }
 
     let query = db('approvals as ap')
@@ -622,7 +621,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         updates.rejected_by = userId;
         updates.rejected_at = new Date();
         updates.rejection_notes = notes;
-        await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
+        await db('tasks').where({ id: approval.task_id }).update({
+          status: 'todo',
+          ...(approval.workflow_type === 'xlr8' ? { xlr8_status: 'in_progress' } : {}),
+        });
         await closeTaskTimers(approval.task_id);
         await notifySubmitter(`"${approval.title}" was rejected at ${currentStage.label}: ${notes}`);
       }

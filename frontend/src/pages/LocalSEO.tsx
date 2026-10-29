@@ -135,11 +135,13 @@ export default function LocalSEO() {
 
   // Load clients
   useEffect(() => {
-    usersApi.companies().then((r) => {
-      const list = r.data || [];
+    const apply = (list: any[]) => {
       setClients(list);
       if (list.length) setClientId(list[0].id);
-    }).catch(() => {});
+    };
+    usersApi.companies()
+      .then((r) => apply(r.data || []))
+      .catch(() => localSeoApi.clients().then((r) => apply(r.data || [])).catch(() => {}));
   }, []);
 
   // Load config + keywords when client changes

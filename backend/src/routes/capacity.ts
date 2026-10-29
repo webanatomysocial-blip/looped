@@ -89,6 +89,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .join('task_assignees as ta', 'ta.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
+      .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       .whereNull('t.ticket_type_id')
       .whereNull('t.recurring_task_id')
       .whereNull('t.crosspod_pods').whereNull('t.crosspod_note')

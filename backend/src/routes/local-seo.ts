@@ -15,6 +15,16 @@ router.use(async (req: any, res: any, next: any) => {
 });
 router.param('clientId', guardCompanyParam(true));
 
+// GET /clients: list of client companies for Local SEO
+router.get('/clients', async (_req: AuthRequest, res: Response) => {
+  try {
+    const list = await getDB()('client_companies').select('id', 'name').orderBy('name');
+    res.json(list);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 function stripWww(domain: string) {
   return domain.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase().trim();
 }

@@ -271,7 +271,7 @@ export default function Tasks() {
             const dec = (v.est_hours ? Number(v.est_hours) : 0) + (v.est_minutes ? Number(v.est_minutes) / 60 : 0);
             const isReviewer = v.is_reviewer || stg?.type === 'manager' || stg?.type === 'admin' || stg?.reviewer === true;
             // Each stage's own checklist (edited here, or the type's default); skip_checklist = this stage gets none
-            return { stage_idx: idx, user_ids: v.user_ids, est_hours: v.skipped ? 0 : dec, skipped: !!v.skipped, is_reviewer: !!isReviewer, checklist: cleanItems(v.checklist ?? stg?.checklist), skip_checklist: !!v.skip_checklist };
+            return { stage_idx: idx, user_ids: v.skipped ? [] : v.user_ids, est_hours: v.skipped ? 0 : dec, skipped: !!v.skipped, is_reviewer: !!isReviewer, checklist: cleanItems(v.checklist ?? stg?.checklist), skip_checklist: !!v.skip_checklist };
           })
           .filter((s: any) => s.user_ids.length > 0 || s.est_hours > 0 || s.skipped || s.checklist.length > 0 || s.skip_checklist);
         const r = await xlr8Api.createTicket({

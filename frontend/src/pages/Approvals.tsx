@@ -18,7 +18,7 @@ export default function Approvals() {
 
   const [podTab, setPodTab] = useState<'all' | 'pod1' | 'pod2'>('all');
   const [page, setPage]     = useState(1);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [dateFilter, setDateFilter] = useState('');
 
   const actions = useApprovalActions({ onChanged: () => load(podTab) });

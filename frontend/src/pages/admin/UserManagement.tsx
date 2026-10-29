@@ -25,7 +25,7 @@ const ALL_PAGES = [
   { slug: '/project-reports', label: 'Project Costs',   group: 'Tools' },
   { slug: '/xlr8',            label: 'XLR8',            group: 'Tools' },
   { slug: '/seo',             label: 'SEO',             group: 'Specialised' },
-  { slug: '/local-seo',       label: 'Local SEO',       group: 'Specialised' },
+  { slug: '/local-seo',       label: 'Local Dominator', group: 'Specialised' },
   { slug: '/ads',             label: 'Ads',             group: 'Specialised' },
   { slug: '/content',         label: 'Content AI',      group: 'Specialised' },
   { slug: '/contact-forms',   label: 'Contact Forms',   group: 'Tools' },
@@ -57,10 +57,15 @@ export default function UserManagement() {
 
   useEffect(() => { load(); loadCats(); }, []);
 
-  const defaultPagePermsForRole = (role: Role) => {
+  const defaultPagePermsForRole = (role: Role, catIds: number[] = []) => {
     if (role === 'admin' || role === 'client') return [];
     if (role === 'manager') return ['/dashboard','/projects','/tasks','/team-capacity','/calendar','/approvals','/assets','/messages','/seo','/local-seo','/ads','/content','/contact-forms','/regularisation'];
-    return ['/dashboard','/tasks','/calendar','/approvals','/assets','/messages','/contact-forms'];
+    const base = ['/dashboard','/tasks','/calendar','/approvals','/assets','/messages','/contact-forms'];
+    const catNames = categories.filter(c => catIds.includes(c.id)).map(c => c.name.toLowerCase());
+    if (catNames.some(c => c.includes('seo'))) base.push('/seo', '/local-seo');
+    if (catNames.some(c => c.includes('ads'))) base.push('/ads');
+    if (catNames.some(c => c.includes('content'))) base.push('/content');
+    return base;
   };
 
   const openCreate = (presetRole?: Role) => {
@@ -87,18 +92,26 @@ export default function UserManagement() {
     // Load existing permissions; fall back to role defaults if none saved yet
     usersApi.getPages(u.id).then(r => {
       const pages: string[] = r.data.pages || [];
-      setPagePerms(pages.length ? pages : defaultPagePermsForRole(u.role));
+      setPagePerms(pages.length ? pages : defaultPagePermsForRole(u.role, u.categories?.map((c) => c.id) || []));
     });
     setShowModal(true);
   };
 
-  const toggleCategory = (id: number) =>
-    setForm((f) => ({
-      ...f,
-      category_ids: f.category_ids.includes(id)
+  const toggleCategory = (id: number) => {
+    setForm((f) => {
+      const nextCats = f.category_ids.includes(id)
         ? f.category_ids.filter((x) => x !== id)
-        : [...f.category_ids, id],
-    }));
+        : [...f.category_ids, id];
+      const cat = categories.find((c) => c.id === id);
+      if (cat && !f.category_ids.includes(id)) {
+        const cname = cat.name.toLowerCase();
+        if (cname.includes('seo')) setPagePerms((prev) => [...new Set([...prev, '/seo', '/local-seo'])]);
+        if (cname.includes('ads')) setPagePerms((prev) => [...new Set([...prev, '/ads'])]);
+        if (cname.includes('content')) setPagePerms((prev) => [...new Set([...prev, '/content'])]);
+      }
+      return { ...f, category_ids: nextCats };
+    });
+  };
 
   const togglePage = (slug: string) =>
     setPagePerms(prev => prev.includes(slug) ? prev.filter(s => s !== slug) : [...prev, slug]);
