@@ -178,7 +178,7 @@ function AppRoutes() {
       } />
 
       <Route path="/local-seo" element={
-        <PrivateRoute roles={['admin', 'manager']}>
+        <PrivateRoute roles={['admin', 'manager', 'employee']} guard={canSeeSeo}>
           <LocalSEO />
         </PrivateRoute>
       } />

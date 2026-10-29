@@ -9,7 +9,7 @@ import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import { ReviewAlert } from '../components/UI/ReviewAlert';
 import UrgentTaskAlert from '../components/UI/UrgentTaskAlert';
 import { useAuth } from '../contexts/AuthContext';
-import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api, regularisationApi } from '../services/api';
+import { capacityApi, tasksApi, projectsApi, approvalsApi, xlr8Api, regularisationApi, calendarApi } from '../services/api';
 import { CapacityData, CapacityTask, Project } from '../types';
 import '../css/pages/Home.css';
 import AttachmentMeta from '../components/UI/AttachmentMeta';
@@ -1013,6 +1013,9 @@ export default function Home() {
                             </span>
                           </div>
                         </div>
+                        {(rt as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || (rt as any).created_by === user?.id) && (
+                          <button className="cap-timer-btn" title="Stop repeating" aria-label="Stop repeating" onClick={async () => { if (await calendarApi.stopRecurring((rt as any).recurring_task_id)) load(); }}>⏹</button>
+                        )}
                         {rt.timer_running ? (
                           <>
                             <button className="cap-timer-btn cap-timer-btn--pause" onClick={() => tasksApi.timer(rt.id, 'pause').then(load)} title="Pause"><Pause size={12} /></button>

@@ -53,6 +53,37 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
     estimated_hours: estimated_hours || 1,
     priority: priority || 'medium',
   });
+
+  // Generate instances for the next 30 days immediately so the task shows up right away
+  const days = recurrence_days ? (Array.isArray(recurrence_days) ? recurrence_days : JSON.parse(recurrence_days)) : [];
+  const endLimit = end_date ? new Date(end_date + 'T00:00:00') : null;
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(start_date + 'T00:00:00');
+    d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().slice(0, 10);
+    if (endLimit && d > endLimit) break;
+    let occurs = false;
+    if (recurrence_type === 'daily') occurs = true;
+    else if (recurrence_type === 'weekly') occurs = days.includes(d.getDay());
+    else if (recurrence_type === 'monthly') occurs = day_of_month ? d.getDate() === Number(day_of_month) : d.getDate() === 1;
+    if (!occurs) continue;
+    const exists = await db('tasks').where('recurring_task_id', id).where('recurrence_date', dateStr).first();
+    if (exists) continue;
+    await db('tasks').insert({
+      title,
+      description: description || '',
+      project_id: project_id || null,
+      assigned_to: assignee,
+      created_by: user.id,
+      status: 'todo',
+      priority: priority || 'medium',
+      estimated_hours: estimated_hours || 1,
+      due_date: dateStr,
+      recurring_task_id: id,
+      recurrence_date: dateStr,
+    });
+  }
+
   res.json({ id });
 });
 
@@ -87,7 +118,7 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const rt = await db('recurring_tasks').where('id', req.params.id).first();
   if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
-  if (rt.created_by !== user.id && user.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return; }
+  if (rt.created_by !== user.id && !['admin', 'manager'].includes(user.role)) { res.status(403).json({ error: 'Only the person who set this up, or a manager, can stop it' }); return; }
   const today = new Date().toISOString().slice(0, 10);
   // Delete upcoming instances (today + future) — past instances keep their time logs
   await db('tasks').where('recurring_task_id', req.params.id).where('due_date', '>=', today).delete();

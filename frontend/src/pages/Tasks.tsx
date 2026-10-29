@@ -1074,6 +1074,12 @@ export default function Tasks() {
                           <Pencil size={11} />
                         </button>
                       )}
+                      {(task as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && (
+                        <button className="icon-action" title="Stop repeating" aria-label="Stop repeating" style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', width: 'auto' }}
+                          onClick={async () => { if (await calendarApi.stopRecurring((task as any).recurring_task_id)) load(); }}>
+                          ⏹ Stop repeating
+                        </button>
+                      )}
                       {(user?.role === 'admin' || user?.role === 'manager') && (
                         <button className="icon-action danger" title="Delete ticket" aria-label="Delete ticket" onClick={() => handleDelete(task.id)}>
                           <Trash2 size={14} />
@@ -2591,6 +2597,7 @@ export default function Tasks() {
                     start_date: new Date().toISOString().slice(0, 10),
                   });
                   setShowRecurringModal(false);
+                  load(podTab);
                 } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
               }}><Plus size={15} /> Create Recurring Ticket</button>
               <button type="button" className="drawer-cancel" onClick={() => setShowRecurringModal(false)}>Cancel</button>

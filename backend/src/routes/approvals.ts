@@ -616,23 +616,15 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     } else {
       // action === 'reject'
-      let prev = prevStage(workflow, approval.status);
-      while (prev && noClient && prev.role === 'client') prev = prevStage(workflow, prev.status);
-      if (prev) {
-        // Return to previous stage
-        updates.status = prev.status;
-        await notifyByRole(db, prev.role, approval.project_id,
-          `"${approval.title}" was rejected at ${currentStage.label} and returned to ${prev.label}`, clientPrefKey);
-        await notifySubmitter(`"${approval.title}" was rejected at ${currentStage.label}: ${notes}`);
-      } else {
-        // First stage rejected → full rejection back to submitter
+      // A rejection at any review step sends the work back to the person who did it (same as tickets)
+      {
         updates.status = 'rejected';
         updates.rejected_by = userId;
         updates.rejected_at = new Date();
         updates.rejection_notes = notes;
         await db('tasks').where({ id: approval.task_id }).update({ status: 'todo' });
         await closeTaskTimers(approval.task_id);
-        await notifySubmitter(`"${approval.title}" was rejected: ${notes}`);
+        await notifySubmitter(`"${approval.title}" was rejected at ${currentStage.label}: ${notes}`);
       }
     }
 

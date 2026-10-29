@@ -169,6 +169,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
       .where('ta.acceptance_status', 'pending')
+      .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       // Review stages are only asked when work reaches them
       .whereNotIn('ta.assignee_role', ['admin', 'client', 'manager'])
       .whereNotNull('ta.stage_idx')
@@ -443,7 +444,7 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .where(function () { this.where('t.assigned_to', userId).orWhere('t.created_by', userId); })
       .where(function () { this.where('t.recurrence_date', today).orWhere('t.due_date', today); })
       .whereNot('t.status', 'completed')
-      .select('t.id', 't.title', 't.estimated_hours');
+      .select('t.id', 't.title', 't.estimated_hours', 't.recurring_task_id', 't.created_by');
 
       
     const recIds = recurringRaw.map((r: any) => r.id);

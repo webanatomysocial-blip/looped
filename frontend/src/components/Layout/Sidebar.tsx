@@ -74,6 +74,7 @@ const NAV: Record<Role, NavGroup> = {
     ],
     more: [
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
+      { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local SEO' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },

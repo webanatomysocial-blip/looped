@@ -357,6 +357,7 @@ export async function activateTicket(db: any, id: number, actor: { id: number; n
   const allStageEmployees = await db('task_assignees')
     .where({ task_id: id, assignee_role: 'employee' })
     .whereNotNull('user_id')
+    .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .select('user_id', 'stage_idx');
   for (const sa of allStageEmployees) {
     await createNotification(sa.user_id, `You've been pre-assigned to stage ${(sa.stage_idx ?? 0) + 1} of "${title}" — please accept or decline`, 'task', project_id);
@@ -429,6 +430,14 @@ router.get('/tickets', async (req: AuthRequest, res: Response) => {
   if (req.user!.role === 'manager') {
     const mgr = await db('users').where({ id: req.user!.id }).select('pod').first();
     if (mgr?.pod) q = q.where('p.pod', mgr.pod);
+  } else if (req.user!.role === 'employee') {
+    // Only tickets they raised or actually work on (skipped stages don't count)
+    const uid = req.user!.id;
+    q = q.where((w: any) => w.where('t.created_by', uid).orWhereIn('t.id',
+      db('task_assignees').where('user_id', uid).where((x: any) => x.whereNull('skipped').orWhere('skipped', 0)).select('task_id')));
+  } else if (req.user!.role === 'client') {
+    const me = await db('users').where({ id: req.user!.id }).select('client_company_id').first();
+    q = q.where('p.client_company_id', me?.client_company_id ?? -1);
   }
   const rows = await q.orderBy('t.created_at', 'desc');
   res.json(rows.map((r: any) => ({
@@ -586,6 +595,9 @@ router.get('/tickets/:id', async (req: AuthRequest, res: Response) => {
     )
     .first();
   if (!ticket) { res.status(404).json({ error: 'Ticket not found' }); return; }
+  if (req.user!.role === 'employee' && ticket.created_by !== req.user!.id && !(await db('task_assignees').where({ task_id: ticket.id, user_id: req.user!.id }).where((x: any) => x.whereNull('skipped').orWhere('skipped', 0)).first())) {
+    res.status(404).json({ error: 'Ticket not found' }); return;
+  }
   const log = await db('xlr8_ticket_log').where({ task_id: req.params.id }).orderBy('created_at', 'asc');
   res.json({
     ...ticket,
@@ -654,7 +666,7 @@ router.put('/tickets/:id/stage-assignments', async (req: AuthRequest, res: Respo
   }
 
   // Notify people newly put on a stage, and anyone re-asked after declining it
-  for (const r of rows.filter(r => r.user_id && (!prevByKey.has(`${r.stage_idx}:${r.user_id}`) || prevByKey.get(`${r.stage_idx}:${r.user_id}`)?.acceptance_status === 'declined'))) {
+  for (const r of rows.filter(r => r.user_id && !r.skipped && (!prevByKey.has(`${r.stage_idx}:${r.user_id}`) || prevByKey.get(`${r.stage_idx}:${r.user_id}`)?.acceptance_status === 'declined'))) {
     await createNotification(r.user_id, `You've been assigned to stage ${(r.stage_idx ?? 0) + 1} of "${ticket.title}" — please accept or decline`, 'task', ticket.project_id);
   }
 

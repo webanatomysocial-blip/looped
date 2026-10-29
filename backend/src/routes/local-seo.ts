@@ -1,10 +1,18 @@
-import { guardCompanyParam } from '../utils/companyAccess';
+import { guardCompanyParam, isSeoEmployee } from '../utils/companyAccess';
 import { Router, Response } from 'express';
 import { authenticate as authMiddleware, AuthRequest } from '../middleware/auth';
 import { getDB } from '../db';
 
 const router = Router();
 router.use(authMiddleware);
+// Same rule as the SEO page: admins, managers, and employees in an SEO category
+router.use(async (req: any, res: any, next: any) => {
+  if (req.user?.role === 'admin' || req.user?.role === 'manager') return next();
+  if (req.user?.role === 'employee' && await isSeoEmployee(getDB(), 'employee', req.user.id)) return next();
+  // An admin can also grant the page directly
+  if (await getDB()('user_page_permissions').where({ user_id: req.user?.id, page_slug: '/local-seo' }).first()) return next();
+  res.status(403).json({ error: 'Local SEO is for the SEO team' });
+});
 router.param('clientId', guardCompanyParam(true));
 
 function stripWww(domain: string) {

@@ -84,6 +84,7 @@ export async function loadItems(userId: number, db: Knex, today: string): Promis
 
   const asg = await db('task_assignees')
     .where({ user_id: userId, acceptance_status: 'accepted' })
+    .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .whereIn('task_id', taskRows.map((t: any) => t.task_id))
     .select('task_id', 'stage_idx', 'est_hours', 'schedule_anchor');
 

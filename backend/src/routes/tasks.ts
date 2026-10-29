@@ -131,7 +131,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       query = query.whereRaw(
         `(t.created_by = ?
           OR (t.crosspod_pods IS NULL AND t.crosspod_note IS NULL AND (
-            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ?)
+            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND COALESCE(skipped, 0) = 0)
             OR t.id IN (SELECT task_id FROM xlr8_ticket_log WHERE actor_id = ?))))`,
         [userId, userId, userId]
       );
@@ -1197,6 +1197,41 @@ router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
 });
 
 // POST /tasks/:id/comments
+// People who can be @mentioned on a task: everyone on it, the project's members, its pod's managers, and admins
+async function mentionable(db: any, taskId: number) {
+  const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').where('t.id', taskId).select('t.created_by', 't.assigned_to', 't.project_id', 'p.pod').first();
+  if (!t) return [];
+  const ids = new Set<number>([t.created_by, t.assigned_to].filter(Boolean));
+  for (const r of await db('task_assignees').where({ task_id: taskId }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).pluck('user_id')) ids.add(r);
+  if (t.project_id) for (const r of await db('project_members').where({ project_id: t.project_id }).pluck('user_id')) ids.add(r);
+  const q = db('users').whereNot('role', 'client').where((w: any) => {
+    w.whereIn('id', [...ids, 0]).orWhere('role', 'admin');
+    if (t.pod) w.orWhere((x: any) => x.where('role', 'manager').where('pod', t.pod));
+  });
+  return q.orderBy('name').select('id', 'name', 'avatar_color', 'avatar_url', 'role');
+}
+
+router.get('/:id/mentionable', async (req: AuthRequest, res: Response) => {
+  try { res.json(await mentionable(getDB(), Number(req.params.id))); } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Notify everyone tagged as @Full Name in a comment (longest names first so "@Sai Kumar" beats "@Sai")
+async function notifyMentions(db: any, taskId: number, text: string, author: { id: number; name?: string }) {
+  const people = (await mentionable(db, taskId)).sort((a: any, b: any) => b.name.length - a.name.length);
+  let rest = text.toLowerCase();
+  const hit: any[] = [];
+  for (const p of people) {
+    const tag = '@' + String(p.name).trim().toLowerCase();
+    if (tag.length > 1 && rest.includes(tag)) { hit.push(p); rest = rest.split(tag).join(' '); }
+  }
+  if (!hit.length) return [];
+  const task = await db('tasks').where({ id: taskId }).select('title', 'project_id').first();
+  const who = author.name || (await db('users').where({ id: author.id }).select('name').first())?.name || 'Someone';
+  const excerpt = text.length > 80 ? text.slice(0, 77) + '…' : text;
+  for (const p of hit) if (p.id !== author.id) await createNotification(p.id, `${who} mentioned you on "${task?.title}": ${excerpt}`, 'task', task?.project_id);
+  return hit.map((p) => p.id);
+}
+
 router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
   const { comment, parent_id } = req.body;
   if (!comment?.trim()) { res.status(400).json({ error: 'comment required' }); return; }
@@ -1208,6 +1243,7 @@ router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
       user_id: req.user!.id,
       comment: comment.trim(),
     });
+    await notifyMentions(db, Number(req.params.id), comment.trim(), req.user!);
     const row = await db('task_comments as c').join('users as u', 'c.user_id', 'u.id').where('c.id', id).select('c.*', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url').first();
     res.status(201).json(row);
   } catch { res.status(500).json({ error: 'Server error' }); }

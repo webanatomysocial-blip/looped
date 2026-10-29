@@ -5,7 +5,8 @@ const hasCategory = (u: any, re: RegExp) => u?.categories?.some((c: any) => re.t
 export const canSeeSeo = (u: any) => u?.role !== 'employee' || hasCategory(u, /seo/i);
 export const canSeeAds = (u: any) => u?.role !== 'employee' || hasCategory(u, /ads/i);
 
-const CATEGORY_GATES: Record<string, (u: any) => boolean> = { '/seo': canSeeSeo, '/ads': canSeeAds };
+// Local SEO (Local Dominator) is SEO work, so it follows the SEO rule
+const CATEGORY_GATES: Record<string, (u: any) => boolean> = { '/seo': canSeeSeo, '/local-seo': canSeeSeo, '/ads': canSeeAds };
 
 export function passesCategoryGate(u: any, path: string): boolean {
   if (u?.page_permissions?.includes(path)) return true;

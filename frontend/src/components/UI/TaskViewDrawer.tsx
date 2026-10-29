@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Paperclip, Link2, ExternalLink, Trash2, CornerDownRight, Pencil, X, Check } from 'lucide-react';
 import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
+import MentionField, { renderMentions, Person } from './MentionField';
 import { tasksApi, xlr8Api } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { MiniAvatar } from './Avatar';
@@ -53,6 +54,8 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
   const [drawerElapsed, setDrawerElapsed] = useState(0);
   const [comments, setComments] = useState<any[]>([]);
   const [commentText, setCommentText] = useState('');
+  const [mentionPeople, setMentionPeople] = useState<Person[]>([]);
+  useEffect(() => { tasksApi.mentionable(taskId).then((r) => setMentionPeople(r.data)).catch(() => setMentionPeople([])); }, [taskId]);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -406,7 +409,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
             const canEditComment = (c: any) => String(c.user_id) === String(user?.id);
             const canDeleteComment = (c: any) => String(c.user_id) === String(user?.id);
 
-            const renderComment = (text: string) => <>{text}</>;
+            const renderComment = (text: string) => <>{renderMentions(text, mentionPeople)}</>;
 
             const postComment = async (text: string, parentId?: number) => {
               if (!text.trim()) return;
@@ -485,11 +488,12 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                     <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'flex-start' }}>
                       <MiniAvatar name={user?.name || '?'} color={user?.avatar_color || '#94a3b8'} size={24} fontSize={10} />
                       <div style={{ flex: 1, position: 'relative' }}>
-                        <input
+                        <MentionField
+                          people={mentionPeople}
                           ref={replyInputRef}
                           autoFocus
                           value={replyText}
-                          onChange={e => setReplyText(e.target.value)}
+                          onChange={setReplyText}
                           onKeyDown={async e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); await postComment(replyText, c.id); setReplyText(''); setReplyingTo(null); } }}
                           placeholder={`Reply to ${c.user_name?.split(' ')[0]}…`}
                           style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--blue, #2563eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', boxSizing: 'border-box' }}
@@ -513,14 +517,16 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                     <MiniAvatar name={user?.name || '?'} color={(user as any)?.avatar_color || '#94a3b8'} size={30} fontSize={12} />
                   </div>
                   <div style={{ flex: 1, position: 'relative' }}>
-                    <textarea
+                    <MentionField
+                      multiline
+                      people={mentionPeople}
                       ref={commentInputRef}
                       value={commentText}
-                      onChange={e => setCommentText(e.target.value)}
+                      onChange={setCommentText}
                       onKeyDown={async e => {
                         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!commentText.trim() || submittingComment) return; setSubmittingComment(true); try { await postComment(commentText); setCommentText(''); } finally { setSubmittingComment(false); } }
                       }}
-                      placeholder="Add a comment… (Enter to post)"
+                      placeholder="Add a comment… type @ to mention someone (Enter to post)"
                       rows={2}
                       style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--border, #e5e7eb)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none', resize: 'vertical', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
                       onFocus={e => { e.target.style.borderColor = 'var(--blue, #2563eb)'; }}

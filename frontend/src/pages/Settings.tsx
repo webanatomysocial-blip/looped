@@ -162,10 +162,10 @@ export default function Settings() {
     } finally { setPwSaving(false); }
   };
 
-  const navItems: { key: Section; label: string; icon: React.ReactNode; adminOnly?: boolean }[] = [
+  const navItems: { key: Section; label: string; icon: React.ReactNode; adminOnly?: boolean; staffOnly?: boolean }[] = [
     { key: 'profile',       label: 'Profile',       icon: <RiUserLine size={15} /> },
     { key: 'notifications', label: 'Notifications', icon: <RiNotification3Line size={15} /> },
-    { key: 'team',          label: 'Team & pods',   icon: <RiTeamLine size={15} /> },
+    { key: 'team',          label: 'Team & pods',   icon: <RiTeamLine size={15} />, staffOnly: true },
     { key: 'security',      label: 'Security',      icon: <RiShieldLine size={15} /> },
   ];
 
@@ -182,7 +182,7 @@ export default function Settings() {
         <div className="stg-layout">
           {/* Sidebar */}
           <nav className="stg-nav card">
-            {navItems.filter((item) => !item.adminOnly || user?.role === 'admin').map((item) => (
+            {navItems.filter((item) => (!item.adminOnly || user?.role === 'admin') && (!item.staffOnly || user?.role === 'admin' || user?.role === 'manager')).map((item) => (
               <button
                 key={item.key}
                 className={`stg-nav__item${section === item.key ? ' stg-nav__item--active' : ''}`}
@@ -345,7 +345,7 @@ export default function Settings() {
             )}
 
             {/* ── Team & pods ── */}
-            {section === 'team' && (
+            {section === 'team' && (user?.role === 'admin' || user?.role === 'manager') && (
               <div className="stg-panel card">
                 <h3 className="stg-panel__title">Team & pods</h3>
 

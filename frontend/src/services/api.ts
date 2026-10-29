@@ -111,6 +111,7 @@ export const tasksApi = {
   deleteDeliverable: (taskId: number, deliverableId: number) => api.delete(`/tasks/${taskId}/deliverables/${deliverableId}`),
   getShareToken: (id: number) => api.post(`/tasks/${id}/share-token`),
   getComments: (id: number) => api.get(`/tasks/${id}/comments`),
+  mentionable: (id: number) => api.get(`/tasks/${id}/mentionable`),
   addComment: (id: number, comment: string, parent_id?: number) => api.post(`/tasks/${id}/comments`, { comment, parent_id }),
   updateComment: (id: number, cid: number, comment: string) => api.put(`/tasks/${id}/comments/${cid}`, { comment }),
   deleteComment: (id: number, cid: number) => api.delete(`/tasks/${id}/comments/${cid}`),
@@ -289,6 +290,11 @@ export const calendarApi = {
   createRecurring: (data: Record<string, any>) => api.post('/calendar/recurring', data),
   updateRecurring: (id: number, data: Record<string, any>) => api.put(`/calendar/recurring/${id}`, data),
   deleteRecurring: (id: number) => api.delete(`/calendar/recurring/${id}`),
+  stopRecurring: async (id: number) => {
+    if (!window.confirm('Stop this recurring ticket? Today\'s and future copies are removed; past work and logged time are kept.')) return false;
+    try { await api.delete(`/calendar/recurring/${id}`); return true; }
+    catch (e: any) { window.alert(e?.response?.data?.error || "Couldn't stop it — please try again"); return false; }
+  },
 };
 
 export const xlr8Api = {
