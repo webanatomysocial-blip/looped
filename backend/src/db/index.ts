@@ -1443,6 +1443,11 @@ async function createSchema(): Promise<void> {
     await db.schema.table('tasks', (t) => { t.text('crosspod_pods').nullable(); t.text('crosspod_note').nullable(); });
   }
 
+  // Full create-form state of a draft, so reopening it restores stages, assignees and estimates
+  if (!(await db.schema.hasColumn('tasks', 'draft_form'))) {
+    await db.schema.table('tasks', (t) => { t.text('draft_form').nullable(); });
+  }
+
   // Phase 2: Scheduling slots — one row per (task, user, day) chunk
   await db.schema.hasTable('task_schedule_slots').then(async (exists) => {
     if (!exists) {

@@ -331,9 +331,11 @@ export default function Tasks() {
     if (!form.title.trim()) { alert('Please enter a title.'); return; }
     if (!form.project_id) { alert('Please select a project.'); return; }
     const isXlr8 = !!form.ticket_type_id;
+    const draftExtra = { draft_form: JSON.stringify({ form, stageAssignments, approvalFlow, customStages: formCustomStages() }), replaces_id: resubmitOf };
     try {
       if (isXlr8) {
         await xlr8Api.createTicket({
+          ...draftExtra,
           title: form.title, description: form.description || null,
           project_id: Number(form.project_id),
           ...(formCustomStages() ? { custom_stages: formCustomStages() } : { ticket_type_id: form.ticket_type_id ? Number(form.ticket_type_id) : undefined }),
@@ -348,9 +350,11 @@ export default function Tasks() {
           due_time: form.due_time || null,
           checklist: form.checklist.filter(i => i.text),
           draft: true,
+          ...draftExtra,
         } as any);
       }
       setShowModal(false);
+      setResubmitOf(null);
       load();
     } catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
@@ -675,6 +679,19 @@ export default function Tasks() {
   };
 
   // Reopen the create form with a rejected cross-pod task so the creator can fix and resend it
+  const openDraft = (task: any) => {
+    let saved: any = null;
+    try { saved = task.draft_form ? JSON.parse(task.draft_form) : null; } catch { saved = null; }
+    if (!saved?.form) { openResubmit(task); return; }
+    setFormCustomStages(saved.customStages || null);
+    setForm(saved.form);
+    setStageAssignments(saved.stageAssignments || {});
+    setApprovalFlow(saved.approvalFlow || []);
+    setCapacityWarnings([]);
+    setResubmitOf(task.id);
+    setShowModal(true);
+  };
+
   const openResubmit = async (task: any) => {
     const full = (await tasksApi.get(task.id)).data;
     const isTemplate = ticketTypes.some(t => t.id === full.ticket_type_id && !t.is_custom);
@@ -1024,6 +1041,12 @@ export default function Tasks() {
                           <Pencil size={10} /> Edit &amp; create
                         </button>
                       )}
+                      {task.status === 'draft' && !(task as any).crosspod_note && (task as any).created_by === user?.id && (
+                        <button title="Open this draft to finish it or create the ticket" onClick={(e) => { e.stopPropagation(); openDraft(task); }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer', border: '1.5px solid rgba(244,115,38,0.3)', background: 'rgba(244,115,38,0.08)', color: 'var(--orange)' }}>
+                          <Pencil size={10} /> Continue draft
+                        </button>
+                      )}
                       {task.status === 'draft' && (task as any).crosspod_note && (
                         <>
                           <span title={(task as any).crosspod_note} style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', background: 'rgba(220,38,38,0.08)', color: 'var(--red)', border: '1px solid rgba(220,38,38,0.25)' }}>
@@ -1087,7 +1110,7 @@ export default function Tasks() {
                           <StopCircle size={14} />
                         </button>
                       )}
-                      {(user?.role === 'admin' || user?.role === 'manager') && (
+                      {(user?.role === 'admin' || user?.role === 'manager' || (task.status === 'draft' && (task as any).created_by === user?.id)) && (
                         <button className="icon-action danger" title="Delete ticket" aria-label="Delete ticket" onClick={() => handleDelete(task.id)}>
                           <Trash2 size={14} />
                         </button>

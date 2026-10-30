@@ -216,7 +216,7 @@ export async function holdForCrossPod(db: any, task: { id: number; title: string
 // Resubmitting a rejected cross-pod task creates a fresh one; drop the rejected original.
 export async function discardRejected(db: any, replacesId: any, user: { id: number; role: string }): Promise<any | null> {
   if (!replacesId) return null;
-  let old = await db('tasks').where({ id: replacesId, created_by: user.id, status: 'draft' }).whereNotNull('crosspod_note').first();
+  let old = await db('tasks').where({ id: replacesId, created_by: user.id, status: 'draft' }).first();
   if (!old && ['manager', 'admin'].includes(user.role)) {
     // "Edit & create": the approving manager rebuilds a pending request
     const pending = await db('tasks').where({ id: replacesId, status: 'pending_approval' }).whereNotNull('crosspod_pods').first();
@@ -492,7 +492,9 @@ router.post('/tickets', async (req: AuthRequest, res: Response) => {
       ticket_type_id: ticket_type_id || null,
       xlr8_stage_idx: 0, xlr8_status: 'draft',
       priority: priority || 'medium',
+      draft_form: req.body.draft_form || null,
     });
+    await discardRejected(db, req.body.replaces_id, req.user!);
     await appendLog(id, req.user!, 'created', null, 'draft');
     res.status(201).json({ id }); return;
   }

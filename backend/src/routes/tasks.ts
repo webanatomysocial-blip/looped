@@ -421,7 +421,11 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
 
     // Notify assigned employee + check capacity warnings (skip for drafts)
     const warnings: string[] = [];
-    if (isDraft) { res.status(201).json({ id, warnings }); return; }
+    if (isDraft) {
+      if (req.body.draft_form) await db('tasks').where({ id }).update({ draft_form: req.body.draft_form });
+      await discardRejected(db, req.body.replaces_id, req.user!);
+      res.status(201).json({ id, warnings }); return;
+    }
     const project = await db('projects').where({ id: project_id }).first();
 
     const replaced = await discardRejected(db, req.body.replaces_id, req.user!);
@@ -642,10 +646,14 @@ router.put('/:taskId/checklist/:itemId', async (req: AuthRequest, res: Response)
 });
 
 // DELETE task (admin + manager)
-router.delete('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+router.delete('/:id', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const tid = req.params.id;
+    if (req.user!.role === 'employee') {
+      const own = await db('tasks').where({ id: tid, created_by: req.user!.id, status: 'draft' }).first();
+      if (!own) { res.status(403).json({ error: 'You can only delete your own drafts' }); return; }
+    }
     // Collect affected users before deletion so we can reschedule them after
     const task = await db('tasks').where({ id: tid }).select('assigned_to').first();
     const assignees = await db('task_assignees').where({ task_id: tid }).select('user_id');
