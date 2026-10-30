@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { forCurrentStage } from '../components/UI/ChecklistEditor';
 import { format } from 'date-fns';
-import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle } from 'lucide-react';
+import { Play, Pause, Check, CheckSquare, AlertTriangle, Clock, ArrowUpRight, XCircle, CheckCircle, X, CheckCircle2, RefreshCw, MinusCircle, Circle, StopCircle, Paperclip, Link2, Lock } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Avatar, { MiniAvatar } from '../components/UI/Avatar';
@@ -414,7 +414,7 @@ export default function Home() {
         {(user?.role === 'admin' || user?.role === 'manager') && declinedStages.length > 0 && (
           <div style={{ background: 'rgba(220,38,38,0.06)', border: '1.5px solid rgba(220,38,38,0.3)', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ fontSize: 16 }}>⚠️</span>
+              <AlertTriangle size={16} />
               <span style={{ fontWeight: 700, fontSize: 14, color: '#dc2626' }}>
                 {declinedStages.length} stage{declinedStages.length > 1 ? 's' : ''} declined — reassignment needed
               </span>
@@ -836,7 +836,7 @@ export default function Home() {
                         onClick={() => { setRegulariseTask(task); setRegulariseReason(''); }}
                         style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6, border: '1.5px solid #f59e0b', background: '#fffbeb', color: '#b45309', cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: 4 }}
                         title="Request time extension">
-                        ⏱ Regularise
+                        <Clock size={12} /> Regularise
                       </button>
                     )}
 
@@ -1014,7 +1014,7 @@ export default function Home() {
                           </div>
                         </div>
                         {(rt as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || (rt as any).created_by === user?.id) && (
-                          <button className="cap-timer-btn" title="Stop repeating" aria-label="Stop repeating" onClick={async () => { if (await calendarApi.stopRecurring((rt as any).recurring_task_id)) load(); }}>⏹</button>
+                          <button className="cap-timer-btn" title="Stop repeating" aria-label="Stop repeating" onClick={async () => { if (await calendarApi.stopRecurring((rt as any).recurring_task_id)) load(); }}><StopCircle size={12} /></button>
                         )}
                         {rt.timer_running ? (
                           <>
@@ -1236,7 +1236,7 @@ export default function Home() {
               </div>
               {doneDeliverables.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8f7f4', borderRadius: 8, border: '1px solid #e8e3da' }}>
-                  <span style={{ fontSize: 11 }}>{d.type === 'file' ? '📎' : '🔗'}</span>
+                  <span style={{ fontSize: 11 }}>{d.type === 'file' ? <Paperclip size={12} /> : <Link2 size={12} />}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <a href={d.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
                     <AttachmentMeta d={d} />
@@ -1267,7 +1267,7 @@ export default function Home() {
                 </button>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#888', padding: '8px 12px', border: '1.5px dashed #e8e3da', borderRadius: 8, justifyContent: 'center' }}>
-                📎 {doneUploading ? 'Uploading…' : 'Upload a file'}
+                <Paperclip size={13} /> {doneUploading ? 'Uploading…' : 'Upload a file'}
                 <input type="file" style={{ display: 'none' }} disabled={doneUploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
@@ -1330,7 +1330,7 @@ export default function Home() {
       {regulariseTask && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}>
           <div style={{ background: '#ffffff', borderRadius: 14, padding: 28, width: 400, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', border: '1px solid #e2e8f0' }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>⏱ Request Regularisation</h3>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Request Regularisation</h3>
             <p style={{ margin: '0 0 6px', fontSize: 13, color: '#64748b' }}>
               <strong style={{ color: '#0f172a' }}>{regulariseTask.title}</strong>
             </p>

@@ -193,7 +193,7 @@ export default function TicketTypes() {
               <StageEditor stages={form.stages} categories={categories} onChange={stages => setForm(f => ({ ...f, stages }))} />
             </div>
 
-            <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '-8px 0 0' }}>Use <b>☑ Checklist</b> on a stage to give only that stage's person their own list.</p>
+            <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '-8px 0 0' }}>Use <b>Checklist</b> on a stage to give only that stage's person their own list.</p>
 
             {form.checklist.some(i => i.text?.trim()) && (
               <div style={{ border: '1px solid #fcd34d', background: '#fffbeb', borderRadius: 8, padding: '10px 12px', fontSize: 12 }}>

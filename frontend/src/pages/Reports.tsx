@@ -651,7 +651,7 @@ export default function Reports() {
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-muted)', marginBottom: 6 }}>
                     <span>Bucket Usage</span>
-                    <span>{xlr8Report.hours_used} / {xlr8Report.monthly_hours_bucket} hrs {xlr8Report.usage_pct >= 100 ? '🔴 Over limit' : xlr8Report.warning ? '⚠ Approaching limit' : ''}</span>
+                    <span>{xlr8Report.hours_used} / {xlr8Report.monthly_hours_bucket} hrs {xlr8Report.usage_pct >= 100 ? 'Over limit' : xlr8Report.warning ? 'Approaching limit' : ''}</span>
                   </div>
                   <div className="report-xlr8-bar-wrap" style={{ height: 14 }}>
                     <div

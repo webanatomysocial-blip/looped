@@ -61,14 +61,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // Notify all admins
     const admins = await db('users').where({ role: 'admin' }).select('id');
     for (const a of admins) {
-      await createNotification(a.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
+      await createNotification(a.id, `Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
     }
 
     // Notify pod manager if task's project has a pod
     if (task?.pod) {
       const podManagers = await db('users').where({ role: 'manager', pod: task.pod }).select('id');
       for (const m of podManagers) {
-        await createNotification(m.id, `⏱ Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
+        await createNotification(m.id, `Regularisation request: "${task?.title}" by ${requester?.name}`, 'task', null);
       }
     }
 
@@ -144,8 +144,8 @@ router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, re
 
     const task = await db('tasks').where({ id: request.task_id }).select('title', 'project_id').first();
     const msg = action === 'approve'
-      ? `✅ Your regularisation request for "${task?.title}" was approved — est. time updated`
-      : `❌ Your regularisation request for "${task?.title}" was rejected`;
+      ? `Your regularisation request for "${task?.title}" was approved — est. time updated`
+      : `Your regularisation request for "${task?.title}" was rejected`;
     await createNotification(request.user_id, msg, 'task', task?.project_id);
 
     res.json({ ok: true });

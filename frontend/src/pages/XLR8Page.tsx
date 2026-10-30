@@ -125,7 +125,7 @@ export default function XLR8Page() {
             <div style={{ marginBottom: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-muted)', marginBottom: 6 }}>
                 <span>Bucket Usage</span>
-                <span>{report.hours_used} / {report.monthly_hours_bucket} hrs {report.usage_pct >= 100 ? '🔴 Over limit' : report.warning ? '⚠ Approaching limit' : ''}</span>
+                <span>{report.hours_used} / {report.monthly_hours_bucket} hrs {report.usage_pct >= 100 ? 'Over limit' : report.warning ? 'Approaching limit' : ''}</span>
               </div>
               <div className="report-xlr8-bar-wrap" style={{ height: 14 }}>
                 <div

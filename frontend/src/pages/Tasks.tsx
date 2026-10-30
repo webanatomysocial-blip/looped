@@ -44,7 +44,7 @@ function DescEditor({ value, onChange, placeholder }: { value: string; onChange:
   );
 }
 import { format } from 'date-fns';
-import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, CheckSquare, Send, X, Play, Pause, Check, Clock, AlertTriangle, Pencil, CheckCircle2, XCircle, RefreshCw, Circle, MinusCircle, Paperclip, Link2, Trash2, ExternalLink, ChevronDown, ChevronRight, StopCircle } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { getChecklistForCategory } from '../data/categoryChecklists';
@@ -1075,9 +1075,9 @@ export default function Tasks() {
                         </button>
                       )}
                       {(task as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && (
-                        <button className="icon-action" title="Stop repeating" aria-label="Stop repeating" style={{ fontSize: 11, fontWeight: 700, padding: '3px 8px', width: 'auto' }}
+                        <button className="icon-action" title="Stop repeating" aria-label="Stop repeating"
                           onClick={async () => { if (await calendarApi.stopRecurring((task as any).recurring_task_id)) load(); }}>
-                          ⏹ Stop repeating
+                          <StopCircle size={14} />
                         </button>
                       )}
                       {(user?.role === 'admin' || user?.role === 'manager') && (
@@ -1178,7 +1178,7 @@ export default function Tasks() {
                   <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
                     {[
                       { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
-                      { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <span style={{ fontSize: 13 }}>🔁</span>, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
+                      { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <RefreshCw size={13} />, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
                     ].map(item => (
                       <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', color: 'var(--ink)' }}
@@ -1469,7 +1469,7 @@ export default function Tasks() {
                             <span style={{ fontSize: 11, color: remMin < 0 ? 'var(--red)' : 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                               {fmtMin(allocMin)} / {fmtMin(totalMin)}
                               {remMin > 0 && !inBuffer && <span style={{ background: 'rgba(234,179,8,0.15)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMin(remMin)} buffer</span>}
-                              {inBuffer && <span style={{ background: 'rgba(234,179,8,0.25)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>⚠ {fmtMin(bufferMin - remMin)} into buffer — {fmtMin(remMin)} left</span>}
+                              {inBuffer && <span style={{ background: 'rgba(234,179,8,0.25)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMin(bufferMin - remMin)} into buffer — {fmtMin(remMin)} left</span>}
                               {remMin < 0 && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMin(remMin)} over</span>}
                             </span>
                             ); })()}
@@ -1575,7 +1575,7 @@ export default function Tasks() {
                                         onClick={() => setStageChecklistOpen(p => ({ ...p, [idx]: !open }))}
                                         title="Checklist only the person on this stage sees and ticks"
                                         style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${count && !sa.skip_checklist ? '#6366f1' : 'var(--sand-border)'}`, background: open ? 'rgba(99,102,241,0.08)' : 'transparent', color: sa.skip_checklist ? 'var(--ink-muted)' : count ? '#4f46e5' : 'var(--ink-muted)', cursor: sa.skip_checklist ? 'default' : 'pointer', opacity: sa.skip_checklist ? 0.5 : 1 }}>
-                                        ☑ Checklist{count ? ` (${count})` : ''}
+                                        Checklist{count ? ` (${count})` : ''}
                                       </button>
                                       <button type="button" onClick={() => updateSa({ skip_checklist: !sa.skip_checklist })}
                                         title={sa.skip_checklist ? 'This stage has no checklist — click to use one' : 'Optional: no checklist for this stage'}
@@ -2000,7 +2000,7 @@ export default function Tasks() {
                             <span style={{ fontSize: 11, color: remMinE < 0 ? 'var(--red)' : 'var(--ink-muted)', display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                               {fmtMinE(allocMinE)} / {fmtMinE(totalMinE)}
                               {remMinE > 0 && !inBufferE && <span style={{ background: 'rgba(234,179,8,0.15)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMinE(remMinE)} buffer</span>}
-                              {inBufferE && <span style={{ background: 'rgba(234,179,8,0.25)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>⚠ {fmtMinE(bufferMinE - remMinE)} into buffer — {fmtMinE(remMinE)} left</span>}
+                              {inBufferE && <span style={{ background: 'rgba(234,179,8,0.25)', color: '#92400e', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMinE(bufferMinE - remMinE)} into buffer — {fmtMinE(remMinE)} left</span>}
                               {remMinE < 0 && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 99, padding: '1px 7px', fontWeight: 700, fontSize: 10, marginLeft: 2 }}>{fmtMinE(remMinE)} over</span>}
                             </span>
                             ); })()}

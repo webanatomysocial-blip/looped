@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -99,7 +100,7 @@ export default function LocalSEO() {
   useEffect(() => {
     if (!mapRef.current || leafletMap.current) return;
     leafletMap.current = L.map(mapRef.current, { center: [20.5937, 78.9629], zoom: 5 });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(leafletMap.current);
     return () => {
@@ -427,7 +428,7 @@ export default function LocalSEO() {
                     style={{ flex: 1 }}
                   />
                   <button type="button" style={{ background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, padding: '0 8px', cursor: 'pointer', color: 'var(--ink-muted)' }} onClick={() => setShowSerperKey(!showSerperKey)}>
-                    {showSerperKey ? '🙈' : '👁️'}
+                    {showSerperKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
               </div>

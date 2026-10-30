@@ -510,14 +510,13 @@ export default function Ads() {
                   {adApprovals.map((ad: any) => {
                     const approval = ad.approval_status ?? 'UNKNOWN';
                     const color = approval === 'APPROVED' ? '#16a34a' : approval === 'APPROVED_LIMITED' ? '#d97706' : approval === 'DISAPPROVED' ? '#dc2626' : '#64748b';
-                    const icon = approval === 'APPROVED' ? '✅' : approval === 'APPROVED_LIMITED' ? '⚠️' : approval === 'DISAPPROVED' ? '❌' : '🔄';
-                    return (
+                                        return (
                       <tr key={ad.id}>
                         <td>{ad.campaign}</td>
                         <td>{ad.ad_group}</td>
                         <td>{ad.name || ad.id}</td>
                         <td><span style={{ fontSize: 11, color: 'var(--ink-muted)' }}>{ad.status}</span></td>
-                        <td><span style={{ fontWeight: 700, color }}>{icon} {approval.replace(/_/g, ' ')}</span></td>
+                        <td><span style={{ fontWeight: 700, color }}>{approval.replace(/_/g, ' ')}</span></td>
                         <td style={{ color: '#dc2626', fontSize: 11 }}>
                           {ad.policy_topics?.map((t: any) => `${t.topic} (${t.type})`).join(', ') || '—'}
                         </td>

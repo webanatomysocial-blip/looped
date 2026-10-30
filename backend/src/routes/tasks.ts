@@ -435,7 +435,7 @@ router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthR
     const effectivePriority = priority || 'medium';
     if (workerId && ['high', 'urgent'].includes(effectivePriority)) {
       if (workerId !== req.user!.id) {
-        await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${title}" assigned — your active ticket was paused`, 'task', project_id);
+        await createNotification(workerId, `${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${title}" assigned — your active ticket was paused`, 'task', project_id);
       }
     } else if (workerId && workerId !== req.user!.id) {
       await createNotification(workerId, `You have been assigned ticket "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
@@ -527,7 +527,7 @@ router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: Aut
           // Always pause active session for high/urgent — regardless of who is creating/re-assigning
           await pauseActiveSession(db, workerId);
           if (workerId !== req.user!.id || isNewWorker) {
-            await createNotification(workerId, `⚠️ ${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${taskRow?.title}" assigned — your active ticket was paused`, 'task', taskRow?.project_id);
+            await createNotification(workerId, `${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${taskRow?.title}" assigned — your active ticket was paused`, 'task', taskRow?.project_id);
           }
         } else if (isNewWorker && workerId !== req.user!.id) {
           await createNotification(workerId, `You have been assigned ticket "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);

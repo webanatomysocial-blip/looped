@@ -1,3 +1,4 @@
+import { Paperclip, Link2 } from 'lucide-react';
 import { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout/Layout';
 import SendBackStagePicker from '../components/UI/SendBackStagePicker';
@@ -638,7 +639,7 @@ export default function XLR8Tickets() {
 
               {doneDeliverables.map(d => (
                 <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, padding: '6px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{d.type === 'file' ? '📎' : '🔗'}</span>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>{d.type === 'file' ? <Paperclip size={12} /> : <Link2 size={12} />}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <a href={d.url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</a>
                     <AttachmentMeta d={d} />
@@ -672,7 +673,7 @@ export default function XLR8Tickets() {
               </div>
 
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#64748b', padding: '8px 12px', border: '1.5px dashed #e2e8f0', borderRadius: 8, justifyContent: 'center' }}>
-                📎 {doneUploading ? 'Uploading…' : 'Upload a file'}
+                <Paperclip size={13} /> {doneUploading ? 'Uploading…' : 'Upload a file'}
                 <input type="file" style={{ display: 'none' }} disabled={doneUploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];

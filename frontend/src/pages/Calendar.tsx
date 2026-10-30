@@ -4,7 +4,7 @@ import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import Layout from '../components/Layout/Layout';
 import { calendarApi, usersApi, projectsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Calendar, Clock, Repeat, CheckCircle, Zap, TrendingUp, Minus, AlertTriangle, FolderOpen } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Clock, Repeat, CheckCircle, Zap, TrendingUp, Minus, AlertTriangle, FolderOpen, Lock, Pin } from 'lucide-react';
 import '../css/pages/Calendar.css';
 import { fmtDate as fmtDDMMYYYY } from '../utils/date';
 
@@ -164,14 +164,14 @@ type DeadlineState = { state: Health['state']; buffer: number };
 type MovePreview = { tone: 'ok' | 'warn' | 'bad'; allowed: boolean; headline: string; moved?: { label: string; from: string; to: string }; issues: { tone: 'warn' | 'bad'; what: string; why: string; fix: string }[]; changes: { label: string; from: string; to: string }[]; buffer: number | null; deadlineBefore?: DeadlineState; deadlineAfter?: DeadlineState };
 const DAY_HINT = {
   ok: { label: '✓ Safe to move', tip: 'Nothing else changes and the deadline is still met.' },
-  warn: { label: '⚠ Will affect other work', tip: 'This move is possible, but other scheduled work or later stages will change. You review the changes before anything moves.' },
+  warn: { label: 'Will affect other work', tip: 'This move is possible, but other scheduled work or later stages will change. You review the changes before anything moves.' },
   bad: { label: '✕ Deadline or capacity conflict', tip: "Moving here would miss a deadline or overload someone. You can still override it after reading why." },
 };
 function deadlineText(d?: DeadlineState) {
   if (!d) return '';
-  if (d.state === 'overdue') return '🔴 Already overdue';
-  if (d.buffer < 0) return `🔴 Missed by ${fmtHrs(-d.buffer)}`;
-  return `${d.state === 'risk' ? '🟡' : '🟢'} ${fmtHrs(d.buffer)} buffer`;
+  if (d.state === 'overdue') return 'Already overdue';
+  if (d.buffer < 0) return `Missed by ${fmtHrs(-d.buffer)}`;
+  return `${fmtHrs(d.buffer)} buffer`;
 }
 type DragInfo = { moved?: boolean; key: string; hrs: number; offsetY: number; colEl: HTMLElement; day: string; fromH: number; title: string; slotId?: number; recurringTaskId?: number; taskId?: number; stage?: number | null };
 const toneKey = (t?: string) => (t === 'bad' ? 'bad' : t === 'warn' ? 'risk' : 'ok') as keyof typeof TONE;
@@ -478,7 +478,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                     {crossDrag && day !== dragRef.current!.day && (() => {
                       const o = options?.[day];
                       const hint = o?.allowed ? DAY_HINT[o.tone] : null;
-                      const label = day < today ? '🔒 Day has passed' : optionsError ? '✕ Not movable' : !options ? 'Checking…' : !o ? '—' : !o.allowed ? `🔒 ${o.headline}` : hint!.label;
+                      const label = day < today ? 'Day has passed' : optionsError ? '✕ Not movable' : !options ? 'Checking…' : !o ? '—' : !o.allowed ? o.headline : hint!.label;
                       return <div title={hint?.tip ?? o?.issues[0]?.why} style={{ padding: '2px 6px', lineHeight: 1.3, fontSize: 10, fontWeight: 800, color: o ? TONE[toneKey(o.allowed ? o.tone : 'bad')].color : 'var(--ink-muted)', background: isToday ? 'rgba(255,255,255,0.9)' : undefined, borderRadius: 99, margin: '0 6px' }}>{label}</div>;
                     })()}
                   </div>
@@ -546,8 +546,8 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                           task.title + (task.stage_name ? ` · ${task.stage_name}` : ''),
                           fmtHrs(hrs) + (task.due_date ? ` · due ${fmtDate(task.due_date)}` : ''),
                           health && `${health.what}: ${health.why}${health.fix ? ` ${health.fix}` : ''}`,
-                          task.is_manual && '📌 You placed this by hand — the scheduler keeps it on this day.',
-                          lockReason ? `🔒 ${lockReason}` : canDrag ? (task.event_type === 'recurring' ? 'Drag to change the time' : 'Drag up or down to change the time, or to another day to move it') : null,
+                          task.is_manual && 'You placed this by hand — the scheduler keeps it on this day.',
+                          lockReason ? lockReason : canDrag ? (task.event_type === 'recurring' ? 'Drag to change the time' : 'Drag up or down to change the time, or to another day to move it') : null,
                         ].filter(Boolean).join('\n');
                         return (
                           <div
@@ -598,8 +598,8 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                                 : (() => { const Ic = pc.icon; return <Ic size={10} color={pc.color} style={{ flexShrink: 0, marginTop: 1 }} />; })()
                               }
                               <div style={{ fontSize: 11, fontWeight: 700, color: isPlaceholder ? pc.color : pc.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{task.title}</div>
-                              {lockReason && <span style={{ fontSize: 9, flexShrink: 0 }}>🔒</span>}
-                              {!lockReason && !!task.is_manual && <span style={{ fontSize: 9, flexShrink: 0 }} aria-label="Placed by hand">📌</span>}
+                              {lockReason && <Lock size={9} style={{ flexShrink: 0 }} />}
+                              {!lockReason && !!task.is_manual && <Pin size={9} style={{ flexShrink: 0 }} aria-label="Placed by hand" />}
                               {hTone && <span aria-label={health!.what} style={{ width: 7, height: 7, borderRadius: 99, background: TONE[hTone].color, flexShrink: 0, marginTop: 3 }} />}
                             </div>
                             {height > 34 && <div style={{ fontSize: 10, color: pc.color, opacity: 0.75 }}>{task.event_type === 'recurring' ? fmtHrs(hrs) : `${fmtHour(startH)} – ${fmtHour(endH)}`}</div>}
@@ -644,7 +644,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
               const t = TONE[toneKey(o.allowed ? o.tone : 'bad')];
               return (
                 <div>
-                  <div style={{ fontWeight: 800, color: t.color }}>{!o.allowed ? '🔒 ' : o.tone === 'ok' ? '✓ ' : o.tone === 'warn' ? '⚠ ' : '✕ '}{o.tone === 'ok' ? 'Safe to move here' : o.headline}</div>
+                  <div style={{ fontWeight: 800, color: t.color }}>{!o.allowed ? '' : o.tone === 'ok' ? '✓ ' : o.tone === 'warn' ? '' : '✕ '}{o.tone === 'ok' ? 'Safe to move here' : o.headline}</div>
                   {o.tone === 'warn' && o.changes.slice(0, 3).map((c, k) => <div key={k}>{c.label} → <b>{c.to}</b></div>)}
                   {o.tone === 'bad' && o.issues.filter(i => i.tone === 'bad').slice(0, 2).map((i, k) => <div key={k} style={{ color: 'var(--ink-muted)' }}>{i.why}</div>)}
                   {o.allowed && o.buffer != null && <div><b>{o.buffer < 0 ? `Short by ${fmtHrs(-o.buffer)}` : `Deadline buffer: ${fmtHrs(o.buffer)}`}</b></div>}
@@ -653,7 +653,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
               );
             })() : dragPos && v ? (
               <div>
-                <div style={{ fontWeight: 800, color: TONE[tone].color }}>{v.tone === 'ok' ? '✓ ' : v.tone === 'warn' ? '⚠ ' : '✕ '}{v.what}</div>
+                <div style={{ fontWeight: 800, color: TONE[tone].color }}>{v.tone === 'ok' ? '✓ ' : v.tone === 'warn' ? '' : '✕ '}{v.what}</div>
                 {v.why && <div style={{ color: 'var(--ink-muted)' }}>{v.why}</div>}
                 {v.fix && <div><b>What you can do:</b> {v.fix}</div>}
               </div>
@@ -671,7 +671,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
         return (
           <div onClick={() => setConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 5001, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div role="dialog" aria-modal="true" aria-labelledby="move-title" onClick={e => e.stopPropagation()} style={{ width: 'min(480px, 100%)', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto', background: '#fff', borderRadius: 12, borderTop: `4px solid ${t.color}`, padding: 18, boxShadow: '0 16px 48px rgba(0,0,0,0.25)', color: 'var(--ink)', fontSize: 13, lineHeight: 1.5 }}>
-              <div id="move-title" style={{ fontSize: 15, fontWeight: 800, color: t.color, marginBottom: 2 }}>{p.tone === 'bad' ? '✕ ' : '⚠ '}{p.headline}</div>
+              <div id="move-title" style={{ fontSize: 15, fontWeight: 800, color: t.color, marginBottom: 2 }}>{p.tone === 'bad' ? '✕ ' : ''}{p.headline}</div>
               <div style={{ fontSize: 12, color: 'var(--ink-muted)', marginBottom: 12 }}>"{confirm.title}"</div>
               {p.moved && (
                 <div style={{ marginBottom: 12 }}>
@@ -1028,7 +1028,7 @@ export default function CalendarPage() {
                     }
                   }}
                 >
-                  ⏹ Stop & Delete Recurring Ticket
+                  Stop & Delete Recurring Ticket
                 </button>
               </div>
               </div>

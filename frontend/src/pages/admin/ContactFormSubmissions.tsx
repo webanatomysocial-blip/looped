@@ -251,7 +251,7 @@ export default function ContactFormSubmissions() {
                         style={{ fontSize: 13, color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: 6 }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        📎 {f.original}
+                        {f.original}
                       </a>
                     ))}
                   </div>

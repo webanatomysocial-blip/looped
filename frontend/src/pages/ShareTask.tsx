@@ -1,3 +1,4 @@
+import { Lock, Paperclip, Link2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { assigneeChip } from '../components/UI/assigneeChip';
 import { useParams } from 'react-router-dom';
@@ -298,7 +299,7 @@ export default function ShareTask() {
   if (error) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8f5f0', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ textAlign: 'center', color: '#78716c' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🔒</div>
+        <div style={{ marginBottom: 12 }}><Lock size={40} /></div>
         <div style={{ fontSize: 16, fontWeight: 600 }}>{error}</div>
       </div>
     </div>
@@ -388,7 +389,7 @@ export default function ShareTask() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {deliverables.map((d: any) => (
                     <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid rgba(0,0,0,0.06)', textDecoration: 'none', color: '#1a1a1a', fontSize: 13, fontWeight: 500 }}>
-                      <span style={{ fontSize: 16 }}>{d.type === 'file' ? '📎' : '🔗'}</span>
+                      <span style={{ fontSize: 16 }}>{d.type === 'file' ? <Paperclip size={16} /> : <Link2 size={16} />}</span>
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name || d.url}</span>
                         <AttachmentMeta d={d} />

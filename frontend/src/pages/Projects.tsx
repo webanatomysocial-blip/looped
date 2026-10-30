@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { format, parseISO } from 'date-fns';
-import { Plus, Filter, ArrowUpDown, Check } from 'lucide-react';
+import { Plus, Filter, ArrowUpDown, Check, Lock } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 
 import Avatar from '../components/UI/Avatar';
@@ -949,7 +949,7 @@ export default function Projects() {
                             style={lockedForManager ? { opacity: 0.5, cursor: 'default', pointerEvents: 'none' } : {}}>
                             {tab.charAt(0).toUpperCase() + tab.slice(1)}
                             {sel > 0 && <span className="member-role-tab__badge">{sel}</span>}
-                            {lockedForManager && <span style={{ fontSize: 10, marginLeft: 4 }}>🔒</span>}
+                            {lockedForManager && <Lock size={10} style={{ marginLeft: 4 }} />}
                           </button>
                         );
                       })}

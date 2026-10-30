@@ -1,3 +1,4 @@
+import { Clock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import { regularisationApi } from '../services/api';
@@ -85,7 +86,7 @@ export default function Regularisation() {
           <div style={{ color: 'var(--ink-muted)', fontSize: 14, padding: 40, textAlign: 'center' }}>Loading…</div>
         ) : requests.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--ink-muted)', fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏱</div>
+            <div style={{ marginBottom: 12 }}><Clock size={32} /></div>
             No regularisation requests yet.
           </div>
         ) : (

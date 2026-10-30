@@ -1,3 +1,4 @@
+import { Eye, EyeOff, Link2, Phone, Calendar, Clock, Paperclip, Lock, EyeOff as HiddenIcon, Bot, ShieldCheck, CheckSquare } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../../components/Layout/Layout';
@@ -65,25 +66,25 @@ const DEFAULT_STYLE: FormStyle = {
   successMessage: "Your message was sent successfully.\nWe'll be in touch soon.",
 };
 
-const FIELD_PALETTE: { type: FieldType; label: string; icon: string }[] = [
+const FIELD_PALETTE: { type: FieldType; label: string; icon: React.ReactNode }[] = [
   { type: 'text',        label: 'Text',          icon: 'T'  },
   { type: 'email',       label: 'Email',         icon: '@'  },
   { type: 'textarea',    label: 'Textarea',      icon: '¶'  },
-  { type: 'url',         label: 'URL',           icon: '🔗' },
-  { type: 'tel',         label: 'Tel',           icon: '☎'  },
+  { type: 'url',         label: 'URL',           icon: <Link2 size={13} /> },
+  { type: 'tel',         label: 'Tel',           icon: <Phone size={13} /> },
   { type: 'radio',       label: 'Radio',         icon: '◉'  },
   { type: 'select',      label: 'Select',        icon: '▾'  },
-  { type: 'checkbox',    label: 'Checkbox',      icon: '☑'  },
+  { type: 'checkbox',    label: 'Checkbox',      icon: <CheckSquare size={13} /> },
   { type: 'acceptance',  label: 'Acceptance',    icon: '✓'  },
   { type: 'number',      label: 'Number',        icon: '#'  },
-  { type: 'date',        label: 'Date',          icon: '📅' },
-  { type: 'time',        label: 'Time',          icon: '⏱'  },
-  { type: 'file',        label: 'File Upload',   icon: '📎' },
-  { type: 'password',    label: 'Password',      icon: '🔒' },
+  { type: 'date',        label: 'Date',          icon: <Calendar size={13} /> },
+  { type: 'time',        label: 'Time',          icon: <Clock size={13} /> },
+  { type: 'file',        label: 'File Upload',   icon: <Paperclip size={13} /> },
+  { type: 'password',    label: 'Password',      icon: <Lock size={13} /> },
   { type: 'html',        label: 'HTML',          icon: '<>' },
-  { type: 'hidden',      label: 'Hidden',        icon: '👁' },
-  { type: 'recaptcha',   label: 'reCAPTCHA',     icon: '🤖' },
-  { type: 'recaptchav3', label: 'reCAPTCHA V3',  icon: '🛡' },
+  { type: 'hidden',      label: 'Hidden',        icon: <HiddenIcon size={13} /> },
+  { type: 'recaptcha',   label: 'reCAPTCHA',     icon: <Bot size={13} /> },
+  { type: 'recaptchav3', label: 'reCAPTCHA V3',  icon: <ShieldCheck size={13} /> },
   { type: 'step',        label: 'Step',          icon: '→'  },
 ];
 
@@ -137,7 +138,7 @@ function buildPreviewHtml(fields: BuilderField[], style: FormStyle): string {
       input = `<input type="hidden" name="${f.id}" value="${f.defaultValue || ''}">`;
 
     } else if (f.type === 'recaptcha' || f.type === 'recaptchav3') {
-      input = `<div style="display:inline-flex;align-items:center;gap:8px;border:1.5px solid ${style.inputBorder};border-radius:${style.inputRadius}px;padding:12px 16px;background:${style.inputBg};font-size:13px;color:${style.inputText};"><span>🤖</span> <span>${f.type === 'recaptchav3' ? 'reCAPTCHA V3 (invisible)' : 'I\'m not a robot'}</span></div>`;
+      input = `<div style="display:inline-flex;align-items:center;gap:8px;border:1.5px solid ${style.inputBorder};border-radius:${style.inputRadius}px;padding:12px 16px;background:${style.inputBg};font-size:13px;color:${style.inputText};"><span>${f.type === 'recaptchav3' ? 'reCAPTCHA V3 (invisible)' : 'I\'m not a robot'}</span></div>`;
 
     } else if (f.type === 'step') {
       return `<div style="width:100%;padding:4px 6px;box-sizing:border-box;"><div style="display:flex;align-items:center;gap:12px;padding:14px 0;border-top:2px solid ${style.inputBorder};"><span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:${style.labelColor};">— ${f.label || 'Next Step'} —</span></div></div>`;
@@ -753,7 +754,7 @@ export default function ContactFormEdit() {
             <p className="cf-hint" style={{ marginBottom: 8 }}>A file attached to every confirmation email — e.g. a brochure, welcome guide, or price list.</p>
             {confirmAttachment ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-raised)', borderRadius: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 13 }}>📎 {confirmAttachment.original}</span>
+                <span style={{ fontSize: 13 }}>{confirmAttachment.original}</span>
                 <button
                   type="button"
                   style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
@@ -859,7 +860,7 @@ export default function ContactFormEdit() {
                     style={{ flex: 1, marginBottom: 0 }}
                   />
                   <button type="button" style={{ background: 'none', border: '1px solid var(--sand-border)', borderRadius: 6, padding: '0 10px', cursor: 'pointer', fontSize: 13 }} onClick={() => setShowRecaptchaSecrets({ ...showRecaptchaSecrets, [key]: !showRecaptchaSecrets[key] })}>
-                    {showRecaptchaSecrets[key] ? '🙈' : '👁️'}
+                    {showRecaptchaSecrets[key] ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
               </div>

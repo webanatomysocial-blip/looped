@@ -319,7 +319,7 @@ function downloadPDF(
           <td style="padding:8px 12px">${p.action}</td>
           <td style="padding:8px 12px">${p.expected}</td>
           <td style="padding:8px 12px;font-weight:700;color:${p.status === 'done' ? '#16a34a' : p.status === 'partial' ? '#d97706' : '#dc2626'}">
-            ${p.status === 'done' ? '✓ Completed' : p.status === 'partial' ? '⚠ Partial' : '✕ Not Done'}
+            ${p.status === 'done' ? '✓ Completed' : p.status === 'partial' ? 'Partial' : '✕ Not Done'}
           </td>
         </tr>`).join('')}
     </tbody>

@@ -423,13 +423,13 @@ export default function Messages() {
             {m.reply_to && (
               <div className={`wa-reply-quote wa-reply-quote--${isMe ? 'mine' : 'theirs'}`}>
                 <span className="wa-reply-quote-name">{m.reply_to.deleted_at ? 'Deleted message' : m.reply_to.sender_name}</span>
-                <span className="wa-reply-quote-text">{m.reply_to.deleted_at ? '🚫 This message was deleted' : (m.reply_to.content || '').slice(0, 80)}</span>
+                <span className="wa-reply-quote-text">{m.reply_to.deleted_at ? 'This message was deleted' : (m.reply_to.content || '').slice(0, 80)}</span>
               </div>
             )}
 
             {isDeleted ? (
               <div className={`wa-bubble wa-bubble--${isMe ? 'mine' : 'theirs'} wa-bubble--deleted`}>
-                🚫 This message was deleted
+                This message was deleted
               </div>
             ) : m.file_url && isImageFile(m.file_name) ? (
               <div className={`wa-bubble wa-bubble--img wa-bubble--${isMe ? 'mine' : 'theirs'}`}>
@@ -862,13 +862,13 @@ export default function Messages() {
                   {tab === 'internal' && activeChat && (
                     internalMsgs.length === 0
                       ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}>
-                          <p>{msgSearch ? 'No messages match your search' : 'No messages yet — say hello! 👋'}</p>
+                          <p>{msgSearch ? 'No messages match your search' : 'No messages yet — say hello!'}</p>
                         </div>
                       : renderInternalBubbles(internalMsgs)
                   )}
                   {(tab === 'client' || isClient) && selectedProject && (
                     clientMsgs.length === 0
-                      ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}><p>No messages yet — say hello! 👋</p></div>
+                      ? <div className="wa-empty-state" style={{ flex: 'unset', marginTop: 40 }}><p>No messages yet — say hello!</p></div>
                       : renderClientBubbles(clientMsgs)
                   )}
                   <div ref={bottomRef} />

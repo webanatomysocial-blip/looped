@@ -162,7 +162,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                 style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: '1px solid #ef4444', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                 title="Stop this recurring ticket"
               >
-                ⏹ Stop recurring
+                Stop recurring
               </button>
             )}
             <button type="button" className="drawer-close" onClick={onClose}>×</button>
@@ -204,7 +204,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{proj}-{task.id}-{mon}</span>
                         <button onClick={handleCopyLink} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: '1px solid var(--border, #e5e5e5)', background: linkCopied ? 'rgba(34,197,94,0.1)' : 'transparent', color: linkCopied ? '#15803d' : 'var(--ink-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, transition: 'all 0.15s', fontFamily: 'inherit' }}>
-                          {linkCopied ? '✓ Copied' : '🔗 Copy link'}
+                          {linkCopied ? '✓ Copied' : 'Copy link'}
                         </button>
                       </div>
                     );

@@ -61,7 +61,7 @@ export default function StageEditor({ stages, categories, onChange }: { stages: 
               <button type="button" onClick={() => setOpenList(openList === i ? null : i)} aria-expanded={openList === i}
                 title="Checklist only the person on this stage sees"
                 style={{ padding: '4px 10px', borderRadius: 6, border: `1.5px solid ${s.checklist?.length ? '#6366f1' : 'var(--sand-border)'}`, background: openList === i ? 'rgba(99,102,241,0.08)' : 'transparent', color: s.checklist?.length ? '#4f46e5' : 'var(--ink-muted)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                ☑ Checklist{s.checklist?.length ? ` (${s.checklist.length})` : ''}
+                Checklist{s.checklist?.length ? ` (${s.checklist.length})` : ''}
               </button>
               <button type="button" className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, -1)} disabled={i === 0} aria-label="Move up"><RiArrowUpLine /></button>
               <button type="button" className="btn-ghost" style={{ padding: '4px 8px' }} onClick={() => moveStage(i, 1)} disabled={i === stages.length - 1} aria-label="Move down"><RiArrowDownLine /></button>

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
-import { ChevronRight, Home, Plus, Upload, Download, Trash2, FolderPlus, Edit2, X } from 'lucide-react';
+import { ChevronRight, Home, Plus, Upload, Download, Trash2, FolderPlus, Edit2, X, Image as ImageIcon, Film, FileText, FileSpreadsheet, FileArchive, File as FileIcon } from 'lucide-react';
 import Layout from '../components/Layout/Layout';
 import { assetsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -27,7 +27,7 @@ function ImageThumb({ id, name }: { id: number; name: string }) {
       .catch(() => {});
     return () => { if (src) URL.revokeObjectURL(src); };
   }, [id]);
-  if (!src) return <span style={{ fontSize: 48 }}>🖼️</span>;
+  if (!src) return <ImageIcon size={48} strokeWidth={1.4} />;
   return (
     <img
       src={src}
@@ -39,13 +39,13 @@ function ImageThumb({ id, name }: { id: number; name: string }) {
 
 function FileTypeIcon({ type }: { type: string | null }) {
   const s = type ?? '';
-  if (s.startsWith('image/')) return <span style={{ fontSize: 48 }}>🖼️</span>;
-  if (s.startsWith('video/')) return <span style={{ fontSize: 48 }}>🎬</span>;
-  if (s.includes('pdf')) return <span style={{ fontSize: 48 }}>📕</span>;
-  if (s.includes('word') || s.includes('document')) return <span style={{ fontSize: 48 }}>📝</span>;
-  if (s.includes('sheet') || s.includes('excel')) return <span style={{ fontSize: 48 }}>📊</span>;
-  if (s.includes('zip')) return <span style={{ fontSize: 48 }}>🗜️</span>;
-  return <span style={{ fontSize: 48 }}>📄</span>;
+  if (s.startsWith('image/')) return <ImageIcon size={48} strokeWidth={1.4} />;
+  if (s.startsWith('video/')) return <Film size={48} strokeWidth={1.4} />;
+  if (s.includes('pdf')) return <FileText size={48} strokeWidth={1.4} />;
+  if (s.includes('word') || s.includes('document')) return <FileText size={48} strokeWidth={1.4} />;
+  if (s.includes('sheet') || s.includes('excel')) return <FileSpreadsheet size={48} strokeWidth={1.4} />;
+  if (s.includes('zip')) return <FileArchive size={48} strokeWidth={1.4} />;
+  return <FileIcon size={48} strokeWidth={1.4} />;
 }
 
 function fileSize(bytes: number | null) {
@@ -413,7 +413,7 @@ export default function AssetLibrary() {
               return (<>
                 {f && isImage(f.file_type) && (
                   <button className="ctx-item" onClick={() => { openPreview(f); setCtxMenu(null); }}>
-                    <span style={{ fontSize: 13 }}>🔍</span> Preview
+                    Preview
                   </button>
                 )}
                 <button className="ctx-item" onClick={() => { handleDownload(ctxMenu.id, ctxMenu.name); setCtxMenu(null); }}>

@@ -1,3 +1,4 @@
+import { Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
@@ -32,7 +33,7 @@ export default function ShareReport() {
   if (error) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui', background: '#f8fafc' }}>
       <div style={{ textAlign: 'center', color: '#64748b' }}>
-        <p style={{ fontSize: 40, marginBottom: 12 }}>🔒</p>
+        <p style={{ marginBottom: 12 }}><Lock size={40} /></p>
         <p style={{ fontSize: 16, fontWeight: 600 }}>{error}</p>
       </div>
     </div>
@@ -182,7 +183,7 @@ export default function ShareReport() {
               rows={manual.last_period_plan.map((p: any) => [
                 p.area, p.action, p.expected,
                 <span style={{ fontWeight: 700, color: p.status === 'done' ? '#16a34a' : p.status === 'partial' ? '#d97706' : '#dc2626' }}>
-                  {p.status === 'done' ? '✓ Done' : p.status === 'partial' ? '⚠ Partial' : '✕ Not Done'}
+                  {p.status === 'done' ? '✓ Done' : p.status === 'partial' ? 'Partial' : '✕ Not Done'}
                 </span>,
               ])}
             />

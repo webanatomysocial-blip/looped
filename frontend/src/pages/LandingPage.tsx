@@ -1,3 +1,4 @@
+import { ClipboardList, Timer, Users, CheckCircle2, BarChart3, Megaphone, Link2, Wallet, Zap, Search, Building2 } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import '../css/pages/LandingPage.css';
@@ -64,15 +65,15 @@ export default function LandingPage() {
         <p className="lp-section-sub">Every module is designed around the real delivery workflows of digital marketing teams.</p>
         <div className="lp-feature-grid">
           {[
-            { icon: '📋', bg: 'rgba(74,144,226,0.1)', title: 'Project & Ticket Management', desc: 'Create projects, assign tickets, set deadlines, and track estimated vs. actual hours with a full role-based acceptance chain.' },
-            { icon: '⏱', bg: 'rgba(76,175,125,0.1)', title: 'Live Time Tracking', desc: 'Built-in start/pause timer on every task. Tracked seconds roll up into daily capacity reports per team member.' },
-            { icon: '👥', bg: 'rgba(245,196,24,0.1)', title: 'Team Capacity Dashboard', desc: 'See who is working on what right now. Filter by pod, date, or overdue tickets. Visual progress bars per member.' },
-            { icon: '✅', bg: 'rgba(76,175,125,0.1)', title: 'Approval Workflows', desc: 'Manager → admin → client sequential approval flows. Rejection notes loop back to the assignee automatically.' },
-            { icon: '📊', bg: 'rgba(74,144,226,0.1)', title: 'SEO Analytics (GA4)', desc: 'Connect GA4 and Search Console per client. View traffic, acquisition, engagement, and rankings in one report.' },
-            { icon: '📢', bg: 'rgba(244,115,38,0.1)', title: 'Ads Analytics', desc: 'Pull live Google Ads campaigns, metrics, and ad approval status straight from the Google Ads API.' },
-            { icon: '🔗', bg: 'rgba(155,89,182,0.1)', title: 'Shareable Client Reports', desc: 'Generate secure, read-only share links per client. Each link snapshots data at creation so content stays consistent.' },
-            { icon: '💰', bg: 'rgba(244,115,38,0.1)', title: 'Project Cost Reports', desc: 'Track salary-based spend per project. Hours logged vs. budget — green / at-risk / critical health indicators.' },
-            { icon: '⚡', bg: 'rgba(245,196,24,0.1)', title: 'XLR8 Bucket Billing', desc: 'For retainer clients — track monthly hours used, remaining, and cost against a defined bucket in real time.' },
+            { icon: <ClipboardList size={20} />, bg: 'rgba(74,144,226,0.1)', title: 'Project & Ticket Management', desc: 'Create projects, assign tickets, set deadlines, and track estimated vs. actual hours with a full role-based acceptance chain.' },
+            { icon: <Timer size={20} />, bg: 'rgba(76,175,125,0.1)', title: 'Live Time Tracking', desc: 'Built-in start/pause timer on every task. Tracked seconds roll up into daily capacity reports per team member.' },
+            { icon: <Users size={20} />, bg: 'rgba(245,196,24,0.1)', title: 'Team Capacity Dashboard', desc: 'See who is working on what right now. Filter by pod, date, or overdue tickets. Visual progress bars per member.' },
+            { icon: <CheckCircle2 size={20} />, bg: 'rgba(76,175,125,0.1)', title: 'Approval Workflows', desc: 'Manager → admin → client sequential approval flows. Rejection notes loop back to the assignee automatically.' },
+            { icon: <BarChart3 size={20} />, bg: 'rgba(74,144,226,0.1)', title: 'SEO Analytics (GA4)', desc: 'Connect GA4 and Search Console per client. View traffic, acquisition, engagement, and rankings in one report.' },
+            { icon: <Megaphone size={20} />, bg: 'rgba(244,115,38,0.1)', title: 'Ads Analytics', desc: 'Pull live Google Ads campaigns, metrics, and ad approval status straight from the Google Ads API.' },
+            { icon: <Link2 size={20} />, bg: 'rgba(155,89,182,0.1)', title: 'Shareable Client Reports', desc: 'Generate secure, read-only share links per client. Each link snapshots data at creation so content stays consistent.' },
+            { icon: <Wallet size={20} />, bg: 'rgba(244,115,38,0.1)', title: 'Project Cost Reports', desc: 'Track salary-based spend per project. Hours logged vs. budget — green / at-risk / critical health indicators.' },
+            { icon: <Zap size={20} />, bg: 'rgba(245,196,24,0.1)', title: 'XLR8 Bucket Billing', desc: 'For retainer clients — track monthly hours used, remaining, and cost against a defined bucket in real time.' },
           ].map((f) => (
             <div key={f.title} className="lp-glass lp-feature-card">
               <div className="lp-feature-icon" style={{ background: f.bg }}>{f.icon}</div>
@@ -120,9 +121,9 @@ export default function LandingPage() {
               <div className="lp-mock-body">
                 <div className="lp-mock-section-lbl" style={{ marginBottom: 10 }}>Campaign · Brand Awareness</div>
                 {[
-                  { badge: 'lp-badge-green', label: '✅ Approved', text: 'Homepage Responsive Ad', extra: null },
-                  { badge: 'lp-badge-green', label: '✅ Approved', text: 'Product Feature Video', extra: null },
-                  { badge: 'lp-badge-yellow', label: '⚠ Limited', text: 'Retargeting Display', extra: 'Alcohol content' },
+                  { badge: 'lp-badge-green', label: 'Approved', text: 'Homepage Responsive Ad', extra: null },
+                  { badge: 'lp-badge-green', label: 'Approved', text: 'Product Feature Video', extra: null },
+                  { badge: 'lp-badge-yellow', label: 'Limited', text: 'Retargeting Display', extra: 'Alcohol content' },
                 ].map((r) => (
                   <div className="lp-mock-row" key={r.text}>
                     <span className={`lp-badge ${r.badge}`}>{r.label}</span>
@@ -132,8 +133,8 @@ export default function LandingPage() {
                 ))}
                 <div className="lp-mock-section-lbl" style={{ margin: '18px 0 10px' }}>Campaign · Search — Brand</div>
                 {[
-                  { badge: 'lp-badge-red', label: '❌ Disapproved', text: 'Competitor Comparison Ad', extra: 'Trademark' },
-                  { badge: 'lp-badge-blue', label: '🔄 In Review', text: 'New Promo Creative', extra: null },
+                  { badge: 'lp-badge-red', label: 'Disapproved', text: 'Competitor Comparison Ad', extra: 'Trademark' },
+                  { badge: 'lp-badge-blue', label: 'In Review', text: 'New Promo Creative', extra: null },
                 ].map((r) => (
                   <div className="lp-mock-row" key={r.text}>
                     <span className={`lp-badge ${r.badge}`}>{r.label}</span>
@@ -231,10 +232,10 @@ export default function LandingPage() {
           <p className="lp-section-sub" style={{ marginBottom: 36 }}>From boutique SEO shops to full-service digital agencies managing paid media, content, and dev.</p>
           <div className="lp-use-grid">
             {[
-              { icon: '🔍', title: 'SEO & Content Agencies', desc: 'Track organic traffic growth, keyword rankings, and content delivery. Share GA4 reports with clients via branded links.' },
-              { icon: '📢', title: 'Paid Media Agencies', desc: 'Monitor Google Ads performance and ad approval status in one view. Catch disapproved ads before clients do.' },
-              { icon: '🏢', title: 'Full-Service Agencies', desc: 'Manage projects, track hours, and report across SEO, paid, and social — all from one platform.' },
-              { icon: '⚡', title: 'Retainer-Based Studios', desc: 'XLR8 bucket tracking shows monthly hours used vs. allocated. Warning when a retainer hits 80% consumed.' },
+              { icon: <Search size={20} />, title: 'SEO & Content Agencies', desc: 'Track organic traffic growth, keyword rankings, and content delivery. Share GA4 reports with clients via branded links.' },
+              { icon: <Megaphone size={20} />, title: 'Paid Media Agencies', desc: 'Monitor Google Ads performance and ad approval status in one view. Catch disapproved ads before clients do.' },
+              { icon: <Building2 size={20} />, title: 'Full-Service Agencies', desc: 'Manage projects, track hours, and report across SEO, paid, and social — all from one platform.' },
+              { icon: <Zap size={20} />, title: 'Retainer-Based Studios', desc: 'XLR8 bucket tracking shows monthly hours used vs. allocated. Warning when a retainer hits 80% consumed.' },
             ].map((u) => (
               <div key={u.title} className="lp-glass lp-use-card">
                 <div className="lp-use-card-icon">{u.icon}</div>

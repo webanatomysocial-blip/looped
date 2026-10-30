@@ -79,6 +79,8 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: false,
+    // OpenStreetMap blocks tile requests that arrive without a Referer
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   })
 );
 app.use(cors({
