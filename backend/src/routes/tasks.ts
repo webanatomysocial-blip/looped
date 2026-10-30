@@ -59,7 +59,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const { project_id, pod } = req.query;
 
     let query = db('tasks as t')
-      .join('projects as p', 't.project_id', 'p.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('users as cr', 't.created_by', 'cr.id')
       .leftJoin('users as xa', 't.xlr8_assignee_id', 'xa.id')

@@ -54,7 +54,7 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
     priority: priority || 'medium',
   });
 
-  // Generate instances for the next 30 days immediately so the task shows up right away
+  // Create the next occurrence now so it shows up straight away; the daily scheduler adds the rest
   const days = recurrence_days ? (Array.isArray(recurrence_days) ? recurrence_days : JSON.parse(recurrence_days)) : [];
   const endLimit = end_date ? new Date(end_date + 'T00:00:00') : null;
   for (let i = 0; i < 30; i++) {
@@ -82,6 +82,7 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
       recurring_task_id: id,
       recurrence_date: dateStr,
     });
+    break;
   }
 
   res.json({ id });
