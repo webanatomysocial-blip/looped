@@ -1199,16 +1199,12 @@ router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
 // POST /tasks/:id/comments
 // People who can be @mentioned on a task: everyone on it, the project's members, its pod's managers, and admins
 async function mentionable(db: any, taskId: number) {
-  const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').where('t.id', taskId).select('t.created_by', 't.assigned_to', 't.project_id', 'p.pod').first();
+  const t = await db('tasks').where('id', taskId).select('created_by', 'assigned_to', 'xlr8_assignee_id').first();
   if (!t) return [];
-  const ids = new Set<number>([t.created_by, t.assigned_to].filter(Boolean));
+  const ids = new Set<number>([t.created_by, t.assigned_to, t.xlr8_assignee_id].filter(Boolean));
   for (const r of await db('task_assignees').where({ task_id: taskId }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).pluck('user_id')) ids.add(r);
-  if (t.project_id) for (const r of await db('project_members').where({ project_id: t.project_id }).pluck('user_id')) ids.add(r);
-  const q = db('users').whereNot('role', 'client').where((w: any) => {
-    w.whereIn('id', [...ids, 0]).orWhere('role', 'admin');
-    if (t.pod) w.orWhere((x: any) => x.where('role', 'manager').where('pod', t.pod));
-  });
-  return q.orderBy('name').select('id', 'name', 'avatar_color', 'avatar_url', 'role');
+  for (const r of await db('task_approval_flow').where({ task_id: taskId }).pluck('user_id')) ids.add(r);
+  return db('users').whereIn('id', [...ids, 0]).orderBy('name').select('id', 'name', 'avatar_color', 'avatar_url', 'role');
 }
 
 router.get('/:id/mentionable', async (req: AuthRequest, res: Response) => {

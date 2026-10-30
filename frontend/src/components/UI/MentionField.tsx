@@ -15,7 +15,7 @@ type Props = {
 const MentionField = forwardRef<any, Props>(function MentionField({ value, onChange, onKeyDown, people, multiline, ...rest }, ref) {
   const [query, setQuery] = useState<string | null>(null);
   const [active, setActive] = useState(0);
-  const matches = query == null ? [] : people.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6);
+  const matches = query == null ? [] : people.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
 
   const detect = (text: string, caret: number) => {
     const m = /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret));
@@ -57,7 +57,7 @@ const MentionField = forwardRef<any, Props>(function MentionField({ value, onCha
     <div style={{ position: 'relative' }}>
       {multiline ? <textarea {...common} /> : <input {...common} />}
       {matches.length > 0 && (
-        <div role="listbox" aria-label="Mention someone" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 60, minWidth: 220, background: 'var(--surface, #fff)', border: '1px solid var(--sand-border, #e5e7eb)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
+        <div role="listbox" aria-label="Mention someone" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 60, minWidth: 220, maxHeight: 240, overflowY: 'auto', background: 'var(--surface, #fff)', border: '1px solid var(--sand-border, #e5e7eb)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
           {matches.map((p, i) => (
             <button key={p.id} type="button" role="option" aria-selected={i === active}
               onMouseDown={(e) => { e.preventDefault(); const el = (e.currentTarget.closest('div[role=listbox]')?.previousElementSibling) as any; pick(p, el); }}
