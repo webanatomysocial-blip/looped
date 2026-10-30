@@ -895,7 +895,7 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('notifications', (t) => {
         t.increments('id').primary();
         t.integer('user_id').notNullable().references('id').inTable('users');
-        t.string('message').notNullable();
+        t.text('message').notNullable();
         t.string('type').defaultTo('info');
         t.boolean('read').defaultTo(false);
         t.integer('project_id').nullable().references('id').inTable('projects');
@@ -907,6 +907,11 @@ async function createSchema(): Promise<void> {
         await db.schema.table('notifications', (t) => {
           t.integer('project_id').nullable().references('id').inTable('projects');
         });
+      }
+      // varchar(255) was too short for cross-pod approval messages (SQLite ignores the length)
+      if (String(db.client.config.client).includes('mysql')) {
+        const [rows]: any = await db.raw("SELECT DATA_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'notifications' AND COLUMN_NAME = 'message'");
+        if (rows?.[0]?.t === 'varchar') await db.raw('ALTER TABLE notifications MODIFY message TEXT NOT NULL');
       }
     }
   });
@@ -1739,7 +1744,9 @@ async function seedAdmin(): Promise<void> {
 }
 
 export async function createNotification(userId: number, message: string, type = 'info', projectId?: number | null): Promise<void> {
-  await db('notifications').insert({ user_id: userId, message, type, ...(projectId ? { project_id: projectId } : {}) });
+  // A notification must never fail the action that triggered it
+  try { await db('notifications').insert({ user_id: userId, message, type, ...(projectId ? { project_id: projectId } : {}) }); }
+  catch (err) { console.error('[notify] failed for user', userId, err); }
 }
 
 // Returns false if the recipient has disabled this pref key for any client in the project

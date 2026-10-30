@@ -223,7 +223,14 @@ export default function Tasks() {
   }, [podTab]);
 
 
+  const [creating, setCreating] = useState(false);
   const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creating) return;
+    setCreating(true);
+    try { await submitNew(e); } finally { setCreating(false); }
+  };
+  const submitNew = async (e: React.FormEvent) => {
     e.preventDefault();
     const isXlr8 = !!form.ticket_type_id;
 
@@ -1736,8 +1743,8 @@ export default function Tasks() {
 
               {/* Footer */}
               <div className="drawer-footer">
-                <button type="submit" className="drawer-submit">
-                  <Plus size={15} /> Create Task
+                <button type="submit" className="drawer-submit" disabled={creating}>
+                  <Plus size={15} /> {creating ? 'Creating…' : 'Create Task'}
                 </button>
                 <button type="button" className="drawer-cancel" onClick={handleDraft} style={{ color: 'var(--ink-muted)' }}>Save Draft</button>
                 <button type="button" className="drawer-cancel" onClick={() => setShowModal(false)}>Cancel</button>
