@@ -214,9 +214,9 @@ function AppRoutes() {
         </PrivateRoute>
       } />
 
-      {/* Admin only */}
+      {/* Admins, and managers for employee accounts */}
       <Route path="/admin/users" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager']}>
           <UserManagement />
         </PrivateRoute>
       } />

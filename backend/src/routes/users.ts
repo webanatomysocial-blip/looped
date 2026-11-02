@@ -235,9 +235,21 @@ router.get('/team', async (_req: AuthRequest, res: Response) => {
   }
 });
 
-// POST create user (admin only)
-router.post('/', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
-  const { name, email, password, role, company_name, category_ids, pod, monthly_salary, send_welcome_email } = req.body;
+// Managers may only act on employee accounts
+async function employeesOnlyForManagers(req: AuthRequest, res: Response, next: () => void) {
+  if (req.user!.role === 'manager') {
+    const target = await getDB()('users').where({ id: req.params.id }).select('role').first();
+    if (target?.role !== 'employee') { res.status(403).json({ error: 'Managers can only manage employees' }); return; }
+  }
+  next();
+}
+
+// POST create user (admin; managers can create employees only)
+router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
+  const { name, email, password, role, company_name, category_ids, pod, send_welcome_email } = req.body;
+  const isManager = req.user!.role === 'manager';
+  if (isManager && role !== 'employee') { res.status(403).json({ error: 'Managers can only create employees' }); return; }
+  const monthly_salary = isManager ? undefined : req.body.monthly_salary;
   if (!name || !email || !password || !role) {
     res.status(400).json({ error: 'All fields required' }); return;
   }
@@ -340,9 +352,13 @@ router.post('/me/avatar', avatarUpload.single('avatar'), async (req: AuthRequest
   }
 });
 
-// PUT update user (admin only)
-router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
-  const { name, email, role, password, category_ids, company_name, pod, monthly_salary } = req.body;
+// PUT update user (admin; managers can update employees only, and not their role or salary)
+router.put('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
+  const { name, email, role, password, category_ids, pod } = req.body;
+  const isManager = req.user!.role === 'manager';
+  if (isManager && role !== undefined && role !== 'employee') { res.status(403).json({ error: 'Managers cannot change roles' }); return; }
+  const monthly_salary = isManager ? undefined : req.body.monthly_salary;
+  const company_name = isManager ? undefined : req.body.company_name;
   try {
     const db = getDB();
     const updates: any = {};
@@ -414,8 +430,8 @@ router.put('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response
   }
 });
 
-// DELETE user (admin only)
-router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+// DELETE user (admin; managers can delete employees only)
+router.delete('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
   if (Number(req.params.id) === req.user!.id) {
     res.status(400).json({ error: 'Cannot delete yourself' }); return;
   }
@@ -539,8 +555,8 @@ router.put('/notification-preferences', async (req: AuthRequest, res: Response) 
   }
 });
 
-// GET page permissions for a user (admin only)
-router.get('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+// GET page permissions for a user (admin; managers for employees only)
+router.get('/:id/pages', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
   try {
     const pages = await getPagePermissions(Number(req.params.id));
     res.json({ pages, all_pages: ALL_PAGES });
@@ -597,8 +613,8 @@ router.get('/:id/profile', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PUT set page permissions for a user (admin only)
-router.put('/:id/pages', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+// PUT set page permissions for a user (admin; managers for employees only)
+router.put('/:id/pages', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
   const { pages } = req.body;
   if (!Array.isArray(pages)) { res.status(400).json({ error: 'pages array required' }); return; }
   try {

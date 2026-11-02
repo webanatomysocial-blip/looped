@@ -55,6 +55,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/messages',           icon: RiChat1Line,      label: 'Messages' },
     ],
     more: [
+      { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
@@ -159,7 +160,7 @@ export default function Sidebar() {
 
   if (perms && user.role !== 'admin' && user.role !== 'client') {
     // Use master list filtered by saved permissions
-    const allowed = MASTER_NAV.filter(n => perms.includes(n.to));
+    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && n.to === '/admin/users'));
     top  = allowed.filter(n => n.section === 'top');
     more = allowed.filter(n => n.section === 'more');
   } else {

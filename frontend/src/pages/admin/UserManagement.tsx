@@ -6,6 +6,7 @@ import Layout from '../../components/Layout/Layout';
 import Avatar from '../../components/UI/Avatar';
 import Drawer from '../../components/UI/Drawer';
 import { usersApi, categoriesApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { User, Role, EmployeeCategory } from '../../types';
 import '../../css/admin/UserManagement.css';
 
@@ -33,6 +34,8 @@ const ALL_PAGES = [
 ];
 
 export default function UserManagement() {
+  const { user: me } = useAuth();
+  const isAdmin = me?.role === 'admin';
   const [users, setUsers]         = useState<User[]>([]);
   const [categories, setCategories] = useState<EmployeeCategory[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -51,7 +54,7 @@ export default function UserManagement() {
   const [inlineCatName, setInlineCatName] = useState('');
 
   const load = () => {
-    usersApi.list().then((r) => setUsers(r.data)).finally(() => setLoading(false));
+    usersApi.list().then((r) => setUsers(isAdmin ? r.data : r.data.filter((u: User) => u.role === 'employee'))).finally(() => setLoading(false));
   };
   const loadCats = () => { categoriesApi.list().then((r) => setCategories(r.data)); };
 
@@ -126,7 +129,7 @@ export default function UserManagement() {
       if (editUser) {
         const payload: any = { name: form.name, email: form.email, role: form.role, pod: form.pod || null };
         if (form.password) payload.password = form.password;
-        if (form.role === 'employee' || form.role === 'manager') {
+        if (isAdmin && (form.role === 'employee' || form.role === 'manager')) {
           payload.monthly_salary = form.monthly_salary !== '' ? Number(form.monthly_salary) : null;
         }
         if (form.role === 'employee') payload.category_ids = form.category_ids;
@@ -136,7 +139,7 @@ export default function UserManagement() {
       } else {
         if (!form.password) { setError('Password is required'); return; }
         const payload: any = { name: form.name, email: form.email, password: form.password, role: form.role, company_name: form.company_name, pod: form.pod || null };
-        if (form.role === 'employee' || form.role === 'manager') {
+        if (isAdmin && (form.role === 'employee' || form.role === 'manager')) {
           payload.monthly_salary = form.monthly_salary !== '' ? Number(form.monthly_salary) : null;
         }
         if (form.role === 'employee') payload.category_ids = form.category_ids;
@@ -195,16 +198,20 @@ export default function UserManagement() {
             <p className="page-subtitle">{filtered.length} member{filtered.length !== 1 ? 's' : ''}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div className="filter-bar">
-              {['all', ...ROLE_OPTIONS].map((r) => (
-                <button key={r} onClick={() => setFilterRole(r)} className={`filter-tab${filterRole === r ? ' active' : ''}`}>
-                  {r === 'all' ? 'All' : r}
+            {isAdmin && (
+              <>
+                <div className="filter-bar">
+                  {['all', ...ROLE_OPTIONS].map((r) => (
+                    <button key={r} onClick={() => setFilterRole(r)} className={`filter-tab${filterRole === r ? ' active' : ''}`}>
+                      {r === 'all' ? 'All' : r}
+                    </button>
+                  ))}
+                </div>
+                <button className="cat-manage-btn" onClick={() => setShowCatPanel(!showCatPanel)} title="Manage categories">
+                  <Tag size={14} /> Categories
                 </button>
-              ))}
-            </div>
-            <button className="cat-manage-btn" onClick={() => setShowCatPanel(!showCatPanel)} title="Manage categories">
-              <Tag size={14} /> Categories
-            </button>
+              </>
+            )}
             <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13 }} onClick={() => openCreate(filterRole !== 'all' ? filterRole as Role : undefined)}>
               <UserPlus size={14} /> Add User{filterRole !== 'all' ? ` (${filterRole})` : ''}
             </button>
@@ -318,7 +325,7 @@ export default function UserManagement() {
                   placeholder={editUser ? 'Leave blank to keep unchanged' : ''}
                 />
               </div>
-              {(editUser || filterRole === 'all') && (
+              {isAdmin && (editUser || filterRole === 'all') && (
                 <div>
                   <label className="form-label">Role *</label>
                   <div className="user-form-role-row" style={{ marginTop: 6 }}>
@@ -356,7 +363,7 @@ export default function UserManagement() {
                   </div>
                 </div>
               )}
-              {(form.role === 'employee' || form.role === 'manager') && (
+              {isAdmin && (form.role === 'employee' || form.role === 'manager') && (
                 <div>
                   <label className="form-label">Monthly Salary (₹)</label>
                   <input
@@ -395,10 +402,10 @@ export default function UserManagement() {
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--ink-muted)' }}>Specializations</span>
-                    <button type="button" onClick={() => { setShowInlineCat(v => !v); setInlineCatName(''); }}
+                    {isAdmin && <button type="button" onClick={() => { setShowInlineCat(v => !v); setInlineCatName(''); }}
                       style={{ width: 20, height: 20, borderRadius: '50%', border: '1.5px solid var(--ink-muted)', background: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-muted)', fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>
                       +
-                    </button>
+                    </button>}
                   </div>
                   {showInlineCat && (
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
@@ -462,12 +469,12 @@ export default function UserManagement() {
                 </div>
               )}
 
-              <div className="modal-info" style={{ fontSize: 12 }}>
+              {isAdmin && <div className="modal-info" style={{ fontSize: 12 }}>
                 <strong>Admin</strong> — full access, create users<br />
                 <strong>Manager</strong> — projects, tickets, approve step 1<br />
                 <strong>Employee</strong> — assigned tickets, submit for approval<br />
                 <strong>Client</strong> — view projects, review completed work
-              </div>
+              </div>}
             </div>
             <div className="drawer-footer">
               <button type="submit" className="drawer-submit">{editUser ? 'Save changes' : 'Create user'}</button>
