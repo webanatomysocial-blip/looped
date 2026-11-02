@@ -33,7 +33,7 @@ import appSettingsRoutes from './routes/app-settings';
 import xlr8Routes from './routes/xlr8';
 import calendarRoutes from './routes/calendar';
 import regularisationRoutes from './routes/regularisation';
-import { startEmailScheduler, startRecurringTaskScheduler } from './services/scheduler';
+import { startEmailScheduler, startRecurringTaskScheduler, scheduleWaitingReviewers } from './services/scheduler';
 
 const app = express();
 const httpServer = createServer(app);
@@ -152,6 +152,7 @@ initDB()
     await repairSkippedStageTickets(getDB()).catch((e) => console.error('[xlr8] skip repair failed', e));
     startEmailScheduler();
     startRecurringTaskScheduler();
+    scheduleWaitingReviewers(getDB()).catch((err) => console.error('[scheduler] Waiting reviews error:', err));
     httpServer.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
     httpServer.setTimeout(120000);
   })

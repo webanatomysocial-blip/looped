@@ -280,8 +280,8 @@ export const localSeoApi = {
 };
 
 export const calendarApi = {
-  getEvents: (month: string) => api.get('/calendar/events', { params: { month } }),
-  getWeek: (start: string) => api.get('/calendar/week', { params: { start } }),
+  getEvents: (month: string, user_id?: number) => api.get('/calendar/events', { params: { month, user_id } }),
+  getWeek: (start: string, user_id?: number) => api.get('/calendar/week', { params: { start, user_id } }),
   updateSlotTime: (slotId: number, start_hour: number) => api.patch(`/calendar/slot/${slotId}/time`, { start_hour }),
   moveOptions: (task_id: number, stage: number | null, days: string[]) => api.get('/calendar/move-options', { params: { task_id, stage: stage ?? '', days: days.join(',') } }),
   moveWork: (task_id: number, stage: number | null, date: string | null, times?: Record<string, number>) => api.post('/calendar/move', { task_id, stage, date, times }),

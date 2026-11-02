@@ -7,6 +7,23 @@ import { DAY_CAP, loadItems, planSlots, scheduleUser, itemKey, nextDay, isWeeken
 const router = Router();
 router.use(authenticate);
 
+// Whose calendar to read: your own, or (admins and managers only) an employee's via ?user_id=
+async function calendarOwner(req: AuthRequest, res: Response): Promise<{ id: number; role: string } | null> {
+  const me = req.user!;
+  const raw = req.query.user_id;
+  if (raw === undefined || raw === '' || Number(raw) === me.id) return me;
+  if (me.role !== 'admin' && me.role !== 'manager') { res.status(403).json({ error: 'Only admins and managers can view team calendars' }); return null; }
+  const id = Number(raw);
+  const target = Number.isInteger(id) ? await getDB()('users').where({ id }).select('id', 'role').first() : null;
+  if (target?.role !== 'employee') { res.status(404).json({ error: 'Employee not found' }); return null; }
+  return target;
+}
+
+// A later stage of yours counts once you've accepted it; reviewers aren't asked to accept until it reaches them
+const upcomingStage = (q: any) => q.where('ta.acceptance_status', 'accepted')
+  .orWhere((r: any) => r.whereNot('ta.assignee_role', 'employee').where((x: any) => x.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined')));
+const notSkipped = (q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0);
+
 // List recurring tasks (own + assigned to my team for managers/admins)
 router.get('/recurring', async (req: AuthRequest, res: Response) => {
   const db = getDB();
@@ -149,7 +166,8 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
 router.get('/events', async (req: AuthRequest, res: Response) => {
   try {
   const db = getDB();
-  const user = req.user!;
+  const user = await calendarOwner(req, res);
+  if (!user) return;
   const { month } = req.query as { month?: string }; // YYYY-MM
   if (!month) { res.status(400).json({ error: 'month required (YYYY-MM)' }); return; }
 
@@ -180,10 +198,11 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
-      .where('ta.acceptance_status', 'accepted')
+      .where(upcomingStage)
+      .where(notSkipped)
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
-      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotIn('t.status', ['completed', 'draft', 'pending_approval'])
       .whereNotNull('t.due_date')
       .whereBetween('t.due_date', [start, end])
       .select('t.id', 't.title', 't.due_date as event_date', 't.status', 't.priority', 't.estimated_hours',
@@ -360,7 +379,8 @@ export async function generateTodayInstances(): Promise<number> {
 router.get('/week', async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
-    const user = req.user!;
+    const user = await calendarOwner(req, res);
+    if (!user) return;
     const { start } = req.query as { start?: string };
     if (!start) { res.status(400).json({ error: 'start required (YYYY-MM-DD)' }); return; }
 
@@ -449,14 +469,15 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     // Future-stage placeholder: tasks assigned to this user at a stage not yet active,
     // shown on their due_date so the user can see upcoming work before it's their turn.
     const scheduledTaskIds = new Set(slotRows.map((r: any) => r.id));
-    const futureStageRows = (user.role === 'admin' || user.role === 'manager') ? [] : await db('task_assignees as ta')
+    const futureStageRows = await db('task_assignees as ta')
       .join('tasks as t', 'ta.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
-      .where('ta.acceptance_status', 'accepted')
+      .where(upcomingStage)
+      .where(notSkipped)
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
-      .whereNotIn('t.status', ['completed', 'draft'])
+      .whereNotIn('t.status', ['completed', 'draft', 'pending_approval'])
       .whereNotNull('t.due_date')
       .whereBetween('t.due_date', [weekStart, weekEnd])
       .select('t.id', 't.title', 't.due_date', 't.status', 't.priority',

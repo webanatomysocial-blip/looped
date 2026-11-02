@@ -41,6 +41,7 @@ export function startRecurringTaskScheduler(): void {
 // Working hours per person per day (time actually available for work, breaks excluded)
 export const DAY_CAP = Number(process.env.WORK_DAY_HOURS) || 7;
 const PRIO: Record<string, number> = { urgent: 1, high: 2, medium: 3, low: 4 };
+const REVIEW_STATUSES = ['pending_manager', 'pending_admin'];
 
 export function localDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -69,24 +70,25 @@ export interface Slot { task_id: number; user_id: number; stage_idx: number | nu
 
 export const itemKey = (i: { task_id: number; stage_idx: number | null }) => `${i.task_id}|${i.stage_idx ?? ''}`;
 
-// Everything this person has to do from today: only the CURRENT stage of a ticket, and only once they've accepted it
+// Everything this person has to do from today: only the CURRENT stage of a ticket, and only once they've accepted it.
+// Reviewers are never asked to accept, so a review shows as soon as it is their turn, even past the due date.
 export async function loadItems(userId: number, db: Knex, today: string): Promise<WorkItem[]> {
   const taskRows = await db('tasks as t')
     .whereNotIn('t.status', ['completed', 'draft'])
     .whereNotNull('t.due_date')
-    .where('t.due_date', '>=', today)
+    .where((q: any) => q.where('t.due_date', '>=', today).orWhere((r: any) => r.whereIn('t.xlr8_status', REVIEW_STATUSES).where('t.xlr8_assignee_id', userId)))
     .where(function (this: any) {
       this.where('t.assigned_to', userId)
         .orWhereIn('t.id', db('task_assignees').where('user_id', userId).select('task_id'));
     })
-    .select('t.id as task_id', 't.priority', 't.due_date', 't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx');
+    .select('t.id as task_id', 't.priority', 't.due_date', 't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status', 't.xlr8_assignee_id');
   if (!taskRows.length) return [];
 
   const asg = await db('task_assignees')
-    .where({ user_id: userId, acceptance_status: 'accepted' })
+    .where({ user_id: userId })
     .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .whereIn('task_id', taskRows.map((t: any) => t.task_id))
-    .select('task_id', 'stage_idx', 'est_hours', 'schedule_anchor');
+    .select('task_id', 'stage_idx', 'est_hours', 'schedule_anchor', 'acceptance_status', 'assignee_role');
 
   const seen = new Set<string>();
   const items: WorkItem[] = [];
@@ -94,7 +96,8 @@ export async function loadItems(userId: number, db: Knex, today: string): Promis
     const due = String(t.due_date).slice(0, 10);
     if (t.ticket_type_id) {
       const cur = t.xlr8_stage_idx ?? 0;
-      const sr = asg.find((r: any) => r.task_id === t.task_id && r.stage_idx === cur);
+      const reviewing = REVIEW_STATUSES.includes(t.xlr8_status) && t.xlr8_assignee_id === userId;
+      const sr = asg.find((r: any) => r.task_id === t.task_id && r.stage_idx === cur && (r.acceptance_status === 'accepted' || (reviewing && r.assignee_role !== 'employee' && r.acceptance_status !== 'declined')));
       if (!sr || seen.has(`${t.task_id}-${cur}`)) continue;
       seen.add(`${t.task_id}-${cur}`);
       let earliest = today;
@@ -104,7 +107,7 @@ export async function loadItems(userId: number, db: Knex, today: string): Promis
       }
       items.push({ task_id: t.task_id, user_id: userId, stage_idx: cur, hours: Number(sr.est_hours) || 1, due_date: due, priority: t.priority || 'medium', earliest, anchor: sr.schedule_anchor || null });
     } else {
-      const sr = asg.find((r: any) => r.task_id === t.task_id);
+      const sr = asg.find((r: any) => r.task_id === t.task_id && r.acceptance_status === 'accepted');
       const hrs = Number(t.estimated_hours) || 0;
       if (!sr || !hrs || seen.has(`${t.task_id}-null`)) continue;
       seen.add(`${t.task_id}-null`);
@@ -169,9 +172,15 @@ export async function scheduleTaskUsers(taskId: number, db: Knex): Promise<void>
   if (task?.assigned_to) userIds.add(task.assigned_to);
 
   const assignees = await db('task_assignees').where('task_id', taskId).select('user_id');
-  for (const a of assignees) userIds.add(a.user_id);
+  for (const a of assignees) if (a.user_id) userIds.add(a.user_id);
 
   for (const uid of userIds) await scheduleUser(uid, db);
+}
+
+// Reviews already waiting (e.g. reached before reviewers were scheduled) get their calendar slots
+export async function scheduleWaitingReviewers(db: Knex): Promise<void> {
+  const ids: number[] = await db('tasks').whereIn('xlr8_status', REVIEW_STATUSES).whereNotNull('xlr8_assignee_id').whereNotNull('due_date').distinct().pluck('xlr8_assignee_id');
+  for (const id of ids) await scheduleUser(id, db);
 }
 
 function round2(n: number) { return Math.round(n * 100) / 100; }

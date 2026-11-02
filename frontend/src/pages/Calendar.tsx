@@ -4,7 +4,7 @@ import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import Layout from '../components/Layout/Layout';
 import { calendarApi, usersApi, projectsApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { ChevronLeft, ChevronRight, Calendar, Clock, Repeat, CheckCircle, Zap, TrendingUp, Minus, AlertTriangle, FolderOpen, Lock, Pin } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Users, Calendar, Clock, Repeat, CheckCircle, Zap, TrendingUp, Minus, AlertTriangle, FolderOpen, Lock, Pin } from 'lucide-react';
 import '../css/pages/Calendar.css';
 import { fmtDate as fmtDDMMYYYY } from '../utils/date';
 
@@ -198,9 +198,9 @@ const GRID_START_H = 0;
 const GRID_END_H   = 24;
 const ROW_PX       = 60;
 
-function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskClick: (task: any) => void; refreshKey?: number }) {
+function WeekView({ monday, onTaskClick, refreshKey, viewUserId }: { monday: Date; onTaskClick: (task: any) => void; refreshKey?: number; viewUserId?: number }) {
   const { user } = useAuth();
-  const isOverview = user?.role === 'admin' || user?.role === 'manager';
+  const isOverview = !viewUserId && (user?.role === 'admin' || user?.role === 'manager');
   const [data, setData] = useState<{ days: string[]; byDay: Record<string, any[]>; health?: Record<string, Health> } | null>(null);
   const [showHealth, setShowHealth] = useState<null | 'bad' | 'risk' | 'ok'>(null);
   const [toast, setToast] = useState<{ text: string; tone: 'ok' | 'bad'; undo?: () => void } | null>(null);
@@ -237,16 +237,18 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
   }, []);
 
   useEffect(() => {
-    const week = dateStr(monday);
+    const week = `${dateStr(monday)}_${viewUserId ?? ''}`;
     const fresh = loadedWeek.current !== week; // reloading after a move keeps the grid on screen
     loadedWeek.current = week;
+    let stale = false; // switching person or week: ignore the slower, older response
     if (fresh) setLoading(true);
     setError(null);
-    calendarApi.getWeek(week)
-      .then(r => { setPinned({}); setData(r.data); if (fresh) setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = (9 - GRID_START_H) * ROW_PX; }, 50); })
-      .catch(e => setError(e?.response?.data?.error || 'Failed to load week'))
-      .finally(() => setLoading(false));
-  }, [dateStr(monday), refreshKey, reload]);
+    calendarApi.getWeek(dateStr(monday), viewUserId)
+      .then(r => { if (stale) return; setPinned({}); setData(r.data); if (fresh) setTimeout(() => { if (scrollRef.current) scrollRef.current.scrollTop = (9 - GRID_START_H) * ROW_PX; }, 50); })
+      .catch(e => { if (!stale) setError(e?.response?.data?.error || 'Failed to load week'); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [dateStr(monday), viewUserId, refreshKey, reload]);
 
   useEffect(() => {
     if (!confirm) return;
@@ -373,7 +375,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
               {shown.map(r => (
                 <div key={r.id} style={{ fontSize: 12, lineHeight: 1.45, borderLeft: `3px solid ${TONE[showHealth!].color}`, paddingLeft: 10 }}>
                   <div style={{ fontWeight: 700, color: 'var(--ink)' }}>{r.title} — {r.h.what}</div>
-                  <div style={{ color: 'var(--ink-muted)' }}>{r.h.why}{r.h.fix && <> <b style={{ color: 'var(--ink)' }}>What you can do:</b> {r.h.fix}</>}</div>
+                  <div style={{ color: 'var(--ink-muted)' }}>{r.h.why}{r.h.fix && <> <b style={{ color: 'var(--ink)' }}>{viewUserId ? 'Suggested fix:' : 'What you can do:'}</b> {r.h.fix}</>}</div>
                 </div>
               ))}
             </div>
@@ -532,12 +534,12 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                         // Same rules as the server (slotDragBlock): past days, unfinished earlier stages, later blocks of a split task
                         const openKey = `${task.id}_${task.scheduled_stage ?? ''}`;
                         const blocker = task.blocking_stage_name || 'An earlier stage';
-                        const lockReason = task.slot_id == null ? null
+                        const lockReason = viewUserId || task.slot_id == null ? null
                           : day < today ? "This day has passed. Past work can't be moved — log time on the ticket instead."
                           : task.ticket_type_id && task.scheduled_stage != null && task.scheduled_stage > (task.xlr8_stage_idx ?? 0) ? `${blocker} isn't finished yet. ${task.stage_name || 'This stage'} can't be scheduled until ${task.blocking_stage_name || 'it'} is done — it unlocks automatically then.`
                           : (earliestOpen[openKey] ?? day) < day ? `This ticket has ${blockCount[openKey]} blocks this week. Move the first one (${fmtDate(earliestOpen[openKey])}) — the later blocks follow it.`
                           : null;
-                        const canDrag = canDragBase(task, isPlaceholder, taskDragKey) && !lockReason;
+                        const canDrag = !viewUserId && canDragBase(task, isPlaceholder, taskDragKey) && !lockReason;
                         const health: Health | undefined = data.health?.[task.id];
                         const hTone = health ? (health.state === 'ok' ? 'ok' : health.state === 'risk' ? 'risk' : 'bad') : null;
                         const verdict = isDragging ? dropVerdict({ title: task.title, startH, endH, day, today, nowH, others: blocks.filter(b => b.task !== task && !b.task.is_placeholder && !b.task.is_overview) }) : null;
@@ -546,7 +548,7 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
                           task.title + (task.stage_name ? ` · ${task.stage_name}` : ''),
                           fmtHrs(hrs) + (task.due_date ? ` · due ${fmtDate(task.due_date)}` : ''),
                           health && `${health.what}: ${health.why}${health.fix ? ` ${health.fix}` : ''}`,
-                          task.is_manual && 'You placed this by hand — the scheduler keeps it on this day.',
+                          task.is_manual && (viewUserId ? 'Placed by hand — the scheduler keeps it on this day.' : 'You placed this by hand — the scheduler keeps it on this day.'),
                           lockReason ? lockReason : canDrag ? (task.event_type === 'recurring' ? 'Drag to change the time' : 'Drag up or down to change the time, or to another day to move it') : null,
                         ].filter(Boolean).join('\n');
                         return (
@@ -720,15 +722,21 @@ function WeekView({ monday, onTaskClick, refreshKey }: { monday: Date; onTaskCli
 }
 
 // ─── Monthly view (existing logic, cleaned up) ───────────────────────────────
-function MonthView({ year, month, onEventClick }: { year: number; month: number; onEventClick: (ev: any) => void }) {
+function MonthView({ year, month, onEventClick, viewUserId }: { year: number; month: number; onEventClick: (ev: any) => void; viewUserId?: number }) {
   const [events, setEvents] = useState<{ tasks: any[]; recurring: any[] }>({ tasks: [], recurring: [] });
   const [loading, setLoading] = useState(false);
   const today = dateStr(new Date());
 
   useEffect(() => {
+    let stale = false; // switching person or month: ignore the slower, older response
     setLoading(true);
-    calendarApi.getEvents(toYM(year, month)).then(r => setEvents(r.data)).finally(() => setLoading(false));
-  }, [year, month]);
+    setEvents({ tasks: [], recurring: [] });
+    calendarApi.getEvents(toYM(year, month), viewUserId)
+      .then(r => { if (!stale) setEvents(r.data); })
+      .catch(() => {})
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
+  }, [year, month, viewUserId]);
 
   const firstDay = new Date(year, month - 1, 1).getDay();
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -815,6 +823,11 @@ export default function CalendarPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const isManager = user?.role === 'admin' || user?.role === 'manager';
+  // Team calendar (admins and managers): whose calendar is on screen; null = your own
+  const [viewUser, setViewUser] = useState<{ id: number; name: string } | null>(null);
+  const [teamOpen, setTeamOpen] = useState(false);
+  const teamRef = useRef<HTMLDivElement | null>(null);
+  const employees = users.filter((u: any) => u.role === 'employee');
   const [form, setForm] = useState({
     title: '', description: '', doc_link: '', assigned_to: '', project_id: '',
     recurrence_type: 'weekly', recurrence_days: [] as number[],
@@ -829,6 +842,23 @@ export default function CalendarPage() {
       usersApi.list().then(r => setUsers(r.data.filter((u: any) => u.role !== 'client')));
     }
   }, []);
+
+  useEffect(() => {
+    if (!teamOpen) return;
+    const click = (e: MouseEvent) => { if (!teamRef.current?.contains(e.target as Node)) setTeamOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setTeamOpen(false); };
+    document.addEventListener('mousedown', click);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', click); document.removeEventListener('keydown', key); };
+  }, [teamOpen]);
+
+  function pickCalendar(next: { id: number; name: string } | null) {
+    setViewUser(next);
+    setTeamOpen(false);
+    setSelected(null);
+    setSelectedRecurring(null);
+    setShowRecurring(false);
+  }
 
   // Week navigation
   function prevWeek() { const d = new Date(monday); d.setDate(d.getDate() - 7); setMonday(d); }
@@ -878,11 +908,33 @@ export default function CalendarPage() {
         {/* ── Header ── */}
         <div className="cal-header" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>My Calendar</h1>
-            <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>Your scheduled work — {DAY_CAP}h / day capacity</p>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{viewUser ? `${viewUser.name}'s Calendar` : 'My Calendar'}</h1>
+            <p style={{ fontSize: 12, color: 'var(--ink-muted)', marginTop: 2 }}>{viewUser ? 'View only' : 'Your scheduled work'} — {DAY_CAP}h / day capacity</p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
+            {/* Team calendar */}
+            {isManager && (
+              <div ref={teamRef} style={{ position: 'relative' }}>
+                <button type="button" aria-haspopup="listbox" aria-expanded={teamOpen} onClick={() => setTeamOpen(o => !o)} style={{ fontSize: 12, fontWeight: 600, color: viewUser ? '#4f46e5' : 'var(--ink)', background: viewUser ? 'rgba(99,102,241,0.1)' : 'var(--bg-white)', border: '1px solid var(--sand-border)', borderRadius: 10, padding: '7px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Users size={13} /> Team Calendar <ChevronDown size={13} />
+                </button>
+                {teamOpen && (
+                  <div role="listbox" aria-label="Choose a calendar" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 100, width: 240, maxHeight: 320, overflowY: 'auto', background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 4 }}>
+                    {[{ id: 0, name: 'My Calendar' }, ...employees].map((u: any) => {
+                      const active = u.id === 0 ? !viewUser : viewUser?.id === u.id;
+                      return (
+                        <button key={u.id} type="button" role="option" aria-selected={active} onClick={() => pickCalendar(u.id === 0 ? null : { id: u.id, name: u.name })} style={{ display: 'block', width: '100%', textAlign: 'left', fontSize: 13, fontWeight: active || u.id === 0 ? 700 : 500, color: 'var(--ink)', background: active ? 'var(--bg-sand)' : 'none', border: 'none', borderRadius: 7, padding: '8px 10px', cursor: 'pointer' }}>
+                          {u.name}
+                        </button>
+                      );
+                    })}
+                    {employees.length === 0 && <p style={{ fontSize: 12, color: 'var(--ink-muted)', padding: '8px 10px', margin: 0 }}>No employees found.</p>}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* View toggle */}
             <div style={{ display: 'flex', background: 'var(--bg-sand)', borderRadius: 10, padding: 3, gap: 2, border: '1px solid var(--sand-border)' }}>
               {(['week','month'] as const).map(v => (
@@ -904,17 +956,19 @@ export default function CalendarPage() {
                 <ChevronRight size={16} />
               </button>
             </div>
+            {!viewUser && <>
             <button onClick={() => setShowRecurring(s => !s)} style={{ fontSize:12, fontWeight:600, color: showRecurring ? '#4f46e5' : 'var(--ink-muted)', background: showRecurring ? 'rgba(99,102,241,0.1)' : 'var(--bg-white)', border:`1px solid ${showRecurring ? '#c7d2fe' : 'var(--sand-border)'}`, borderRadius:10, padding:'6px 12px', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
               <Repeat size={13} /> Recurring ({recurringList.length})
             </button>
             <button className="btn-primary" style={{ fontSize:12, padding:'6px 14px' }} onClick={openCreate}>+ Recurring</button>
+            </>}
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flex: 1, minHeight: 0 }}>
           {/* ── Main view ── */}
           {view === 'week' && (
-            <WeekView monday={monday} refreshKey={calendarRefresh} onTaskClick={(task) => {
+            <WeekView monday={monday} refreshKey={calendarRefresh} viewUserId={viewUser?.id} onTaskClick={(task) => {
               if (task.event_type === 'recurring') {
                 if (task.task_instance_id) { setSelected(task.task_instance_id); setSelectedRecurring(null); }
                 else { setSelectedRecurring(task); setSelected(null); }
@@ -925,7 +979,7 @@ export default function CalendarPage() {
             }} />
           )}
           {view === 'month' && (
-            <MonthView year={year} month={month} onEventClick={(ev) => {
+            <MonthView year={year} month={month} viewUserId={viewUser?.id} onEventClick={(ev) => {
               if (ev.event_type === 'recurring') {
                 if (ev.task_instance_id) { setSelected(ev.task_instance_id); setSelectedRecurring(null); }
                 else { setSelectedRecurring(ev); setSelected(null); }
@@ -1016,7 +1070,7 @@ export default function CalendarPage() {
               <p style={{ fontSize: 11, color: 'var(--ink-muted)', margin: 0 }}>
                 This recurring ticket hasn't been generated as an active ticket yet for this date. It will appear once the scheduler runs.
               </p>
-              <div style={{ marginTop: 16 }}>
+              {!viewUser && <div style={{ marginTop: 16 }}>
                 <button
                   type="button"
                   style={{ fontSize: 12, padding: '7px 14px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontWeight: 600 }}
@@ -1030,7 +1084,7 @@ export default function CalendarPage() {
                 >
                   Stop & Delete Recurring Ticket
                 </button>
-              </div>
+              </div>}
               </div>
             </div>
           </div>

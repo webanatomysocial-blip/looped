@@ -1186,6 +1186,7 @@ export async function advanceToStage(
       await appendLog(ticket.id, actor, 'sent_to_admin', fromState, 'pending_admin');
       const admins = await db('users').where({ role: 'admin' }).select('id');
       for (const a of admins) await createNotification(a.id, `Ticket "${ticket.title}" needs your final approval`, 'task', ticket.project_id);
+      import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
       res.json({ ok: true, next: 'pending_admin' }); return;
     }
     if (finalApproval.clientOptional) {
@@ -1197,6 +1198,7 @@ export async function advanceToStage(
         .join('projects as p', 'p.client_company_id', 'u.client_company_id')
         .where('p.id', ticket.project_id).where('u.role', 'client').select('u.id');
       for (const c of clients) await createNotification(c.id, `Ticket "${ticket.title}" is ready for your review`, 'task', ticket.project_id);
+      import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
       res.json({ ok: true, next: 'pending_client' }); return;
     }
     const approval2 = await db('approvals').where({ task_id: ticket.id }).whereNotIn('status', ['approved', 'rejected']).first();
@@ -1242,14 +1244,15 @@ export async function advanceToStage(
           ? `It's your turn on ticket "${ticket.title}" — Stage ${targetIdx + 1} is now active`
           : `Ticket "${ticket.title}" has been assigned to you`;
       await createNotification(pre.user_id!, notifMsg, 'task', ticket.project_id);
-      // Reschedule the new stage assignee
-      import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(pre.user_id!, db)).catch(() => {});
+      // New stage person gets the work; the previous person or reviewer gets their time back
+      import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
       res.json({ ok: true, next: 'pending_assignee' });
     } else {
       await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'pending_manager', xlr8_stage_idx: targetIdx, xlr8_assignee_id: null, assigned_to: null, status: 'todo' });
       await appendLog(ticket.id, actor, 'next_stage', fromState, 'pending_manager', `Stage ${targetIdx + 1}: ${nextStage.category_name}`);
       const managers = await projectManagers(db, ticket.project_id);
       for (const m of managers) await createNotification(m.id, `Ticket "${ticket.title}" — assign a ${nextStage.category_name} for stage ${targetIdx + 1}`, 'task', ticket.project_id);
+      import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
       res.json({ ok: true, next: 'pending_manager' });
     }
     return;
@@ -1269,6 +1272,7 @@ export async function advanceToStage(
       const managers = await projectManagers(db, ticket.project_id);
       for (const m of managers) await createNotification(m.id, `Ticket "${ticket.title}" ready for manager review`, 'approval', ticket.project_id);
     }
+    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
     res.json({ ok: true, next: 'pending_manager' }); return;
   }
 
@@ -1286,12 +1290,14 @@ export async function advanceToStage(
     const admins = await db('users').where({ role: 'admin' }).select('id');
     for (const a of admins) await createNotification(a.id, `Ticket "${ticket.title}" ready for admin review`, 'approval', ticket.project_id);
   }
+  import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
   res.json({ ok: true, next: 'pending_admin' });
 }
 
 async function completeTicket(db: any, ticket: any, actor: any) {
   await db('tasks').where({ id: ticket.id }).update({ xlr8_status: 'completed', status: 'completed' });
   await appendLog(ticket.id, actor, 'completed', ticket.xlr8_status, 'completed');
+  import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(ticket.id, db)).catch(() => {});
   if (ticket.created_by !== actor.id) {
     await createNotification(ticket.created_by, `Ticket "${ticket.title}" has been completed`, 'task', ticket.project_id);
   }
