@@ -948,13 +948,20 @@ export default function Tasks() {
                         if (needsReview && empReviewer && isManagerOnly) return (
                           <span className="ticket-pill ticket-pill--muted">Awaiting {(task as any).xlr8_assignee_name?.split(' ')[0] || 'reviewer'}'s review</span>
                         );
+                        // Everyone on the ticket must accept before work starts; say who is still missing
+                        const waiting: string[] | undefined = (task as any).waiting_on;
+                        const iAccepted = task.assignees?.some((a: any) => a.user_id === user?.id && a.stage_idx === ((task as any).xlr8_stage_idx ?? 0) && a.acceptance_status === 'accepted');
+                        const waitPill = waiting && waiting.length > 0 && (
+                          <span className="ticket-pill ticket-pill--muted" title={`Work starts once ${waiting.join(', ')} accept`}>Waiting for {waiting.join(', ')} to accept</span>
+                        );
+                        if (s === 'pending_assignee' && isAssignee && iAccepted && waitPill) return waitPill;
                         if (s === 'pending_assignee' && ((user?.role === 'employee' && (isAssignee || !task.xlr8_assignee_id)) || (user?.role === 'manager' && isAssignee))) return (
                           <div style={{ display: 'flex', gap: 5 }}>
                             <button className="ticket-icon-btn ticket-icon-btn--green" title="Accept ticket" onClick={() => ticketEmployeeAccept(task.id)}><Check size={11} /></button>
                             {task.xlr8_assignee_id && <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline ticket" onClick={() => ticketEmployeeDeclineInline(task.id)}><X size={11} /></button>}
                           </div>
                         );
-                        if (s === 'pending_assignee' && isManager) return (
+                        if (s === 'pending_assignee' && isManager) return waitPill || (
                           <span className="ticket-pill ticket-pill--muted">Awaiting acceptance</span>
                         );
                         if (s === 'pending_admin' && user?.role === 'admin') return (
@@ -974,7 +981,7 @@ export default function Tasks() {
                       {task.ticket_type_id && (user?.role === 'employee' || user?.role === 'manager') && (() => {
                         const myAssignment = task.assignees?.find((a: any) => a.user_id === user.id && a.assignee_role === 'employee');
                         const currentIdx = (task as any).xlr8_stage_idx ?? 0;
-                        return myAssignment && myAssignment.stage_idx !== currentIdx && myAssignment.acceptance_status === 'pending';
+                        return myAssignment && myAssignment.stage_idx !== currentIdx && (myAssignment.acceptance_status === 'pending' || myAssignment.acceptance_status == null);
                       })() && (
                         <div style={{ display: 'flex', gap: 5 }}>
                           <button className="ticket-icon-btn ticket-icon-btn--green" title="Pre-accept stage" onClick={async () => { await xlr8Api.stagePreAccept(task.id); load(); }}><Check size={11} /></button>

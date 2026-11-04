@@ -3,7 +3,7 @@ import { getDB, createNotification } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
 import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
-import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted } from './xlr8';
+import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn } from './xlr8';
 
 // Pause any active timer sessions for a user and write time_logs
 async function pauseActiveSession(db: any, userId: number): Promise<void> {
@@ -214,6 +214,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Tickets waiting for acceptance: who still has to accept (empty = everyone has, start it now)
+    const waitingMap = new Map<number, string[]>();
+    for (const t of tasks.filter((x: any) => x.ticket_type_id && x.xlr8_status === 'pending_assignee' && !x.crosspod_pods)) {
+      let w = await waitingOn(db, t.id, t.xlr8_stage_idx ?? 0);
+      if (!w.length) {
+        await startIfAccepted(db, t.id, req.user!);
+        const now = await db('tasks').where({ id: t.id }).select('xlr8_status', 'status').first();
+        if (now?.xlr8_status === 'in_progress') { t.xlr8_status = now.xlr8_status; t.status = now.status; continue; }
+      }
+      waitingMap.set(Number(t.id), w);
+    }
+
     const result = tasks.map((t: any) => {
       const tid = Number(t.id);
       return {
@@ -224,6 +236,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         active_runner_ids: activeRunnerRows.filter((r: any) => Number(r.task_id) === tid).map((r: any) => Number(r.user_id)),
         has_rejected_approval: !t.ticket_type_id && rejectedSet.has(tid),
         in_rework: reworkSet.has(tid),
+        waiting_on: waitingMap.get(tid),
       };
     });
 

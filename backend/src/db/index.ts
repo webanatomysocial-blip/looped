@@ -1694,6 +1694,14 @@ async function createSchema(): Promise<void> {
     .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
     .select('t.id', 'ta.user_id');
   for (const r of stuck) {
+    // Only when nobody else on this or later stages still has to accept (same rule as waitingOn in routes/xlr8.ts)
+    const idx = (await db('tasks').where({ id: r.id }).select('xlr8_stage_idx').first())?.xlr8_stage_idx ?? 0;
+    const waiting = await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
+      .where('ta.task_id', r.id).where('ta.stage_idx', '>=', idx).where('ta.assignee_role', 'employee').whereNot('u.role', 'admin')
+      .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+      .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNotIn('ta.acceptance_status', ['accepted', 'pre_pending']))
+      .first();
+    if (waiting) continue;
     await db('tasks').where({ id: r.id, xlr8_status: 'pending_assignee' })
       .update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: r.user_id, assigned_to: r.user_id });
   }

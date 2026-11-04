@@ -73,6 +73,8 @@ export const itemKey = (i: { task_id: number; stage_idx: number | null }) => `${
 // Everything this person has to do from today: only the CURRENT stage of a ticket, and only once they've accepted it.
 // Reviewers are never asked to accept, so a review shows as soon as it is their turn, even past the due date.
 export async function loadItems(userId: number, db: Knex, today: string): Promise<WorkItem[]> {
+  // Admins and managers get only their own work on their calendar; reviews stay in Approvals
+  const reviewsOnCalendar = (await db('users').where({ id: userId }).select('role').first())?.role === 'employee';
   const taskRows = await db('tasks as t')
     .whereNotIn('t.status', ['completed', 'draft'])
     .whereNotNull('t.due_date')
@@ -96,8 +98,8 @@ export async function loadItems(userId: number, db: Knex, today: string): Promis
     const due = String(t.due_date).slice(0, 10);
     if (t.ticket_type_id) {
       const cur = t.xlr8_stage_idx ?? 0;
-      const reviewing = REVIEW_STATUSES.includes(t.xlr8_status) && t.xlr8_assignee_id === userId;
-      const sr = asg.find((r: any) => r.task_id === t.task_id && r.stage_idx === cur && (r.acceptance_status === 'accepted' || (reviewing && r.assignee_role !== 'employee' && r.acceptance_status !== 'declined')));
+      const reviewing = reviewsOnCalendar && REVIEW_STATUSES.includes(t.xlr8_status) && t.xlr8_assignee_id === userId;
+      const sr = asg.find((r: any) => r.task_id === t.task_id && r.stage_idx === cur && ((r.acceptance_status === 'accepted' && (reviewsOnCalendar || r.assignee_role === 'employee')) || (reviewing && r.assignee_role !== 'employee' && r.acceptance_status !== 'declined')));
       if (!sr || seen.has(`${t.task_id}-${cur}`)) continue;
       seen.add(`${t.task_id}-${cur}`);
       let earliest = today;
@@ -180,7 +182,9 @@ export async function scheduleTaskUsers(taskId: number, db: Knex): Promise<void>
 // Reviews already waiting (e.g. reached before reviewers were scheduled) get their calendar slots
 export async function scheduleWaitingReviewers(db: Knex): Promise<void> {
   const ids: number[] = await db('tasks').whereIn('xlr8_status', REVIEW_STATUSES).whereNotNull('xlr8_assignee_id').whereNotNull('due_date').distinct().pluck('xlr8_assignee_id');
-  for (const id of ids) await scheduleUser(id, db);
+  // Admins and managers: clear review blocks placed before reviews were kept off their calendars
+  const leads: number[] = await db('users').whereIn('role', ['admin', 'manager']).pluck('id');
+  for (const id of new Set([...ids, ...leads])) await scheduleUser(id, db);
 }
 
 function round2(n: number) { return Math.round(n * 100) / 100; }

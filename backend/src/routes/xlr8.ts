@@ -287,6 +287,8 @@ export async function waitingOn(db: any, ticketId: number, fromIdx: number): Pro
     .where('ta.task_id', ticketId).where('ta.stage_idx', '>=', fromIdx)
     // Only the people doing the work; reviewers are asked when work reaches them
     .where('ta.assignee_role', 'employee')
+    // Admins never get an Accept button, so they can't hold a ticket up
+    .whereNot('u.role', 'admin')
     .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
     .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNotIn('ta.acceptance_status', ['accepted', 'pre_pending']))
     .distinct('u.name').pluck('u.name');

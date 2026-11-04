@@ -169,7 +169,8 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
       .join('tasks as t', 't.id', 'ta.task_id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', userId)
-      .where('ta.acceptance_status', 'pending')
+      // Blank counts as not yet accepted, the same as the ticket's own "waiting on" check
+      .where((q: any) => q.where('ta.acceptance_status', 'pending').orWhereNull('ta.acceptance_status'))
       .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       // Review stages are only asked when work reaches them
       .whereNotIn('ta.assignee_role', ['admin', 'client', 'manager'])

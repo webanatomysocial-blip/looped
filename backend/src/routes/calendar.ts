@@ -19,9 +19,18 @@ async function calendarOwner(req: AuthRequest, res: Response): Promise<{ id: num
   return target;
 }
 
-// A later stage of yours counts once you've accepted it; reviewers aren't asked to accept until it reaches them
-const upcomingStage = (q: any) => q.where('ta.acceptance_status', 'accepted')
-  .orWhere((r: any) => r.whereNot('ta.assignee_role', 'employee').where((x: any) => x.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined')));
+// Upcoming work: a later stage you've accepted. Admins and managers only see their own work, never
+// employees' tickets waiting to reach their review; reviews appear once it is actually their turn.
+const upcomingStage = (role: string) => (q: any) => {
+  q.where('ta.acceptance_status', 'accepted');
+  if (role === 'employee') q.orWhere((r: any) => r.whereNot('ta.assignee_role', 'employee').where((x: any) => x.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined')));
+  else q.where('ta.assignee_role', 'employee');
+};
+// Admin/manager calendars: only blocks for stages they work on (older review blocks stay hidden)
+const ownWorkSlots = (role: string) => (q: any) => {
+  if (role === 'employee') return;
+  q.whereNull('s.stage_idx').orWhereRaw("EXISTS (SELECT 1 FROM task_assignees oa WHERE oa.task_id = s.task_id AND oa.user_id = s.user_id AND oa.stage_idx = s.stage_idx AND oa.assignee_role = 'employee')");
+};
 const notSkipped = (q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0);
 
 // List recurring tasks (own + assigned to my team for managers/admins)
@@ -187,6 +196,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('s.user_id', user.id)
       .whereBetween('s.slot_date', [start, end])
+      .where(ownWorkSlots(user.role))
       .select('t.id', 't.title', 't.due_date', 't.status', 't.priority', 't.estimated_hours',
         't.recurring_task_id', 't.recurrence_date',
         'a.name as assigned_to_name', 'a.avatar_color', 'p.name as project_name',
@@ -198,7 +208,7 @@ router.get('/events', async (req: AuthRequest, res: Response) => {
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
-      .where(upcomingStage)
+      .where(upcomingStage(user.role))
       .where(notSkipped)
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
@@ -408,6 +418,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('s.user_id', user.id)
       .whereBetween('s.slot_date', [weekStart, weekEnd])
+      .where(ownWorkSlots(user.role))
       .select(
         't.id', 't.title', 't.due_date', 't.status', 't.priority',
         't.estimated_hours', 't.ticket_type_id', 't.xlr8_stage_idx', 't.xlr8_status',
@@ -473,7 +484,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
       .join('tasks as t', 'ta.task_id', 't.id')
       .leftJoin('projects as p', 't.project_id', 'p.id')
       .where('ta.user_id', user.id)
-      .where(upcomingStage)
+      .where(upcomingStage(user.role))
       .where(notSkipped)
       .whereNotNull('ta.stage_idx')
       .whereRaw('ta.stage_idx > t.xlr8_stage_idx')
