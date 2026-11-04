@@ -1685,6 +1685,20 @@ async function createSchema(): Promise<void> {
     }
   }
 
+  // Sessions remember which stage they were for, so a person on two stages doesn't get one stage's time on the other
+  if (!(await db.schema.hasColumn('task_sessions', 'stage_idx'))) {
+    await db.schema.table('task_sessions', (t) => { t.integer('stage_idx').nullable(); });
+    // Old sessions: the person's latest stage that the ticket had reached (best guess)
+    const old = await db('task_sessions as ts').join('tasks as t', 't.id', 'ts.task_id').whereNotNull('t.ticket_type_id')
+      .select('ts.id', 'ts.task_id', 'ts.user_id', 't.xlr8_stage_idx');
+    for (const s of old) {
+      const stages = (await db('task_assignees').where({ task_id: s.task_id, user_id: s.user_id }).whereNotNull('stage_idx').pluck('stage_idx')).map(Number).sort((a: number, b: number) => a - b);
+      if (!stages.length) continue;
+      const reached = stages.filter((i: number) => i <= (s.xlr8_stage_idx ?? 0));
+      await db('task_sessions').where({ id: s.id }).update({ stage_idx: reached.length ? reached[reached.length - 1] : stages[0] });
+    }
+  }
+
   // Someone on two stages of a ticket who accepted one has accepted the ticket: accept their other stages too
   const halfAccepted = await db('task_assignees as ta')
     .join('tasks as t', 't.id', 'ta.task_id')

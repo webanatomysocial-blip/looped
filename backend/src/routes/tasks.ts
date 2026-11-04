@@ -330,8 +330,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const checklist = await db('task_checklist').where({ task_id: req.params.id }).orderByRaw('COALESCE(stage_idx, -1)').orderBy('id');
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
-      .leftJoin(db('task_sessions').where('ended_at', null).select('user_id', 'task_id').as('ts'), function() {
-        this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id');
+      .leftJoin(db('task_sessions').where('ended_at', null).select('user_id', 'task_id', 'stage_idx').as('ts'), function() {
+        this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id').on(sameStage);
       })
       .where({ 'ta.task_id': req.params.id })
       .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
@@ -342,7 +342,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";
     const stageTracked = await db('task_assignees as ta')
       .leftJoin('task_sessions as ts', function () {
-        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id');
+        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id').on(sameStage);
       })
       .where({ 'ta.task_id': req.params.id })
       .whereNotNull('ta.stage_idx')
@@ -833,6 +833,9 @@ router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
 });
 
 // Whose turn it is: the current ticket stage person (working or reviewing), a plain/recurring task's assignee, or a reviewer in its approval flow
+// Session belongs to this stage row (untagged sessions = plain tasks, match any row)
+const sameStage = (j: any) => j.on('ts.stage_idx', 'ta.stage_idx').orOnNull('ts.stage_idx');
+
 async function canWorkOn(db: any, task: any, userId: number): Promise<boolean> {
   if (task.ticket_type_id) {
     if (task.xlr8_assignee_id === userId && ['in_progress', 'pending_manager', 'pending_admin'].includes(task.xlr8_status)) return true;
@@ -897,13 +900,14 @@ router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
         }
       }
 
-      // Insert new session
+      // Insert new session (tickets: tagged with the stage being worked, so time stays on that stage)
       await db('task_sessions').insert({
         task_id: taskId,
         user_id: userId,
         started_at: now,
         ended_at: null,
         session_date: today,
+        stage_idx: held.ticket_type_id ? (held.xlr8_stage_idx ?? 0) : null,
       });
 
       // For XLR8 reviewer stages: fill in the reviewer's user_id on the null placeholder row
@@ -1320,7 +1324,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
 
     const stageAssignees = await db('task_assignees as ta')
       .leftJoin('users as u', 'u.id', 'ta.user_id')
-      .leftJoin(db('task_sessions').whereNull('ended_at').select('user_id', 'task_id').as('ts'), function () { this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id'); })
+      .leftJoin(db('task_sessions').whereNull('ended_at').select('user_id', 'task_id', 'stage_idx').as('ts'), function () { this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id').on(sameStage); })
       .where({ 'ta.task_id': row.task_id })
       .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
 
@@ -1330,7 +1334,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
       : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";
     const stageTracked = await db('task_assignees as ta')
       .leftJoin('task_sessions as ts', function () {
-        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id');
+        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id').on(sameStage);
       })
       .where({ 'ta.task_id': row.task_id })
       .whereNotNull('ta.stage_idx')
