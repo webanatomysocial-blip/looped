@@ -1685,6 +1685,19 @@ async function createSchema(): Promise<void> {
     }
   }
 
+  // Someone on two stages of a ticket who accepted one has accepted the ticket: accept their other stages too
+  const halfAccepted = await db('task_assignees as ta')
+    .join('tasks as t', 't.id', 'ta.task_id')
+    .whereNotIn('t.status', ['completed', 'draft'])
+    .where('ta.assignee_role', 'employee').whereNotNull('ta.user_id')
+    .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+    .where((q: any) => q.whereNull('ta.acceptance_status').orWhere('ta.acceptance_status', 'pending'))
+    .whereExists(function (this: any) {
+      this.from('task_assignees as o').whereRaw('o.task_id = ta.task_id AND o.user_id = ta.user_id').where('o.acceptance_status', 'accepted').where('o.assignee_role', 'employee');
+    })
+    .select('ta.id');
+  if (halfAccepted.length) await db('task_assignees').whereIn('id', halfAccepted.map((r: any) => r.id)).update({ acceptance_status: 'accepted' });
+
   // Repair tickets stuck on "awaiting acceptance" although the current-stage assignee already accepted
   const stuck = await db('tasks as t')
     .join('task_assignees as ta', function (this: any) { this.on('ta.task_id', 't.id').andOn('ta.stage_idx', 't.xlr8_stage_idx'); })

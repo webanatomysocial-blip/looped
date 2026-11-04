@@ -294,6 +294,14 @@ export async function waitingOn(db: any, ticketId: number, fromIdx: number): Pro
     .distinct('u.name').pluck('u.name');
 }
 
+// Accepting a ticket covers every work stage this person has on it (someone can be on two stages)
+export async function acceptAllMyStages(db: any, ticketId: number, userId: number): Promise<void> {
+  await db('task_assignees').where({ task_id: ticketId, user_id: userId, assignee_role: 'employee' })
+    .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
+    .where((q: any) => q.whereNull('acceptance_status').orWhere('acceptance_status', 'pending'))
+    .update({ acceptance_status: 'accepted' });
+}
+
 export async function startIfAccepted(db: any, id: number, actor: any): Promise<void> {
   const t = await db('tasks').where({ id, xlr8_status: 'pending_assignee' }).whereNull('crosspod_pods').first();
   if (!t) return;
@@ -814,6 +822,7 @@ router.post('/tickets/:id/stage-pre-accept', async (req: AuthRequest, res: Respo
   if (held && ['pending_approval', 'draft'].includes(held.status)) { res.status(409).json({ error: 'This ticket is waiting for a manager to approve it — you can accept once it is approved' }); return; }
   const updated = target === undefined ? 0 : await (target == null ? open().whereNull('stage_idx') : open().where('stage_idx', target)).update({ acceptance_status: 'accepted' });
   if (!updated) { res.status(404).json({ error: 'No pending assignment found' }); return; }
+  await acceptAllMyStages(db, Number(req.params.id), req.user!.id);
   const ticket = await db('tasks').where({ id: req.params.id }).first();
   if (ticket) {
     // Accepting your own current stage starts the work, same as employee-accept
@@ -885,6 +894,7 @@ router.post('/tickets/:id/employee-accept', async (req: AuthRequest, res: Respon
   if (!updated) {
     await db('task_assignees').insert({ task_id: ticket.id, user_id: req.user!.id, stage_idx: stageIdx, assignee_role: 'employee', acceptance_status: 'accepted' });
   }
+  await acceptAllMyStages(db, ticket.id, req.user!.id);
   await startIfAccepted(db, ticket.id, req.user!);
   const waiting = await waitingOn(db, ticket.id, stageIdx);
   if (waiting.length) await appendLog(ticket.id, req.user!, 'stage_pre_accepted', null, null, `Accepted — waiting on ${waiting.join(', ')}`);
