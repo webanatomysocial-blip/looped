@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { CheckCheck, Bell, ThumbsUp, CheckSquare, MessageCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout/Layout';
 import Pagination from '../components/UI/Pagination';
 import { notificationsApi } from '../services/api';
@@ -34,7 +35,17 @@ export default function Notifications() {
   };
   useEffect(load, []);
 
-  const markRead = async (id: number) => { await notificationsApi.markRead(id); load(); };
+  const navigate = useNavigate();
+  // Where a notification takes you: its ticket if we know it, else the page for its type
+  const openNotif = (n: Notification) => {
+    if (!n.read) notificationsApi.markRead(n.id).catch(() => {});
+    if (/regularisation/i.test(n.message)) return navigate('/regularisation');
+    if (n.task_id) return navigate('/tasks', { state: { openTaskId: n.task_id } });
+    if (n.type === 'approval') return navigate('/approvals');
+    if (n.type === 'message') return navigate('/messages');
+    if (n.type === 'project') return navigate('/projects');
+    if (!n.read) load();
+  };
   const markAll  = async () => { await notificationsApi.markAllRead(); load(); };
 
   const projects = useMemo(() => {
@@ -110,8 +121,10 @@ export default function Notifications() {
             <div
               key={n.id}
               className={`notif-item${!n.read ? ' notif-item--unread' : ''}`}
-              onClick={() => !n.read && markRead(n.id)}
-              style={{ cursor: n.read ? 'default' : 'pointer' }}
+              onClick={() => openNotif(n)}
+              role="button" tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && openNotif(n)}
+              style={{ cursor: 'pointer' }}
             >
               <div className={`notif-icon notif-icon--${n.type || 'general'}`}>
                 <NotifIcon type={n.type} />

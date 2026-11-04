@@ -33,6 +33,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Link each notification to the ticket named in its message ("Title"), so the UI can open it
+    const titles = [...new Set(rows.map((n: any) => /"([^"]+)"/.exec(n.message)?.[1]).filter(Boolean))] as string[];
+    if (titles.length) {
+      const tasks = await db('tasks').whereIn('title', titles).orderBy('id', 'desc').select('id', 'title', 'project_id');
+      for (const n of rows) {
+        const t = /"([^"]+)"/.exec(n.message)?.[1];
+        if (!t) continue;
+        const hit = tasks.find((x: any) => x.title === t && (!n.project_id || x.project_id === n.project_id));
+        if (hit) { n.task_id = hit.id; n.project_id ??= hit.project_id; }
+      }
+    }
+
     res.json(rows);
   } catch {
     res.status(500).json({ error: 'Server error' });

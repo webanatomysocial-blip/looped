@@ -292,6 +292,7 @@ export interface Notification {
   created_at: string;
   project_id: number | null;
   project_name: string | null;
+  task_id?: number;
 }
 
 export interface Message {
