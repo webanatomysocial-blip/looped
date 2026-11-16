@@ -15,6 +15,10 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
+    // Account must choose a new password first (set on first login): every page sends them there
+    if (err.response?.status === 403 && err.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED' && window.location.pathname !== '/change-password') {
+      window.location.href = '/change-password';
+    }
     // Held cross-pod work: many start/accept buttons don't handle errors, so say why here
     const msg = err.response?.data?.error;
     if (err.response?.status === 409 && typeof msg === 'string' && msg.includes('waiting for the pod managers')) { window.alert(msg); err.alerted = true; }
@@ -332,6 +336,32 @@ export const regularisationApi = {
   request: (task_id: number, reason?: string, tracked_seconds?: number) => api.post('/regularisation', { task_id, reason, tracked_seconds }),
   list: () => api.get('/regularisation'),
   review: (id: number, action: 'approve' | 'reject', new_est_hours?: number) => api.put(`/regularisation/${id}`, { action, new_est_hours }),
+};
+
+// AI Assistant Control Centre (admin only; the server enforces the role on every call)
+export const assistantAdminApi = {
+  pendingSenders: () => api.get('/assistant-admin/pending-senders'),
+  staffUsers: () => api.get('/assistant-admin/staff-users'),
+  approvePending: (id: number, body: { user_id: number; in_person_verified: boolean; note: string }) => api.post(`/assistant-admin/pending-senders/${id}/approve`, body),
+  dismissPending: (id: number, note: string) => api.post(`/assistant-admin/pending-senders/${id}/dismiss`, { note }),
+  dashboard: (params?: { from?: string; to?: string }) => api.get('/assistant-admin/dashboard', { params }),
+  queue: () => api.get('/assistant-admin/queue'),
+  requests: (params: Record<string, string | number | undefined>) => api.get('/assistant-admin/requests', { params }),
+  request: (id: string) => api.get('/assistant-admin/requests/' + encodeURIComponent(id)),
+  identities: () => api.get('/assistant-admin/identities'),
+  revokeIdentity: (id: number) => api.post('/assistant-admin/identities/' + id + '/revoke'),
+  conversations: () => api.get('/assistant-admin/conversations'),
+  conversationMessages: (key: string) => api.get('/assistant-admin/conversations/messages', { params: { key } }),
+  failures: () => api.get('/assistant-admin/failures'),
+  retry: (id: string) => api.post('/assistant-admin/failures/' + encodeURIComponent(id) + '/retry'),
+  audit: (params: Record<string, string | number | undefined>) => api.get('/assistant-admin/audit', { params }),
+  config: () => api.get('/assistant-admin/config'),
+  overview: () => api.get('/assistant-admin/overview'),
+  pairing: () => api.get('/assistant-admin/whatsapp/pairing'),
+  requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),
+  usage: (days = 30) => api.get('/assistant-admin/usage', { params: { days } }),
+  linking: () => api.get('/assistant-admin/linking'),
+  linkEmployees: (user_ids: number[]) => api.post('/assistant-admin/linking/link', { user_ids }),
 };
 
 export default api;

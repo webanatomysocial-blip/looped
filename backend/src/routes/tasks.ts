@@ -1,39 +1,16 @@
 import { Router, Response } from 'express';
-import { getDB, createNotification } from '../db';
+import { getDB, createNotification, isMySQLClient } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
 import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
-import { advanceToStage, appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn } from './xlr8';
+import { appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn } from '../services/xlr8';
 
-// Pause any active timer sessions for a user and write time_logs
-async function pauseActiveSession(db: any, userId: number): Promise<void> {
-  const now = new Date();
-  const open = await db('task_sessions')
-    .where({ user_id: userId }).whereNull('ended_at').select('*');
-  for (const s of open) {
-    await db('task_sessions').where({ id: s.id }).update({ ended_at: now });
-    const startMs = isNaN(Number(s.started_at)) ? new Date(s.started_at).getTime() : Number(s.started_at);
-    const hrs = (now.getTime() - startMs) / 3600000;
-    if (hrs >= 0.001) {
-      const taskRow = await db('tasks').where({ id: s.task_id }).select('project_id').first();
-      const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
-      if (taskRow) {
-        await db('time_logs').insert({
-          task_id: s.task_id,
-          project_id: taskRow.project_id,
-          user_id: userId,
-          log_date: s.session_date,
-          hours: Math.round(hrs * 1000) / 1000,
-          notes: 'Auto-paused — urgent/high priority task assigned',
-          task_session_id: s.id,
-          hourly_rate: hourlyRate,
-        });
-      }
-    }
-  }
-}
+import { listTasks, getTask, createTask, updateTask, sameStage } from '../services/tasks';
+import { deleteTask, managerApproveTask, acceptTask, timerAction } from '../services/taskWorkflow';
+import { setChecklistItem } from '../services/checklist';
+import { listDeliverables, addDeliverableLink, addDeliverableFile, deleteDeliverable, labelDeliverables } from '../services/deliverables';
+import { listComments, addComment, updateComment, deleteComment, mentionable } from '../services/comments';
+import { assertCanSeeTask, sendServiceError } from '../services/access';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -51,204 +28,20 @@ const deliverableUpload = multer({
 const router = Router();
 router.use(authenticate);
 
+// 404 unless the caller can open this task (same rule the website applies to the task drawer)
+const seeTask = (param = 'id') => async (req: AuthRequest, res: Response, next: () => void) => {
+  try { await assertCanSeeTask(getDB(), req.user!, req.params[param] as string); next(); }
+  catch (err) { sendServiceError(res, err, 'tasks.access'); }
+};
+
 // GET tasks (filtered by role)
 router.get('/', async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDB();
-    const { role, id: userId } = req.user!;
-    const { project_id, pod } = req.query;
-
-    let query = db('tasks as t')
-      .leftJoin('projects as p', 't.project_id', 'p.id')
-      .leftJoin('users as a', 't.assigned_to', 'a.id')
-      .leftJoin('users as cr', 't.created_by', 'cr.id')
-      .leftJoin('users as xa', 't.xlr8_assignee_id', 'xa.id')
-      .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
-      .select(
-        't.*',
-        'p.name as project_name',
-        'c.name as client_name',
-        'a.name as assigned_name',
-        'a.avatar_color as assigned_color',
-        'cr.name as created_by_name',
-        'xa.name as xlr8_assignee_name',
-        'xa.role as xlr8_assignee_role'
-      );
-
-    if (project_id) query = query.where('t.project_id', project_id);
-
-    if (pod && (role === 'admin' || role === 'manager')) {
-      // Filter tasks to this pod: project belongs to pod, OR employee from this pod is assigned,
-      // OR the task has no pod assignment at all (visible in all pod tabs to prevent tasks being hidden).
-      query = query.where(function (this: any) {
-        this.where('p.pod', pod as string)
-          .orWhere('t.created_by', userId)
-          .orWhere('t.xlr8_assignee_id', userId)
-          .orWhereIn('t.id', function (this: any) {
-            this.select('task_id').from('task_assignees').where('user_id', userId);
-          })
-          .orWhereIn('t.id', function (this: any) {
-            this.select('ta.task_id')
-              .from('task_assignees as ta')
-              .join('users as u', 'ta.user_id', 'u.id')
-              .where('u.pod', pod as string)
-              .whereIn('ta.assignee_role', ['employee']);
-          })
-          .orWhere(function (this: any) {
-            this.whereNull('p.pod')
-              .whereNotIn('t.id', function (this: any) {
-                this.select('ta.task_id')
-                  .from('task_assignees as ta')
-                  .join('users as u', 'ta.user_id', 'u.id')
-                  .whereNotNull('u.pod')
-                  .whereIn('ta.assignee_role', ['employee']);
-              });
-          });
-      });
-    }
-
-    // XLR8 acceptance filter: clients only see XLR8 tasks once all employees have accepted.
-    // Admins and managers see all tasks regardless of acceptance state.
-    if (role === 'client') {
-      query = query.whereRaw(
-        `(t.ticket_type_id IS NULL OR NOT EXISTS (
-           SELECT 1 FROM task_assignees ta2
-           WHERE ta2.task_id = t.id
-             AND ta2.stage_idx IS NOT NULL
-             AND ta2.assignee_role NOT IN ('admin', 'client')
-             AND (ta2.acceptance_status IS NULL OR ta2.acceptance_status != 'accepted')
-         ))`,
-        []
-      );
-    }
-
-    // Drafts (including rejected requests) belong to their creator only
-    query = query.where(function (this: any) { this.whereNot('t.status', 'draft').orWhere('t.created_by', userId); });
-    if (role === 'employee') {
-      // Requests still waiting for a manager's approval are only shown to whoever raised them
-      query = query.where(function (this: any) { this.whereNot('t.status', 'pending_approval').orWhere('t.created_by', userId); });
-      // Include tasks assigned to this employee (pending OR accepted) so they can see and act on pending tasks.
-      query = query.whereRaw(
-        `(t.created_by = ?
-          OR (t.crosspod_pods IS NULL AND t.crosspod_note IS NULL AND (
-            t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND COALESCE(skipped, 0) = 0 AND (acceptance_status IS NULL OR acceptance_status != 'declined'))
-          )))`,
-        [userId, userId]
-      );
-    } else if (role === 'admin' || role === 'manager') {
-      // Recurring task instances are personal — only visible to the assignee/creator, not all admins/managers
-      query = query.whereRaw(
-        `(t.recurring_task_id IS NULL OR t.assigned_to = ? OR t.created_by = ?)`,
-        [userId, userId]
-      );
-    } else if (role === 'client') {
-      // Same scope as the client's project list: their company's projects plus direct memberships
-      const clientUser = await db('users').where({ id: userId }).select('client_company_id').first();
-      const memberProjectIds: number[] = await db('project_members').where({ user_id: userId }).pluck('project_id');
-      query = query.where(function (this: any) {
-        this.whereIn('t.project_id', memberProjectIds);
-        if (clientUser?.client_company_id) this.orWhere('p.client_company_id', clientUser.client_company_id);
-      });
-    }
-
-    const tasks = await query.orderBy('t.created_at', 'desc');
-
-    // Normalise all task IDs to numbers once
-    const taskIds = tasks.map((t: any) => Number(t.id));
-
-    const assigneeRows = taskIds.length
-      ? await db('task_assignees as ta')
-          .join('users as u', 'ta.user_id', 'u.id')
-          .leftJoin(
-            db('user_categories as uc').join('employee_categories as ec', 'uc.category_id', 'ec.id')
-              .select('uc.user_id', db.raw('MIN(ec.name) as designation'))
-              .groupBy('uc.user_id').as('uc_agg'),
-            'uc_agg.user_id', 'u.id'
-          )
-          .whereIn('ta.task_id', taskIds)
-          .select('ta.task_id', 'u.id as user_id', 'u.name', 'u.avatar_color', 'u.avatar_url', 'u.role', 'ta.acceptance_status', 'ta.assignee_role', 'ta.stage_idx', 'ta.est_hours', 'uc_agg.designation')
-      : [];
-
-    // Timer state: active sessions for current user today + all active runners per task
-    const today = new Date().toISOString().slice(0, 10);
-    const activeSessionIds = taskIds.length
-      ? await db('task_sessions')
-          .whereIn('task_id', taskIds)
-          .where({ user_id: userId, session_date: today })
-          .whereNull('ended_at')
-          .pluck('task_id')
-      : [];
-
-    const activeRunnerRows = taskIds.length
-      ? await db('task_sessions')
-          .whereIn('task_id', taskIds)
-          .where({ session_date: today })
-          .whereNull('ended_at')
-          .select('task_id', 'user_id')
-      : [];
-
-    // In rework only while the latest review was a rejection (a resubmission opens a newer approval)
-    const rejectedSet = new Set<number>();
-    if (taskIds.length) {
-      const latest = new Map<number, string>();
-      for (const r of await db('approvals').whereIn('task_id', taskIds).orderBy('id').select('task_id', 'status')) latest.set(Number(r.task_id), r.status);
-      for (const [tid, st] of latest) if (st === 'rejected') rejectedSet.add(tid);
-    }
-    const activeTimerSet = new Set<number>((activeSessionIds as any[]).map(Number));
-
-    // Tickets being reworked: the latest step was a rejection and it hasn't been resubmitted yet
-    const ticketIds = tasks.filter((t: any) => t.ticket_type_id && t.status !== 'completed').map((t: any) => Number(t.id));
-    const reworkSet = new Set<number>();
-    if (ticketIds.length) {
-      const steps = await db('xlr8_ticket_log')
-        .whereIn('task_id', ticketIds)
-        .whereIn('action', ['manager_declined', 'admin_declined', 'work_done', 'next_stage', 'sent_to_admin', 'manager_approved', 'admin_approved', 'completed'])
-        .orderBy('created_at', 'desc').orderBy('id', 'desc')
-        .select('task_id', 'action');
-      const seen = new Set<number>();
-      for (const r of steps) {
-        const id = Number(r.task_id);
-        if (seen.has(id)) continue;
-        seen.add(id);
-        if (r.action === 'manager_declined' || r.action === 'admin_declined') reworkSet.add(id);
-      }
-    }
-
-    // Tickets waiting for acceptance: who still has to accept (empty = everyone has, start it now)
-    const waitingMap = new Map<number, string[]>();
-    for (const t of tasks.filter((x: any) => x.ticket_type_id && x.xlr8_status === 'pending_assignee' && !x.crosspod_pods)) {
-      let w = await waitingOn(db, t.id, t.xlr8_stage_idx ?? 0);
-      if (!w.length) {
-        await startIfAccepted(db, t.id, req.user!);
-        const now = await db('tasks').where({ id: t.id }).select('xlr8_status', 'status').first();
-        if (now?.xlr8_status === 'in_progress') { t.xlr8_status = now.xlr8_status; t.status = now.status; continue; }
-      }
-      waitingMap.set(Number(t.id), w);
-    }
-
-    const result = tasks.map((t: any) => {
-      const tid = Number(t.id);
-      return {
-        ...t,
-        assignees: assigneeRows.filter((a: any) => Number(a.task_id) === tid),
-        my_acceptance_status: assigneeRows.find((a: any) => Number(a.task_id) === tid && Number(a.user_id) === userId)?.acceptance_status ?? null,
-        timer_running: activeTimerSet.has(tid),
-        active_runner_ids: activeRunnerRows.filter((r: any) => Number(r.task_id) === tid).map((r: any) => Number(r.user_id)),
-        has_rejected_approval: !t.ticket_type_id && rejectedSet.has(tid),
-        in_rework: reworkSet.has(tid),
-        waiting_on: waitingMap.get(tid),
-      };
-    });
-
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { res.json(await listTasks(getDB(), req.user!, { project_id: req.query.project_id, pod: req.query.pod })); }
+  catch (err) { sendServiceError(res, err, 'tasks.list'); }
 });
 
 // GET approval flow for a task
-router.get('/:id/approval-flow', async (req: AuthRequest, res: Response) => {
+router.get('/:id/approval-flow', seeTask(), async (req: AuthRequest, res: Response) => {
   try {
     const db = getDB();
     const flow = await db('task_approval_flow as f')
@@ -288,6 +81,12 @@ router.post('/deleted/:id/restore', requireRoles('admin', 'manager'), async (req
     await ensureTrashTable(db);
     const row = await db('deleted_tasks').where({ id: req.params.id }).first();
     if (!row) { res.status(404).json({ error: 'Not in Deleted' }); return; }
+    // Managers restore only what their Deleted tab shows: their own deletions or their pod's projects
+    if (req.user!.role === 'manager' && Number(row.deleted_by) !== req.user!.id) {
+      const me = await db('users').where({ id: req.user!.id }).select('pod').first();
+      const proj = row.project_id ? await db('projects').where({ id: row.project_id }).select('pod').first() : null;
+      if (!me?.pod || proj?.pod !== me.pod) { res.status(404).json({ error: 'Not in Deleted' }); return; }
+    }
     const snap = JSON.parse(row.snapshot);
     if (snap.task.project_id && !(await db('projects').where({ id: snap.task.project_id }).first())) {
       res.status(400).json({ error: "Its project no longer exists, so this ticket can't be restored" }); return;
@@ -315,889 +114,77 @@ router.delete('/deleted/:id', requireRoles('admin'), async (req: AuthRequest, re
 });
 
 router.get('/:id', async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDB();
-    const task = await db('tasks as t')
-      .leftJoin('projects as p', 't.project_id', 'p.id')
-      .leftJoin('users as a', 't.assigned_to', 'a.id')
-      .leftJoin('users as cr', 't.created_by', 'cr.id')
-      .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
-      .where('t.id', req.params.id)
-      .select('t.*', 'p.name as project_name', 'c.name as client_name', 'a.name as assigned_name', 'a.avatar_color as assigned_color', 'cr.name as created_by_name')
-      .first();
-    if (!task) { res.status(404).json({ error: 'Not found' }); return; }
-
-    const checklist = await db('task_checklist').where({ task_id: req.params.id }).orderByRaw('COALESCE(stage_idx, -1)').orderBy('id');
-    const stageAssignees = await db('task_assignees as ta')
-      .leftJoin('users as u', 'u.id', 'ta.user_id')
-      .leftJoin(db('task_sessions').where('ended_at', null).select('user_id', 'task_id', 'stage_idx').as('ts'), function() {
-        this.on('ts.user_id', 'ta.user_id').on('ts.task_id', 'ta.task_id').on(sameStage);
-      })
-      .where({ 'ta.task_id': req.params.id })
-      .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
-    // Tracked seconds per stage (derived from started_at/ended_at in task_sessions)
-    const isProd = process.env.NODE_ENV === 'production';
-    const secSQL = isProd
-      ? "COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) as tracked_seconds"
-      : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";
-    const stageTracked = await db('task_assignees as ta')
-      .leftJoin('task_sessions as ts', function () {
-        this.on('ts.task_id', 'ta.task_id').on('ts.user_id', 'ta.user_id').on(sameStage);
-      })
-      .where({ 'ta.task_id': req.params.id })
-      .whereNotNull('ta.stage_idx')
-      .groupBy('ta.stage_idx')
-      .select('ta.stage_idx', db.raw(secSQL));
-    let xlr8_stages = null;
-    let xlr8_final_approval: any = null;
-    if (task.ticket_type_id) {
-      const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
-      if (tt) {
-        xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
-        xlr8_final_approval = typeof tt.final_approval === 'string' ? JSON.parse(tt.final_approval || '{}') : (tt.final_approval ?? {});
-      }
-    }
-    const stageName = (i: number) => { const st = (xlr8_stages as any[] | null)?.[i]; return st?.type === 'admin' ? 'Admin review' : st?.category_name || `Stage ${i + 1}`; };
-    const labelled = checklist.map((c: any) => ({ ...c, stage_name: c.stage_idx == null ? null : stageName(Number(c.stage_idx)) }));
-    res.json({ ...task, checklist: labelled, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval });
-  } catch (e: any) {
-    console.error('GET /tasks/:id error:', e?.message, e?.stack);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { res.json(await getTask(getDB(), req.user!, req.params.id as string)); }
+  catch (err) { sendServiceError(res, err, 'tasks.get'); }
 });
 
 // POST create task (admin, manager, employee)
 router.post('/', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  const { title, description, project_id, working_person_id, task_manager_id, due_date, due_time, checklist, estimated_hours, priority, approval_flow, draft } = req.body;
-  if (!title || !project_id) { res.status(400).json({ error: 'Title and project required' }); return; }
-  const isDraft = !!draft;
-  try {
-    const db = getDB();
-    // Accept either string[] (legacy) or {text,checked}[] (new)
-    type RawItem = string | { text: string; checked?: boolean };
-    const rawItems: RawItem[] = checklist || [];
-    const checklistItems = rawItems.map((r) =>
-      typeof r === 'string' ? { text: r, checked: false } : { text: r.text, checked: !!r.checked }
-    );
-
-    const workerId  = working_person_id  ? Number(working_person_id)  : null;
-    const managerId = task_manager_id    ? Number(task_manager_id)    : null;
-    // Decided up front so a task held for approval doesn't pause anyone's timer
-    const projectRow = await db('projects').where({ id: project_id }).select('pod', 'name').first();
-    const reasons = isDraft ? [] : await approvalReasons(db, req.user!, projectRow ?? {}, workerId ? [{ user_id: workerId }] : []);
-    const pods = reasonPods(reasons);
-
-    const [id] = await db.transaction(async (trx) => {
-    const inserted = await trx('tasks').insert({
-      title, description: description || null,
-      project_id, assigned_to: workerId,
-      created_by: req.user!.id,
-      due_date: due_date ? String(due_date).slice(0, 10) : null,
-      due_time: due_time || null,
-      status: isDraft ? 'draft' : (req.user!.role === 'employee' ? 'pending_approval' : 'todo'),
-      checklist_total: checklistItems.filter(i => i.text).length,
-      checklist_done: 0,
-      estimated_hours: estimated_hours ? Number(estimated_hours) : null,
-      priority: priority || 'medium',
-    });
-    const newId = inserted[0];
-
-    // Insert assignees (no alternate role — only employee + manager)
-    const assigneeInserts: any[] = [];
-    if (workerId)  assigneeInserts.push({ task_id: newId, user_id: workerId,  assignee_role: 'employee', acceptance_status: 'pending' });
-    if (managerId) assigneeInserts.push({ task_id: newId, user_id: managerId, assignee_role: 'manager',  acceptance_status: 'accepted' });
-    if (assigneeInserts.length) await trx('task_assignees').insert(assigneeInserts);
-
-    const validItems = checklistItems.filter(i => i.text);
-    if (validItems.length) {
-      await trx('task_checklist').insert(validItems.map((i) => ({ task_id: newId, text: i.text, completed: i.checked ? 1 : 0 })));
-      const doneCount = validItems.filter(i => i.checked).length;
-      await trx('tasks').where({ id: newId }).update({ checklist_total: validItems.length, checklist_done: doneCount });
-    }
-
-    // Save custom approval flow if provided
-    const flowUsers: number[] = Array.isArray(approval_flow) ? approval_flow.filter(Boolean) : [];
-    if (flowUsers.length) {
-      await trx('task_approval_flow').insert(
-        flowUsers.map((userId, position) => ({ task_id: newId, user_id: userId, position }))
-      );
-    }
-
-    // Auto-pause active session if high/urgent priority (inside transaction so pause + insert are atomic)
-    const effectivePriority2 = priority || 'medium';
-    if (workerId && !pods.length && ['high', 'urgent'].includes(effectivePriority2)) {
-      await pauseActiveSession(trx, workerId);
-    }
-
-    return inserted;
-    });
-
-    // Notify assigned employee + check capacity warnings (skip for drafts)
-    const warnings: string[] = [];
-    if (isDraft) {
-      if (req.body.draft_form) await db('tasks').where({ id }).update({ draft_form: req.body.draft_form });
-      await discardRejected(db, req.body.replaces_id, req.user!);
-      res.status(201).json({ id, warnings }); return;
-    }
-    const project = await db('projects').where({ id: project_id }).first();
-
-    const replaced = await discardRejected(db, req.body.replaces_id, req.user!);
-    await creditRequester(db, id, replaced, req.user!);
-    if (pods.length) {
-      await holdForCrossPod(db, { id, title, project_id, isTicket: false }, reasons, req.user!);
-      res.status(201).json({ id, warnings, crosspod_pending: pods }); return;
-    }
-
-    // Notify about pause or assignment
-    const effectivePriority = priority || 'medium';
-    if (workerId && ['high', 'urgent'].includes(effectivePriority)) {
-      if (workerId !== req.user!.id) {
-        await createNotification(workerId, `${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${title}" assigned — your active ticket was paused`, 'task', project_id);
-      }
-    } else if (workerId && workerId !== req.user!.id) {
-      await createNotification(workerId, `You have been assigned ticket "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
-    }
-    if (workerId && estimated_hours) {
-      const row = await db('tasks as t')
-        .join('task_assignees as ta', 'ta.task_id', 't.id')
-        .where('ta.user_id', workerId)
-        .whereIn('ta.assignee_role', ['employee'])
-        .whereNotIn('ta.acceptance_status', ['declined'])
-        .whereNotIn('t.status', ['completed'])
-        .whereNotNull('t.estimated_hours')
-        .sum('t.estimated_hours as total')
-        .first();
-      const totalHours = Number(row?.total ?? 0);
-      if (totalHours > 7) {
-        const assignee = await db('users').where({ id: workerId }).first();
-        warnings.push(`${assignee?.name || 'Assignee'} is over capacity (${totalHours.toFixed(1)} hrs assigned, 7 hr daily limit)`);
-      }
-    }
-    if (managerId && managerId !== req.user!.id) {
-      await createNotification(managerId, `You are managing ticket "${title}" in ${project?.name || 'a project'}`, 'task', project_id);
-    }
-    if (workerId) await notifyAdminCrossPod(db, req.user!, { title, project_id }, projectRow ?? {}, [{ user_id: workerId }]);
-
-    res.status(201).json({ id, warnings });
-
-    // Trigger scheduler async (don't block response)
-    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(id, db)).catch(() => {});
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { res.status(201).json(await createTask(getDB(), req.user!, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.create'); }
 });
 
 // PUT update task
 router.put('/:id', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  const { title, description, assignee_ids, due_date, due_time, estimated_hours, status, working_person_id, task_manager_id, priority } = req.body;
-  try {
-    const db = getDB();
-    const updates: any = {};
-    if (title) updates.title = title;
-    if (description !== undefined) updates.description = description;
-    if (due_date !== undefined) updates.due_date = due_date ? String(due_date).slice(0, 10) : null;
-    if (due_time !== undefined) updates.due_time = due_time;
-    if (estimated_hours !== undefined) updates.estimated_hours = estimated_hours !== null ? Number(estimated_hours) : null;
-    if (priority !== undefined) updates.priority = priority;
-    const VALID_STATUSES = ['draft', 'todo', 'pending_approval', 'in_progress', 'in_review', 'overdue', 'completed'];
-    const ADMIN_MANAGER_ONLY_STATUSES = ['completed', 'overdue'];
-    if (status !== undefined) {
-      if (!VALID_STATUSES.includes(status)) { res.status(400).json({ error: 'Invalid status' }); return; }
-      if (req.user!.role === 'employee' && ADMIN_MANAGER_ONLY_STATUSES.includes(status)) {
-        res.status(403).json({ error: 'Employees cannot set this status directly' }); return;
-      }
-      updates.status = status;
-    }
-
-    // Employees can only update tasks they are assigned to
-    if (req.user!.role === 'employee') {
-      const assigned = await db('task_assignees').where({ task_id: req.params.id, user_id: req.user!.id }).first();
-      if (!assigned) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
-    }
-
-    // Role-based assignee update (from edit drawer) — skip for XLR8 tickets; stage assignments are managed via PUT /stage-assignments
-    const taskForCheck = await db('tasks').where({ id: req.params.id }).select('ticket_type_id').first();
-    if (!taskForCheck?.ticket_type_id && (working_person_id !== undefined || task_manager_id !== undefined)) {
-      const workerId  = working_person_id ? Number(working_person_id) : null;
-      const managerId = task_manager_id   ? Number(task_manager_id)   : null;
-      updates.assigned_to = workerId;
-      const prevAssignees = await db('task_assignees').where({ task_id: req.params.id }).select('user_id', 'assignee_role', 'acceptance_status');
-      const prevWorker  = prevAssignees.find((a: any) => a.assignee_role === 'employee');
-      const prevManager = prevAssignees.find((a: any) => a.assignee_role === 'manager');
-      await db('task_assignees').where({ task_id: req.params.id }).delete();
-      const inserts: any[] = [];
-      if (workerId) {
-        const sameWorker = prevWorker && Number(prevWorker.user_id) === workerId;
-        inserts.push({ task_id: req.params.id, user_id: workerId, assignee_role: 'employee', acceptance_status: sameWorker ? prevWorker.acceptance_status : 'pending' });
-      }
-      if (managerId) inserts.push({ task_id: req.params.id, user_id: managerId, assignee_role: 'manager', acceptance_status: 'accepted' });
-      if (inserts.length) await db('task_assignees').insert(inserts);
-      const taskRow = await db('tasks').where({ id: req.params.id }).select('title', 'project_id').first();
-      const proj = taskRow ? await db('projects').where({ id: taskRow.project_id }).select('name').first() : null;
-      const projName = proj?.name || 'a project';
-      if (workerId) {
-        const isNewWorker = workerId !== Number(prevWorker?.user_id);
-        // Get effective priority (from body or existing task)
-        const effectivePriority = priority || (await db('tasks').where({ id: req.params.id }).select('priority').first())?.priority;
-        if (['high', 'urgent'].includes(effectivePriority)) {
-          // Always pause active session for high/urgent — regardless of who is creating/re-assigning
-          await pauseActiveSession(db, workerId);
-          if (workerId !== req.user!.id || isNewWorker) {
-            await createNotification(workerId, `${effectivePriority === 'urgent' ? 'Urgent' : 'High priority'} ticket "${taskRow?.title}" assigned — your active ticket was paused`, 'task', taskRow?.project_id);
-          }
-        } else if (isNewWorker && workerId !== req.user!.id) {
-          await createNotification(workerId, `You have been assigned ticket "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
-        }
-      }
-      if (managerId && managerId !== req.user!.id && managerId !== Number(prevManager?.user_id)) {
-        await createNotification(managerId, `You are managing ticket "${taskRow?.title}" in ${projName}`, 'task', taskRow?.project_id);
-      }
-    } else if (!taskForCheck?.ticket_type_id && assignee_ids !== undefined) {
-      const ids: number[] = Array.isArray(assignee_ids) ? assignee_ids : (assignee_ids ? [Number(assignee_ids)] : []);
-      updates.assigned_to = ids[0] || null;
-      await db('task_assignees').where({ task_id: req.params.id }).delete();
-      if (ids.length) {
-        await db('task_assignees').insert(ids.map((uid) => ({ task_id: req.params.id, user_id: uid, assignee_role: 'employee', acceptance_status: 'pending' })));
-      }
-    }
-
-    if (Object.keys(updates).length) {
-      await db('tasks').where({ id: req.params.id }).update(updates);
-    }
-
-    // Close any open timer sessions when task moves to in_review or completed
-    if (status === 'in_review' || status === 'completed') {
-      const closeNow = new Date();
-      const closeToday = closeNow.toISOString().slice(0, 10);
-      const openSessions = await db('task_sessions')
-        .where({ task_id: req.params.id }).whereNull('ended_at').select('*');
-      if (openSessions.length) {
-        await db('task_sessions')
-          .where({ task_id: req.params.id }).whereNull('ended_at')
-          .update({ ended_at: closeNow });
-        const taskRow = await db('tasks').where({ id: req.params.id }).select('project_id').first();
-        if (taskRow) {
-          const daysInCloseMonth = new Date(closeNow.getFullYear(), closeNow.getMonth() + 1, 0).getDate();
-          for (const s of openSessions) {
-            const startMs = typeof s.started_at === 'number'
-              ? s.started_at : isNaN(Number(s.started_at))
-              ? new Date(s.started_at).getTime() : Number(s.started_at);
-            const hours = Math.round((closeNow.getTime() - startMs) / 36000) / 100;
-            if (hours >= 0.01) {
-              const userRec = await db('users').where({ id: s.user_id }).select('monthly_salary').first();
-              const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInCloseMonth / 7 : null;
-              await db('time_logs').insert({
-                task_id: Number(req.params.id),
-                project_id: taskRow.project_id,
-                user_id: s.user_id,
-                task_session_id: s.id,
-                log_date: closeToday,
-                hours,
-                hourly_rate: hourlyRate,
-              });
-            }
-          }
-        }
-      }
-    }
-
-    // Sync task status changes to approvals if they exist
-    if (status === 'completed') {
-      const approval = await db('approvals').where({ task_id: req.params.id }).whereNotIn('status', ['approved', 'rejected']).first();
-      if (approval) {
-        await db('approvals').where({ id: approval.id }).update({
-          status: 'approved',
-          final_approved_by: req.user!.id,
-          final_approved_at: new Date(),
-        });
-      }
-    } else if (status === 'in_review') {
-      const approval = await db('approvals').where({ task_id: req.params.id, status: 'work_in_progress' }).first();
-      if (approval) {
-        await db('approvals').where({ id: approval.id }).update({
-          status: 'pending_review',
-          work_submitted_at: new Date(),
-        });
-      }
-    }
-
-    res.json({ message: 'Updated' });
-
-    // Reschedule async (due_date, estimated_hours, priority, or assignee changed)
-    const tid = Number(req.params.id);
-    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(tid, db)).catch(() => {});
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { await updateTask(getDB(), req.user!, req.params.id as string, req.body); res.json({ message: 'Updated' }); }
+  catch (err) { sendServiceError(res, err, 'tasks.update'); }
 });
 
 // PUT update checklist item — a stage's items are ticked by that stage's person (or a manager/admin)
 router.put('/:taskId/checklist/:itemId', async (req: AuthRequest, res: Response) => {
-  const completed = !!req.body.completed;
-  try {
-    const db = getDB();
-    const taskId = Number(req.params.taskId);
-    const item = await db('task_checklist').where({ id: req.params.itemId, task_id: taskId }).first();
-    if (!item) { res.status(404).json({ error: 'Checklist item not found' }); return; }
-    const { role, id: userId } = req.user!;
-    if (!['admin', 'manager'].includes(role)) {
-      const task = await db('tasks').where({ id: taskId }).first('assigned_to', 'created_by');
-      const onTask = item.stage_idx == null
-        ? task?.assigned_to === userId || !!(await db('task_assignees').where({ task_id: taskId, user_id: userId }).first())
-        : !!(await db('task_assignees').where({ task_id: taskId, user_id: userId, stage_idx: item.stage_idx }).first());
-      if (!onTask) { res.status(403).json({ error: item.stage_idx == null ? "Only people on this ticket can tick its checklist" : "Only the person on this stage can tick its checklist" }); return; }
-    }
-    await db('task_checklist').where({ id: item.id }).update({ completed });
-    await refreshChecklistCounts(db, taskId);
-    res.json({ message: 'Updated' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { await setChecklistItem(getDB(), req.user!, Number(req.params.taskId), req.params.itemId as string, !!req.body.completed); res.json({ message: 'Updated' }); }
+  catch (err) { sendServiceError(res, err, 'tasks.checklist'); }
 });
 
-// DELETE task (admin + manager)
+// DELETE task — admins and managers (their pod's tasks); employees only their own drafts
 router.delete('/:id', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDB();
-    const tid = req.params.id;
-    if (req.user!.role === 'employee') {
-      const own = await db('tasks').where({ id: tid, created_by: req.user!.id, status: 'draft' }).first();
-      if (!own) { res.status(403).json({ error: 'You can only delete your own drafts' }); return; }
-    }
-    // Collect affected users before deletion so we can reschedule them after
-    const task = await db('tasks').where({ id: tid }).select('assigned_to').first();
-    const assignees = await db('task_assignees').where({ task_id: tid }).select('user_id');
-    const affectedUsers = new Set<number>();
-    if (task?.assigned_to) affectedUsers.add(task.assigned_to);
-    for (const a of assignees) if (a.user_id) affectedUsers.add(a.user_id);
-
-    // Keep a full copy in the Deleted tab so it can be restored
-    const snap = await snapshotTicket(db, Number(tid));
-    if (!snap) { res.status(404).json({ error: 'Ticket not found' }); return; }
-    await ensureTrashTable(db);
-    await db('deleted_tasks').insert({ task_id: snap.task.id, title: snap.task.title, project_id: snap.task.project_id ?? null, deleted_by: req.user!.id, snapshot: JSON.stringify(snap) });
-
-    await db('approval_steps').whereIn('approval_id', db('approvals').where({ task_id: tid }).select('id')).delete();
-    await db('approvals').where({ task_id: tid }).delete();
-    await db('time_logs').where({ task_id: tid }).delete();
-    await db('task_sessions').where({ task_id: tid }).delete();
-    await db('task_assignees').where({ task_id: tid }).delete();
-    await db('task_checklist').where({ task_id: tid }).delete();
-    const typeRow = await db('tasks').where({ id: tid }).select('ticket_type_id').first();
-    await db('tasks').where({ id: tid }).delete();
-    await dropCustomTypeIfUnused(db, typeRow?.ticket_type_id);
-    res.json({ message: 'Deleted' });
-
-    // Reschedule affected users so freed capacity gets filled by remaining tasks
-    const { scheduleUser } = await import('../services/scheduler');
-    for (const uid of affectedUsers) await scheduleUser(uid, db);
-  } catch (err) {
-    console.error('Delete ticket error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { await deleteTask(getDB(), req.user!, req.params.id as string); res.json({ message: 'Deleted' }); }
+  catch (err) { sendServiceError(res, err, 'tasks.delete'); }
 });
 
 // POST manager approves or rejects a pending_approval task
 router.post('/:id/manager-approve', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  const { action } = req.body; // 'approve' | 'reject'
-  if (!['approve', 'reject'].includes(action)) { res.status(400).json({ error: 'Invalid action' }); return; }
-  try {
-    const db = getDB();
-    const task = await db('tasks').where({ id: req.params.id }).first();
-    if (!task) { res.status(404).json({ error: 'Ticket not found' }); return; }
-    if (task.status !== 'pending_approval') { res.status(400).json({ error: 'Ticket is not pending approval' }); return; }
-
-    const crossPods: string[] = task.crosspod_pods ? JSON.parse(task.crosspod_pods) : [];
-    if (crossPods.length) {
-      const me = await db('users').where({ id: req.user!.id }).select('pod', 'name').first();
-      if (req.user!.role === 'manager' && !crossPods.includes(me?.pod)) {
-        res.status(403).json({ error: `Waiting for the ${crossPods.join(', ')} manager to approve` }); return;
-      }
-      const actorName = me?.name || req.user!.name;
-      const stillPending = () => db('tasks').where({ id: task.id, status: 'pending_approval', crosspod_pods: task.crosspod_pods });
-      const alreadyHandled = () => res.status(409).json({ error: 'This request was already handled — refresh to see its current state' });
-      if (action === 'reject') {
-        const note = String(req.body.comment || '').trim() || 'Rejected';
-        const n = await stillPending().update({
-          status: 'draft', crosspod_pods: null, crosspod_note: `${actorName}: ${note}`,
-          ...(task.ticket_type_id ? { xlr8_status: 'crosspod_rejected' } : {}),
-        });
-        if (!n) { alreadyHandled(); return; }
-        if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_rejected', 'pending_crosspod', 'crosspod_rejected', note);
-        await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tickets`, 'task', task.project_id);
-        res.json({ ok: true, status: 'draft' }); return;
-      }
-      const remaining = req.user!.role === 'admin' ? [] : crossPods.filter((p) => p !== me?.pod);
-      if (remaining.length) {
-        if (!(await stillPending().update({ crosspod_pods: JSON.stringify(remaining) }))) { alreadyHandled(); return; }
-        if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_approved', 'pending_crosspod', null, `Still waiting on ${remaining.join(', ')}`);
-        res.json({ ok: true, status: 'pending_approval', crosspod_pending: remaining }); return;
-      }
-      if (!(await stillPending().update({ status: 'todo', crosspod_pods: null, crosspod_note: null, ...(task.ticket_type_id ? { xlr8_status: 'pending_manager' } : {}) }))) { alreadyHandled(); return; }
-      if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_approved', 'pending_crosspod', null);
-      await createNotification(task.created_by, `${actorName} approved "${task.title}" — it's now live`, 'task', task.project_id);
-      if (task.ticket_type_id) {
-        await activateTicket(db, task.id, { id: task.created_by, name: (await db('users').where({ id: task.created_by }).select('name').first())?.name || 'Creator' });
-      } else {
-        if (task.assigned_to && ['high', 'urgent'].includes(task.priority)) await pauseActiveSession(db, task.assigned_to);
-        if (task.assigned_to && task.assigned_to !== task.created_by) {
-          const proj = await db('projects').where({ id: task.project_id }).select('name').first();
-          await createNotification(task.assigned_to, `You have been assigned ticket "${task.title}" in ${proj?.name || 'a project'}`, 'task', task.project_id);
-        }
-        import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(task.id, db)).catch(() => {});
-      }
-      res.json({ ok: true, status: 'todo' }); return;
-    }
-
-    const actorName = (await db('users').where({ id: req.user!.id }).select('name').first())?.name || req.user!.name;
-    if (action === 'reject') {
-      // Back to the creator as a draft with the reason, same as a cross-pod rejection, so they can edit and resubmit
-      const note = String(req.body.comment || '').trim() || 'Rejected';
-      const n = await db('tasks').where({ id: task.id, status: 'pending_approval' }).update({
-        status: 'draft', crosspod_note: `${actorName}: ${note}`, ...(task.ticket_type_id ? { xlr8_status: 'crosspod_rejected' } : {}),
-      });
-      if (!n) { res.status(409).json({ error: 'This request was already handled — refresh to see its current state' }); return; }
-      if (task.ticket_type_id) await appendLog(task.id, req.user!, 'crosspod_rejected', 'pending_approval', 'crosspod_rejected', note);
-      if (task.created_by !== req.user!.id) await createNotification(task.created_by, `${actorName} rejected "${task.title}": ${note} — edit and resubmit it from Tickets`, 'task', task.project_id);
-      res.json({ ok: true, status: 'draft' });
-      return;
-    }
-    if (!(await db('tasks').where({ id: task.id, status: 'pending_approval' }).update({ status: 'todo', ...(task.ticket_type_id ? { xlr8_status: 'pending_manager' } : {}) }))) {
-      res.status(409).json({ error: 'This request was already handled — refresh to see its current state' }); return;
-    }
-    if (task.created_by !== req.user!.id) await createNotification(task.created_by, `${actorName} approved "${task.title}" — it's now live`, 'task', task.project_id);
-    if (task.ticket_type_id) {
-      // Starts the stage flow exactly like a ticket created by a manager
-      await activateTicket(db, task.id, { id: task.created_by, name: (await db('users').where({ id: task.created_by }).select('name').first())?.name || 'Creator' });
-      res.json({ ok: true, status: 'todo' });
-      return;
-    }
-    if (task.assigned_to && task.assigned_to !== task.created_by) {
-      await createNotification(task.assigned_to, `You have been assigned ticket "${task.title}"`, 'task', task.project_id);
-    }
-    import('../services/scheduler').then(({ scheduleTaskUsers }) => scheduleTaskUsers(task.id, db)).catch(() => {});
-    res.json({ ok: true, status: 'todo' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  try { res.json(await managerApproveTask(getDB(), req.user!, req.params.id as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.approve'); }
 });
 
 // POST accept or decline task assignment
 router.post('/:id/accept', async (req: AuthRequest, res: Response) => {
-  const { action } = req.body; // 'accept' | 'decline'
-  if (!['accept', 'decline'].includes(action)) {
-    res.status(400).json({ error: 'Invalid action' }); return;
-  }
-  try {
-    const db = getDB();
-    const userId = req.user!.id;
-    const row = await db('task_assignees').where({ task_id: req.params.id, user_id: userId }).first();
-    if (!row) { res.status(403).json({ error: 'Not assigned to this ticket' }); return; }
-    const held = await db('tasks').where({ id: req.params.id }).first();
-    if (action === 'accept' && held && awaitingPodApproval(held)) { res.status(409).json({ error: AWAITING_APPROVAL }); return; }
-    if (action === 'accept' && held && (held.status === 'draft' || (held.status === 'pending_approval' && held.created_by !== userId))) {
-      res.status(409).json({ error: 'This is waiting for a manager to approve it — you can accept once it is approved' }); return;
-    }
-
-    await db('task_assignees')
-      .where({ task_id: req.params.id, user_id: userId })
-      .update({ acceptance_status: action === 'accept' ? 'accepted' : 'declined' });
-
-    const task = await db('tasks').where({ id: req.params.id }).first();
-    const me = await db('users').where({ id: userId }).first();
-    if (task && task.created_by !== userId) {
-      await createNotification(
-        task.created_by,
-        action === 'accept'
-          ? `${me?.name} accepted the task "${task.title}"`
-          : `${me?.name} declined the task "${task.title}" — please reassign`,
-        'task',
-        task.project_id
-      );
-    }
-    if (action === 'accept') {
-      // Pause active session BEFORE responding so the frontend reload sees the closed session
-      if (task && ['high', 'urgent'].includes(task.priority)) {
-        await pauseActiveSession(db, userId);
-      }
-      import('../services/scheduler').then(({ scheduleUser }) => scheduleUser(userId, db)).catch(() => {});
-      // Tickets: if this was the last acceptance, work starts now
-      if (task?.ticket_type_id) await startIfAccepted(db, task.id, req.user!);
-    }
-    res.json({ message: 'Updated' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { res.json(await acceptTask(getDB(), req.user!, req.params.id as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.accept'); }
 });
-
-// Whose turn it is: the current ticket stage person (working or reviewing), a plain/recurring task's assignee, or a reviewer in its approval flow
-// Session belongs to this stage row (untagged sessions = plain tasks, match any row)
-const sameStage = (j: any) => j.on('ts.stage_idx', 'ta.stage_idx').orOnNull('ts.stage_idx');
-
-async function canWorkOn(db: any, task: any, userId: number): Promise<boolean> {
-  if (task.ticket_type_id) {
-    if (task.xlr8_assignee_id === userId && ['in_progress', 'pending_manager', 'pending_admin'].includes(task.xlr8_status)) return true;
-  } else {
-    if (task.assigned_to === userId) return true;
-    if (task.recurring_task_id && task.created_by === userId) return true;
-    const row = await db('task_assignees').where({ task_id: task.id, user_id: userId })
-      .where((q: any) => q.whereNot('acceptance_status', 'declined').orWhereNull('acceptance_status')).first();
-    if (row) return true;
-  }
-  return !!(await db('task_approval_flow').where({ task_id: task.id, user_id: userId }).first().catch(() => null));
-}
 
 // POST timer actions: start | pause | done
 router.post('/:id/timer', async (req: AuthRequest, res: Response) => {
-  const { action } = req.body; // 'start' | 'pause' | 'done'
-  if (!['start', 'pause', 'done'].includes(action)) {
-    res.status(400).json({ error: 'Invalid action' }); return;
-  }
-  try {
-    const db = getDB();
-    const userId = req.user!.id;
-    const taskId = Number(req.params.id);
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-
-    if (action === 'start') {
-      const held = await db('tasks').where({ id: taskId }).first();
-      if (held && awaitingPodApproval(held)) { res.status(409).json({ error: AWAITING_APPROVAL }); return; }
-      if (!held) { res.status(404).json({ error: 'Task not found' }); return; }
-      if (req.user!.role === 'employee' && !(await canWorkOn(db, held, userId))) {
-        res.status(403).json({ error: held.ticket_type_id ? "It isn't your turn on this ticket yet — you can start once your stage is active" : "You're not assigned to this task" });
-        return;
-      }
-      // Pause any other running sessions for this user first, and write time_logs for them
-      const otherOpen = await db('task_sessions')
-        .where({ user_id: userId })
-        .whereNull('ended_at')
-        .whereNot('task_id', taskId)
-        .select('*');
-      for (const s of otherOpen) {
-        await db('task_sessions').where({ id: s.id }).update({ ended_at: now });
-        const startMs = isNaN(Number(s.started_at)) ? new Date(s.started_at).getTime() : Number(s.started_at);
-        const hrs = (now.getTime() - startMs) / 3600000;
-        if (hrs >= 0.001) {
-          const otherTask = await db('tasks').where({ id: s.task_id }).select('project_id').first();
-          const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
-          const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-          const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
-          if (otherTask) {
-            await db('time_logs').insert({
-              task_id: s.task_id,
-              project_id: otherTask.project_id,
-              user_id: userId,
-              log_date: s.session_date,
-              hours: Math.round(hrs * 1000) / 1000,
-              notes: 'Auto-paused when another task was started',
-              task_session_id: s.id,
-              hourly_rate: hourlyRate,
-            });
-          }
-        }
-      }
-
-      // Insert new session (tickets: tagged with the stage being worked, so time stays on that stage)
-      await db('task_sessions').insert({
-        task_id: taskId,
-        user_id: userId,
-        started_at: now,
-        ended_at: null,
-        session_date: today,
-        stage_idx: held.ticket_type_id ? (held.xlr8_stage_idx ?? 0) : null,
-      });
-
-      // For XLR8 reviewer stages: fill in the reviewer's user_id on the null placeholder row
-      // so stageTracked query (which joins on user_id) can attribute their time to the right stage
-      const xlr8Task = await db('tasks').where({ id: taskId }).whereNotNull('ticket_type_id').first();
-      if (xlr8Task) {
-        const stageIdx = xlr8Task.xlr8_stage_idx ?? 0;
-        await db('task_assignees')
-          .where({ task_id: taskId, stage_idx: stageIdx })
-          .whereNull('user_id')
-          .update({ user_id: userId });
-      }
-
-      // Don't touch status if task is already in_review (reviewer timing their review)
-      // Also skip status change for recurring task instances — they manage their own lifecycle
-      const currentTask = await db('tasks').where({ id: taskId }).select('status', 'recurring_task_id').first();
-      if (currentTask?.status !== 'in_review' && !currentTask?.recurring_task_id) {
-        await db('tasks').where({ id: taskId }).update({ status: 'in_progress' });
-      }
-
-    } else if (action === 'pause') {
-      const pauseSession = await db('task_sessions')
-        .where({ task_id: taskId, user_id: userId }).whereNull('ended_at').first();
-      await db('task_sessions')
-        .where({ task_id: taskId, user_id: userId }).whereNull('ended_at').update({ ended_at: now });
-      if (pauseSession) {
-        const pauseHours = (now.getTime() - new Date(pauseSession.started_at).getTime()) / 3600000;
-        if (pauseHours >= 0.01) {
-          const pauseTask = await db('tasks').where({ id: taskId }).select('project_id').first();
-          if (pauseTask) {
-            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
-            const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
-            await db('time_logs').insert({
-              task_id: taskId, project_id: pauseTask.project_id, user_id: userId,
-              task_session_id: pauseSession.id,
-              log_date: today, hours: Math.round(pauseHours * 100) / 100,
-              hourly_rate: hourlyRate,
-            });
-          }
-        }
-      }
-
-    } else if (action === 'done') {
-      const open = await uncheckedItems(db, Number(taskId));
-      if (open.length) { res.status(400).json({ error: uncheckedError(open), unchecked: open }); return; }
-      // End the active session and write time_log
-      const doneSession = await db('task_sessions')
-        .where({ task_id: taskId, user_id: userId }).whereNull('ended_at').first();
-      await db('task_sessions')
-        .where({ task_id: taskId, user_id: userId }).whereNull('ended_at').update({ ended_at: now });
-      if (doneSession) {
-        const doneHours = (now.getTime() - new Date(doneSession.started_at).getTime()) / 3600000;
-        if (doneHours >= 0.01) {
-          const doneTask = await db('tasks').where({ id: taskId }).select('project_id').first();
-          if (doneTask) {
-            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            const userRec = await db('users').where({ id: userId }).select('monthly_salary').first();
-            const hourlyRate = userRec?.monthly_salary ? Number(userRec.monthly_salary) / daysInMonth / 7 : null;
-            await db('time_logs').insert({
-              task_id: taskId, project_id: doneTask.project_id, user_id: userId,
-              task_session_id: doneSession.id,
-              log_date: today, hours: Math.round(doneHours * 100) / 100,
-              hourly_rate: hourlyRate,
-            });
-          }
-        }
-      }
-
-      const task = await db('tasks').where({ id: taskId }).first();
-
-      // XLR8 tickets manage their own status and approval via /api/xlr8/tickets/:id/done
-      if (task?.ticket_type_id) { res.json({ message: 'Session closed' }); return; }
-
-      // Recurring task instances complete directly — no review/approval flow
-      if (task?.recurring_task_id) {
-        await db('tasks').where({ id: taskId }).update({ status: 'completed' });
-        res.json({ message: 'Completed' }); return;
-      }
-
-      await db('tasks').where({ id: taskId }).update({ status: 'in_review' });
-
-      // Auto-submit for approval if no active approval exists
-      const existingApproval = await db('approvals')
-        .where({ task_id: taskId })
-        .whereNotIn('status', ['approved', 'rejected'])
-        .first();
-
-      if (!existingApproval && task) {
-        // Check for a custom approval flow on this task
-        const customFlow = await db('task_approval_flow')
-          .where({ task_id: taskId })
-          .orderBy('position')
-          .select('user_id', 'position');
-
-        if (customFlow.length > 0) {
-          // ── Custom sequential flow ──────────────────────────────
-          await db('approvals').insert({
-            task_id: taskId,
-            title: task.title,
-            project_id: task.project_id,
-            submitted_by: userId,
-            status: 'pending_custom',
-            workflow_type: 'custom',
-            current_step: 0,
-          });
-          const firstApprover = customFlow[0];
-          if (firstApprover.user_id !== userId) {
-            await createNotification(firstApprover.user_id, `"${task.title}" is waiting for your approval`, 'approval', task.project_id);
-          }
-        } else {
-          // ── Legacy role-based flow ──────────────────────────────
-          const userRole = req.user!.role;
-
-          const clientCount = await db('project_members as pm')
-            .join('users as u', 'pm.user_id', 'u.id')
-            .where('pm.project_id', task.project_id)
-            .where('u.role', 'client')
-            .count('u.id as cnt')
-            .first();
-          const hasClient = Number(clientCount?.cnt ?? 0) > 0;
-
-          let workflowType: string;
-          if (userRole === 'employee') workflowType = 'employee';
-          else if (userRole === 'manager') workflowType = 'manager';
-          else workflowType = hasClient ? 'admin_with_client' : 'admin_no_client';
-
-          const FIRST_STAGE: Record<string, { status: string; role: string } | null> = {
-            employee:          { status: 'pending_manager', role: 'manager' },
-            manager:           { status: 'pending_admin',   role: 'admin'   },
-            admin_with_client: { status: 'pending_client',  role: 'client'  },
-            admin_no_client:   null,
-          };
-
-          const firstStage = FIRST_STAGE[workflowType];
-
-          if (firstStage) {
-            await db('approvals').insert({
-              task_id: taskId,
-              title: task.title,
-              project_id: task.project_id,
-              submitted_by: userId,
-              status: firstStage.status,
-              workflow_type: workflowType,
-            });
-
-            if (firstStage.role === 'manager') {
-              const managers = await db('users as u')
-                .join('project_members as pm', function (this: any) {
-                  this.on('pm.user_id', 'u.id').andOn('pm.project_id', db.raw('?', [task.project_id]));
-                })
-                .where('u.role', 'manager')
-                .select('u.id');
-              for (const m of managers) {
-                if (m.id !== userId)
-                  await createNotification(m.id, `"${task.title}" is ready for your review`, 'approval', task.project_id);
-              }
-            } else if (firstStage.role === 'admin') {
-              const admins = await db('users as u')
-                .join('project_members as pm', function (this: any) {
-                  this.on('pm.user_id', 'u.id').andOn('pm.project_id', db.raw('?', [task.project_id]));
-                })
-                .where('u.role', 'admin')
-                .select('u.id');
-              for (const a of admins) {
-                if (a.id !== userId)
-                  await createNotification(a.id, `"${task.title}" is ready for your review`, 'approval', task.project_id);
-              }
-            } else if (firstStage.role === 'client') {
-              const clients = await db('project_members as pm')
-                .join('users as u', 'pm.user_id', 'u.id')
-                .where('pm.project_id', task.project_id)
-                .where('u.role', 'client')
-                .select('u.id');
-              for (const c of clients)
-                await createNotification(c.id, `"${task.title}" is ready for your review`, 'approval', task.project_id);
-            }
-          } else {
-            await db('tasks').where({ id: taskId }).update({ status: 'completed' });
-          }
-        }
-      }
-
-      // Notify task creator
-      if (task && task.created_by !== userId) {
-        const me = await db('users').where({ id: userId }).first();
-        await createNotification(
-          task.created_by,
-          `${me?.name} marked "${task.title}" ready for review`,
-          'task',
-          task.project_id
-        );
-      }
-    }
-
-    res.json({ message: 'OK' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
+  try { res.json(await timerAction(getDB(), req.user!, req.params.id as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.timer'); }
 });
 
 // ── Deliverables (files + links attached at done) ────────────────────────────
 
-// Label each attachment with the XLR8 stage it was added on, e.g. "UI/UX Designer"
-async function labelDeliverables(db: any, taskId: any, rows: any[]) {
-  const task = await db('tasks').where({ id: taskId }).select('ticket_type_id').first();
-  let stages: any[] = [];
-  if (task?.ticket_type_id) {
-    const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).select('stages').first();
-    try { stages = typeof tt?.stages === 'string' ? JSON.parse(tt.stages) : (tt?.stages || []); } catch { stages = []; }
-  }
-  const userStages: Record<number, number[]> = {};
-  if (stages.length) {
-    const assignees = await db('task_assignees').where({ task_id: taskId }).whereNotNull('stage_idx').select('user_id', 'stage_idx');
-    for (const a of assignees) (userStages[a.user_id] ||= []).push(a.stage_idx);
-  }
-  const stageName = (idx: number) => {
-    const st = stages[idx];
-    if (!st) return null;
-    return st.type === 'admin' ? 'Admin Review' : st.category_name || (st.reviewer ? 'Manager Review' : `Stage ${idx + 1}`);
-  };
-  return rows.map((r: any) => {
-    // Older rows have no stage_idx: use the uploader's stage when they only work one stage on this ticket
-    const own = userStages[r.uploaded_by] || [];
-    const idx = r.stage_idx ?? (own.length === 1 ? own[0] : null);
-    return { ...r, stage_idx: idx, stage_name: idx != null ? stageName(idx) : null };
-  });
-}
-
-router.get('/:id/deliverables', async (req: AuthRequest, res: Response) => {
-  const db = getDB();
-  const rows = await db('task_deliverables as d')
-    .join('users as u', 'd.uploaded_by', 'u.id')
-    .where('d.task_id', req.params.id)
-    .select('d.*', 'u.name as uploader_name')
-    .orderBy('d.created_at', 'asc');
-
-  res.json(await labelDeliverables(db, req.params.id, rows));
+router.get('/:id/deliverables', seeTask(), async (req: AuthRequest, res: Response) => {
+  try { res.json(await listDeliverables(getDB(), req.user!, req.params.id as string)); }
+  catch (err) { sendServiceError(res, err, 'tasks.deliverables'); }
 });
 
-router.post('/:id/deliverables/link', async (req: AuthRequest, res: Response) => {
-  const { url, name } = req.body;
-  if (!url) { res.status(400).json({ error: 'url required' }); return; }
-  const db = getDB();
-  const stage = await db('tasks').where({ id: req.params.id }).select('ticket_type_id', 'xlr8_stage_idx').first();
-  const [id] = await db('task_deliverables').insert({
-    task_id: req.params.id,
-    uploaded_by: req.user!.id,
-    stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null,
-    type: 'link',
-    name: name || url,
-    url,
-  });
-  res.json((await labelDeliverables(db, req.params.id, [{ id, type: 'link', name: name || url, url, uploaded_by: req.user!.id, uploader_name: req.user!.name, stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null }]))[0]);
+router.post('/:id/deliverables/link', seeTask(), async (req: AuthRequest, res: Response) => {
+  try { res.json(await addDeliverableLink(getDB(), req.user!, req.params.id as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.deliverables'); }
 });
 
-router.post('/:id/deliverables/file', deliverableUpload.single('file'), async (req: AuthRequest, res: Response) => {
+router.post('/:id/deliverables/file', seeTask(), deliverableUpload.single('file'), async (req: AuthRequest, res: Response) => {
   if (!req.file) { res.status(400).json({ error: 'file required' }); return; }
-  const db = getDB();
-  const url = `/uploads/deliverables/${req.file.filename}`;
-  const stage = await db('tasks').where({ id: req.params.id }).select('ticket_type_id', 'xlr8_stage_idx').first();
-  const [id] = await db('task_deliverables').insert({
-    task_id: req.params.id,
-    uploaded_by: req.user!.id,
-    stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null,
-    type: 'file',
-    name: req.file.originalname,
-    url,
-  });
-  res.json((await labelDeliverables(db, req.params.id, [{ id, type: 'file', name: req.file.originalname, url, uploaded_by: req.user!.id, uploader_name: req.user!.name, stage_idx: stage?.ticket_type_id ? stage.xlr8_stage_idx ?? null : null }]))[0]);
+  try { res.json(await addDeliverableFile(getDB(), req.user!, req.params.id as string, req.file)); }
+  catch (err) { sendServiceError(res, err, 'tasks.deliverables'); }
 });
 
-router.delete('/:taskId/deliverables/:id', async (req: AuthRequest, res: Response) => {
-  const db = getDB();
-  const row = await db('task_deliverables').where({ id: req.params.id, task_id: req.params.taskId }).first();
-  if (!row) { res.status(404).json({ error: 'Not found' }); return; }
-  if (row.uploaded_by !== req.user!.id && !['admin', 'manager'].includes(req.user!.role)) {
-    res.status(403).json({ error: 'Only the person who added this attachment, or a manager, can remove it' }); return;
-  }
-  if (row.type === 'file') {
-    const fp = path.join(__dirname, '../../', row.url);
-    if (fs.existsSync(fp)) fs.unlinkSync(fp);
-  }
-  await db('task_deliverables').where({ id: req.params.id }).delete();
-  res.json({ ok: true });
+router.delete('/:taskId/deliverables/:id', seeTask('taskId'), async (req: AuthRequest, res: Response) => {
+  try { await deleteDeliverable(getDB(), req.user!, req.params.taskId as string, req.params.id as string); res.json({ ok: true }); }
+  catch (err) { sendServiceError(res, err, 'tasks.deliverables'); }
 });
 
 // POST /:id/share-token — generate or return existing share token (authenticated)
-router.post('/:id/share-token', async (req: AuthRequest, res: Response) => {
+router.post('/:id/share-token', seeTask(), async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const taskId = Number(req.params.id);
   const existing = await db('task_share_tokens').where({ task_id: taskId }).first();
@@ -1209,95 +196,29 @@ router.post('/:id/share-token', async (req: AuthRequest, res: Response) => {
 });
 
 // GET /tasks/:id/comments
-router.get('/:id/comments', async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDB();
-    const rows = await db('task_comments as c')
-      .join('users as u', 'c.user_id', 'u.id')
-      .where('c.task_id', req.params.id)
-      .select('c.*', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url')
-      .orderBy('c.created_at', 'asc');
-    res.json(rows);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+router.get('/:id/comments', seeTask(), async (req: AuthRequest, res: Response) => {
+  try { res.json(await listComments(getDB(), req.user!, req.params.id as string)); }
+  catch (err) { sendServiceError(res, err, 'tasks.comments'); }
 });
 
-// POST /tasks/:id/comments
-// People who can be @mentioned on a task: everyone on it, the project's members, its pod's managers, and admins
-async function mentionable(db: any, taskId: number) {
-  const t = await db('tasks').where('id', taskId).select('created_by', 'assigned_to', 'xlr8_assignee_id').first();
-  if (!t) return [];
-  const ids = new Set<number>([t.created_by, t.assigned_to, t.xlr8_assignee_id].filter(Boolean));
-  for (const r of await db('task_assignees').where({ task_id: taskId }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).pluck('user_id')) ids.add(r);
-  for (const r of await db('task_approval_flow').where({ task_id: taskId }).pluck('user_id')) ids.add(r);
-  return db('users').whereIn('id', [...ids, 0]).orderBy('name').select('id', 'name', 'avatar_color', 'avatar_url', 'role');
-}
-
-router.get('/:id/mentionable', async (req: AuthRequest, res: Response) => {
-  try { res.json(await mentionable(getDB(), Number(req.params.id))); } catch { res.status(500).json({ error: 'Server error' }); }
+router.get('/:id/mentionable', seeTask(), async (req: AuthRequest, res: Response) => {
+  try { res.json(await mentionable(getDB(), Number(req.params.id))); }
+  catch (err) { sendServiceError(res, err, 'tasks.mentionable'); }
 });
 
-// Notify everyone tagged as @Full Name in a comment (longest names first so "@Sai Kumar" beats "@Sai")
-async function notifyMentions(db: any, taskId: number, text: string, author: { id: number; name?: string }) {
-  const people = (await mentionable(db, taskId)).sort((a: any, b: any) => b.name.length - a.name.length);
-  let rest = text.toLowerCase();
-  const hit: any[] = [];
-  for (const p of people) {
-    const tag = '@' + String(p.name).trim().toLowerCase();
-    if (tag.length > 1 && rest.includes(tag)) { hit.push(p); rest = rest.split(tag).join(' '); }
-  }
-  if (!hit.length) return [];
-  const task = await db('tasks').where({ id: taskId }).select('title', 'project_id').first();
-  const who = author.name || (await db('users').where({ id: author.id }).select('name').first())?.name || 'Someone';
-  const excerpt = text.length > 80 ? text.slice(0, 77) + '…' : text;
-  for (const p of hit) if (p.id !== author.id) await createNotification(p.id, `${who} mentioned you on "${task?.title}": ${excerpt}`, 'task', task?.project_id);
-  return hit.map((p) => p.id);
-}
-
-router.post('/:id/comments', async (req: AuthRequest, res: Response) => {
-  const { comment, parent_id } = req.body;
-  if (!comment?.trim()) { res.status(400).json({ error: 'comment required' }); return; }
-  try {
-    const db = getDB();
-    const [id] = await db('task_comments').insert({
-      task_id: Number(req.params.id),
-      parent_id: parent_id ? Number(parent_id) : null,
-      user_id: req.user!.id,
-      comment: comment.trim(),
-    });
-    await notifyMentions(db, Number(req.params.id), comment.trim(), req.user!);
-    const row = await db('task_comments as c').join('users as u', 'c.user_id', 'u.id').where('c.id', id).select('c.*', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url').first();
-    res.status(201).json(row);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+router.post('/:id/comments', seeTask(), async (req: AuthRequest, res: Response) => {
+  try { res.status(201).json(await addComment(getDB(), req.user!, req.params.id as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.comment'); }
 });
 
-// PUT /tasks/:id/comments/:cid
 router.put('/:id/comments/:cid', async (req: AuthRequest, res: Response) => {
-  const { comment } = req.body;
-  if (!comment?.trim()) { res.status(400).json({ error: 'comment required' }); return; }
-  try {
-    const db = getDB();
-    const row = await db('task_comments').where({ id: req.params.cid }).first();
-    if (!row) { res.status(404).json({ error: 'Not found' }); return; }
-    if (String(row.user_id) !== String(req.user!.id)) {
-      res.status(403).json({ error: 'You can only edit your own comments' }); return;
-    }
-    await db('task_comments').where({ id: req.params.cid }).update({ comment: comment.trim(), updated_at: new Date() });
-    res.json({ ...row, comment: comment.trim(), updated_at: new Date() });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  try { res.json(await updateComment(getDB(), req.user!, req.params.id as string, req.params.cid as string, req.body)); }
+  catch (err) { sendServiceError(res, err, 'tasks.comment'); }
 });
 
-// DELETE /tasks/:id/comments/:cid
 router.delete('/:id/comments/:cid', async (req: AuthRequest, res: Response) => {
-  try {
-    const db = getDB();
-    const row = await db('task_comments').where({ id: req.params.cid }).first();
-    if (!row) { res.status(404).json({ error: 'Not found' }); return; }
-    if (String(row.user_id) !== String(req.user!.id)) {
-      res.status(403).json({ error: 'You can only delete your own comments' }); return;
-    }
-    await db('task_comments').where({ id: req.params.cid }).delete();
-    res.status(204).end();
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  try { await deleteComment(getDB(), req.user!, req.params.id as string, req.params.cid as string); res.status(204).end(); }
+  catch (err) { sendServiceError(res, err, 'tasks.comment'); }
 });
 
 export default router;
@@ -1328,7 +249,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
       .where({ 'ta.task_id': row.task_id })
       .select('ta.stage_idx', 'ta.user_id', 'ta.assignee_role', 'ta.acceptance_status', 'ta.est_hours', 'ta.skipped', 'ta.is_reviewer', 'u.name as user_name', 'u.avatar_color', 'u.avatar_url', db.raw('CASE WHEN ts.user_id IS NOT NULL THEN 1 ELSE 0 END as is_active'));
 
-    const isProd = process.env.NODE_ENV === 'production';
+    const isProd = isMySQLClient();
     const secSQL = isProd
       ? "COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) as tracked_seconds"
       : "COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) as tracked_seconds";

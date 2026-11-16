@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { getDB } from '../db';
-import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
+import { authenticate, requireRoles, AuthRequest, revokeSessions } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 import { io } from '../socket';
 
@@ -412,6 +412,8 @@ router.put('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, a
     if (Object.keys(updates).length) {
       await db('users').where({ id: req.params.id }).update(updates);
     }
+    // A password set by an admin/manager ends that user's existing sessions
+    if (password) await revokeSessions(req.params.id as string);
 
     // Sync categories if provided
     if (Array.isArray(category_ids)) {
@@ -458,6 +460,8 @@ router.delete('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers
     await db('project_members').where({ user_id: uid }).delete();
     await db('user_categories').where({ user_id: uid }).delete();
     await db('internal_chat_members').where({ user_id: uid }).delete();
+    await db('assistant_identities').where({ user_id: uid }).delete();
+    await db('assistant_link_codes').where({ user_id: uid }).delete();
     // Remove task assignments (SQLite doesn't auto-cascade ON DELETE CASCADE)
     await db('task_assignees').where({ user_id: uid }).delete();
 
@@ -553,6 +557,12 @@ router.put('/notification-preferences', async (req: AuthRequest, res: Response) 
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// POST sign a user out on every device (admin; managers for employees only)
+router.post('/:id/revoke-sessions', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
+  try { await revokeSessions(req.params.id as string); res.json({ ok: true }); }
+  catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 // GET page permissions for a user (admin; managers for employees only)

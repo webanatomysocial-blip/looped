@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       authApi.me()
         .then((r) => setUser(r.data))
-        .catch(() => localStorage.removeItem('token'))
+        .catch((err) => { if (err?.response?.status !== 403) localStorage.removeItem('token'); })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);

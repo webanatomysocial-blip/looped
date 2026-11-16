@@ -12,8 +12,8 @@ async function ensureTable() {
   if (!exists) {
     await db.schema.createTable('regularisation_requests', (t) => {
       t.increments('id').primary();
-      t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-      t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
       t.text('reason').nullable();
       t.string('status').notNullable().defaultTo('pending');
       t.float('new_est_hours').nullable();

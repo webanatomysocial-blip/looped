@@ -1,4 +1,4 @@
-import { waitingOn, startIfAccepted } from './xlr8';
+import { waitingOn, startIfAccepted } from '../services/xlr8';
 import { Router, Response } from 'express';
 import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
@@ -481,7 +481,8 @@ router.get('/daily', async (req: AuthRequest, res: Response) => {
 // GET /api/capacity/check/:userId — check a user's assigned-hours load (for capacity warnings)
 // ?due_date=YYYY-MM-DD  only count tasks due on or before that date (+ undated tasks).
 // Without it, defaults to today so future tasks don't inflate the load.
-router.get('/check/:userId', async (req: AuthRequest, res: Response) => {
+// Used by the task form when any staff member picks an assignee; clients never create tasks
+router.get('/check/:userId', requireRoles('admin', 'manager', 'employee'), async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const targetUserId = Number(req.params.userId);
   const checkDate = (req.query.due_date as string) || new Date().toISOString().slice(0, 10);

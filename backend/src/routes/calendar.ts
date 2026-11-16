@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { getDB } from '../db';
+import { getDB, isMySQLClient } from '../db';
 import type { Knex } from 'knex';
 import { DAY_CAP, loadItems, planSlots, scheduleUser, itemKey, nextDay, isWeekend, skipToWorkday, WorkItem, Slot } from '../services/scheduler';
 
@@ -407,7 +407,7 @@ router.get('/week', async (req: AuthRequest, res: Response) => {
     }
     const [weekStart, weekEnd] = [days[0], days[4]];
 
-    const isProd = process.env.NODE_ENV === 'production';
+    const isProd = isMySQLClient();
     const trackedSubSQL = isProd
       ? `(SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, ts.started_at, COALESCE(ts.ended_at, NOW()))), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`
       : `(SELECT COALESCE(SUM(CAST((COALESCE(ts.ended_at, strftime('%s','now') * 1000) - ts.started_at) / 1000 AS INTEGER)), 0) FROM task_sessions ts WHERE ts.task_id = t.id)`;

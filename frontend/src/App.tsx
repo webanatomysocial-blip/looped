@@ -6,6 +6,7 @@ import { SocketProvider } from './contexts/SocketContext';
 
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
+import ChangePassword from './pages/ChangePassword';
 import Home from './pages/Home';
 import Projects from './pages/Projects';
 import Tasks from './pages/Tasks';
@@ -33,6 +34,7 @@ import ProjectReports from './pages/ProjectReports';
 import XLR8Page from './pages/XLR8Page';
 import XLR8Tickets from './pages/XLR8Tickets';
 import TicketTypes from './pages/admin/TicketTypes';
+import AssistantControl from './pages/admin/AssistantControl';
 import LandingPage from './pages/LandingPage';
 import CalendarPage from './pages/Calendar';
 import RegularisationPage from './pages/Regularisation';
@@ -57,6 +59,7 @@ function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; r
   }, [denied, location.pathname, recheckedFor]);
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  if ((user as any).must_change_password) return <Navigate to="/change-password" replace />;
   if (denied) {
     if (recheckedFor !== location.pathname) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
     return <Navigate to="/dashboard" replace />;
@@ -70,6 +73,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/change-password" element={<ChangePassword />} />
 
       {/* Dashboard */}
       <Route path="/dashboard" element={
@@ -139,6 +143,13 @@ function AppRoutes() {
       } />
 
       {/* Admin: Ticket Types */}
+      {/* AI Assistant Control Centre — admin only (server enforces the same role) */}
+      <Route path="/admin/assistant" element={
+        <PrivateRoute roles={['admin']}>
+          <AssistantControl />
+        </PrivateRoute>
+      } />
+
       <Route path="/admin/ticket-types" element={
         <PrivateRoute roles={['admin']}>
           <TicketTypes />

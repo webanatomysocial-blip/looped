@@ -32,3 +32,6 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Demo account passwords generated at first seed (never commit)
+backend/.demo-credentials

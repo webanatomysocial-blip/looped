@@ -1,6 +1,15 @@
+import crypto from 'crypto';
+import fs from 'fs';
 import knex, { Knex } from 'knex';
+import { AsyncLocalStorage } from 'async_hooks';
 import path from 'path';
 import bcrypt from 'bcryptjs';
+import { ensureAssistantSchema } from '../assistant/identityStore';
+import { ensureConversationSchema } from '../assistant/conversationStore';
+import { ensureQueueSchema } from '../assistant/queueSchema';
+import { ensurePendingSchema } from '../assistant/pendingSenders';
+import { ensureOutboxSchema } from '../services/assignmentNotices';
+import { ensureUsageSchema } from '../assistant/aiUsage';
 
 let db: Knex;
 
@@ -8,10 +17,20 @@ export function getDB(): Knex {
   return db;
 }
 
+// True when the live connection is MySQL. SQL that differs between the two databases is chosen with this, not by NODE_ENV.
+export function isMySQLClient(): boolean {
+  return (db?.client as any)?.config?.client === 'mysql2';
+}
+
 export async function initDB(): Promise<void> {
   const isProd = process.env.NODE_ENV === 'production';
+  const useMySQL = isProd || process.env.DB_CLIENT === 'mysql';
+  // The MySQL override is for the isolated test database only. Its name must end in _test.
+  if (!isProd && useMySQL && !/_test$/.test(process.env.DB_NAME || '')) {
+    throw new Error('DB_CLIENT=mysql outside production requires DB_NAME ending in _test');
+  }
 
-  if (isProd) {
+  if (useMySQL) {
     db = knex({
       client: 'mysql2',
       connection: {
@@ -27,12 +46,22 @@ export async function initDB(): Promise<void> {
   } else {
     db = knex({
       client: 'better-sqlite3',
-      connection: { filename: path.join(__dirname, '../../agency.db') },
+      connection: { filename: process.env.SQLITE_FILE || path.join(__dirname, '../../agency.db') },
       useNullAsDefault: true,
     });
   }
 
   await createSchema();
+  await ensureAssistantSchema(db);
+  await ensurePendingSchema(db);
+  await ensureOutboxSchema(db);
+  await ensureUsageSchema(db);
+  await ensureConversationSchema(db);
+  await ensureQueueSchema(db);
+  // First-login password change: set for seeded admin and demo accounts until they choose a new password
+  if (!(await db.schema.hasColumn('users', 'must_change_password'))) {
+    await db.schema.table('users', (t) => { t.boolean('must_change_password').notNullable().defaultTo(false); });
+  }
   await seedAdmin();
 }
 
@@ -51,7 +80,9 @@ async function createSchema(): Promise<void> {
         t.integer('client_company_id').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
-    } else {
+    }
+    // Runs for new tables too: these columns were never in the CREATE above, so fresh installs lacked them
+    {
       const hasCcId = await db.schema.hasColumn('users', 'client_company_id');
       if (!hasCcId) {
         await db.schema.table('users', (t) => {
@@ -69,6 +100,10 @@ async function createSchema(): Promise<void> {
         await db.schema.table('users', (t) => {
           t.decimal('monthly_salary', 12, 2).nullable();
         });
+      }
+      // Session version: bumping it revokes every token issued before (logout everywhere)
+      if (!(await db.schema.hasColumn('users', 'token_version'))) {
+        await db.schema.table('users', (t) => { t.integer('token_version').notNullable().defaultTo(0); });
       }
       const hasAvatarUrl = await db.schema.hasColumn('users', 'avatar_url');
       if (!hasAvatarUrl) {
@@ -95,8 +130,9 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('user_categories', (t) => {
         t.increments('id').primary();
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
-        t.integer('category_id').notNullable().references('id').inTable('employee_categories').onDelete('CASCADE');
+        // unsigned: MySQL increments ids are unsigned, and a foreign key needs matching types
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('category_id').unsigned().notNullable().references('id').inTable('employee_categories').onDelete('CASCADE');
         t.unique(['user_id', 'category_id']);
       });
     }
@@ -163,7 +199,7 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('ads_share_tokens', (t) => {
         t.increments('id').primary();
         t.string('token').notNullable().unique();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.string('start_date').nullable();
         t.string('end_date').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
@@ -177,10 +213,10 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('ad_entities', (t) => {
         t.increments('id').primary();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.string('platform', 20).notNullable();
         t.integer('level').notNullable();
-        t.integer('parent_id').nullable().references('id').inTable('ad_entities').onDelete('CASCADE');
+        t.integer('parent_id').unsigned().nullable().references('id').inTable('ad_entities').onDelete('CASCADE');
         t.string('name').notNullable();
         t.string('status', 20).notNullable().defaultTo('draft');
         t.string('objective').nullable();
@@ -217,7 +253,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('ad_entity_metrics', (t) => {
         t.increments('id').primary();
-        t.integer('entity_id').notNullable().references('id').inTable('ad_entities').onDelete('CASCADE');
+        t.integer('entity_id').unsigned().notNullable().references('id').inTable('ad_entities').onDelete('CASCADE');
         // null period = imported from the old flat report, which had no dates
         t.string('period_start').nullable();
         t.string('period_end').nullable();
@@ -241,7 +277,7 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('seo_share_tokens', (t) => {
         t.increments('id').primary();
         t.string('token').notNullable().unique();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.string('range').nullable();
         t.string('start_date').nullable();
         t.string('end_date').nullable();
@@ -291,7 +327,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('seo_manual_data', (t) => {
         t.increments('id').primary();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE').unique();
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies').onDelete('CASCADE').unique();
         t.text('keyword_rankings').nullable();   // JSON: [{keyword, rank, change}]
         t.text('targets').nullable();            // JSON: [{name, target, achieved, unit}]
         t.text('key_achievements').nullable();   // JSON: [{title, value}]
@@ -382,7 +418,7 @@ async function createSchema(): Promise<void> {
       const hasProjectId = await db.schema.hasColumn('seo_manual_data', 'project_id');
       if (!hasProjectId) {
         await db.schema.table('seo_manual_data', (t) => {
-          t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE');
+          t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('CASCADE');
         });
       }
       // Always backfill rows that still have project_id = NULL (safe to run every startup)
@@ -396,9 +432,9 @@ async function createSchema(): Promise<void> {
       // Make client_id nullable so project-scoped rows don't conflict on the UNIQUE constraint.
       // MySQL: MODIFY is idempotent (safe to re-run). SQLite: recreate table if client_id is still NOT NULL.
       try {
-        const isProd = process.env.NODE_ENV === 'production';
+        const isProd = isMySQLClient();
         if (isProd) {
-          await db.raw('ALTER TABLE `seo_manual_data` MODIFY `client_id` INT NULL');
+          await db.raw('ALTER TABLE `seo_manual_data` MODIFY `client_id` INT UNSIGNED NULL');
           await db.raw('ALTER TABLE `seo_manual_data` DROP INDEX `seo_manual_data_client_id_unique`').catch(() => {});
         } else {
           // SQLite: detect if client_id unique index still exists
@@ -412,8 +448,8 @@ async function createSchema(): Promise<void> {
             await db.schema.renameTable('seo_manual_data', 'seo_manual_data_old');
             await db.schema.createTable('seo_manual_data', (t) => {
               t.increments('id').primary();
-              t.integer('client_id').nullable().references('id').inTable('client_companies').onDelete('CASCADE');
-              t.integer('project_id').nullable().unique().references('id').inTable('projects').onDelete('CASCADE');
+              t.integer('client_id').unsigned().nullable().references('id').inTable('client_companies').onDelete('CASCADE');
+              t.integer('project_id').unsigned().nullable().unique().references('id').inTable('projects').onDelete('CASCADE');
               t.text('keyword_rankings').nullable();
               t.text('targets').nullable();
               t.text('key_achievements').nullable();
@@ -464,10 +500,10 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('projects', (t) => {
         t.increments('id').primary();
         t.string('name').notNullable();
-        t.integer('client_company_id').nullable().references('id').inTable('client_companies');
+        t.integer('client_company_id').unsigned().nullable().references('id').inTable('client_companies');
         t.string('status').defaultTo('active'); // active | in_review | on_hold | completed
         t.date('due_date').nullable();
-        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     }
@@ -539,8 +575,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('project_members', (t) => {
         t.increments('id').primary();
-        t.integer('project_id').notNullable().references('id').inTable('projects');
-        t.integer('user_id').notNullable().references('id').inTable('users');
+        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users');
         t.unique(['project_id', 'user_id']);
       });
     }
@@ -572,9 +608,9 @@ async function createSchema(): Promise<void> {
         t.increments('id').primary();
         t.string('title').notNullable();
         t.text('description').nullable();
-        t.integer('project_id').notNullable().references('id').inTable('projects');
-        t.integer('assigned_to').nullable().references('id').inTable('users');
-        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects');
+        t.integer('assigned_to').unsigned().nullable().references('id').inTable('users');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.date('due_date').nullable();
         t.string('status').defaultTo('todo'); // todo | in_progress | in_review | overdue | completed
         t.integer('checklist_total').defaultTo(0);
@@ -589,8 +625,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_assignees', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
       });
     }
   });
@@ -600,7 +636,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_checklist', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks');
         t.string('text').notNullable();
         t.boolean('completed').defaultTo(false);
         t.integer('stage_idx').nullable();
@@ -628,6 +664,10 @@ async function createSchema(): Promise<void> {
   if (!hasAccStatus) {
     await db.schema.table('task_assignees', (t) => { t.string('acceptance_status').defaultTo('pending'); });
   }
+  // When an assignee was assigned: the acceptance reminder timer. Rows from before this column have none and get no reminder.
+  if (!(await db.schema.hasColumn('task_assignees', 'assigned_at'))) {
+    await db.schema.table('task_assignees', (t) => { t.timestamp('assigned_at').nullable(); });
+  }
 
   // Migrate task_assignees: add assignee_role (worker | alternate | manager)
   const hasAssigneeRole = await db.schema.hasColumn('task_assignees', 'assignee_role');
@@ -646,8 +686,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_sessions', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.datetime('started_at').notNullable();
         t.datetime('ended_at').nullable();
         t.date('session_date').notNullable();
@@ -660,10 +700,10 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('time_logs', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('project_id').notNullable().references('id').inTable('projects').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
-        t.integer('task_session_id').nullable().references('id').inTable('task_sessions').onDelete('SET NULL');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_session_id').unsigned().nullable().references('id').inTable('task_sessions').onDelete('SET NULL');
         t.date('log_date').notNullable();
         t.decimal('hours', 6, 2).notNullable();
         t.decimal('hourly_rate', 12, 6).nullable();
@@ -719,8 +759,8 @@ async function createSchema(): Promise<void> {
       // SQLite: recreate the table (no ALTER PRIMARY KEY support)
       await db.schema.createTable('task_assignees_new', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('acceptance_status').defaultTo('pending');
         t.string('assignee_role').defaultTo('worker');
         t.integer('stage_idx').nullable();
@@ -806,10 +846,10 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('approvals', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks');
         t.string('title').notNullable();
-        t.integer('project_id').notNullable().references('id').inTable('projects');
-        t.integer('submitted_by').notNullable().references('id').inTable('users');
+        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects');
+        t.integer('submitted_by').unsigned().notNullable().references('id').inTable('users');
         // workflow_type: employee | manager | admin_with_client | admin_no_client
         t.string('workflow_type').nullable();
         t.string('status').defaultTo('pending_manager');
@@ -843,11 +883,11 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('approval_steps', (t) => {
         t.increments('id').primary();
-        t.integer('approval_id').notNullable().references('id').inTable('approvals').onDelete('CASCADE');
+        t.integer('approval_id').unsigned().notNullable().references('id').inTable('approvals').onDelete('CASCADE');
         t.string('stage_key').notNullable();    // e.g. 'pending_manager'
         t.string('required_role').notNullable(); // 'manager' | 'admin' | 'client'
         t.string('action').notNullable();        // 'approve' | 'reject'
-        t.integer('actor_id').nullable().references('id').inTable('users');
+        t.integer('actor_id').unsigned().nullable().references('id').inTable('users');
         t.string('actor_name').nullable();
         t.string('actor_role').nullable();
         t.text('comments').nullable();
@@ -862,9 +902,9 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('asset_folders', (t) => {
         t.increments('id').primary();
         t.string('name').notNullable();
-        t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('CASCADE');
         t.integer('parent_id').nullable(); // null = root of project
-        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     }
@@ -878,9 +918,9 @@ async function createSchema(): Promise<void> {
         t.string('file_type').nullable();
         t.string('file_path').nullable();
         t.bigInteger('file_size').nullable();
-        t.integer('project_id').nullable().references('id').inTable('projects');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects');
         t.integer('folder_id').nullable();
-        t.integer('uploaded_by').notNullable().references('id').inTable('users');
+        t.integer('uploaded_by').unsigned().notNullable().references('id').inTable('users');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     } else {
@@ -894,18 +934,18 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('notifications', (t) => {
         t.increments('id').primary();
-        t.integer('user_id').notNullable().references('id').inTable('users');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users');
         t.text('message').notNullable();
         t.string('type').defaultTo('info');
         t.boolean('read').defaultTo(false);
-        t.integer('project_id').nullable().references('id').inTable('projects');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     } else {
       const hasProjectId = await db.schema.hasColumn('notifications', 'project_id');
       if (!hasProjectId) {
         await db.schema.table('notifications', (t) => {
-          t.integer('project_id').nullable().references('id').inTable('projects');
+          t.integer('project_id').unsigned().nullable().references('id').inTable('projects');
         });
       }
       // varchar(255) was too short for cross-pod approval messages (SQLite ignores the length)
@@ -921,8 +961,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('messages', (t) => {
         t.increments('id').primary();
-        t.integer('sender_id').notNullable().references('id').inTable('users');
-        t.integer('project_id').nullable().references('id').inTable('projects');
+        t.integer('sender_id').unsigned().notNullable().references('id').inTable('users');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects');
         t.text('message').notNullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
@@ -936,7 +976,7 @@ async function createSchema(): Promise<void> {
         t.increments('id').primary();
         t.string('type').notNullable(); // direct | group
         t.string('name').nullable();    // null for direct chats
-        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     }
@@ -947,8 +987,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('internal_chat_members', (t) => {
         t.increments('id').primary();
-        t.integer('chat_id').notNullable().references('id').inTable('internal_chats').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('chat_id').unsigned().notNullable().references('id').inTable('internal_chats').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.unique(['chat_id', 'user_id']);
       });
     }
@@ -959,8 +999,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('internal_messages', (t) => {
         t.increments('id').primary();
-        t.integer('chat_id').notNullable().references('id').inTable('internal_chats').onDelete('CASCADE');
-        t.integer('sender_id').notNullable().references('id').inTable('users');
+        t.integer('chat_id').unsigned().notNullable().references('id').inTable('internal_chats').onDelete('CASCADE');
+        t.integer('sender_id').unsigned().notNullable().references('id').inTable('users');
         t.text('content').notNullable();
         t.string('file_url').nullable();
         t.string('file_name').nullable();
@@ -979,7 +1019,7 @@ async function createSchema(): Promise<void> {
         t.string('status').defaultTo('scheduled'); // scheduled | sent | failed
         t.timestamp('scheduled_at').nullable();
         t.timestamp('sent_at').nullable();
-        t.integer('created_by').nullable().references('id').inTable('users');
+        t.integer('created_by').unsigned().nullable().references('id').inTable('users');
         t.text('error_message').nullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
@@ -991,8 +1031,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_approval_flow', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users');
         t.integer('position').notNullable();
         t.unique(['task_id', 'position']);
       });
@@ -1016,8 +1056,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('notification_preferences', (t) => {
         t.increments('id').primary();
-        t.integer('user_id').notNullable().references('id').inTable('users');
-        t.integer('client_user_id').nullable().references('id').inTable('users');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users');
+        t.integer('client_user_id').unsigned().nullable().references('id').inTable('users');
         t.string('pref_key', 50).notNullable(); // 'approvals' | 'responses' | 'comments'
         t.boolean('enabled').notNullable().defaultTo(true);
         t.unique(['user_id', 'client_user_id', 'pref_key']);
@@ -1030,8 +1070,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('email_recipients', (t) => {
         t.increments('id').primary();
-        t.integer('email_id').notNullable().references('id').inTable('emails');
-        t.integer('user_id').nullable().references('id').inTable('users');
+        t.integer('email_id').unsigned().notNullable().references('id').inTable('emails');
+        t.integer('user_id').unsigned().nullable().references('id').inTable('users');
         t.string('email').notNullable();
         t.string('name').notNullable();
       });
@@ -1042,7 +1082,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('ads_manual_data', (t) => {
         t.increments('id').primary();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies');
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies');
         t.text('notes').nullable();
         t.text('campaigns_manual').nullable();
         t.timestamp('updated_at').defaultTo(db.fn.now());
@@ -1074,7 +1114,7 @@ async function createSchema(): Promise<void> {
         t.string('to_emails').notNullable().defaultTo('');
         t.text('template').notNullable().defaultTo('');
         t.integer('contact_project_id').nullable();
-        t.integer('client_id').nullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('client_id').unsigned().nullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     } else {
@@ -1097,9 +1137,9 @@ async function createSchema(): Promise<void> {
       const hasConditions = await db.schema.hasColumn('contact_forms', 'conditions');
       if (!hasConditions) await db.schema.table('contact_forms', (t) => { t.text('conditions').nullable(); });
       // Fix non-nullable columns in MySQL from older deployments
-      if (process.env.NODE_ENV === 'production') {
+      if (isMySQLClient()) {
         const hasContactProjCol = await db.schema.hasColumn('contact_forms', 'contact_project_id');
-        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_forms` MODIFY `contact_project_id` INT NULL');
+        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_forms` MODIFY `contact_project_id` INT UNSIGNED NULL');
         const hasTemplate = await db.schema.hasColumn('contact_forms', 'template');
         if (hasTemplate) await db.raw("ALTER TABLE `contact_forms` MODIFY `template` TEXT NULL DEFAULT NULL");
         else await db.schema.table('contact_forms', (t) => { t.text('template').nullable(); });
@@ -1115,7 +1155,7 @@ async function createSchema(): Promise<void> {
         t.string('form_name').notNullable();
         t.integer('contact_project_id').nullable();
         t.integer('client_id').nullable();
-        t.integer('contact_form_id').nullable().references('id').inTable('contact_forms').onDelete('SET NULL');
+        t.integer('contact_form_id').unsigned().nullable().references('id').inTable('contact_forms').onDelete('SET NULL');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
     } else {
@@ -1125,9 +1165,9 @@ async function createSchema(): Promise<void> {
       if (!hasRead) await db.schema.table('contact_submissions', (t) => { t.boolean('read').notNullable().defaultTo(false); });
       const hasFiles = await db.schema.hasColumn('contact_submissions', 'files');
       if (!hasFiles) await db.schema.table('contact_submissions', (t) => { t.text('files').nullable(); });
-      if (process.env.NODE_ENV === 'production') {
+      if (isMySQLClient()) {
         const hasContactProjCol = await db.schema.hasColumn('contact_submissions', 'contact_project_id');
-        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_submissions` MODIFY `contact_project_id` INT NULL');
+        if (hasContactProjCol) await db.raw('ALTER TABLE `contact_submissions` MODIFY `contact_project_id` INT UNSIGNED NULL');
       }
     }
 
@@ -1156,8 +1196,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('seo_saved_reports', (t) => {
         t.increments('id').primary();
-        t.integer('client_id').notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
-        t.integer('created_by').notNullable().references('id').inTable('users');
+        t.integer('client_id').unsigned().notNullable().references('id').inTable('client_companies').onDelete('CASCADE');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.string('name').notNullable();
         t.string('range').notNullable();
         t.string('start_date').nullable();
@@ -1178,7 +1218,7 @@ async function createSchema(): Promise<void> {
       if (!hasAgencyName) await db.schema.table('seo_saved_reports', (t) => t.string('agency_name').nullable());
       const hasSrProjectId = await db.schema.hasColumn('seo_saved_reports', 'project_id');
       if (!hasSrProjectId) {
-        await db.schema.table('seo_saved_reports', (t) => t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE'));
+        await db.schema.table('seo_saved_reports', (t) => t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('CASCADE'));
         try {
           const reports = await db('seo_saved_reports').whereNull('project_id').select('id', 'client_id');
           for (const r of reports) {
@@ -1193,7 +1233,7 @@ async function createSchema(): Promise<void> {
   // Add project_id to seo_share_tokens
   const hasStProjectId = await db.schema.hasColumn('seo_share_tokens', 'project_id');
   if (!hasStProjectId) {
-    await db.schema.table('seo_share_tokens', (t) => t.integer('project_id').nullable().references('id').inTable('projects').onDelete('CASCADE'));
+    await db.schema.table('seo_share_tokens', (t) => t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('CASCADE'));
     try {
       const tokens = await db('seo_share_tokens').whereNull('project_id').select('id', 'client_id');
       for (const tk of tokens) {
@@ -1286,10 +1326,9 @@ async function createSchema(): Promise<void> {
         t.text('final_approval').defaultTo('{"adminRequired":true,"adminSkippable":true,"clientOptional":true}');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
-    } else {
-      const hasChecklist = await db.schema.hasColumn('xlr8_ticket_types', 'checklist');
-      if (!hasChecklist) await db.schema.table('xlr8_ticket_types', t => { t.text('checklist').defaultTo('[]'); });
     }
+    const hasChecklist = await db.schema.hasColumn('xlr8_ticket_types', 'checklist');
+    if (!hasChecklist) await db.schema.table('xlr8_ticket_types', t => { t.text('checklist').defaultTo('[]'); });
   });
 
   // Ticket audit log — append-only, one row per state transition
@@ -1297,8 +1336,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('xlr8_ticket_log', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('actor_id').nullable().references('id').inTable('users');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('actor_id').unsigned().nullable().references('id').inTable('users');
         t.string('actor_name').nullable();
         t.string('action').notNullable();       // 'created' | 'sent_to_manager' | 'manager_accepted' | 'manager_declined' | 'assigned' | 'work_done' | 'manager_approved' | 'sent_to_admin' | 'admin_skipped' | 'admin_approved' | 'sent_to_client' | 'client_approved' | 'completed'
         t.string('from_state').nullable();
@@ -1347,9 +1386,9 @@ async function createSchema(): Promise<void> {
         t.increments('id').primary();
         t.string('title').notNullable();
         t.text('description').nullable();
-        t.integer('assigned_to').notNullable().references('id').inTable('users').onDelete('CASCADE');
-        t.integer('created_by').notNullable().references('id').inTable('users').onDelete('CASCADE');
-        t.integer('project_id').nullable().references('id').inTable('projects').onDelete('SET NULL');
+        t.integer('assigned_to').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('created_by').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('SET NULL');
         t.string('recurrence_type').notNullable(); // daily | weekly | monthly
         t.text('recurrence_days').nullable();       // JSON: [1,3,5] for Mon/Wed/Fri (0=Sun)
         t.integer('day_of_month').nullable();       // for monthly
@@ -1373,7 +1412,7 @@ async function createSchema(): Promise<void> {
   const hasRecurringTaskId = await db.schema.hasColumn('tasks', 'recurring_task_id');
   if (!hasRecurringTaskId) {
     await db.schema.table('tasks', (t) => {
-      t.integer('recurring_task_id').nullable().references('id').inTable('recurring_tasks').onDelete('SET NULL');
+      t.integer('recurring_task_id').unsigned().nullable().references('id').inTable('recurring_tasks').onDelete('SET NULL');
       t.string('recurrence_date').nullable(); // YYYY-MM-DD the instance is for
     });
   }
@@ -1402,16 +1441,17 @@ async function createSchema(): Promise<void> {
       // Recreate table with user_id nullable
       await db.schema.createTable('task_assignees_nullable', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').nullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().nullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('acceptance_status').defaultTo('pending');
         t.string('assignee_role').defaultTo('employee');
         t.integer('stage_idx').nullable();
         t.float('est_hours').nullable();
         t.boolean('skipped').defaultTo(false);
         t.boolean('is_reviewer').defaultTo(false);
+        t.string('schedule_anchor', 10).nullable();
       });
-      await db.raw('INSERT INTO task_assignees_nullable SELECT id, task_id, user_id, acceptance_status, assignee_role, stage_idx, est_hours, COALESCE(skipped, 0), COALESCE(is_reviewer, 0) FROM task_assignees');
+      await db.raw('INSERT INTO task_assignees_nullable SELECT id, task_id, user_id, acceptance_status, assignee_role, stage_idx, est_hours, COALESCE(skipped, 0), COALESCE(is_reviewer, 0), schedule_anchor FROM task_assignees');
       await db.schema.dropTable('task_assignees');
       await db.schema.renameTable('task_assignees_nullable', 'task_assignees');
     }
@@ -1419,8 +1459,16 @@ async function createSchema(): Promise<void> {
     // MySQL: ALTER COLUMN directly
     const [cols]: any[] = await db.raw('SHOW COLUMNS FROM task_assignees LIKE "user_id"');
     if (cols.length && cols[0].Null === 'NO') {
-      await db.raw('ALTER TABLE task_assignees MODIFY user_id INT NULL');
+      await db.raw('ALTER TABLE task_assignees MODIFY user_id INT UNSIGNED NULL');
     }
+  }
+  // When a task was completed: used by the daily reports. Tasks completed before this column have none.
+  if (!(await db.schema.hasColumn('tasks', 'completed_at'))) {
+    await db.schema.table('tasks', (t) => { t.timestamp('completed_at').nullable(); });
+  }
+  // Re-check after the table rebuilds above, which recreate task_assignees from a fixed column list
+  if (!(await db.schema.hasColumn('task_assignees', 'assigned_at'))) {
+    await db.schema.table('task_assignees', (t) => { t.timestamp('assigned_at').nullable(); });
   }
 
   const hasPriority = await db.schema.hasColumn('tasks', 'priority');
@@ -1443,6 +1491,11 @@ async function createSchema(): Promise<void> {
     await db.schema.table('tasks', (t) => { t.text('crosspod_pods').nullable(); t.text('crosspod_note').nullable(); });
   }
 
+  // Cross-pod reassignment waiting for approval: the assignees to apply, and the status to restore on decision
+  if (!(await db.schema.hasColumn('tasks', 'pending_assign'))) {
+    await db.schema.table('tasks', (t) => { t.text('pending_assign').nullable(); t.string('pending_prev_status', 20).nullable(); });
+  }
+
   // Full create-form state of a draft, so reopening it restores stages, assignees and estimates
   if (!(await db.schema.hasColumn('tasks', 'draft_form'))) {
     await db.schema.table('tasks', (t) => { t.text('draft_form').nullable(); });
@@ -1453,8 +1506,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_schedule_slots', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('stage_idx').nullable();
         t.string('slot_date', 10).notNullable(); // YYYY-MM-DD
         t.float('hours').notNullable();
@@ -1474,8 +1527,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_deliverables', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('uploaded_by').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('uploaded_by').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('type', 10).notNullable(); // 'file' | 'link'
         t.string('name', 500).notNullable();
         t.string('url', 2000).notNullable();
@@ -1492,7 +1545,7 @@ async function createSchema(): Promise<void> {
   if (!(await db.schema.hasTable('password_resets'))) {
     await db.schema.createTable('password_resets', (t) => {
       t.increments('id').primary();
-      t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+      t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
       t.string('token_hash', 64).notNullable().unique();
       t.timestamp('expires_at').notNullable();
       t.timestamp('used_at').nullable();
@@ -1505,7 +1558,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('message_reads', (t) => {
         t.increments('id').primary();
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('chat_id').nullable();
         t.integer('project_id').nullable();
         t.timestamp('last_read_at').notNullable();
@@ -1519,12 +1572,12 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('regularisation_requests', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.text('reason').nullable();
         t.string('status').notNullable().defaultTo('pending');
         t.float('new_est_hours').nullable();
-        t.integer('reviewed_by').nullable().references('id').inTable('users').onDelete('SET NULL');
+        t.integer('reviewed_by').unsigned().nullable().references('id').inTable('users').onDelete('SET NULL');
         t.timestamp('reviewed_at').nullable();
         t.timestamps(true, true);
       });
@@ -1536,7 +1589,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('user_page_permissions', t => {
         t.increments('id').primary();
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('page_slug', 100).notNullable();
         t.unique(['user_id', 'page_slug']);
       });
@@ -1554,7 +1607,7 @@ async function createSchema(): Promise<void> {
     db.schema.hasColumn('internal_messages', 'deleted_at'),
     db.schema.hasColumn('internal_messages', 'forwarded_from_id'),
   ]);
-  if (!hasMsgReplyTo) await db.schema.table('internal_messages', t => { t.integer('reply_to_id').nullable().references('id').inTable('internal_messages').onDelete('SET NULL'); });
+  if (!hasMsgReplyTo) await db.schema.table('internal_messages', t => { t.integer('reply_to_id').unsigned().nullable().references('id').inTable('internal_messages').onDelete('SET NULL'); });
   if (!hasMsgEditedAt) await db.schema.table('internal_messages', t => { t.timestamp('edited_at').nullable(); });
   if (!hasMsgDeletedAt) await db.schema.table('internal_messages', t => { t.timestamp('deleted_at').nullable(); });
   if (!hasMsgForwardedFrom) await db.schema.table('internal_messages', t => { t.integer('forwarded_from_id').nullable(); });
@@ -1564,8 +1617,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('internal_message_reactions', t => {
         t.increments('id').primary();
-        t.integer('message_id').notNullable().references('id').inTable('internal_messages').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('message_id').unsigned().notNullable().references('id').inTable('internal_messages').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('emoji', 10).notNullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
         t.unique(['message_id', 'user_id', 'emoji']);
@@ -1590,7 +1643,7 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_share_tokens', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
         t.string('token', 64).notNullable().unique();
         t.timestamps(true, true);
       });
@@ -1601,9 +1654,9 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('task_comments', (t) => {
         t.increments('id').primary();
-        t.integer('task_id').notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('parent_id').nullable().references('id').inTable('task_comments').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
+        t.integer('parent_id').unsigned().nullable().references('id').inTable('task_comments').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.text('comment').notNullable();
         t.timestamp('created_at').defaultTo(db.fn.now());
         t.timestamp('updated_at').nullable();
@@ -1615,8 +1668,8 @@ async function createSchema(): Promise<void> {
     if (!exists) {
       await db.schema.createTable('recurring_task_overrides', (t) => {
         t.increments('id').primary();
-        t.integer('recurring_task_id').notNullable().references('id').inTable('recurring_tasks').onDelete('CASCADE');
-        t.integer('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
+        t.integer('recurring_task_id').unsigned().notNullable().references('id').inTable('recurring_tasks').onDelete('CASCADE');
+        t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.string('date', 10).notNullable(); // YYYY-MM-DD
         t.float('custom_start_hour').notNullable();
         t.unique(['recurring_task_id', 'user_id', 'date']);
@@ -1756,6 +1809,7 @@ async function seedAdmin(): Promise<void> {
         password_hash: hash,
         role: 'admin',
         avatar_color: '#6366f1',
+        must_change_password: true,
       });
       console.log(`Production admin created: ${process.env.ADMIN_EMAIL}`);
     }
@@ -1766,27 +1820,70 @@ async function seedAdmin(): Promise<void> {
   const anyUser = await db('users').first();
   if (anyUser) return;
 
+  // Demo accounts get random passwords. They are written to a private file (mode 600, git-ignored), never to the log.
   const demoUsers = [
-    { name: 'Admin User',    email: 'admin@agency.com',    password: 'Admin@123',    role: 'admin',    avatar_color: '#E8424A' },
-    { name: 'Sara Manager',  email: 'manager@agency.com',  password: 'Manager@123',  role: 'manager',  avatar_color: '#F47326' },
-    { name: 'Alex Employee', email: 'employee@agency.com', password: 'Employee@123', role: 'employee', avatar_color: '#4A90E2' },
-    { name: 'Client Corp',   email: 'client@agency.com',   password: 'Client@123',   role: 'client',   avatar_color: '#4caf7d' },
+    { name: 'Admin User', email: 'admin@agency.com', role: 'admin', avatar_color: '#E8424A' },
+    { name: 'Sara Manager', email: 'manager@agency.com', role: 'manager', avatar_color: '#F47326' },
+    { name: 'Alex Employee', email: 'employee@agency.com', role: 'employee', avatar_color: '#4A90E2' },
+    { name: 'Client Corp', email: 'client@agency.com', role: 'client', avatar_color: '#4caf7d' },
   ];
-
+  // Written only when a private path is configured. Nothing is written into the project by default.
+  const credFile = process.env.DEMO_CREDENTIALS_FILE;
+  const lines: string[] = [];
   for (const u of demoUsers) {
-    const hash = await bcrypt.hash(u.password, 10);
+    const password = crypto.randomBytes(18).toString('base64url');
+    lines.push(`${u.email} ${password}`);
     await db('users').insert({
       name: u.name, email: u.email,
-      password_hash: hash, role: u.role, avatar_color: u.avatar_color,
+      password_hash: await bcrypt.hash(password, 10), role: u.role, avatar_color: u.avatar_color, must_change_password: true,
     });
-    console.log(`Demo user created: ${u.email} / ${u.password}`);
   }
+  if (credFile) {
+    fs.writeFileSync(credFile, lines.join('\n') + '\n', { mode: 0o600 });
+    fs.chmodSync(credFile, 0o600);
+    console.log('Demo users created. Their initial passwords are in the file set by DEMO_CREDENTIALS_FILE (not logged).');
+  } else {
+    console.log('Demo users created without a credentials file. Set DEMO_CREDENTIALS_FILE to receive their initial passwords.');
+  }
+}
+
+// ── Transactions and post-commit work ──
+// SQLite runs on one connection: a query on the global connection while a transaction is open waits for that
+// transaction, which is waiting on the caller, so it hangs. Work that must not run inside a transaction (sending
+// notifications, scheduling) is queued here and run only after a successful commit. A rolled-back transaction
+// sends nothing.
+type PostCommitJob = () => Promise<unknown>;
+const postCommitScope = new AsyncLocalStorage<PostCommitJob[]>();
+
+export function isInTransaction(conn: unknown): boolean {
+  return !!(conn as any)?.isTransaction;
+}
+
+// Runs fn in a transaction. If conn is already a transaction, fn joins it and the outer caller commits.
+export async function inTransaction<T>(conn: Knex | Knex.Transaction, fn: (trx: Knex.Transaction) => Promise<T>): Promise<T> {
+  if (isInTransaction(conn)) return fn(conn as Knex.Transaction);
+  const jobs: PostCommitJob[] = [];
+  const result = await postCommitScope.run(jobs, () => (conn as Knex).transaction(fn));
+  for (const job of jobs) {
+    try { await job(); } catch (err) { console.error('[post-commit] step failed', err); }
+  }
+  return result;
+}
+
+// Queues work for after the current transaction commits. Outside a transaction it runs now.
+export async function onCommit(job: PostCommitJob): Promise<void> {
+  const jobs = postCommitScope.getStore();
+  if (jobs) jobs.push(job);
+  else await job();
 }
 
 export async function createNotification(userId: number, message: string, type = 'info', projectId?: number | null): Promise<void> {
   // A notification must never fail the action that triggered it
-  try { await db('notifications').insert({ user_id: userId, message, type, ...(projectId ? { project_id: projectId } : {}) }); }
-  catch (err) { console.error('[notify] failed for user', userId, err); }
+  const send = async () => {
+    try { await db('notifications').insert({ user_id: userId, message, type, ...(projectId ? { project_id: projectId } : {}) }); }
+    catch (err) { console.error('[notify] failed for user', userId, err); }
+  };
+  await onCommit(send);
 }
 
 // Returns false if the recipient has disabled this pref key for any client in the project

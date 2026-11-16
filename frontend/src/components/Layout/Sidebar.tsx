@@ -6,7 +6,7 @@ import {
   RiGroupLine, RiSettings4Line, RiLogoutBoxRLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
-  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiCalendarLine, RiTimeLine,
+  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiRobot2Line, RiCalendarLine, RiTimeLine,
 } from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi, messagesApi } from '../../services/api';
@@ -34,6 +34,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/project-reports',    icon: RiLayoutGridLine, label: 'Project Costs' },
       { to: '/xlr8',               icon: RiLightbulbFlashLine, label: 'XLR8' },
       { to: '/admin/ticket-types', icon: RiTicket2Line,    label: 'Ticket Types' },
+      { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
@@ -151,6 +152,7 @@ export default function Sidebar() {
     { to: '/content',            icon: RiMagicLine,          label: 'Content AI',     section: 'more' },
     { to: '/admin/users',        icon: RiGroupLine,          label: 'Users',          section: 'more' },
     { to: '/admin/ticket-types', icon: RiTicket2Line,        label: 'Ticket Types',   section: 'more' },
+    { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant', section: 'more' },
     { to: '/contact-forms',      icon: RiMailAddLine,        label: 'Contact Forms',  section: 'more' },
     { to: '/regularisation',     icon: RiTimeLine,           label: 'Regularisation', section: 'more' },
   ];

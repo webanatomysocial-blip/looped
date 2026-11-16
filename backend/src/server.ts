@@ -9,7 +9,7 @@ import { io } from './socket';
 dotenv.config();
 
 import { initDB, getDB } from './db';
-import { repairSkippedStageTickets } from './routes/xlr8';
+import { repairSkippedStageTickets, recoverInterruptedTransitions } from './services/xlr8';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import projectRoutes from './routes/projects';
@@ -33,6 +33,9 @@ import appSettingsRoutes from './routes/app-settings';
 import xlr8Routes from './routes/xlr8';
 import calendarRoutes from './routes/calendar';
 import regularisationRoutes from './routes/regularisation';
+import assistantRoutes from './assistant/routes';
+import { requirePage } from './middleware/auth';
+import { apiLimiter, writeLimiter, sensitiveLimiter, publicLinkLimiter } from './middleware/rateLimits';
 import { startEmailScheduler, startRecurringTaskScheduler, scheduleWaitingReviewers } from './services/scheduler';
 
 const app = express();
@@ -99,6 +102,11 @@ app.use(morgan(':method :url :status :response-time ms - :res[content-length]'))
 
 // Uploads served only via authenticated /api/assets/:id/download
 
+// Rate limits (per session; see middleware/rateLimits.ts)
+app.use('/api/public', publicLinkLimiter);
+app.use('/api', apiLimiter, writeLimiter);
+app.use(['/api/users', '/api/auth/logout-all'], sensitiveLimiter);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -108,24 +116,43 @@ app.use('/api/approvals', approvalRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/messages', messageRoutes);
-app.use('/api/reports', reportRoutes);
+// APIs that serve exactly one website page also require that page's permission (S9)
+app.use('/api/reports', requirePage('/reports'), reportRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/internal-chat', internalChatRoutes);
 app.use('/api/emails', emailRoutes);
-app.use('/api/content', contentRoutes);
-app.use('/api/seo', seoRoutes);
+app.use('/api/content', requirePage('/content'), contentRoutes);
+app.use('/api/seo', requirePage('/seo'), seoRoutes);
 app.use('/api/public/seo', publicSeoRouter);
 app.use('/api/public/task', publicTaskRouter);
-app.use('/api/ads', adsRoutes);
+app.use('/api/ads', requirePage('/ads'), adsRoutes);
 app.use('/api/public/ads', publicAdsRouter);
 app.use('/api/capacity', capacityRoutes);
 app.use('/api/time-logs', timeLogsRoutes);
-app.use('/api/contact-forms', contactFormsRoutes);
-app.use('/api/local-seo', localSeoRoutes);
+app.use('/api/contact-forms', requirePage('/contact-forms'), contactFormsRoutes);
+app.use('/api/local-seo', requirePage('/local-seo'), localSeoRoutes);
 app.use('/api/app-settings', appSettingsRoutes);
 app.use('/api/xlr8', xlr8Routes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/regularisation', regularisationRoutes);
+app.use('/api/assistant', assistantRoutes);
+// Phase 4.5: admin-only control centre API. No action handlers are registered, so nothing can be retried or executed.
+let assistantConfig: import('./assistant/config').AssistantConfig | null = null;
+try {
+  assistantConfig = require('./assistant/config').loadAssistantConfig();
+  const c = assistantConfig!;
+  // Safe summary only: no key, no secret, no phone numbers
+  console.log(`[assistant] configured: enabled=${c.enabled} provider=${c.ai.provider} model=${c.ai.model ?? 'none'} timezone=${c.timezone} execution=${c.queue.executionEnabled ? 'ENABLED' : 'disabled'}`);
+  if (c.queue.executionEnabled && !c.enabled) console.warn('[assistant] execution is switched on but the assistant is off: nothing will run');
+} catch (e: any) {
+  assistantConfig = null;
+  const problems: string[] = Array.isArray(e?.problems) ? e.problems : [String(e?.message ?? e)];
+  console.warn('[assistant] configuration is INVALID, so the assistant stays OFF and nothing will run:');
+  for (const p of problems) console.warn(`[assistant]   - ${p}`);
+  if (process.env.ASSISTANT_EXECUTION_ENABLED === 'true') console.error('[assistant] execution was requested but the configuration is invalid: execution stays OFF');
+}
+const assistantRegistry = new (require('./assistant/executor').HandlerRegistry)();
+app.use('/api/assistant-admin', require('./assistant/adminApi').createAssistantAdminRouter({ getDB, registry: assistantRegistry, config: assistantConfig, whatsappStatus: () => require('./assistant/whatsapp/runtime').getWhatsAppStatus(), whatsappPairing: () => require('./assistant/whatsapp/runtime').getPairingCode(), whatsappNewPairing: () => require('./assistant/whatsapp/runtime').requestNewPairing(), whatsappGroups: () => require('./assistant/whatsapp/runtime').listWhatsAppGroups() }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -149,7 +176,41 @@ if (process.env.NODE_ENV === 'production') {
 
 initDB()
   .then(async () => {
+    const recovered = await recoverInterruptedTransitions(getDB()).catch((e) => { console.error('[xlr8] recovery failed', e); return 0; });
+    if (recovered) console.log(`[xlr8] restored ${recovered} interrupted ticket transition(s)`);
     await repairSkippedStageTickets(getDB()).catch((e) => console.error('[xlr8] skip repair failed', e));
+    // Assistant worker: only when the assistant is on. Recovery runs first; execution still needs its own switch.
+    if (assistantConfig?.enabled) {
+      const { ticketRegistry, stillVerified } = require('./assistant/actions');
+      const { recoverOnStartup, startWorker } = require('./assistant/worker');
+      const registry = ticketRegistry(getDB());
+      const settings = {
+        workerId: `web-${process.pid}`, maxAttempts: assistantConfig.queue.maxAttempts, leaseSeconds: assistantConfig.queue.leaseSeconds,
+        contextTtlSeconds: assistantConfig.contextTtlSeconds, executionEnabled: assistantConfig.queue.executionEnabled,
+      };
+      const deps = { db: getDB(), registry, stillVerified: (id: number) => stillVerified(getDB(), id), settings };
+      await recoverOnStartup(deps).catch((e: any) => console.error('[assistant-worker] startup recovery failed'));
+      startWorker(deps);
+    }
+    // WhatsApp channel: off by default; needs the assistant on as well
+    if (assistantConfig?.enabled) {
+      try {
+        const { loadWhatsAppConfig } = require('./assistant/whatsapp/config');
+        const waConfig = loadWhatsAppConfig();
+        if (waConfig.enabled) {
+          const { startWhatsApp } = require('./assistant/whatsapp/runtime');
+          const c = assistantConfig;
+          await startWhatsApp(getDB(), {
+            ai: new (require('./assistant/aiUsage').RecordingAIProvider)(require('./assistant/ai').createAIProvider(c.ai), getDB), timezone: c.timezone, contextTtlSeconds: c.contextTtlSeconds,
+            confirmationTtlSeconds: c.confirmationTtlSeconds, queueExpirySeconds: c.queue.queueExpirySeconds, executionEnabled: c.queue.executionEnabled,
+          }, waConfig).then(() => console.log('[whatsapp] adapter started; pairing is needed until a session exists'))
+            .catch((e: any) => console.error('[whatsapp] did not start:', String(e?.message ?? 'error').slice(0, 160)));
+        }
+      } catch (e: any) {
+        console.warn('[whatsapp] configuration is INVALID, so WhatsApp stays OFF:');
+        for (const p of (Array.isArray(e?.problems) ? e.problems : [])) console.warn(`[whatsapp]   - ${p}`);
+      }
+    }
     startEmailScheduler();
     startRecurringTaskScheduler();
     scheduleWaitingReviewers(getDB()).catch((err) => console.error('[scheduler] Waiting reviews error:', err));

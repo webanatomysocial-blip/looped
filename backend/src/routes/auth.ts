@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { sendEmail } from '../services/emailService';
 import { getDB } from '../db';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import { authenticate, AuthRequest, revokeSessions } from '../middleware/auth';
 
 async function getUserCategories(userId: number): Promise<{ id: number; name: string }[]> {
   const db = getDB();
@@ -47,13 +47,14 @@ router.post('/login', loginLimiter, async (req: Request, res: Response) => {
     const secret = process.env.JWT_SECRET;
     if (!secret) { res.status(500).json({ error: 'Server misconfiguration' }); return; }
     const token = jwt.sign(
-      { id: user.id, role: user.role, email: user.email, name: user.name, pod: user.pod ?? null },
+      { id: user.id, role: user.role, email: user.email, name: user.name, pod: user.pod ?? null, tv: Number(user.token_version ?? 0) },
       secret,
       { algorithm: 'HS256', expiresIn: '7d' }
     );
     res.json({
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null },
+      must_change_password: Boolean(user.must_change_password),
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -116,10 +117,32 @@ router.post('/reset-password', resetLimiter, async (req: Request, res: Response)
     }
     const password_hash = await bcrypt.hash(password, 10);
     await db('users').where({ id: row.user_id }).update({ password_hash });
+    await revokeSessions(row.user_id); // a reset means the old password may be compromised
     await db('password_resets').where({ id: row.id }).update({ used_at: new Date() });
     res.json({ message: 'Password updated. You can now sign in.' });
   } catch (err) {
     console.error('reset-password error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Choose a new password. Requires the current one, bumps the session version (other sessions end) and returns a fresh token.
+router.post('/change-password', loginLimiter, authenticate, async (req: AuthRequest, res: Response) => {
+  const current = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
+  const next = typeof req.body?.new_password === 'string' ? req.body.new_password : '';
+  if (next.length < 12 || next.length > 200) { res.status(400).json({ error: 'New password must be 12 to 200 characters' }); return; }
+  if (next === current) { res.status(400).json({ error: 'The new password must be different from the current one' }); return; }
+  try {
+    const db = getDB();
+    const user = await db('users').where({ id: req.user!.id }).first();
+    if (!user || !(await bcrypt.compare(current, user.password_hash))) { res.status(400).json({ error: 'Current password is incorrect' }); return; }
+    const tv = Number(user.token_version ?? 0) + 1;
+    await db('users').where({ id: user.id }).update({ password_hash: await bcrypt.hash(next, 10), must_change_password: false, token_version: tv });
+    const secret = process.env.JWT_SECRET;
+    if (!secret) { res.status(500).json({ error: 'Server misconfiguration' }); return; }
+    const token = jwt.sign({ id: user.id, role: user.role, email: user.email, name: user.name, pod: user.pod ?? null, tv }, secret, { algorithm: 'HS256', expiresIn: '7d' });
+    res.json({ ok: true, token });
+  } catch {
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -132,10 +155,16 @@ router.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     const categories = await getUserCategories(user.id);
     const pageRows = await db('user_page_permissions').where({ user_id: user.id }).select('page_slug');
     const page_permissions = pageRows.length ? pageRows.map((r: any) => r.page_slug) : null;
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null, categories, page_permissions });
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, avatar_color: user.avatar_color, avatar_url: user.avatar_url ?? null, pod: user.pod ?? null, must_change_password: Boolean(user.must_change_password), categories, page_permissions });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Log out on every device: all tokens issued so far stop working
+router.post('/logout-all', authenticate, async (req: AuthRequest, res: Response) => {
+  try { await revokeSessions(req.user!.id); res.json({ message: 'Signed out everywhere' }); }
+  catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 export default router;
