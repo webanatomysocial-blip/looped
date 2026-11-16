@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { format } from 'date-fns';
 import Layout from '../../components/Layout/Layout';
 import { assistantAdminApi } from '../../services/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { MessageCircle, Users, UserX, Clock, Activity, Cpu, CalendarDays, CalendarRange, RefreshCw, Link2, AlertTriangle, Bell, CheckCircle2, Search, QrCode, Smartphone } from 'lucide-react';
 import '../../css/admin/AssistantControl.css';
 
@@ -147,6 +148,9 @@ const PAIR_TEXT: Record<string, { title: string; text: string; tone: string }> =
   stopped: { title: 'Not running', text: 'WhatsApp is turned off on this server.', tone: 'muted' },
 };
 function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; onConnected: () => void }) {
+  const { user } = useAuth();
+  // Only administrators can view or start pairing; the server enforces the same rule
+  if (user && user.role !== 'admin') return null;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [show, setShow] = useState(false);

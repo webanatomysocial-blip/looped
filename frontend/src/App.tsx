@@ -145,7 +145,7 @@ function AppRoutes() {
       {/* Admin: Ticket Types */}
       {/* AI Assistant Control Centre — admin only (server enforces the same role) */}
       <Route path="/admin/assistant" element={
-        <PrivateRoute roles={['admin']}>
+        <PrivateRoute roles={['admin', 'manager']}>
           <AssistantControl />
         </PrivateRoute>
       } />

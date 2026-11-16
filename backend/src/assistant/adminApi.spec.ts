@@ -93,12 +93,13 @@ before(async () => {
 after(async () => { server?.close(); await db.destroy(); });
 
 // ── Access control ──
-test('every endpoint refuses anonymous callers and non-admins, including managers', async () => {
+test('every endpoint refuses anonymous callers and employees; managers get the dashboard (QR pairing is tested separately)', async () => {
   const paths: [string, string][] = [['GET', '/dashboard'], ['GET', '/queue'], ['GET', '/requests'], ['GET', '/requests/req-1'], ['GET', '/identities'], ['GET', '/conversations'], ['GET', '/conversations/messages?key=x'], ['GET', '/failures'], ['GET', '/audit'], ['GET', '/config'], ['POST', '/failures/req-5/retry'], ['POST', '/identities/1/revoke']];
   for (const [m, p] of paths) {
     assert.equal((await call(null, m, p)).status, 401, 'anonymous ' + p);
     assert.equal((await call('priya', m, p)).status, 403, 'employee ' + p);
-    assert.equal((await call('mgr', m, p)).status, 403, 'manager ' + p);
+    // Managers can read the dashboard; the POST actions below run for real, so they are checked for employees only
+    if (m === 'GET') assert.equal((await call('mgr', m, p)).status, 200, 'manager ' + p);
   }
 });
 
@@ -193,15 +194,15 @@ test('identity list masks the number and exposes no codes or secrets', async () 
   assert.ok(!raw.includes('9876543210') && !raw.includes('active_sender_key') && !raw.includes('code_hash'));
 });
 
-test('revoking an identity needs the admin role, takes effect and is audited', async () => {
+test('revoking an identity: a manager can do it like an admin; it takes effect and is audited', async () => {
   const id = (await db('assistant_identities').where({ user_id: U.priya.id }).first()).id;
-  assert.equal((await call('mgr', 'POST', `/identities/${id}/revoke`)).status, 403);
-  assert.equal((await call('admin', 'POST', `/identities/${id}/revoke`)).status, 200);
+  assert.equal((await call('priya', 'POST', `/identities/${id}/revoke`)).status, 403, 'employees cannot');
+  assert.equal((await call('mgr', 'POST', `/identities/${id}/revoke`)).status, 200, 'managers can');
   const row = await db('assistant_identities').where({ id }).first();
   assert.equal(row.status, 'revoked');
   assert.equal(row.active_sender_key, null, 'a revoked number stops resolving');
   const audit = (await call('admin', 'GET', '/audit?source=admin')).body.items;
-  assert.ok(audit.some((a: any) => a.action === 'identity_revoked' && a.actor === 'Asha Admin'));
+  assert.ok(audit.some((a: any) => a.action === 'identity_revoked' && a.actor === 'Mona Manager'));
   assert.equal((await call('admin', 'POST', `/identities/${id}/revoke`)).status, 409, 'already revoked');
 });
 

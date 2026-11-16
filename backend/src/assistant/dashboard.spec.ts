@@ -160,11 +160,11 @@ test('five wrong codes: failed with the reason', async () => {
 
 // ── Endpoints and permissions ──
 
-test('permissions: only admins reach the dashboard, usage and linking endpoints', async () => {
+test('permissions: admins and managers reach the dashboard, usage and linking; employees and anonymous callers do not', async () => {
   for (const url of ['/api/assistant-admin/overview', '/api/assistant-admin/usage', '/api/assistant-admin/linking']) {
     assert.equal((await call(null, 'GET', url)).status, 401);
-    assert.equal((await call('mgr', 'GET', url)).status, 403);
     assert.equal((await call('linked', 'GET', url)).status, 403);
+    assert.equal((await call('mgr', 'GET', url)).status, 200, 'managers get the same dashboard');
     assert.equal((await call('admin', 'GET', url)).status, 200);
   }
   assert.equal((await call('linked', 'POST', '/api/assistant-admin/linking/link', { user_ids: [U.none.id] })).status, 403);

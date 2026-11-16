@@ -63,7 +63,9 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   const r = Router();
   const now = () => (d.now ? d.now() : Date.now());
   // Every route in this router is admin-only, checked on the server
-  r.use(authenticate, requireRoles('admin'));
+  // Admins and managers see the dashboard; the WhatsApp QR pairing routes below stay admin-only
+  r.use(authenticate, requireRoles('admin', 'manager'));
+  const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only an administrator can manage the WhatsApp connection' }));
   const wrap = (fn: (req: AuthRequest, res: Response) => Promise<unknown>) => async (req: AuthRequest, res: Response, _n: NextFunction) => {
     try { const out = await fn(req, res); if (!res.headersSent) res.json(out); }
     catch (e: any) {
@@ -366,7 +368,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   r.get('/whatsapp', wrap(async () => d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' }));
   // Read-only: group names and JIDs the connected account is in. Nothing is sent, joined or changed.
   // ── Pairing: the QR the existing connection is waiting for, to admins only. Never logged, never cached. ──
-  r.get('/whatsapp/pairing', wrap(async (_req, res) => {
+  r.get('/whatsapp/pairing', adminOnly, wrap(async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     const st: any = d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' };
     const code = st.state === 'awaiting_qr' ? d.whatsappPairing?.() ?? null : null;
@@ -379,7 +381,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       can_request_new: st.state === 'logged_out',
     };
   }));
-  r.post('/whatsapp/pairing/refresh', wrap(async (req, res) => {
+  r.post('/whatsapp/pairing/refresh', adminOnly, wrap(async (req, res) => {
     const st: any = d.whatsappStatus?.() ?? { state: 'stopped' };
     if (st.state !== 'logged_out' || !d.whatsappNewPairing?.()) return res.status(409).json({ error: 'A new code is not needed: the connection issues codes by itself while it is waiting for pairing.' }) as any;
     await audit(d.getDB(), req.user!.id, 'whatsapp_pairing_requested', 'whatsapp', 'new pairing round requested', now());

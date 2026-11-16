@@ -57,6 +57,7 @@ const NAV: Record<Role, NavGroup> = {
     ],
     more: [
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
+      { to: '/admin/assistant',    icon: RiRobot2Line,     label: 'AI Assistant' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
