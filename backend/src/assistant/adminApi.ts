@@ -10,7 +10,7 @@ import { PendingError, listPendingSenders, approvePendingSender, dismissPendingS
 import { AssistantConfig } from './config';
 import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
-import { listEmployeeLinking, linkEmployees } from './employeeLinking';
+import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
 import { notificationGroupJid } from '../services/assignmentNotices';
 
 export const maskPhone = (e164: string | null | undefined) => (e164 ? `${e164.slice(0, 3)} •••• ${e164.slice(-4)}` : '');
@@ -150,6 +150,18 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
 
   // ── Employee WhatsApp linking (existing identity system; selecting someone is never proof) ──
   r.get('/linking', wrap(async () => listEmployeeLinking(d.getDB(), new Date(now()))));
+  // Admin and manager record a mobile number for an employee. This does not link the account.
+  r.put('/linking/:userId/phone', wrap(async (req) => {
+    const id = Number(req.params.userId);
+    if (!Number.isInteger(id)) throw new IdentityError('not_found', 'Staff member not found');
+    return { ok: true, ...(await saveEmployeePhone(d.getDB(), { userId: id, phone: req.body?.phone, actorId: req.user!.id, now: new Date(now()) })) };
+  }));
+  // Admin only: link the employee's WhatsApp to the number the admin entered (confirmed by the admin, audited)
+  r.post('/linking/:userId/direct-link', adminOnly, wrap(async (req) => {
+    const id = Number(req.params.userId);
+    if (!Number.isInteger(id)) throw new IdentityError('not_found', 'Staff member not found');
+    return { ok: true, ...(await directLinkEmployee(d.getDB(), { userId: id, phone: req.body?.phone, actorId: req.user!.id, note: req.body?.note, confirmed: req.body?.confirmed, now: new Date(now()) })) };
+  }));
   r.post('/linking/link', wrap(async (req, res) => {
     const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids : [];
     if (!ids.length) return res.status(400).json({ error: 'Select at least one employee' }) as any;

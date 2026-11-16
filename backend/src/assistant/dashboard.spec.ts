@@ -241,3 +241,75 @@ test('pairing endpoint without the qrcode package: says the image is unavailable
     assert.ok(!JSON.stringify(body).includes('RAW'));
   } finally { s2.closeAllConnections?.(); s2.close(); }
 });
+
+// ── Mobile number field (record only, never links) ──
+
+test('mobile number: saved for an employee, masked in the list, invalid numbers refused, and the account stays unlinked', async () => {
+  const before = await listEmployeeLinking(db());
+  const nora = before.find((r) => r.user_id === U.none.id)!;
+  assert.equal(nora.declared_number, null);
+  const { saveEmployeePhone } = await import('./employeeLinking');
+  const ok = await saveEmployeePhone(db(), { userId: U.none.id, phone: '+91 98765 43210', actorId: U.admin.id });
+  assert.equal(ok.masked, '+91 •••• 3210');
+  await saveEmployeePhone(db(), { userId: U.none.id, phone: '+919876500000', actorId: U.admin.id });
+  const after = (await listEmployeeLinking(db())).find((r) => r.user_id === U.none.id)!;
+  assert.equal(after.declared_number, '+91 •••• 0000', 'the newest number replaces the old one');
+  assert.equal(after.status, nora.status, 'a recorded number does not change the link status');
+  assert.notEqual(after.status, 'linked', 'a recorded number never links anyone');
+  assert.ok(!JSON.stringify(await listEmployeeLinking(db())).includes('+919876500000'), 'the full number is never listed');
+  await assert.rejects(saveEmployeePhone(db(), { userId: U.none.id, phone: '12345', actorId: U.admin.id }), /country code/);
+  await assert.rejects(saveEmployeePhone(db(), { userId: U.client.id, phone: '+919876500001', actorId: U.admin.id }), /not found/);
+  assert.ok(await db()('assistant_admin_audit').where({ action: 'employee_phone_saved' }).first());
+});
+
+test('mobile number endpoint: managers and admins can record it, employees cannot', async () => {
+  const app = express(); app.use(express.json());
+  app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null }));
+  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.none.id}/phone`;
+  const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
+  const put = (k: string) => fetch(b2, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ phone: '+919812345678' }) });
+  try {
+    assert.equal((await put('linked')).status, 403);
+    assert.equal((await put('mgr')).status, 200);
+    assert.equal((await put('admin')).status, 200);
+  } finally { s2.closeAllConnections?.(); s2.close(); }
+});
+
+// ── Admin direct link (replaces the code step, audited) ──
+
+test('direct link: the admin-entered number becomes the active WhatsApp identity; needs confirmation and a note; replaces the old link; audited', async () => {
+  const { directLinkEmployee } = await import('./employeeLinking');
+  await assert.rejects(directLinkEmployee(db(), { userId: U.nit ? U.nit.id : U.none.id, phone: '+919811100001', actorId: U.admin.id, note: 'confirmed in person', confirmed: false }), /Confirm/);
+  await assert.rejects(directLinkEmployee(db(), { userId: U.none.id, phone: '+919811100001', actorId: U.admin.id, note: 'short', confirmed: true }), /note/);
+  await assert.rejects(directLinkEmployee(db(), { userId: U.none.id, phone: '12', actorId: U.admin.id, note: 'confirmed in person', confirmed: true }), /country code/);
+  const r = await directLinkEmployee(db(), { userId: U.none.id, phone: '+919811100001', actorId: U.admin.id, note: 'Confirmed in person at the office', confirmed: true });
+  assert.equal(r.masked, '+91 •••• 0001');
+  const row = (await listEmployeeLinking(db())).find((x) => x.user_id === U.none.id)!;
+  assert.equal(row.status, 'linked');
+  const active = await db()('assistant_identities').where({ user_id: U.none.id, channel: 'whatsapp', status: 'active' });
+  assert.equal(active.length, 1, 'exactly one active number');
+  assert.equal(active[0].external_sender_id, '+919811100001');
+  assert.equal(active[0].linked_via, 'admin');
+  // Another employee cannot take the same number
+  await assert.rejects(directLinkEmployee(db(), { userId: U.pending.id, phone: '+919811100001', actorId: U.admin.id, note: 'Confirmed in person again', confirmed: true }), /already linked/);
+  // Changing the number replaces the old link
+  await directLinkEmployee(db(), { userId: U.none.id, phone: '+919811100002', actorId: U.admin.id, note: 'New phone confirmed by admin', confirmed: true });
+  const now = await db()('assistant_identities').where({ user_id: U.none.id, channel: 'whatsapp', status: 'active' });
+  assert.equal(now.length, 1);
+  assert.equal(now[0].external_sender_id, '+919811100002');
+  assert.ok(await db()('assistant_admin_audit').where({ action: 'employee_direct_linked', target: `user:${U.none.id}` }).first());
+});
+
+test('direct link endpoint: admin only; managers and employees are refused', async () => {
+  const app = express(); app.use(express.json());
+  app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null }));
+  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.pending.id}/direct-link`;
+  const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
+  const body = JSON.stringify({ phone: '+919811100003', note: 'Confirmed in person at the office', confirmed: true });
+  const post = (k: string) => fetch(b2, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body });
+  try {
+    assert.equal((await post('mgr')).status, 403, 'managers cannot direct-link');
+    assert.equal((await post('linked')).status, 403);
+    assert.equal((await post('admin')).status, 200);
+  } finally { s2.closeAllConnections?.(); s2.close(); }
+});

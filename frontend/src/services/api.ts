@@ -361,6 +361,8 @@ export const assistantAdminApi = {
   requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),
   usage: (days = 30) => api.get('/assistant-admin/usage', { params: { days } }),
   linking: () => api.get('/assistant-admin/linking'),
+  directLink: (userId: number, body: { phone: string; note: string; confirmed: boolean }) => api.post(`/assistant-admin/linking/${userId}/direct-link`, body),
+  saveEmployeePhone: (userId: number, phone: string) => api.put(`/assistant-admin/linking/${userId}/phone`, { phone }),
   linkEmployees: (user_ids: number[]) => api.post('/assistant-admin/linking/link', { user_ids }),
 };
 

@@ -121,3 +121,13 @@
 .ac-pair__steps { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-soft); line-height: 1.8; }
 .ac-pair__body > .ac-btn { grid-column: 1 / -1; justify-self: start; }
 @media (max-width: 720px) { .ac-pair__body { grid-template-columns: 1fr; } .ac-pair__qr { width: 100%; } }
+
+.ac-phone { min-width: 200px; }
+.ac-phone__saved { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+.ac-phone__row { display: flex; gap: 6px; }
+.ac-phone__row .form-input { padding: 6px 10px; font-size: 13px; min-width: 150px; }
+
+.ac-phone__link { display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--sand-border); }
+.ac-phone__check { font-size: 12px; color: var(--ink-soft); display: flex; gap: 6px; align-items: center; }
+.ac-phone__link .form-input { padding: 6px 10px; font-size: 13px; }
+.ac-phone__link .ac-btn { justify-self: start; }

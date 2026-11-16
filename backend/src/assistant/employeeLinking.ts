@@ -7,12 +7,70 @@
 // mapping by itself: it uses an existing verified mapping when there is one, and otherwise reports that an identity
 // mapping is required. Every attempt is written to the admin audit history.
 import { Knex } from 'knex';
-import { STAFF_ROLES, MAX_CODE_ATTEMPTS } from './identityStore';
+import { STAFF_ROLES, MAX_CODE_ATTEMPTS, normalizePhoneInput, IdentityError } from './identityStore';
+
+// Mobile numbers the admin enters for each employee. This is only a record for the admin to match people against.
+// It never links anyone: a WhatsApp account is linked only when it proves itself through the existing link code.
+export async function ensureEmployeePhoneSchema(db: Knex): Promise<void> {
+  if (await db.schema.hasTable('assistant_employee_phones')) return;
+  await db.schema.createTable('assistant_employee_phones', (t) => {
+    t.integer('user_id').unsigned().primary();
+    t.string('phone', 20).notNullable();
+    t.integer('updated_by').nullable();
+    t.timestamp('updated_at').nullable();
+  });
+}
+
+// Admin direct link: the number the admin entered becomes the employee's active WhatsApp identity. The admin's confirmation
+// and note are the proof, and both are written to the audit history. Any earlier active link for this employee is retired.
+export async function directLinkEmployee(db: Knex, args: { userId: number; phone: unknown; actorId: number; note: unknown; confirmed: unknown; now?: Date }): Promise<{ masked: string }> {
+  if (args.confirmed !== true) throw new IdentityError('confirmation_required', 'Confirm that this is the employee\'s WhatsApp number');
+  const note = String(args.note ?? '').trim();
+  if (note.length < 10 || note.length > 200) throw new IdentityError('note_required', 'Write a note of 10 to 200 characters');
+  const phone = normalizePhoneInput(args.phone);
+  if (!phone) throw new IdentityError('invalid_phone', 'Enter the number with its country code, e.g. +919876543210');
+  const user = await db('users').where({ id: args.userId }).first('id', 'role');
+  if (!user || !STAFF_ROLES.includes(user.role)) throw new IdentityError('not_found', 'Staff member not found');
+  const now = args.now ?? new Date();
+  const senderKey = `whatsapp:${phone}`;
+  try {
+    await db.transaction(async (trx) => {
+      const holder = await trx('assistant_identities').where({ active_sender_key: senderKey }).first('user_id');
+      if (holder && Number(holder.user_id) !== args.userId) throw new IdentityError('conflict', 'This number is already linked to another employee');
+      await trx('assistant_identities').where({ user_id: args.userId, channel: 'whatsapp' }).whereIn('status', ['active', 'inactive'])
+        .update({ status: 'revoked', active_sender_key: null, active_user_key: null, status_changed_at: now, status_changed_by: args.actorId, status_reason: 'replaced by admin direct link' });
+      await trx('assistant_identities').insert({
+        user_id: args.userId, channel: 'whatsapp', external_sender_id: phone, status: 'active',
+        active_sender_key: senderKey, active_user_key: `${args.userId}:whatsapp`, linked_via: 'admin', initiated_by: args.actorId, verified_at: now,
+      });
+      await trx('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'employee_direct_linked', target: `user:${args.userId}`, detail: `${maskSender(phone)} linked by admin: ${note}`.slice(0, 300), created_at: now });
+    });
+  } catch (e: any) {
+    if (e instanceof IdentityError) throw e;
+    if (/unique|duplicate/i.test(String(e?.message))) throw new IdentityError('conflict', 'This number is already linked to another employee');
+    throw e;
+  }
+  await saveEmployeePhone(db, { userId: args.userId, phone, actorId: args.actorId, now });
+  return { masked: maskSender(phone)! };
+}
+
+export async function saveEmployeePhone(db: Knex, args: { userId: number; phone: unknown; actorId: number; now?: Date }): Promise<{ masked: string }> {
+  const phone = normalizePhoneInput(args.phone);
+  if (!phone) throw new IdentityError('invalid_phone', 'Enter the number with its country code, e.g. +919876543210');
+  const user = await db('users').where({ id: args.userId }).first('id', 'role', 'name');
+  if (!user || !STAFF_ROLES.includes(user.role)) throw new IdentityError('not_found', 'Staff member not found');
+  const now = args.now ?? new Date();
+  const exists = await db('assistant_employee_phones').where({ user_id: args.userId }).first('user_id');
+  if (exists) await db('assistant_employee_phones').where({ user_id: args.userId }).update({ phone, updated_by: args.actorId, updated_at: now });
+  else await db('assistant_employee_phones').insert({ user_id: args.userId, phone, updated_by: args.actorId, updated_at: now });
+  await db('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'employee_phone_saved', target: `user:${args.userId}`, detail: `number ${maskSender(phone)} recorded; not linked`, created_at: now });
+  return { masked: maskSender(phone)! };
+}
 
 export type LinkStatus = 'linked' | 'pending' | 'failed' | 'mapping_required';
 export interface LinkRow {
   user_id: number; name: string; role: string; status: LinkStatus;
-  number: string | null; detail: string; updated_at: string | null;
+  number: string | null; declared_number: string | null; detail: string; updated_at: string | null;
 }
 const iso = (v: any) => (v ? new Date(v).toISOString() : null);
 // "+91 •••• 1234" for phone links, "WhatsApp ID …1234" for internal ids. Never the full value.
@@ -24,6 +82,7 @@ export const maskSender = (s: string | null | undefined) => {
 
 export async function listEmployeeLinking(db: Knex, now: Date = new Date()): Promise<LinkRow[]> {
   const users = await db('users').whereIn('role', STAFF_ROLES).select('id', 'name', 'role').orderBy('name');
+  const declared = new Map<number, string>((await db('assistant_employee_phones').select('user_id', 'phone').catch(() => [])).map((r: any) => [Number(r.user_id), String(r.phone)]));
   const idents = await db('assistant_identities').where({ channel: 'whatsapp' }).orderBy('id', 'desc')
     .select('user_id', 'external_sender_id', 'status', 'verified_at', 'status_changed_at');
   const codes = await db('assistant_link_codes').where({ channel: 'whatsapp' }).orderBy('id', 'desc')
@@ -32,7 +91,7 @@ export async function listEmployeeLinking(db: Knex, now: Date = new Date()): Pro
   for (const u of users) {
     const id = Number(u.id);
     const active = idents.find((i: any) => Number(i.user_id) === id && i.status === 'active');
-    const base = { user_id: id, name: String(u.name), role: String(u.role) };
+    const base = { user_id: id, name: String(u.name), role: String(u.role), declared_number: declared.has(id) ? maskSender(declared.get(id)) : null };
     if (active) {
       out.push({ ...base, status: 'linked', number: maskSender(active.external_sender_id), detail: 'Verified WhatsApp identity', updated_at: iso(active.status_changed_at ?? active.verified_at) });
       continue;

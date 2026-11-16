@@ -10,6 +10,7 @@ import { ensureQueueSchema } from '../assistant/queueSchema';
 import { ensurePendingSchema } from '../assistant/pendingSenders';
 import { ensureOutboxSchema } from '../services/assignmentNotices';
 import { ensureUsageSchema } from '../assistant/aiUsage';
+import { ensureEmployeePhoneSchema } from '../assistant/employeeLinking';
 
 let db: Knex;
 
@@ -56,6 +57,7 @@ export async function initDB(): Promise<void> {
   await ensurePendingSchema(db);
   await ensureOutboxSchema(db);
   await ensureUsageSchema(db);
+  await ensureEmployeePhoneSchema(db);
   await ensureConversationSchema(db);
   await ensureQueueSchema(db);
   // First-login password change: set for seeded admin and demo accounts until they choose a new password

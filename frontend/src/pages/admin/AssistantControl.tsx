@@ -308,7 +308,7 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
           <div className="ac__table-wrap"><table className="ac__table ac-table">
             <thead><tr>
               <th className="ac-check"><input type="checkbox" aria-label="Select all eligible employees" checked={allPicked} disabled={!eligible.length} onChange={() => setPicked(allPicked ? new Set() : new Set(eligible.map((r) => r.user_id)))} /></th>
-              <th>Employee</th><th>WhatsApp</th><th>Status</th><th>Last update</th><th>Action</th>
+              <th>Employee</th><th>Mobile number</th><th>WhatsApp</th><th>Status</th><th>Last update</th><th>Action</th>
             </tr></thead>
             <tbody>{rows.map((r) => {
               const res = results[r.user_id];
@@ -316,6 +316,7 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
                 <tr key={r.user_id}>
                   <td className="ac-check">{r.status !== 'linked' && <input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.user_id)} onChange={() => toggle(r.user_id)} />}</td>
                   <td><strong>{r.name}</strong><div className="ac__muted">{label(r.role)}</div></td>
+                  <td><PhoneCell userId={r.user_id} masked={r.declared_number} linked={r.status === 'linked'} onSaved={reload} flash={flash} /></td>
                   <td className="ac__mono">{r.number ?? '—'}</td>
                   <td><Badge tone={tone(r.status)}>{LINK_LABEL[r.status]}</Badge>{(res ? res.message : r.detail) !== LINK_LABEL[r.status] && <div className="ac__muted">{res ? res.message : r.detail}</div>}</td>
                   <td>{when(r.updated_at)}</td>
@@ -330,6 +331,43 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
         {data && rows.length === 0 && <p className="ac__muted">No employees match.</p>}
       </Panel>
     </section>
+  );
+}
+
+// Mobile number entry: a record only. Saving it never links the WhatsApp account.
+function PhoneCell({ userId, masked, linked, onSaved, flash }: { userId: number; masked: string | null; linked: boolean; onSaved: () => void; flash: (m: string) => void }) {
+  const [value, setValue] = useState('');
+  const [note, setNote] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try { await assistantAdminApi.saveEmployeePhone(userId, value.trim()); setValue(''); flash('Mobile number saved.'); onSaved(); }
+    catch (e) { flash(errText(e)); } finally { setBusy(false); }
+  };
+  const link = async () => {
+    setBusy(true);
+    try {
+      await assistantAdminApi.directLink(userId, { phone: value.trim(), note, confirmed });
+      setValue(''); setNote(''); setConfirmed(false);
+      flash('Linked. The WhatsApp number is active and recorded in the audit history.'); onSaved();
+    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="ac-phone">
+      {masked && <div className="ac-phone__saved ac__mono">{masked}{linked ? ' · linked' : ''}</div>}
+      <div className="ac-phone__row">
+        <input className="form-input" placeholder={masked ? 'Change number' : '+91 98765 43210'} value={value} onChange={(e) => setValue(e.target.value)} aria-label="Mobile number with country code" />
+        <button className="btn-secondary ac-btn" disabled={busy || !value.trim()} onClick={save}>Save</button>
+      </div>
+      {value.trim() && (
+        <div className="ac-phone__link">
+          <label className="ac-phone__check"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> I confirm this is their WhatsApp number</label>
+          <input className="form-input" placeholder="Reason, e.g. confirmed in person (10+ characters)" value={note} onChange={(e) => setNote(e.target.value)} aria-label="Audit note" />
+          <button className="btn-primary ac-btn" disabled={busy || !confirmed || note.trim().length < 10} onClick={link}><Link2 size={14} /> Link now</button>
+        </div>
+      )}
+    </div>
   );
 }
 
