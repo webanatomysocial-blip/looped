@@ -72,7 +72,7 @@ export const msg = {
 
 // Private-chat replies to linked users (the conversation engine). Same building blocks as the group messages.
 export const pm = {
-  greeting: (draft = '') => compose(heading('👋', 'Welcome to Loop'), "Hi! I'm your Loop assistant. How can I help you today?", draft),
+  greeting: (draft = '', name = '') => compose(heading('👋', `Hi ${name.split(' ')[0] || 'there'}`), "I'm your Loop assistant. How can I help you today?", draft),
   help: (lines: string[], draft = '') => compose(
     heading(ICON.help, 'What I can help with'), lines,
     'Task management is handled in the Loop app, where you can create, view, assign and manage your tasks.',

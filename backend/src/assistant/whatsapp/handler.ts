@@ -5,7 +5,7 @@ import { IncomingMessage, OutgoingResponse, Channel } from '../types';
 import { processMessage } from '../pipeline';
 import { DbRequestStore, DbAuditLog } from '../conversationStore';
 import { DbIdentityResolver, createLinkHandler } from '../identityStore';
-import { RequestEngine, GROUP_REPLY } from '../engine';
+import { RequestEngine } from '../engine';
 import { recordPendingSender } from '../pendingSenders';
 import { EXPOSED_INTENTS } from '../actions';
 import { searchTickets, viewTicket, listMyTasks } from '../../services/ticketReads';
@@ -53,12 +53,14 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
       if (groupWho.status !== 'verified') return null;
       // Productivity questions: only in the configured group, only for verified managers and admins. Authority comes from
       // the verified identity's Loop role, never from a name or a mention in the message.
-      if (msg.conversationId === notificationGroupJid() && (groupWho.role === 'manager' || groupWho.role === 'admin')) {
+      const greet = /^(hi+|hello|hey|good (morning|afternoon|evening))[\s!.,]*$/i.test(msg.text.replace(/@\S+/g, ' ').trim());
+      if (!greet && msg.conversationId === notificationGroupJid() && (groupWho.role === 'manager' || groupWho.role === 'admin')) {
         const answer = await answerForGroup(db, o.ai, { userId: groupWho.loopUserId, role: groupWho.role, text: msg.text })
           .catch(() => ({ text: waMsg.error(), mentions: [] as string[] }));
         return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: answer.text, mentions: answer.mentions };
       }
-      return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: GROUP_REPLY };
+      // Everyone else linked gets the same personal assistant as in a private chat, answered in the group
+      msg = { ...msg, isGroup: false, text: msg.text.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() };
     }
     if (msg.senderId.startsWith('lid:')) await recordPendingSender(db, msg.senderId).catch(() => undefined);
     const out: any = await processMessage(msg, {

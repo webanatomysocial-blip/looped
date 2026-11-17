@@ -72,7 +72,7 @@ const looksClean = (t: string) => {
 
 test('private greeting: headed welcome, no AI call', async () => {
   const { r, ai } = await say('hi');
-  assert.equal(r.reply, "👋 *Welcome to Loop*\n\nHi! I'm your Loop assistant. How can I help you today?");
+  assert.match(r.reply, /^👋 \*Hi \S+\*\n\nI'm your Loop assistant\. How can I help you today\?$/);
   assert.equal(ai.calls.length, 0);
 });
 

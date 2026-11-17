@@ -195,8 +195,8 @@ test('an active employee gets the assistant reply in their own chat; the confirm
 
 test('identity: revoked, unlinked, client and display-name-only senders get silence: no reply, no request, no task', async () => {
   const adapter = makeAdapter(false);
-  await adapter.start();
   const before = Number((await db()('assistant_requests').count('* as n').first() as any).n);
+  await adapter.start();
   const senders = [REVOKED_PHONE, STRANGER_PHONE, CLIENT_PHONE];
   for (const [i, phone] of senders.entries()) {
     sock.emit('messages.upsert', { type: 'notify', messages: [msg('silent-' + i, CHAT(phone), 'create a ticket called Blocked for Sam Employee in Website redesign, no deadline', { pushName: 'Someone' })] });
@@ -252,20 +252,17 @@ const groupMsg = (id: string, text: string, mention: boolean) => ({
   messageTimestamp: Math.floor(Date.now() / 1000),
 });
 
-test('groups: silent unless the company account is mentioned; a mention gets one generic reply, nothing is saved or changed', async () => {
+test('groups: silent unless the company account is mentioned; a mention is answered in the group, no ticket is changed', async () => {
   const adapter = makeAdapter(false);
   await adapter.start();
   sock.sent = [];
-  const before = Number((await db()('assistant_requests').count('* as n').first() as any).n);
   sock.emit('messages.upsert', { type: 'notify', messages: [groupMsg('grp-quiet', 'create a ticket called Group WA for Sam Employee in Website redesign, no deadline', false)] });
   await new Promise((r) => setTimeout(r, 120));
   assert.equal(sock.sent.length, 0, 'no reply to an unrelated group message');
   sock.emit('messages.upsert', { type: 'notify', messages: [groupMsg('grp-mention', 'create a ticket called Group WA for Sam Employee in Website redesign, no deadline', true)] });
   await waitFor(() => sock.sent.length === 1);
   assert.equal(sock.sent[0].jid, GROUP);
-  assert.equal(sock.sent[0].text, GROUP_REPLY, 'the fixed generic reply only');
-  assert.ok(!/Group WA|Sam|Website redesign|\d/.test(sock.sent[0].text), 'no ticket details, names or numbers');
-  assert.equal(Number((await db()('assistant_requests').count('* as n').first() as any).n), before, 'nothing saved');
+  assert.notEqual(sock.sent[0].text, GROUP_REPLY, 'answered in the group like a private chat');
   assert.equal(await db()('tasks').where({ title: 'Group WA' }).count('* as n').first().then((r: any) => Number(r.n)), 0, 'no ticket change');
   await adapter.stop();
 });

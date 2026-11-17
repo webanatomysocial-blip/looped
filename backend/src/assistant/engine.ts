@@ -24,7 +24,7 @@ export const PRIVATE_CHANNELS = ['simulator'];
 export function isPrivateChat(msg: { channel: string; isGroup?: boolean }): boolean {
   return PRIVATE_CHANNELS.includes(msg.channel) || (msg.channel === 'whatsapp' && msg.isGroup === false);
 }
-export const GROUP_REPLY = '👋 *Loop assistant*\n\nI can\'t share task details in groups. For help, message me privately, or open the Loop app.';
+export const GROUP_REPLY = '👋 *Loop assistant*\n\nI couldn\'t match you to a Loop account. Ask an admin to link your number in the AI Assistant dashboard.';
 
 export interface TicketReader {
   search(actor: Actor, text: string): Promise<{ total: number; items: { id: number; title: string; status: string; priority: string; due_date: string | null }[] }>;
@@ -120,8 +120,8 @@ export function helpFor(role: string, open: RequestRow[], exposed: readonly stri
   return pm.help(available, draftLine(open));
 }
 
-export function greetingFor(open: RequestRow[]): string {
-  return pm.greeting(draftLine(open));
+export function greetingFor(open: RequestRow[], name = ''): string {
+  return pm.greeting(draftLine(open), name);
 }
 
 // A plain reply to an open question answers that question. Corrections and blanks fall through or re-ask.
@@ -283,7 +283,7 @@ export class RequestEngine {
       for (const r of open) await transition(this.d.db, r.id, 'CANCELLED', { event: 'cancelled', loopUserId: who.id, conversationKey: key, detail: 'start over', expectFrom: ['NEEDS_CLARIFICATION'] }, nowMs).catch(() => {});
       return reply({ reply: `${pm.cancelled('your current request')}\n\nWhat would you like to do next?`, requestId: null, status: 'cancelled' });
     }
-    if (cmd === 'GREETING') return reply({ reply: greetingFor(open), requestId: open[0]?.id ?? null, status: 'answered' });
+    if (cmd === 'GREETING') return reply({ reply: greetingFor(open, String((await this.d.db('users').where({ id: who.id }).first('name').catch(() => null))?.name ?? '')), requestId: open[0]?.id ?? null, status: 'answered' });
     if (cmd === 'HELP') return reply({ reply: helpFor(who.role, open, (this.d.exposedIntents ?? []) as readonly string[]), requestId: open[0]?.id ?? null, status: 'answered' });
 
     // "Show the projects here": a request to display projects, never a project name. The draft is kept.

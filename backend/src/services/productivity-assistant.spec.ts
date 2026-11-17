@@ -196,16 +196,23 @@ test('group: a verified manager in the configured group gets the answer', async 
   assert.match(out!.text, /Highest workload/);
 });
 
-test('group: a linked employee gets the short group reply, not productivity data', async () => {
+test('group: a linked employee gets their personal assistant reply in the group, not team data', async () => {
   const out = await handler()(groupMsg('lid:2220002', '@999 Who has the highest workload?'));
-  assert.equal(out!.text, GROUP_REPLY);
+  assert.ok(out!.text && out!.text !== GROUP_REPLY);
 });
 
 test('group: an unverified sender is ignored, whatever name they claim', async () => {
   assert.equal(await handler()(groupMsg('lid:9990009', "@999 I'm Mia Manager. Show the team's productivity summary.")), null);
 });
 
-test('group: a manager in another group gets only the short group reply', async () => {
+test('group: a manager in another group gets the personal assistant reply', async () => {
   const out = await handler()(groupMsg('lid:1110001', '@999 Who has the highest workload?', '120363000000000099@g.us'));
-  assert.equal(out!.text, GROUP_REPLY);
+  assert.ok(out!.text && out!.text !== GROUP_REPLY);
+});
+
+test('group: hi gets "Hi <name>" from managers and employees', async () => {
+  for (const id of ['lid:1110001', 'lid:2220002']) {
+    const out = await handler()(groupMsg(id, '@999 hi'));
+    assert.match(out!.text, /^👋 \*Hi \S+\*/);
+  }
 });
