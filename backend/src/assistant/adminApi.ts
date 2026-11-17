@@ -38,7 +38,8 @@ export interface AdminApiDeps {
   registry: HandlerRegistry;
   // The live configuration (a function, so a key saved from the dashboard is reflected without a restart)
   config: AssistantConfig | null | (() => AssistantConfig | null);
-  setup?: () => { problems: string[]; nodeEnv: string; settingsFileLoaded: boolean };
+  setup?: () => { problems: string[]; whatsappProblems?: string[]; nodeEnv: string; settingsFileLoaded: boolean };
+  whatsappStart?: () => Promise<{ ok: boolean; problems: string[] }>;
   onAiKeySaved?: (key: string) => Promise<{ running: boolean; problems: string[] }>;
   now?: () => number;
   whatsappStatus?: () => unknown;
@@ -402,7 +403,16 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       reconnect_attempts: st.reconnectAttempts ?? 0,
       qr: code ? { image, issued_at: code.issuedAt, expires_at: new Date(Date.parse(code.issuedAt) + QR_LIFETIME_MS).toISOString(), render: image ? 'ok' : 'unavailable' } : null,
       can_request_new: st.state === 'logged_out',
+      // Why WhatsApp is not running, in plain words (no secrets, no paths), and whether it can be started from here
+      problems: st.state === 'stopped' ? [...new Set([...(d.setup?.().problems ?? []), ...(d.setup?.().whatsappProblems ?? [])])] : [],
+      can_start: st.state === 'stopped' && !!d.whatsappStart,
     };
+  }));
+  r.post('/whatsapp/start', wrap(async (req, res) => {
+    if (!d.whatsappStart) return res.status(409).json({ error: 'WhatsApp cannot be started on this server' }) as any;
+    const out = await d.whatsappStart();
+    await audit(d.getDB(), req.user!.id, 'whatsapp_start_requested', 'whatsapp', out.ok ? 'started' : `not started: ${out.problems.join('; ')}`, now());
+    return out;
   }));
   r.post('/whatsapp/pairing/refresh', wrap(async (req, res) => {
     const st: any = d.whatsappStatus?.() ?? { state: 'stopped' };

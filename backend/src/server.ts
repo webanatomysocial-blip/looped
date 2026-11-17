@@ -176,22 +176,41 @@ async function startAssistantServices(): Promise<void> {
   const deps = { db: getDB(), registry, stillVerified: (id: number) => stillVerified(getDB(), id), settings };
   await recoverOnStartup(deps).catch(() => console.error('[assistant-worker] startup recovery failed'));
   startWorker(deps);
-  // WhatsApp channel: off by default; needs the assistant on as well
-  try {
-    const { loadWhatsAppConfig } = require('./assistant/whatsapp/config');
-    const waConfig = loadWhatsAppConfig();
-    if (waConfig.enabled) {
-      const { startWhatsApp } = require('./assistant/whatsapp/runtime');
-      const c = assistantConfig;
-      await startWhatsApp(getDB(), {
-        ai: new (require('./assistant/aiUsage').RecordingAIProvider)(require('./assistant/ai').createAIProvider(c.ai), getDB), timezone: c.timezone, contextTtlSeconds: c.contextTtlSeconds,
-        confirmationTtlSeconds: c.confirmationTtlSeconds, queueExpirySeconds: c.queue.queueExpirySeconds, executionEnabled: c.queue.executionEnabled,
-      }, waConfig).then(() => console.log('[whatsapp] adapter started; pairing is needed until a session exists'))
-        .catch((e: any) => console.error('[whatsapp] did not start:', String(e?.message ?? 'error').slice(0, 160)));
-    }
-  } catch (e: any) {
+  await startWhatsAppNow();
+}
+
+// Starts WhatsApp when it is not running and records why it could not, in plain words, for the dashboard.
+// Called at boot, after a key is saved, and from the dashboard's Start WhatsApp button. Never creates a second connection.
+let whatsappProblems: string[] = [];
+async function startWhatsAppNow(): Promise<{ ok: boolean; problems: string[] }> {
+  const runtime = require('./assistant/whatsapp/runtime');
+  if (runtime.getWhatsAppStatus().state !== 'stopped') { whatsappProblems = []; return { ok: true, problems: [] }; }
+  if (!assistantConfig?.enabled) {
+    whatsappProblems = assistantProblems.length ? assistantProblems : ['The assistant is switched off (ASSISTANT_ENABLED is not "true")'];
+    return { ok: false, problems: whatsappProblems };
+  }
+  let waConfig: any;
+  try { waConfig = require('./assistant/whatsapp/config').loadWhatsAppConfig(); }
+  catch (e: any) {
+    whatsappProblems = Array.isArray(e?.problems) ? e.problems : [String(e?.message ?? 'WhatsApp settings are invalid')];
     console.warn('[whatsapp] configuration is INVALID, so WhatsApp stays OFF:');
-    for (const p of (Array.isArray(e?.problems) ? e.problems : [])) console.warn(`[whatsapp]   - ${p}`);
+    for (const p of whatsappProblems) console.warn(`[whatsapp]   - ${p}`);
+    return { ok: false, problems: whatsappProblems };
+  }
+  if (!waConfig.enabled) { whatsappProblems = ['WhatsApp is switched off (ASSISTANT_WHATSAPP_ENABLED is not "true")']; return { ok: false, problems: whatsappProblems }; }
+  const c = assistantConfig;
+  try {
+    await runtime.startWhatsApp(getDB(), {
+      ai: new (require('./assistant/aiUsage').RecordingAIProvider)(require('./assistant/ai').createAIProvider(c.ai), getDB), timezone: c.timezone, contextTtlSeconds: c.contextTtlSeconds,
+      confirmationTtlSeconds: c.confirmationTtlSeconds, queueExpirySeconds: c.queue.queueExpirySeconds, executionEnabled: c.queue.executionEnabled,
+    }, waConfig);
+    console.log('[whatsapp] adapter started; pairing is needed until a session exists');
+    whatsappProblems = [];
+    return { ok: true, problems: [] };
+  } catch (e: any) {
+    whatsappProblems = [`WhatsApp could not start: ${String(e?.message ?? 'error').replace(/\+?\d{8,}/g, '[number]').slice(0, 160)}`];
+    console.error('[whatsapp] did not start:', whatsappProblems[0]);
+    return { ok: false, problems: whatsappProblems };
   }
 }
 
@@ -203,8 +222,9 @@ async function useStoredAiKey(): Promise<void> {
 }
 const assistantRegistry = new (require('./assistant/executor').HandlerRegistry)();
 app.use('/api/assistant-admin', require('./assistant/adminApi').createAssistantAdminRouter({ getDB, registry: assistantRegistry, config: () => assistantConfig,
-  setup: () => ({ problems: assistantProblems, nodeEnv: process.env.NODE_ENV ?? 'not set', settingsFileLoaded: assistantSettingsFileLoaded }),
-  onAiKeySaved: async (key: string) => { process.env.ASSISTANT_AI_API_KEY = key; loadAssistant(); await startAssistantServices(); return { running: !!assistantConfig?.enabled, problems: assistantProblems }; }, whatsappStatus: () => require('./assistant/whatsapp/runtime').getWhatsAppStatus(), whatsappPairing: () => require('./assistant/whatsapp/runtime').getPairingCode(), whatsappNewPairing: () => require('./assistant/whatsapp/runtime').requestNewPairing(), whatsappGroups: () => require('./assistant/whatsapp/runtime').listWhatsAppGroups() }));
+  setup: () => ({ problems: assistantProblems, whatsappProblems, nodeEnv: process.env.NODE_ENV ?? 'not set', settingsFileLoaded: assistantSettingsFileLoaded }),
+  whatsappStart: () => startWhatsAppNow(),
+  onAiKeySaved: async (key: string) => { process.env.ASSISTANT_AI_API_KEY = key; loadAssistant(); await startAssistantServices(); await startWhatsAppNow(); return { running: !!assistantConfig?.enabled, problems: assistantProblems }; }, whatsappStatus: () => require('./assistant/whatsapp/runtime').getWhatsAppStatus(), whatsappPairing: () => require('./assistant/whatsapp/runtime').getPairingCode(), whatsappNewPairing: () => require('./assistant/whatsapp/runtime').requestNewPairing(), whatsappGroups: () => require('./assistant/whatsapp/runtime').listWhatsAppGroups() }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

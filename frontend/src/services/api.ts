@@ -359,6 +359,7 @@ export const assistantAdminApi = {
   saveAiKey: (key: string) => api.post('/assistant-admin/config/ai-key', { key }),
   overview: () => api.get('/assistant-admin/overview'),
   pairing: () => api.get('/assistant-admin/whatsapp/pairing'),
+  startWhatsApp: () => api.post('/assistant-admin/whatsapp/start'),
   requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),
   usage: (days = 30) => api.get('/assistant-admin/usage', { params: { days } }),
   linking: () => api.get('/assistant-admin/linking'),

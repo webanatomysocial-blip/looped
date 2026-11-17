@@ -174,6 +174,14 @@ function WhatsAppPairing({ flash, onConnected, onSetup }: { flash: (m: string) =
   const info = PAIR_TEXT[state] ?? { title: label(state), text: '', tone: 'muted' };
   const qr = data.qr;
   const expired = qr && Date.parse(qr.expires_at) < tick;
+  const startNow = async () => {
+    setBusy(true);
+    try {
+      const r = await assistantAdminApi.startWhatsApp();
+      flash(r.data.ok ? 'WhatsApp is starting. Click Show QR code when it appears.' : `WhatsApp did not start: ${r.data.problems.join(' ')}`);
+      setShow(true); load();
+    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
+  };
   const requestNew = async () => {
     setBusy(true);
     try { await assistantAdminApi.requestNewPairing(); flash('A new pairing code was requested.'); setShow(true); load(); }
@@ -186,7 +194,15 @@ function WhatsAppPairing({ flash, onConnected, onSetup }: { flash: (m: string) =
         <Badge tone={info.tone}>{info.title}</Badge>
       </div>
       <p className="ac-pair__text">{info.text}{data.account ? ` Account ${data.account}.` : ''}</p>
-      {state === 'stopped' && onSetup && <button className="btn-primary ac-btn" onClick={onSetup}>Open Configuration</button>}
+      {state === 'stopped' && data.problems?.length > 0 && (
+        <ul className="ac-setup__problems">{data.problems.map((p: string) => <li key={p}>{p}</li>)}</ul>
+      )}
+      {state === 'stopped' && (
+        <div className="ac-toolbar">
+          {data.can_start && <button className="btn-primary ac-btn" disabled={busy} onClick={startNow}><RefreshCw size={14} /> {busy ? 'Starting…' : 'Start WhatsApp'}</button>}
+          {onSetup && <button className="btn-secondary ac-btn" onClick={onSetup}>Open Configuration</button>}
+        </div>
+      )}
       {state === 'awaiting_qr' && !show && <button className="btn-primary ac-btn" onClick={() => { setShow(true); load(); }}><QrCode size={14} /> Show QR code</button>}
       {state === 'logged_out' && <button className="btn-primary ac-btn" disabled={busy} onClick={requestNew}><RefreshCw size={14} /> Request a new QR code</button>}
       {show && state === 'awaiting_qr' && (

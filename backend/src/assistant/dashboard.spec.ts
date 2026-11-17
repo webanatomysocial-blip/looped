@@ -377,3 +377,26 @@ test('save AI key endpoint: admins and managers only, bad keys refused, starts t
     assert.match(cfgBody, /ASSISTANT_AI_API_KEY is required/, 'the setup problems are shown in plain words');
   } finally { s2.closeAllConnections?.(); s2.close(); }
 });
+
+test('WhatsApp not running: the panel shows why in plain words and offers Start, which retries and is audited', async () => {
+  let tries = 0;
+  const app = express(); app.use(express.json());
+  app.use('/api/assistant-admin', createAssistantAdminRouter({
+    getDB, registry: new HandlerRegistry(), config: () => null,
+    whatsappStatus: () => ({ enabled: false, state: 'stopped' }),
+    setup: () => ({ problems: [], whatsappProblems: ['ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder'], nodeEnv: 'production', settingsFileLoaded: true }),
+    whatsappStart: async () => { tries++; return { ok: false, problems: ['ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder'] }; },
+  }));
+  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
+  const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
+  try {
+    const p: any = await (await fetch(`${b2}/whatsapp/pairing`, { headers: { Authorization: tok('mgr') } })).json();
+    assert.deepEqual(p.problems, ['ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder']);
+    assert.equal(p.can_start, true);
+    assert.equal((await fetch(`${b2}/whatsapp/start`, { method: 'POST', headers: { Authorization: tok('linked') } })).status, 403, 'employees cannot');
+    const r: any = await (await fetch(`${b2}/whatsapp/start`, { method: 'POST', headers: { Authorization: tok('admin') } })).json();
+    assert.equal(r.ok, false);
+    assert.equal(tries, 1);
+    assert.ok(await db()('assistant_admin_audit').where({ action: 'whatsapp_start_requested' }).first());
+  } finally { s2.closeAllConnections?.(); s2.close(); }
+});
