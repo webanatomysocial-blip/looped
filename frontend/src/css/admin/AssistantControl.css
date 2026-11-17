@@ -131,3 +131,6 @@
 .ac-phone__check { font-size: 12px; color: var(--ink-soft); display: flex; gap: 6px; align-items: center; }
 .ac-phone__link .form-input { padding: 6px 10px; font-size: 13px; }
 .ac-phone__link .ac-btn { justify-self: start; }
+.ac-stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ac-phone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ac-linkbtn { background: none; border: 0; padding: 0; font-size: 12px; color: var(--blue); cursor: pointer; text-decoration: underline; }

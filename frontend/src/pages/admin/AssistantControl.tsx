@@ -14,7 +14,9 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 const STATUSES = ['NEEDS_CLARIFICATION', 'READY_FOR_CONFIRMATION', 'CONFIRMED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REJECTED'];
 const label = (s?: string | null) => (s ?? '').replace(/_/g, ' ').toLowerCase();
-const when = (s?: string | null) => (s ? format(new Date(s), 'd MMM yyyy, HH:mm') : '—');
+// MySQL returns times as plain text in UTC ("2026-11-17 07:57:10"); without this they show 5½ hours early in India
+const toDate = (s: string | number) => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) && !/[TZ+]/.test(s) ? new Date(s.replace(' ', 'T') + 'Z') : new Date(s));
+const when = (s?: string | number | null) => (s ? format(toDate(s), 'd MMM yyyy, HH:mm') : '—');
 const errText = (e: any) => e?.response?.data?.error || 'Something went wrong. Please try again.';
 
 export default function AssistantControl() {
@@ -148,9 +150,6 @@ const PAIR_TEXT: Record<string, { title: string; text: string; tone: string }> =
   stopped: { title: 'Not running', text: 'WhatsApp is turned off on this server.', tone: 'muted' },
 };
 function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; onConnected: () => void }) {
-  const { user } = useAuth();
-  // Only administrators can view or start pairing; the server enforces the same rule
-  if (user && user.role !== 'admin') return null;
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [show, setShow] = useState(false);
@@ -211,13 +210,16 @@ function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; o
 
 // ── Overview ──
 function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => void }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const { data, error, loading, reload } = useLoader(() => assistantAdminApi.overview().then((r) => r.data));
   const wa = data?.whatsapp; const u = data?.usage;
   const waTone = wa?.state === 'connected' ? 'ok' : wa?.state === 'connecting' ? 'warn' : 'bad';
   return (
     <section>
       <div className="ac__filters"><button className="btn-secondary ac-btn" onClick={reload}><RefreshCw size={14} /> Refresh</button></div>
-      <WhatsAppPairing flash={flash} onConnected={reload} />
+      {/* Only administrators can view or start pairing; the server enforces the same rule */}
+      {isAdmin && <WhatsAppPairing flash={flash} onConnected={reload} />}
       <Status state={data} loading={loading} error={error} />
       {data && (
         <>
@@ -264,68 +266,44 @@ function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => v
 }
 
 // ── Employee linking ──
+// One row per employee: their WhatsApp number, whether it is linked, and one action. Admins enter a number and click Link;
+// it is active straight away. The row updates at once, without a page refresh.
 function LinkingTab({ flash }: { flash: (m: string) => void }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';   // only admins link numbers (linking is immediate)
   const { data, error, loading, reload } = useLoader(() => assistantAdminApi.linking().then((r) => r.data));
   const [q, setQ] = useState('');
-  const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [results, setResults] = useState<Record<number, { outcome: string; message: string }>>({});
-  const [busy, setBusy] = useState(false);
-  const rows: any[] = (data ?? []).filter((r: any) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
-  const eligible = rows.filter((r) => r.status !== 'linked');
-  const allPicked = eligible.length > 0 && eligible.every((r) => picked.has(r.user_id));
-  const toggle = (id: number) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const run = async (ids: number[]) => {
-    if (!ids.length) return;
-    setBusy(true);
-    try {
-      const res = await assistantAdminApi.linkEmployees(ids);
-      const map = { ...results };
-      for (const r of res.data.results) map[r.user_id] = { outcome: r.outcome, message: r.message };
-      setResults(map); setPicked(new Set());
-      const needs = res.data.results.filter((r: any) => r.outcome === 'mapping_required').length;
-      flash(needs ? `${needs} employee${needs === 1 ? '' : 's'} need a verified WhatsApp identity before they can be linked.` : 'Done. Results are shown in the table and recorded in the audit history.');
-      reload();
-    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
-  };
-  const tone = (s: string) => (s === 'linked' ? 'ok' : s === 'pending' ? 'warn' : s === 'failed' ? 'bad' : 'muted');
-  const counts = (s: string) => (data ?? []).filter((r: any) => r.status === s).length;
+  // Rows changed in this session, shown immediately while the list reloads from the server
+  const [done, setDone] = useState<Record<number, { number: string; at: string }>>({});
+  useEffect(() => { setDone({}); }, [data]);
+  const all: any[] = (data ?? []).map((r: any) => (done[r.user_id] ? { ...r, status: 'linked', number: done[r.user_id].number, updated_at: done[r.user_id].at } : r));
+  const rows = all.filter((r) => r.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const linked = all.filter((r) => r.status === 'linked').length;
+  const onLinked = (userId: number, masked: string) => { setDone((d) => ({ ...d, [userId]: { number: masked, at: new Date().toISOString() } })); reload(); };
   return (
     <section>
-      <div className="ac-stats ac-stats--4">
-        <Stat icon={Users} label="Linked" value={counts('linked')} tone="ok" />
-        <Stat icon={Clock} label="Pending" value={counts('pending')} />
-        <Stat icon={AlertTriangle} label="Failed" value={counts('failed')} tone={counts('failed') ? 'bad' : undefined} />
-        <Stat icon={UserX} label="Identity mapping required" value={counts('mapping_required')} tone={counts('mapping_required') ? 'warn' : undefined} />
+      <div className="ac-stats ac-stats--3">
+        <Stat icon={Users} label="Linked" value={linked} tone="ok" />
+        <Stat icon={UserX} label="Not linked" value={all.length - linked} tone={all.length - linked ? 'warn' : undefined} />
+        <Stat icon={Users} label="Staff" value={all.length} />
       </div>
       <Panel wide title="WhatsApp employee linking" action={
-        <div className="ac-toolbar">
-          <label className="ac-search"><Search size={14} /><input className="form-input" placeholder="Search employees" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search employees" /></label>
-          <button className="btn-primary ac-btn" disabled={busy || picked.size === 0} onClick={() => run([...picked])}><Link2 size={14} /> Link selected ({picked.size})</button>
-        </div>}>
-        <p className="ac__muted ac-note">Linking uses Loop's verified WhatsApp identities only. Loop has no employee phone numbers on file, and selecting an employee is not proof that a WhatsApp account belongs to them, so employees without a verified identity show "Identity mapping required". Nobody is marked linked unless WhatsApp itself confirmed their account.</p>
+        <label className="ac-search"><Search size={14} /><input className="form-input" placeholder="Search employees" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search employees" /></label>}>
+        <p className="ac__muted ac-note">{isAdmin
+          ? "Enter the employee's WhatsApp number with its country code and click Link. It is active straight away and recorded in the audit history."
+          : 'Only administrators can link or change numbers.'}</p>
         <Status state={data} loading={loading} error={error} />
         {data && (
           <div className="ac__table-wrap"><table className="ac__table ac-table">
-            <thead><tr>
-              <th className="ac-check"><input type="checkbox" aria-label="Select all eligible employees" checked={allPicked} disabled={!eligible.length} onChange={() => setPicked(allPicked ? new Set() : new Set(eligible.map((r) => r.user_id)))} /></th>
-              <th>Employee</th><th>Mobile number</th><th>WhatsApp</th><th>Status</th><th>Last update</th><th>Action</th>
-            </tr></thead>
-            <tbody>{rows.map((r) => {
-              const res = results[r.user_id];
-              return (
-                <tr key={r.user_id}>
-                  <td className="ac-check">{r.status !== 'linked' && <input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.user_id)} onChange={() => toggle(r.user_id)} />}</td>
-                  <td><strong>{r.name}</strong><div className="ac__muted">{label(r.role)}</div></td>
-                  <td><PhoneCell userId={r.user_id} masked={r.declared_number} linked={r.status === 'linked'} onSaved={reload} flash={flash} /></td>
-                  <td className="ac__mono">{r.number ?? '—'}</td>
-                  <td><Badge tone={tone(r.status)}>{LINK_LABEL[r.status]}</Badge>{(res ? res.message : r.detail) !== LINK_LABEL[r.status] && <div className="ac__muted">{res ? res.message : r.detail}</div>}</td>
-                  <td>{when(r.updated_at)}</td>
-                  <td>{r.status === 'linked'
-                    ? <span className="ac__muted">Manage in Identities</span>
-                    : <button className="btn-secondary ac-btn" disabled={busy} onClick={() => run([r.user_id])}>{r.status === 'failed' ? 'Retry' : r.status === 'pending' ? 'Check status' : 'Link'}</button>}</td>
-                </tr>
-              );
-            })}</tbody>
+            <thead><tr><th>Employee</th><th>WhatsApp number</th><th>Status</th><th>Last update</th></tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr key={r.user_id}>
+                <td><strong>{r.name}</strong><div className="ac__muted">{label(r.role)}</div></td>
+                <td><NumberCell userId={r.user_id} number={r.number ?? r.declared_number} linked={r.status === 'linked'} canEdit={isAdmin} onLinked={onLinked} flash={flash} /></td>
+                <td><Badge tone={r.status === 'linked' ? 'ok' : 'muted'}>{r.status === 'linked' ? 'Linked' : 'Not linked'}</Badge></td>
+                <td>{when(r.updated_at)}</td>
+              </tr>
+            ))}</tbody>
           </table></div>
         )}
         {data && rows.length === 0 && <p className="ac__muted">No employees match.</p>}
@@ -334,23 +312,34 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
   );
 }
 
-// Mobile number entry: a record only. Saving it never links the WhatsApp account.
-function PhoneCell({ userId, masked, linked, onSaved, flash }: { userId: number; masked: string | null; linked: boolean; onSaved: () => void; flash: (m: string) => void }) {
+// Shows the number; for admins, an input to link one (or a Change button once linked)
+function NumberCell({ userId, number, linked, canEdit, onLinked, flash }: { userId: number; number: string | null; linked: boolean; canEdit: boolean; onLinked: (userId: number, masked: string) => void; flash: (m: string) => void }) {
+  const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
-  // Saving the number links the employee straight away: the number entered here is their WhatsApp
   const save = async () => {
     setBusy(true);
-    try { await assistantAdminApi.saveEmployeePhone(userId, value.trim()); setValue(''); flash('Saved and linked. The employee can use the assistant from this number.'); onSaved(); }
-    catch (e) { flash(errText(e)); } finally { setBusy(false); }
+    try {
+      const res = await assistantAdminApi.saveEmployeePhone(userId, value.trim());
+      setValue(''); setEditing(false);
+      onLinked(userId, res.data.masked);
+      flash('Linked. The employee can use the assistant from this number.');
+    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
   };
+  const showInput = canEdit && (!linked || editing);
   return (
     <div className="ac-phone">
-      {masked && <div className="ac-phone__saved ac__mono">{masked}{linked ? ' · linked' : ''}</div>}
-      <div className="ac-phone__row">
-        <input className="form-input" placeholder={masked ? 'Change number' : '+91 98765 43210'} value={value} onChange={(e) => setValue(e.target.value)} aria-label="Mobile number with country code" />
-        <button className="btn-primary ac-btn" disabled={busy || !value.trim()} onClick={save}><Link2 size={14} /> Save &amp; link</button>
-      </div>
+      {number && <span className="ac__mono">{number}</span>}
+      {!number && !showInput && <span className="ac__muted">—</span>}
+      {canEdit && linked && !editing && <button className="ac-linkbtn" onClick={() => setEditing(true)}>Change</button>}
+      {showInput && (
+        <div className="ac-phone__row">
+          <input className="form-input" placeholder="+91 98765 43210" value={value} autoFocus={editing}
+            onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && value.trim() && !busy) save(); }} aria-label="WhatsApp number with country code" />
+          <button className="btn-primary ac-btn" disabled={busy || !value.trim()} onClick={save}><Link2 size={14} /> {busy ? 'Linking…' : 'Link'}</button>
+          {editing && <button className="btn-secondary ac-btn" disabled={busy} onClick={() => { setEditing(false); setValue(''); }}>Cancel</button>}
+        </div>
+      )}
     </div>
   );
 }

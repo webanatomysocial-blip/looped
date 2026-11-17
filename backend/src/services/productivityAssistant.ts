@@ -5,7 +5,7 @@ import { Knex } from 'knex';
 import type { AIProvider } from '../assistant/ai';
 import { projectScope } from './access';
 import { employeeTasks, trackedTime, istParts, istDayStart, formatHours, TaskLine } from './productivityReports';
-import { jidForIdentity } from './assignmentNotices';
+import { jidForIdentity, mentionTag } from './assignmentNotices';
 import { compose, heading, bold, clean, italic, bullet, capped, plural, dateTime, timeOnly, msg, ICON, QUICK_REPLIES, QUICK_REPLY_LINE, HELP_ENABLED } from './waMessage';
 
 const TZ = 'Asia/Kolkata';
@@ -167,7 +167,7 @@ export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args:
     const jid = jidByUser.get(Number(p.id));
     if (!jid) return clean(p.name, 40);
     mentions.add(jid);
-    return `@${clean(p.name, 40)}`;
+    return mentionTag(jid, p.name);
   };
   const done = (t: TaskLine) => !t.open && t.completedMs !== null && t.completedMs >= rangeStart && t.completedMs < rangeEnd;
   switch (q.intent) {
@@ -184,10 +184,10 @@ export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args:
       const where = (s: any) => `${clean(s.title)} (${clean(s.project || 'No project', 40)})`;
       if (running) {
         const since = toMs(running.started_at);
-        return compose(heading(ICON.running, `${name(person)} is working on`), `${where(running)}${since !== null ? ` — timer running since ${timeOnly(since)}` : ''}`, tail);
+        return compose(heading(ICON.running, `${clean(person.name, 40)} is working on`), `${name(person)}: ${where(running)}${since !== null ? ` — timer running since ${timeOnly(since)}` : ''}`, tail);
       }
       const lastToday = sessions.find((s: any) => { const st = toMs(s.started_at); return st !== null && st >= istDayStart(dates[0]); });
-      return compose(heading(ICON.info, `${name(person)} — no timer running`), lastToday ? `Last worked on today: ${where(lastToday)}` : 'No tracked work today.', tail);
+      return compose(heading(ICON.info, `${clean(person.name, 40)} — no timer running`), `${name(person)}: ${lastToday ? `last worked on today: ${where(lastToday)}` : 'no tracked work today.'}`, tail);
     }
     case 'hours':
     case 'no_hours': {
@@ -218,7 +218,7 @@ export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args:
         ]);
       }
       if (!blocks.length) return msg.empty('Pending and overdue', `No pending or overdue tasks${person ? ` for ${name(person)}` : ''}.`);
-      return compose(heading(ICON.list, person ? `${name(person)}'s pending and overdue tasks` : 'Pending and overdue tasks'), ...blocks, QUICK_REPLY_LINE);
+      return compose(heading(ICON.list, person ? `${clean(person.name, 40)}'s pending and overdue tasks` : 'Pending and overdue tasks'), ...blocks, QUICK_REPLY_LINE);
     }
     case 'workload':
     case 'highest_workload': {
@@ -228,7 +228,7 @@ export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args:
       if (q.intent === 'highest_workload') {
         if (load[0].open === 0) return msg.empty('Highest workload', 'Nobody in your team has open tasks right now.');
         const top = load.filter((l) => l.open === load[0].open);
-        return compose(heading(ICON.top, 'Highest workload'), `${top.map((l) => bold(l.name)).join(', ')} with ${plural(load[0].open, 'open task')}.`);
+        return compose(heading(ICON.top, 'Highest workload'), `${top.map((l) => (l.name.startsWith('@') ? l.name : bold(l.name))).join(', ')} with ${plural(load[0].open, 'open task')}.`);
       }
       return compose(heading(ICON.workload, 'Current workload (open tasks)'), capped(load.map((l) => bullet(`${l.name}: ${l.open}${l.overdue ? ` (${l.overdue} overdue)` : ''}`)), 15), QUICK_REPLY_LINE);
     }

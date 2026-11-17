@@ -37,20 +37,26 @@ export async function directLinkEmployee(db: Knex, args: { userId: number; phone
     await db.transaction(async (trx) => {
       const holder = await trx('assistant_identities').where({ active_sender_key: senderKey }).first('user_id');
       if (holder && Number(holder.user_id) !== args.userId) throw new IdentityError('conflict', 'This number is already linked to another employee');
-      await trx('assistant_identities').where({ user_id: args.userId, channel: 'whatsapp' }).whereIn('status', ['active', 'inactive'])
-        .update({ status: 'revoked', active_sender_key: null, active_user_key: null, status_changed_at: now, status_changed_by: args.actorId, status_reason: 'replaced by admin direct link' });
-      await trx('assistant_identities').insert({
-        user_id: args.userId, channel: 'whatsapp', external_sender_id: phone, status: 'active',
-        active_sender_key: senderKey, active_user_key: `${args.userId}:whatsapp`, linked_via: 'admin', initiated_by: args.actorId, verified_at: now,
-      });
-      await trx('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'employee_direct_linked', target: `user:${args.userId}`, detail: `${maskSender(phone)} linked by admin: ${note}`.slice(0, 300), created_at: now });
+      // Already linked to this same number (a repeat click): nothing to replace, only the saved number is refreshed
+      if (!holder) {
+        await trx('assistant_identities').where({ user_id: args.userId, channel: 'whatsapp' }).whereIn('status', ['active', 'inactive'])
+          .update({ status: 'revoked', active_sender_key: null, active_user_key: null, status_changed_at: now, status_changed_by: args.actorId, status_reason: 'replaced by admin direct link' });
+        await trx('assistant_identities').insert({
+          user_id: args.userId, channel: 'whatsapp', external_sender_id: phone, status: 'active',
+          active_sender_key: senderKey, active_user_key: `${args.userId}:whatsapp`, linked_via: 'admin', initiated_by: args.actorId, verified_at: now,
+        });
+        await trx('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'employee_direct_linked', target: `user:${args.userId}`, detail: `${maskSender(phone)} linked by admin: ${note}`.slice(0, 300), created_at: now });
+      }
+      // The saved number, in the same transaction (never through saveEmployeePhone, which calls this function)
+      const saved = await trx('assistant_employee_phones').where({ user_id: args.userId }).first('user_id');
+      if (saved) await trx('assistant_employee_phones').where({ user_id: args.userId }).update({ phone, updated_by: args.actorId, updated_at: now });
+      else await trx('assistant_employee_phones').insert({ user_id: args.userId, phone, updated_by: args.actorId, updated_at: now });
     });
   } catch (e: any) {
     if (e instanceof IdentityError) throw e;
     if (/unique|duplicate/i.test(String(e?.message))) throw new IdentityError('conflict', 'This number is already linked to another employee');
     throw e;
   }
-  await saveEmployeePhone(db, { userId: args.userId, phone, actorId: args.actorId, now });
   return { masked: maskSender(phone)! };
 }
 
@@ -114,7 +120,7 @@ export const OUTCOME_TEXT: Record<LinkOutcome, string> = {
 };
 
 // Admin "Link selected": checks each employee against the trusted sources and records the result. Never links on its own.
-export async function linkEmployees(db: Knex, args: { userIds: number[]; actorId: number; now?: Date }): Promise<{ user_id: number; name: string; outcome: LinkOutcome; message: string }[]> {
+export async function linkEmployees(db: Knex, args: { userIds: number[]; actorId: number; now?: Date; canDirectLink?: boolean }): Promise<{ user_id: number; name: string; outcome: LinkOutcome; message: string }[]> {
   const now = args.now ?? new Date();
   const ids = [...new Set(args.userIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
   const rows = await listEmployeeLinking(db, now);
@@ -124,7 +130,7 @@ export async function linkEmployees(db: Knex, args: { userIds: number[]; actorId
   for (const id of ids) {
     const row = rows.find((r) => r.user_id === id);
     // A saved number is linked directly, as an admin entry; without one, the existing checks apply
-    if (row && row.status !== 'linked' && saved.has(id)) {
+    if (args.canDirectLink && row && row.status !== 'linked' && saved.has(id)) {
       try {
         await directLinkEmployee(db, { userId: id, phone: saved.get(id), actorId: args.actorId, note: 'Linked by administrator from the saved number', confirmed: true, now });
         results.push({ user_id: id, name: row.name, outcome: 'linked' as LinkOutcome, message: OUTCOME_TEXT.linked });

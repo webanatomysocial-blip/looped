@@ -576,3 +576,18 @@ test('new pairing round: refused while connected or waiting; allowed only after 
   assert.equal(sockets, 2, 'one new connection on the same adapter and session folder; no second adapter');
   await adapter.stop();
 });
+
+test('config: a session folder written as ~/folder is the home folder of the server user, and is accepted', () => {
+  const os = require('os');
+  const c = loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: '~/loop-whatsapp-session' } as any);
+  assert.equal(c.sessionDir, path.join(os.homedir(), 'loop-whatsapp-session'));
+});
+
+test('the production settings file holds no secrets and keeps execution off', () => {
+  const fs = require('fs');
+  const text = fs.readFileSync(path.join(__dirname, '../../../assistant.production.env'), 'utf8');
+  assert.ok(!/^\s*(ASSISTANT_AI_API_KEY|OPENAI_API_KEY|JWT_SECRET|DB_PASS)\s*=/m.test(text), 'no secrets in git');
+  assert.match(text, /^ASSISTANT_EXECUTION_ENABLED=false$/m);
+  assert.match(text, /^ASSISTANT_OPENAI_MODEL=gpt-5\.4-nano$/m);
+  assert.ok(!/ASSISTANT_TASK_OPS_ENABLED/.test(text), 'task operations stay off');
+});

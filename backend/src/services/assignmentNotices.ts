@@ -14,6 +14,12 @@ export function notificationGroupJid(env: NodeJS.ProcessEnv = process.env): stri
   return /^\d{10,20}(-\d{1,10})?@g\.us$/.test(v) ? v : null;
 }
 
+// The text WhatsApp needs for a real tag: "@" plus the id part of the JID. WhatsApp shows it as the person's name and
+// notifies them. Writing "@Name" instead only shows plain text and nobody is notified.
+// Only internal WhatsApp ids (@lid) are written into the text. A phone-number JID would put the full phone number in the
+// message, which is never allowed, so those people are shown as "@Name" (the mention is still attached to the message).
+export const mentionTag = (jid: string, name: string) => (String(jid).endsWith('@lid') ? `@${String(jid).split('@')[0]}` : `@${clean(name, 40)}`);
+
 // Participant JID from a verified identity mapping only. Never built from a name, and never from a number that is not linked.
 export function jidForIdentity(externalSenderId: string): string | null {
   if (/^\+\d{8,15}$/.test(externalSenderId)) return `${externalSenderId.slice(1)}@s.whatsapp.net`;
@@ -40,7 +46,7 @@ export async function ensureOutboxSchema(db: Knex): Promise<void> {
 }
 
 // Pure text builder. Linked employees appear as @name with a real mention; unlinked employees appear as plain names.
-const names = (people: { name: string; mention: string | null }[]) => people.map((p) => (p.mention ? `@${clean(p.name, 40)}` : clean(p.name, 40))).join(', ') || '—';
+const names = (people: { name: string; mention: string | null }[]) => people.map((p) => (p.mention ? mentionTag(p.mention, p.name) : clean(p.name, 40))).join(', ') || '—';
 const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p.mention).filter((m): m is string => !!m);
 
 export function buildAssignmentText(args: {
@@ -164,7 +170,7 @@ export function acceptanceReminderMinutes(env: NodeJS.ProcessEnv = process.env):
 }
 
 export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[] } {
-  const who = args.person.mention ? `@${clean(args.person.name, 40)}` : clean(args.person.name, 40);
+  const who = args.person.mention ? mentionTag(args.person.mention, args.person.name) : clean(args.person.name, 40);
   const text = compose(
     heading(ICON.reminder, 'Acceptance reminder'),
     `${who}, please review and accept your assignment in Loop.`,

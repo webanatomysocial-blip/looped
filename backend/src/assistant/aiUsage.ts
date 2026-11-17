@@ -81,7 +81,8 @@ export async function usageSummary(db: Knex, now: Date = new Date(), days = 30) 
     a.input += Number(r.input_tokens); a.output += Number(r.output_tokens); a.total += Number(r.total_tokens);
   };
   for (const r of rows) {
-    const ms = new Date(r.created_at).getTime();
+    const raw = r.created_at;
+    const ms = typeof raw === 'string' && !/[TZ+]/.test(raw) ? Date.parse(raw.replace(' ', 'T') + 'Z') : new Date(raw).getTime();
     if (!Number.isFinite(ms)) continue;
     first = first === null ? ms : Math.min(first, ms);
     if (r.success && r.model !== 'unknown') models.add(String(r.model));

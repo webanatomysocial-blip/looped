@@ -126,16 +126,16 @@ test('private data: a manager never sees task titles or hours from projects outs
   const pending = await ask('mgr', 'manager', 'What tasks are pending or overdue?');
   assert.ok(!/Secret pod2 task|Nitish pod2 side job|Pod Two Private/.test(pending), pending);
   // Nitish worked 1h on a pod2 task today: the manager's figure leaves it out, the admin's includes it
-  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work today?'), '⏱️ @Nitish tracked *2h 0m* today.');
-  assert.equal(await ask('admin', 'admin', 'How many hours did Nitish work today?'), '⏱️ @Nitish tracked *3h 0m* today.');
+  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work today?'), '⏱️ @2220002 tracked *2h 0m* today.');
+  assert.equal(await ask('admin', 'admin', 'How many hours did Nitish work today?'), '⏱️ @2220002 tracked *3h 0m* today.');
   for (const q of Object.keys(INTENTS)) assert.ok(!/\d{9,}/.test(await ask('mgr', 'manager', q)), 'no phone numbers or long ids in any answer');
 });
 
 // ── Data ──
 
 test('tracked hours today and this week use actual sessions (a running timer counts up to now)', async () => {
-  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work today?'), '⏱️ @Nitish tracked *2h 0m* today.');
-  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work this week?'), '⏱️ @Nitish tracked *3h 0m* this week.');
+  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work today?'), '⏱️ @2220002 tracked *2h 0m* today.');
+  assert.equal(await ask('mgr', 'manager', 'How many hours did Nitish work this week?'), '⏱️ @2220002 tracked *3h 0m* this week.');
 });
 
 test('missing time records are not shown as zero hours', async () => {
@@ -147,7 +147,7 @@ test('missing time records are not shown as zero hours', async () => {
 
 test('pending and overdue tasks are listed separately with deadlines', async () => {
   const text = await ask('mgr', 'manager', 'What tasks are pending or overdue?');
-  assert.match(text, /@Nitish — 1 pending, 1 overdue/);
+  assert.match(text, /@2220002 — 1 pending, 1 overdue/);
   assert.match(text, /⚠️ Overdue banner \(Pod One Site, due 17 Nov, 5:00 pm\)/);
   assert.match(text, /Pending logo/);
   assert.ok(!/Done today/.test(text), 'completed work is not pending');
@@ -166,17 +166,17 @@ test('completed tasks are filtered by completion date', async () => {
 
 test('workload, highest workload and the team summary', async () => {
   const load = await ask('mgr', 'manager', "What is each employee's current workload?");
-  assert.match(load, /Nitish: 2 \(1 overdue\)/);
-  assert.match(await ask('mgr', 'manager', 'Who has the highest workload?'), /Highest workload\*\n\n\*@Nitish\* with 2 open tasks/);
+  assert.match(load, /@2220002: 2 \(1 overdue\)/);
+  assert.match(await ask('mgr', 'manager', 'Who has the highest workload?'), /Highest workload\*\n\n@2220002 with 2 open tasks/);
   const summary = await ask('mgr', 'manager', "Show the team's productivity summary.");
-  assert.match(summary, /Nitish: 2h 0m · completed 1 · open 2 · overdue 1/);
+  assert.match(summary, /@2220002: 2h 0m · completed 1 · open 2 · overdue 1/);
   assert.match(summary, /Ravi Kumar: no time recorded/);
   assert.match(summary, /not estimates/);
 });
 
 test('what an employee is working on comes from the running timer', async () => {
   const text = await ask('mgr', 'manager', 'What is Nitish working on?');
-  assert.match(text, /Nitish is working on\*\n\nOverdue banner \(Pod One Site\) — timer running since 2:00 pm/);
+  assert.match(text, /Nitish is working on\*\n\n@2220002: Overdue banner \(Pod One Site\) — timer running since 2:00 pm/);
   assert.match(text, /Open tasks: 2 \(1 overdue\)/);
 });
 

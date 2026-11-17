@@ -62,9 +62,12 @@ async function audit(db: Knex, actorId: number, action: string, target: string, 
 export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   const r = Router();
   const now = () => (d.now ? d.now() : Date.now());
+  let groupNameCache: { jid: string; name: string; at: number } | null = null;
   // Every route in this router is admin-only, checked on the server
   // Admins and managers see the dashboard; the WhatsApp QR pairing routes below stay admin-only
   r.use(authenticate, requireRoles('admin', 'manager'));
+  // Dashboard data changes with every action: never let a browser or proxy serve an old copy
+  r.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only an administrator can manage the WhatsApp connection' }));
   const wrap = (fn: (req: AuthRequest, res: Response) => Promise<unknown>) => async (req: AuthRequest, res: Response, _n: NextFunction) => {
     try { const out = await fn(req, res); if (!res.headersSent) res.json(out); }
@@ -117,8 +120,12 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     const totalRequests = Number((await db('assistant_requests').count({ n: '*' }).first() as any)?.n ?? 0);
     const wa: any = d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' };
     const jid = notificationGroupJid();
-    let groupName: string | null = null;
-    if (jid && d.whatsappGroups) { try { groupName = (await d.whatsappGroups()).find((g) => g.jid === jid)?.name ?? null; } catch { groupName = null; } }
+    // The group name needs a query to WhatsApp's servers: cached for 10 minutes so dashboard refreshes don't repeat it
+    let groupName: string | null = groupNameCache && groupNameCache.jid === jid && now() - groupNameCache.at < 600_000 ? groupNameCache.name : null;
+    if (jid && groupName === null && d.whatsappGroups) {
+      try { groupName = (await d.whatsappGroups()).find((g) => g.jid === jid)?.name ?? null; } catch { groupName = null; }
+      if (groupName) groupNameCache = { jid, name: groupName, at: now() };
+    }
     const recentRequests = await db('assistant_requests as ar').leftJoin('users as u', 'u.id', 'ar.loop_user_id')
       .select('ar.id', 'ar.intent', 'ar.status', 'ar.created_at', 'u.name as employee').orderBy('ar.created_at', 'desc').limit(5);
     const recentLinking = await db('assistant_admin_audit as a').leftJoin('users as u', 'u.id', 'a.actor_id')
@@ -150,8 +157,8 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
 
   // ── Employee WhatsApp linking (existing identity system; selecting someone is never proof) ──
   r.get('/linking', wrap(async () => listEmployeeLinking(d.getDB(), new Date(now()))));
-  // Admin and manager record a mobile number for an employee. This does not link the account.
-  r.put('/linking/:userId/phone', wrap(async (req) => {
+  // Admin only: saving a mobile number links the employee's WhatsApp to it directly (audited)
+  r.put('/linking/:userId/phone', adminOnly, wrap(async (req) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id)) throw new IdentityError('not_found', 'Staff member not found');
     return { ok: true, ...(await saveEmployeePhone(d.getDB(), { userId: id, phone: req.body?.phone, actorId: req.user!.id, now: new Date(now()) })) };
@@ -165,7 +172,8 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   r.post('/linking/link', wrap(async (req, res) => {
     const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids : [];
     if (!ids.length) return res.status(400).json({ error: 'Select at least one employee' }) as any;
-    return { results: await linkEmployees(d.getDB(), { userIds: ids, actorId: req.user!.id, now: new Date(now()) }) };
+    // Only an admin's click links from a saved number; a manager's click only reports the status
+    return { results: await linkEmployees(d.getDB(), { userIds: ids, actorId: req.user!.id, now: new Date(now()), canDirectLink: req.user!.role === 'admin' }) };
   }));
 
   // ── Live queue: what is waiting or running now ──

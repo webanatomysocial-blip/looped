@@ -152,3 +152,12 @@ test('unsupported clients: everything is plain text with mentions; no buttons, l
   assert.equal(typeof sent[0].text, 'string');
   assert.ok(!/buttons|listMessage|templateMessage|nativeFlow/i.test(JSON.stringify(sent)));
 });
+
+test('tags: internal-ID links get a real WhatsApp tag (@id); phone-number links show @Name so no phone number is ever in the text', () => {
+  const lid = buildReminderText({ title: 'Logo', project: 'Brand', person: { name: 'Nitish', mention: '123456789012345@lid' } });
+  assert.match(lid.text, /^⏰ \*Acceptance reminder\*\n\n@123456789012345, please review/);
+  assert.deepEqual(lid.mentions, ['123456789012345@lid']);
+  const phone = buildAssignmentText({ kind: 'assigned', title: 'T', project: 'P', priority: null, due: null, people: [{ name: 'Ravi', mention: '919000000002@s.whatsapp.net' }] });
+  assert.match(phone.text, /\*Assigned to:\* @Ravi/);
+  assert.ok(!phone.text.includes('919000000002'), 'no phone number in the text');
+});

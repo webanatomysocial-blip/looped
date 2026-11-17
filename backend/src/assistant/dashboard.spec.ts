@@ -244,7 +244,7 @@ test('pairing endpoint without the qrcode package: says the image is unavailable
 
 // ── Mobile number field (record only, never links) ──
 
-test('mobile number: saved for an employee, masked in the list, invalid numbers refused, and the account stays unlinked', async () => {
+test('mobile number: saved for an employee, masked in the list, invalid numbers refused, and saving links the employee directly', async () => {
   const before = await listEmployeeLinking(db());
   const nora = before.find((r) => r.user_id === U.none.id)!;
   assert.equal(nora.declared_number, null);
@@ -258,10 +258,10 @@ test('mobile number: saved for an employee, masked in the list, invalid numbers 
   assert.ok(!JSON.stringify(await listEmployeeLinking(db())).includes('+919876500000'), 'the full number is never listed');
   await assert.rejects(saveEmployeePhone(db(), { userId: U.none.id, phone: '12345', actorId: U.admin.id }), /country code/);
   await assert.rejects(saveEmployeePhone(db(), { userId: U.client.id, phone: '+919876500001', actorId: U.admin.id }), /not found/);
-  assert.ok(await db()('assistant_admin_audit').where({ action: 'employee_phone_saved' }).first());
+  assert.ok(await db()('assistant_admin_audit').where({ action: 'employee_direct_linked', target: `user:${U.none.id}` }).first());
 });
 
-test('mobile number endpoint: managers and admins can record it, employees cannot', async () => {
+test('mobile number endpoint: only admins can save (it links directly); managers and employees cannot', async () => {
   const app = express(); app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null }));
   const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.none.id}/phone`;
@@ -269,7 +269,7 @@ test('mobile number endpoint: managers and admins can record it, employees canno
   const put = (k: string) => fetch(b2, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ phone: '+919812345678' }) });
   try {
     assert.equal((await put('linked')).status, 403);
-    assert.equal((await put('mgr')).status, 200);
+    assert.equal((await put('mgr')).status, 403);
     assert.equal((await put('admin')).status, 200);
   } finally { s2.closeAllConnections?.(); s2.close(); }
 });
@@ -311,4 +311,28 @@ test('direct link endpoint: admin only; managers and employees are refused', asy
     assert.equal((await post('linked')).status, 403);
     assert.equal((await post('admin')).status, 200);
   } finally { s2.closeAllConnections?.(); s2.close(); }
+});
+
+test('save & link finishes in one pass: one active link, one audit row, and a repeat save of the same number changes nothing', async () => {
+  const { saveEmployeePhone } = await import('./employeeLinking');
+  const uid = U.pending.id;
+  const count = async (where: Record<string, unknown>, table = 'assistant_identities') => Number(((await db()(table).where(where).count({ n: '*' }).first()) as any).n);
+  const rowsBefore = await count({ user_id: uid });
+  const auditBefore = await count({ action: 'employee_direct_linked', target: `user:${uid}` }, 'assistant_admin_audit');
+  await saveEmployeePhone(db(), { userId: uid, phone: '+919822200001', actorId: U.admin.id });
+  assert.equal(await count({ user_id: uid }) - rowsBefore, 1, 'exactly one new identity row');
+  assert.equal(await count({ action: 'employee_direct_linked', target: `user:${uid}` }, 'assistant_admin_audit') - auditBefore, 1, 'exactly one audit row');
+  await saveEmployeePhone(db(), { userId: uid, phone: '+919822200001', actorId: U.admin.id });
+  assert.equal(await count({ user_id: uid }) - rowsBefore, 1, 'a repeat save adds nothing');
+  assert.equal(await count({ user_id: uid, status: 'active' }), 1);
+  const saved = await db()('assistant_employee_phones').where({ user_id: uid }).first();
+  assert.equal(saved.phone, '+919822200001', 'the number itself is saved');
+});
+
+test('dashboard responses are never cached, so the page shows changes straight away', async () => {
+  const tok = 'Bearer ' + jwt.sign({ id: U.admin.id, role: 'admin', email: 'admin@d.test', name: U.admin.name }, 'test-secret', { algorithm: 'HS256' });
+  for (const url of ['/api/assistant-admin/linking', '/api/assistant-admin/overview', '/api/assistant-admin/identities']) {
+    const r = await fetch(base + url, { headers: { Authorization: tok } });
+    assert.equal(r.headers.get('cache-control'), 'no-store', url);
+  }
 });

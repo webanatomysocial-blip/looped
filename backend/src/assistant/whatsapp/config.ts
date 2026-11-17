@@ -25,8 +25,10 @@ const insideProject = (p: string) => {
 
 export function loadWhatsAppConfig(env: NodeJS.ProcessEnv = process.env): WhatsAppConfig {
   const enabled = env.ASSISTANT_WHATSAPP_ENABLED === 'true';
-  const sessionDir = env.ASSISTANT_WHATSAPP_SESSION_DIR?.trim() || null;
-  const qrFile = env.ASSISTANT_WHATSAPP_QR_FILE?.trim() || null;
+  // "~/folder" means the folder in the home directory of the user that runs the server
+  const home = (v: string | undefined) => { const t = v?.trim(); return t ? (t.startsWith('~/') ? path.join(require('os').homedir(), t.slice(2)) : t) : null; };
+  const sessionDir = home(env.ASSISTANT_WHATSAPP_SESSION_DIR);
+  const qrFile = home(env.ASSISTANT_WHATSAPP_QR_FILE);
   if (!enabled) return { enabled: false, sessionDir, qrFile };
 
   const problems: string[] = [];
