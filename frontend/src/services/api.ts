@@ -361,6 +361,7 @@ export const assistantAdminApi = {
   pairing: () => api.get('/assistant-admin/whatsapp/pairing'),
   startWhatsApp: () => api.post('/assistant-admin/whatsapp/start'),
   whatsappGroups: () => api.get('/assistant-admin/whatsapp/groups'),
+  whatsappActivity: () => api.get('/assistant-admin/whatsapp/activity'),
   chooseGroup: (jid: string) => api.post('/assistant-admin/whatsapp/group', { jid }),
   requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),
   usage: (days = 30) => api.get('/assistant-admin/usage', { params: { days } }),

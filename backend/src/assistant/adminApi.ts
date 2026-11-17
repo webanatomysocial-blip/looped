@@ -11,6 +11,7 @@ import { AssistantConfig } from './config';
 import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
 import { saveAiKey, validAiKey, saveNotificationGroup } from './settingsStore';
+import { listWaEvents } from './whatsapp/activity';
 import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
 import { notificationGroupJid, setChosenNotificationGroup, GROUP_JID } from '../services/assignmentNotices';
 
@@ -435,6 +436,9 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     groupNameCache = { jid, name: group.name, at: now() };
     return { ok: true, name: group.name };
   }));
+
+  // What the bot did with the latest incoming WhatsApp messages (no message text)
+  r.get('/whatsapp/activity', wrap(async () => listWaEvents(d.getDB(), 30)));
 
   r.get('/whatsapp/groups', wrap(async () => d.whatsappGroups ? await d.whatsappGroups() : []));
 

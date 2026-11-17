@@ -37,6 +37,8 @@ export interface AdapterDeps {
   // Permission pass for the session folder: at start, and on a timer while running (session-perms.ts)
   enforce?: (dir: string) => unknown;
   sweepMs?: number;
+  // What happened to each incoming message (for the dashboard's activity list). Never receives message text.
+  onEvent?: (e: import('./activity').WaEvent) => void;
 }
 
 const LOGGED_OUT = 401;                                // Baileys DisconnectReason.loggedOut
@@ -211,7 +213,7 @@ export class WhatsAppAdapter {
     for (const raw of payload.messages ?? []) {
       this.logSenderType(raw);
       const msg = toIncoming(raw);
-      if (!msg) continue;
+      if (!msg) { this.noteSkipped(raw); continue; }
       // One chain per chat: messages in a chat are handled in order; different chats run at the same time
       const chat = msg.conversationId;
       const prev = this.chains.get(chat) ?? Promise.resolve();
@@ -246,14 +248,33 @@ export class WhatsAppAdapter {
     this.log('info', `sender identifier: type=${type} last4=${user.slice(-4)} chat=${chat} hasParticipant=${Boolean(key.participant)} hasPhone=${Boolean(key.participantPn ?? key.senderPn)}`);
   }
 
+  private note(msg: IncomingMessage, outcome: import('./activity').WaOutcome) {
+    try { this.d.onEvent?.({ chat: msg.isGroup ? 'group' : 'private', outcome, senderId: msg.senderId, senderPhoneId: msg.senderPhoneId, conversationId: msg.conversationId }); } catch { /* never affects replies */ }
+  }
+
+  // A message the bot cannot use: one it could not decrypt yet, or one that is not text (photo, sticker, voice note)
+  private noteSkipped(raw: any) {
+    const key = raw?.key;
+    const chat: string = String(key?.remoteJid ?? '');
+    if (!key || key.fromMe || !chat || chat.endsWith('@broadcast') || chat.endsWith('@newsletter')) return;
+    const isGroup = chat.endsWith('@g.us');
+    const sender = String((isGroup ? key.participant : chat) ?? '');
+    const user = sender.split('@')[0].split(':')[0];
+    const senderId = sender.endsWith('@lid') ? `lid:${user}` : /^\d{8,15}$/.test(user) ? `+${user}` : `opaque:${user}`;
+    const undecryptable = raw?.messageStubType === 2 || (!raw?.message && Array.isArray(raw?.messageStubParameters));
+    try { this.d.onEvent?.({ chat: isGroup ? 'group' : 'private', outcome: undecryptable ? 'could_not_decrypt' : 'not_text', senderId, conversationId: chat }); } catch { /* ignore */ }
+  }
+
   private async process(msg: IncomingMessage) {
-    if (!this.groupAllowed(msg)) return;
+    if (!this.groupAllowed(msg)) { if (msg.isGroup) this.note(msg, 'not_mentioned'); return; }
     try {
       const reply = await this.d.handle(msg);
-      if (!reply || !reply.text || this.stopping || !this.socket) return;
+      if (!reply || !reply.text || this.stopping || !this.socket) { this.note(msg, 'not_recognised'); return; }
       await this.socket.sendMessage(msg.conversationId, { text: reply.text, ...(reply.mentions?.length ? { mentions: reply.mentions } : {}) });
+      this.note(msg, 'replied');
     } catch (e) {
       this.log('error', `a reply could not be sent: ${safeMessage(e)}`);
+      this.note(msg, 'send_failed');
     }
   }
 

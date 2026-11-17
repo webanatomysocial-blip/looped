@@ -9,6 +9,7 @@ import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts } from
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
 import { claimOwner, releaseOwner, publishState, readState } from './shared';
+import { recordWaEvent } from './activity';
 
 let current: WhatsAppAdapter | null = null;          // set only in the copy that owns the connection
 let standby: ReturnType<typeof setInterval> | null = null;   // set in copies waiting to take over
@@ -89,7 +90,9 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
   const writeQr = config.qrFile ? (qr: string) => writeQrPayload(config.qrFile!, qr) : undefined;
   const clearQr = config.qrFile ? () => fs.rmSync(config.qrFile!, { force: true }) : undefined;
   const adapter = new WhatsAppAdapter({
-    config, makeSocket: baileysSocketFactory, handle: buildWhatsAppHandler(db, options), writeQr, clearQr, ...extra,
+    config, makeSocket: baileysSocketFactory, handle: buildWhatsAppHandler(db, options), writeQr, clearQr,
+    onEvent: (e) => { recordWaEvent(db, e).catch(() => undefined); },
+    ...extra,
   });
   current = adapter;
   await adapter.start();

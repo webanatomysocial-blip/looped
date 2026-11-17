@@ -679,3 +679,34 @@ test('keep-awake: only on the live server, only with a proper site address', () 
   assert.equal(keepAwakeUrl({ NODE_ENV: 'production', FRONTEND_URL: '' } as any), null);
   assert.equal(keepAwakeUrl({ NODE_ENV: 'production', FRONTEND_URL: 'not a url' } as any), null);
 });
+
+// ── Activity list: what the bot did with each message, and why it stayed silent ──
+
+test('activity: every incoming message gets an outcome (replied, not mentioned, not linked, could not read, not text); no text is stored', async () => {
+  const { recordWaEvent, listWaEvents } = require('./activity');
+  const events: any[] = [];
+  const adapter = makeAdapter(false);
+  (adapter as any).d.onEvent = (e: any) => events.push(e);
+  await adapter.start();
+  sock.sent = [];
+  const mention = { mentionedJid: ['919000000099@s.whatsapp.net'] };
+  const base = (id: string, participant: string) => ({ key: { id, remoteJid: GROUP, participant, fromMe: false }, messageTimestamp: Math.floor(Date.now() / 1000) });
+  sock.emit('messages.upsert', { type: 'notify', messages: [
+    { ...base('a1', `${EMPLOYEE_PHONE}@s.whatsapp.net`), message: { extendedTextMessage: { text: 'secret question', contextInfo: mention } } },
+    { ...base('a2', `${EMPLOYEE_PHONE}@s.whatsapp.net`), message: { conversation: 'no mention here' } },
+    { ...base('a3', `${STRANGER_PHONE}@s.whatsapp.net`), message: { extendedTextMessage: { text: 'hi', contextInfo: mention } } },
+    { ...base('a4', '555666777888999@lid'), messageStubType: 2, messageStubParameters: ['No session'] },
+    { ...base('a5', `${EMPLOYEE_PHONE}@s.whatsapp.net`), message: { imageMessage: {} } },
+  ] });
+  await waitFor(() => events.length >= 5);
+  const byOutcome = events.map((e) => e.outcome).sort();
+  assert.deepEqual(byOutcome, ['could_not_decrypt', 'not_mentioned', 'not_recognised', 'not_text', 'replied']);
+  await adapter.stop();
+  // Stored for the dashboard: linked people by name, others by the last 4 characters; never the message text
+  for (const e of events) await recordWaEvent(db(), e);
+  const rows = await listWaEvents(db(), 10);
+  assert.ok(rows.some((r: any) => r.outcome === 'replied' && r.linked && r.sender === 'Sam Employee'));
+  assert.ok(rows.some((r: any) => r.outcome === 'not_recognised' && !r.linked && r.sender === `…${STRANGER_PHONE.slice(-4)}`));
+  assert.ok(!JSON.stringify(rows).includes('secret question'));
+  assert.ok(!JSON.stringify(rows).includes(STRANGER_PHONE), 'no full numbers');
+});
