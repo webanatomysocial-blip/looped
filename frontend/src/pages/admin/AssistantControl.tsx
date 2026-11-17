@@ -145,7 +145,7 @@ const PAIR_TEXT: Record<string, { title: string; text: string; tone: string }> =
   connected: { title: 'Connected', text: 'WhatsApp is connected using the saved session.', tone: 'ok' },
   starting: { title: 'Connecting…', text: 'Starting the WhatsApp connection with the saved session.', tone: 'warn' },
   reconnecting: { title: 'Reconnecting', text: 'The connection dropped and is reconnecting automatically with the saved session.', tone: 'warn' },
-  awaiting_qr: { title: 'Pairing required', text: 'The saved session is not valid any more. Scan a QR code from the company phone to pair again.', tone: 'bad' },
+  awaiting_qr: { title: 'Pairing required', text: 'WhatsApp is waiting to be linked. Scan the QR code from the company phone.', tone: 'bad' },
   logged_out: { title: 'Pairing stopped', text: 'The phone refused several pairing codes. Request a new code to try again.', tone: 'bad' },
   stopped: { title: 'Not running', text: 'The assistant is not running on this server yet. Open Configuration to finish the setup.', tone: 'muted' },
 };

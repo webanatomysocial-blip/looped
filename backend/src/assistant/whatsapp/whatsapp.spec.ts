@@ -639,3 +639,43 @@ test('groups: someone linked by phone number is recognised when they write from 
   assert.equal(sock.sent.length, 1, 'strangers stay silent');
   await adapter.stop();
 });
+
+// ── One connection across copies of the server (cPanel and similar hosting run several) ──
+
+test('ownership: only one copy owns the WhatsApp connection; another takes over only when the owner goes quiet', async () => {
+  const { claimOwner, releaseOwner, OWNER_STALE_MS } = require('./shared');
+  await db()('assistant_settings').where({ name: 'wa_owner' }).del();
+  const t = 1_800_000_000_000;
+  assert.equal(await claimOwner(db(), 'copy-A', t), true, 'the first copy becomes the owner');
+  assert.equal(await claimOwner(db(), 'copy-B', t + 1000), false, 'a second copy waits');
+  assert.equal(await claimOwner(db(), 'copy-A', t + 10_000), true, 'the owner keeps it by refreshing');
+  assert.equal(await claimOwner(db(), 'copy-B', t + 20_000), false, 'still fresh: no take-over');
+  assert.equal(await claimOwner(db(), 'copy-B', t + 10_000 + OWNER_STALE_MS + 1), true, 'the owner went quiet: take-over');
+  assert.equal(await claimOwner(db(), 'copy-A', t + 10_000 + OWNER_STALE_MS + 2), false, 'the old owner must step down');
+  await releaseOwner(db(), 'copy-A');
+  assert.equal(await claimOwner(db(), 'copy-C', t + 10_000 + OWNER_STALE_MS + 3), false, 'releasing as a non-owner changes nothing');
+  await releaseOwner(db(), 'copy-B');
+  assert.equal(await claimOwner(db(), 'copy-C', t + 10_000 + OWNER_STALE_MS + 4), true, 'after the owner releases, another copy can own it');
+  await db()('assistant_settings').where({ name: 'wa_owner' }).del();
+});
+
+test('shared status: every copy reads what the owner published, encrypted at rest; nothing when the owner is gone', async () => {
+  const { publishState, readState, OWNER_STALE_MS } = require('./shared');
+  const t = 1_800_000_000_000;
+  await publishState(db(), { status: { state: 'awaiting_qr', enabled: true }, qr: { qr: 'QR-SECRET-PAYLOAD', issuedAt: new Date(t).toISOString() }, groups: [{ name: 'Loop Testing', jid: '120363412745413406@g.us' }] }, t);
+  const raw = await db()('assistant_settings').where({ name: 'wa_state' }).first('value');
+  assert.ok(!String(raw.value).includes('QR-SECRET-PAYLOAD'), 'the QR is encrypted in the database');
+  const s = await readState(db(), t + 5000);
+  assert.equal(s.status.state, 'awaiting_qr');
+  assert.equal(s.qr.qr, 'QR-SECRET-PAYLOAD');
+  assert.equal(s.groups[0].name, 'Loop Testing');
+  assert.equal(await readState(db(), t + OWNER_STALE_MS + 1), null, 'a status nobody refreshed is not shown as live');
+});
+
+test('keep-awake: only on the live server, only with a proper site address', () => {
+  const { keepAwakeUrl } = require('./runtime');
+  assert.equal(keepAwakeUrl({ NODE_ENV: 'development', FRONTEND_URL: 'https://example.com' } as any), null, 'never locally');
+  assert.equal(keepAwakeUrl({ NODE_ENV: 'production', FRONTEND_URL: 'https://example.com/' } as any), 'https://example.com');
+  assert.equal(keepAwakeUrl({ NODE_ENV: 'production', FRONTEND_URL: '' } as any), null);
+  assert.equal(keepAwakeUrl({ NODE_ENV: 'production', FRONTEND_URL: 'not a url' } as any), null);
+});

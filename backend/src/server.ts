@@ -184,7 +184,8 @@ async function startAssistantServices(): Promise<void> {
 let whatsappProblems: string[] = [];
 async function startWhatsAppNow(): Promise<{ ok: boolean; problems: string[] }> {
   const runtime = require('./assistant/whatsapp/runtime');
-  if (runtime.getWhatsAppStatus().state !== 'stopped') { whatsappProblems = []; return { ok: true, problems: [] }; }
+  // Already running here, as the owner of the connection or on standby behind the copy that owns it
+  if (runtime.startedHere()) { whatsappProblems = []; return { ok: true, problems: [] }; }
   if (!assistantConfig?.enabled) {
     whatsappProblems = assistantProblems.length ? assistantProblems : ['The assistant is switched off (ASSISTANT_ENABLED is not "true")'];
     return { ok: false, problems: whatsappProblems };

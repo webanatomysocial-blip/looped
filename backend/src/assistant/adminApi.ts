@@ -42,9 +42,9 @@ export interface AdminApiDeps {
   whatsappStart?: () => Promise<{ ok: boolean; problems: string[] }>;
   onAiKeySaved?: (key: string) => Promise<{ running: boolean; problems: string[] }>;
   now?: () => number;
-  whatsappStatus?: () => unknown;
+  whatsappStatus?: () => unknown | Promise<unknown>;
   whatsappGroups?: () => Promise<{ name: string; jid: string }[]>;
-  whatsappPairing?: () => { qr: string; issuedAt: string } | null;
+  whatsappPairing?: () => { qr: string; issuedAt: string } | null | Promise<{ qr: string; issuedAt: string } | null>;
   whatsappNewPairing?: () => boolean;
   renderQr?: (qr: string) => Promise<string | null>;
 }
@@ -123,7 +123,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     const pendingSenders = Number((await db('assistant_pending_senders').where({ status: 'pending' }).count({ n: '*' }).first() as any)?.n ?? 0);
     const usage = await usageSummary(db, nowDate, 14);
     const totalRequests = Number((await db('assistant_requests').count({ n: '*' }).first() as any)?.n ?? 0);
-    const wa: any = d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' };
+    const wa: any = (await d.whatsappStatus?.()) ?? { enabled: false, state: 'stopped' };
     const jid = notificationGroupJid();
     // The group name needs a query to WhatsApp's servers: cached for 10 minutes so dashboard refreshes don't repeat it
     let groupName: string | null = groupNameCache && groupNameCache.jid === jid && now() - groupNameCache.at < 600_000 ? groupNameCache.name : null;
@@ -389,13 +389,13 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   }));
 
   // WhatsApp connection state only: no session data, no pairing code, no paths
-  r.get('/whatsapp', wrap(async () => d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' }));
+  r.get('/whatsapp', wrap(async () => (await d.whatsappStatus?.()) ?? { enabled: false, state: 'stopped' }));
   // Read-only: group names and JIDs the connected account is in. Nothing is sent, joined or changed.
   // ── Pairing: the QR the existing connection is waiting for, to admins only. Never logged, never cached. ──
   r.get('/whatsapp/pairing', wrap(async (_req, res) => {
     res.set('Cache-Control', 'no-store');
-    const st: any = d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' };
-    const code = st.state === 'awaiting_qr' ? d.whatsappPairing?.() ?? null : null;
+    const st: any = (await d.whatsappStatus?.()) ?? { enabled: false, state: 'stopped' };
+    const code = st.state === 'awaiting_qr' ? (await d.whatsappPairing?.()) ?? null : null;
     let image: string | null = null;
     if (code) image = await (d.renderQr ?? renderQrSvg)(code.qr).catch(() => null);
     return {
@@ -416,7 +416,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     return out;
   }));
   r.post('/whatsapp/pairing/refresh', wrap(async (req, res) => {
-    const st: any = d.whatsappStatus?.() ?? { state: 'stopped' };
+    const st: any = (await d.whatsappStatus?.()) ?? { state: 'stopped' };
     if (st.state !== 'logged_out' || !d.whatsappNewPairing?.()) return res.status(409).json({ error: 'A new code is not needed: the connection issues codes by itself while it is waiting for pairing.' }) as any;
     await audit(d.getDB(), req.user!.id, 'whatsapp_pairing_requested', 'whatsapp', 'new pairing round requested', now());
     return { ok: true };
@@ -465,7 +465,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       problems: d.setup?.().problems ?? [],
       node_env: d.setup?.().nodeEnv ?? null,
       settings_file_loaded: d.setup?.().settingsFileLoaded ?? null,
-      whatsapp_state: (d.whatsappStatus?.() as any)?.state ?? 'stopped',
+      whatsapp_state: ((await d.whatsappStatus?.()) as any)?.state ?? 'stopped',
     };
   }));
 
