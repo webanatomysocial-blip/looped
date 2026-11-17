@@ -253,6 +253,8 @@ initDB()
     await repairSkippedStageTickets(getDB()).catch((e) => console.error('[xlr8] skip repair failed', e));
     // Assistant worker and WhatsApp: only when the assistant is on (an AI key saved in the dashboard counts too)
     await useStoredAiKey().catch(() => console.error('[assistant] stored settings could not be read'));
+    // The WhatsApp group chosen in the dashboard, if any, replaces the default group
+    await require('./assistant/settingsStore').loadNotificationGroup(getDB()).then((jid: string | null) => require('./services/assignmentNotices').setChosenNotificationGroup(jid)).catch(() => undefined);
     await startAssistantServices();
     startEmailScheduler();
     startRecurringTaskScheduler();

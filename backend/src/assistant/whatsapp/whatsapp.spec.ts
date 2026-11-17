@@ -606,3 +606,36 @@ test('config: on hosting where the repository is the home folder (cPanel), a ses
   assert.equal(loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: beside } as any).sessionDir, beside);
   assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: path.join(backend, 'dist', 'session') } as any), /outside the backend code folder/);
 });
+
+// ── People linked by phone number, writing in a group from an internal WhatsApp id ──
+
+test('toIncoming: keeps the phone number WhatsApp reports for an internal-id sender (group and private)', () => {
+  const g = toIncoming({ key: { id: 'p1', remoteJid: GROUP, participant: '111222333444555@lid', participantPn: `${EMPLOYEE_PHONE}@s.whatsapp.net`, fromMe: false }, message: { conversation: 'hi' }, messageTimestamp: 1 })!;
+  assert.equal(g.senderId, 'lid:111222333444555');
+  assert.equal(g.senderPhoneId, `+${EMPLOYEE_PHONE}`);
+  const p = toIncoming({ key: { id: 'p2', remoteJid: '111222333444555@lid', senderPn: `${EMPLOYEE_PHONE}@s.whatsapp.net`, fromMe: false }, message: { conversation: 'hi' }, messageTimestamp: 1 })!;
+  assert.equal(p.senderPhoneId, `+${EMPLOYEE_PHONE}`);
+  const none = toIncoming({ key: { id: 'p3', remoteJid: GROUP, participant: '111222333444555@lid', fromMe: false }, message: { conversation: 'hi' }, messageTimestamp: 1 })!;
+  assert.equal(none.senderPhoneId, undefined, 'no number reported: nothing is guessed');
+});
+
+test('groups: someone linked by phone number is recognised when they write from an internal id; a stranger stays silent', async () => {
+  const adapter = makeAdapter(false);
+  await adapter.start();
+  sock.sent = [];
+  const fromLid = (id: string, pn?: string) => ({
+    key: { id, remoteJid: GROUP, participant: '777888999000111@lid', ...(pn ? { participantPn: pn } : {}), fromMe: false },
+    message: { extendedTextMessage: { text: 'hi', contextInfo: { mentionedJid: ['919000000099@s.whatsapp.net'] } } },
+    messageTimestamp: Math.floor(Date.now() / 1000),
+  });
+  // Sam is linked by phone number; WhatsApp reports that number with the group message
+  sock.emit('messages.upsert', { type: 'notify', messages: [fromLid('lid-linked-1', `${EMPLOYEE_PHONE}@s.whatsapp.net`)] });
+  await waitFor(() => sock.sent.length >= 1);
+  assert.equal(sock.sent.length, 1, 'answered');
+  // A number that is not linked, and a message with no number at all: no reply
+  sock.emit('messages.upsert', { type: 'notify', messages: [fromLid('lid-stranger-1', `${STRANGER_PHONE}@s.whatsapp.net`)] });
+  sock.emit('messages.upsert', { type: 'notify', messages: [fromLid('lid-nonumber-1')] });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(sock.sent.length, 1, 'strangers stay silent');
+  await adapter.stop();
+});

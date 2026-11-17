@@ -6,12 +6,20 @@ import { getDB } from '../db';
 import { compose, heading, field, bold, clean, italic, priority, dateTime, plural, ICON } from './waMessage';
 
 export const NOTICE_MAX_ATTEMPTS = 5;
-const NOTICE_TTL_HOURS = 24;
+const NOTICE_TTL_HOURS = 2;          // a notice that could not be sent within 2 hours is dropped, not sent late
+const REPORT_TTL_MINUTES = 30;       // a daily report is only useful near its time
+const REMINDER_LOOKBACK_HOURS = 24;  // reminders only for assignments made in the last day, never for old backlogs
+const toMs = (v: unknown) => (typeof v === 'string' && !/[TZ+]/.test(v) ? Date.parse(v.replace(' ', 'T') + 'Z') : new Date(v as any).getTime());
 
 // The destination group, from configuration only. Anything else is refused.
+export const GROUP_JID = /^\d{10,20}(-\d{1,10})?@g\.us$/;
+// A group chosen in the dashboard (saved in the database) takes priority over the server setting.
+let chosenGroup: string | null = null;
+export function setChosenNotificationGroup(jid: string | null): void { chosenGroup = jid && GROUP_JID.test(jid) ? jid : null; }
 export function notificationGroupJid(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (chosenGroup) return chosenGroup;
   const v = (env.WHATSAPP_NOTIFICATION_GROUP_JID || '').trim();
-  return /^\d{10,20}(-\d{1,10})?@g\.us$/.test(v) ? v : null;
+  return GROUP_JID.test(v) ? v : null;
 }
 
 // The text WhatsApp needs for a real tag: "@" plus the id part of the JID. WhatsApp shows it as the person's name and
@@ -129,7 +137,8 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
   const due = await db('whatsapp_outbox').where({ status: 'pending' }).where('next_attempt_at', '<=', now).orderBy('id').limit(batch);
   let sent = 0; let failed = 0;
   for (const row of due) {
-    const expired = now.getTime() - new Date(row.created_at).getTime() > NOTICE_TTL_HOURS * 3600_000;
+    const ttlMs = String(row.kind).startsWith('report_') ? REPORT_TTL_MINUTES * 60_000 : NOTICE_TTL_HOURS * 3600_000;
+    const expired = now.getTime() - toMs(row.created_at) > ttlMs;
     if (expired) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'failed', last_error: 'expired' }); failed++; continue; }
     const payload = JSON.parse(String(row.payload));
     if (row.kind === 'deadline') {
@@ -188,6 +197,7 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
   const rows = await db('task_assignees as ta').join('tasks as t', 't.id', 'ta.task_id')
     .whereIn('ta.assignee_role', ['employee', 'manager'])   // managers get reminders too; accepted ones are excluded below
     .whereNotNull('ta.assigned_at').where('ta.assigned_at', '<=', cutoff)
+    .where('ta.assigned_at', '>=', new Date(now.getTime() - REMINDER_LOOKBACK_HOURS * 3600_000))
     .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
     .where((q: any) => q.whereNull('ta.acceptance_status').orWhere('ta.acceptance_status', 'pending'))
     .whereNull('t.ticket_type_id')

@@ -58,3 +58,18 @@ export async function loadAiKey(db: Knex): Promise<string | null> {
   const row = await db('assistant_settings').where({ name: AI_KEY }).first('value').catch(() => null);
   return row ? decryptSetting(String(row.value)) : null;
 }
+
+// ── The WhatsApp group the assistant works in, chosen from the dashboard (not a secret, stored as is) ──
+const GROUP = 'notification_group_jid';
+
+export async function saveNotificationGroup(db: Knex, jid: string, name: string, actorId: number, now: Date = new Date()): Promise<void> {
+  const row = { value: jid, updated_by: actorId, updated_at: now };
+  if (await db('assistant_settings').where({ name: GROUP }).first('name')) await db('assistant_settings').where({ name: GROUP }).update(row);
+  else await db('assistant_settings').insert({ name: GROUP, ...row });
+  await db('assistant_admin_audit').insert({ actor_id: actorId, action: 'whatsapp_group_chosen', target: 'whatsapp', detail: `notification group set to "${name}"`.slice(0, 300), created_at: now });
+}
+
+export async function loadNotificationGroup(db: Knex): Promise<string | null> {
+  const row = await db('assistant_settings').where({ name: GROUP }).first('value').catch(() => null);
+  return row ? String(row.value) : null;
+}

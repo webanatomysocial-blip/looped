@@ -10,9 +10,9 @@ import { PendingError, listPendingSenders, approvePendingSender, dismissPendingS
 import { AssistantConfig } from './config';
 import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
-import { saveAiKey, validAiKey } from './settingsStore';
+import { saveAiKey, validAiKey, saveNotificationGroup } from './settingsStore';
 import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
-import { notificationGroupJid } from '../services/assignmentNotices';
+import { notificationGroupJid, setChosenNotificationGroup, GROUP_JID } from '../services/assignmentNotices';
 
 export const maskPhone = (e164: string | null | undefined) => (e164 ? `${e164.slice(0, 3)} •••• ${e164.slice(-4)}` : '');
 // Phone numbers inside free text (messages, errors) are masked too
@@ -406,6 +406,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       // Why WhatsApp is not running, in plain words (no secrets, no paths), and whether it can be started from here
       problems: st.state === 'stopped' ? [...new Set([...(d.setup?.().problems ?? []), ...(d.setup?.().whatsappProblems ?? [])])] : [],
       can_start: st.state === 'stopped' && !!d.whatsappStart,
+      group_jid: notificationGroupJid(),
     };
   }));
   r.post('/whatsapp/start', wrap(async (req, res) => {
@@ -419,6 +420,20 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     if (st.state !== 'logged_out' || !d.whatsappNewPairing?.()) return res.status(409).json({ error: 'A new code is not needed: the connection issues codes by itself while it is waiting for pairing.' }) as any;
     await audit(d.getDB(), req.user!.id, 'whatsapp_pairing_requested', 'whatsapp', 'new pairing round requested', now());
     return { ok: true };
+  }));
+
+  // Choose the group the assistant works in: only a group the company WhatsApp is a member of. Takes effect at once.
+  r.post('/whatsapp/group', wrap(async (req, res) => {
+    const jid = typeof req.body?.jid === 'string' ? req.body.jid.trim() : '';
+    if (!GROUP_JID.test(jid)) return res.status(400).json({ error: 'Choose a group from the list' }) as any;
+    if (!d.whatsappGroups) return res.status(409).json({ error: 'WhatsApp is not running on this server' }) as any;
+    const groups = await d.whatsappGroups().catch(() => []);
+    const group = groups.find((g) => g.jid === jid);
+    if (!group) return res.status(409).json({ error: 'The company WhatsApp is not a member of that group. Connect WhatsApp and add it to the group first.' }) as any;
+    await saveNotificationGroup(d.getDB(), jid, group.name, req.user!.id, new Date(now()));
+    setChosenNotificationGroup(jid);
+    groupNameCache = { jid, name: group.name, at: now() };
+    return { ok: true, name: group.name };
   }));
 
   r.get('/whatsapp/groups', wrap(async () => d.whatsappGroups ? await d.whatsappGroups() : []));

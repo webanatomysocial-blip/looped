@@ -137,3 +137,6 @@
 
 .ac-setup { margin-bottom: 16px; }
 .ac-setup__problems { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: #b3242b; line-height: 1.7; }
+
+.ac-group { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--sand-border); max-width: 520px; }
+.ac-group select.form-input { padding: 8px 12px; }

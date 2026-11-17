@@ -203,6 +203,7 @@ function WhatsAppPairing({ flash, onConnected, onSetup }: { flash: (m: string) =
           {onSetup && <button className="btn-secondary ac-btn" onClick={onSetup}>Open Configuration</button>}
         </div>
       )}
+      {state === 'connected' && <GroupPicker current={data.group_jid} flash={flash} />}
       {state === 'awaiting_qr' && !show && <button className="btn-primary ac-btn" onClick={() => { setShow(true); load(); }}><QrCode size={14} /> Show QR code</button>}
       {state === 'logged_out' && <button className="btn-primary ac-btn" disabled={busy} onClick={requestNew}><RefreshCw size={14} /> Request a new QR code</button>}
       {show && state === 'awaiting_qr' && (
@@ -222,6 +223,37 @@ function WhatsAppPairing({ flash, onConnected, onSetup }: { flash: (m: string) =
         </div>
       )}
     </section>
+  );
+}
+
+// The WhatsApp group the assistant works in: chosen from the groups the company WhatsApp is a member of
+function GroupPicker({ current, flash }: { current: string | null; flash: (m: string) => void }) {
+  const { data, error } = useLoader(() => assistantAdminApi.whatsappGroups().then((r) => r.data as { name: string; jid: string }[]));
+  const [pick, setPick] = useState<string>(current ?? '');
+  const [saved, setSaved] = useState<string | null>(current);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPick(current ?? ''); setSaved(current); }, [current]);
+  const save = async () => {
+    setBusy(true);
+    try { const r = await assistantAdminApi.chooseGroup(pick); setSaved(pick); flash(`Reminders, reports and answers now go to "${r.data.name}".`); }
+    catch (e) { flash(errText(e)); } finally { setBusy(false); }
+  };
+  const groups = [...(data ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const currentName = groups.find((g) => g.jid === saved)?.name;
+  return (
+    <div className="ac-group">
+      <label className="form-label" htmlFor="wa-group">Group the assistant works in</label>
+      {error && <div className="ac__error">{error}</div>}
+      <div className="ac-phone__row">
+        <select id="wa-group" className="form-input" value={pick} onChange={(e) => setPick(e.target.value)} disabled={!data}>
+          {!data && <option value="">Loading groups…</option>}
+          {data && !groups.some((g) => g.jid === pick) && <option value="">Choose a group</option>}
+          {groups.map((g) => <option key={g.jid} value={g.jid}>{g.name || 'Unnamed group'}</option>)}
+        </select>
+        <button className="btn-primary ac-btn" disabled={busy || !pick || pick === saved} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      </div>
+      <p className="ac__muted ac-note">{currentName ? `Now: ${currentName}. ` : saved ? 'Now: a group the company WhatsApp is no longer in. ' : 'No group chosen yet. '}Only groups the company WhatsApp has joined are listed.</p>
+    </div>
   );
 }
 

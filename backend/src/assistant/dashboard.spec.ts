@@ -400,3 +400,27 @@ test('WhatsApp not running: the panel shows why in plain words and offers Start,
     assert.ok(await db()('assistant_admin_audit').where({ action: 'whatsapp_start_requested' }).first());
   } finally { s2.closeAllConnections?.(); s2.close(); }
 });
+
+test('choose the WhatsApp group from the dashboard: only a group the company account is in; applies at once; saved; audited', async () => {
+  const { notificationGroupJid, setChosenNotificationGroup } = await import('../services/assignmentNotices');
+  const { loadNotificationGroup } = await import('./settingsStore');
+  const app = express(); app.use(express.json());
+  app.use('/api/assistant-admin', createAssistantAdminRouter({
+    getDB, registry: new HandlerRegistry(), config: () => null,
+    whatsappGroups: async () => [{ name: 'Loop Testing', jid: '120363412745413406@g.us' }, { name: 'Design Team', jid: '120363000000000077@g.us' }],
+  }));
+  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/whatsapp/group`;
+  const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
+  const post = (k: string, jid: string) => fetch(b2, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ jid }) });
+  try {
+    assert.equal((await post('linked', '120363000000000077@g.us')).status, 403, 'employees cannot');
+    assert.equal((await post('admin', 'not-a-group')).status, 400);
+    assert.equal((await post('admin', '120363999999999999@g.us')).status, 409, 'a group the company WhatsApp is not in is refused');
+    const r = await post('mgr', '120363000000000077@g.us');
+    assert.equal(r.status, 200, 'managers can choose');
+    assert.equal(((await r.json()) as any).name, 'Design Team');
+    assert.equal(notificationGroupJid(), '120363000000000077@g.us', 'reminders, reports and answers use it at once');
+    assert.equal(await loadNotificationGroup(db()), '120363000000000077@g.us', 'saved, so it survives a restart');
+    assert.ok(await db()('assistant_admin_audit').where({ action: 'whatsapp_group_chosen' }).first());
+  } finally { setChosenNotificationGroup(null); s2.closeAllConnections?.(); s2.close(); }
+});

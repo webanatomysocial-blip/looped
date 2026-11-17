@@ -78,9 +78,14 @@ export function toIncoming(m: any): IncomingMessage | null {
   // A LID identifies the same account in a private chat and in a group, so both are matched the same way
   const isPrivateLid = String(sender).endsWith('@lid');
   const senderId = isPhoneId ? `+${user}` : isPrivateLid ? `lid:${user}` : `opaque:${user}`;
+  // WhatsApp also reports the phone number of an internal-id sender when it is visible (groups: participantPn, private
+  // chats: senderPn). It comes from WhatsApp's server, so a person linked by phone number can be recognised in groups.
+  const pn = isGroup ? key.participantPn : key.senderPn;
+  const pnUser = typeof pn === 'string' && /@s\.whatsapp\.net$/.test(pn) ? pn.split('@')[0].split(':')[0] : '';
+  const senderPhoneId = isPrivateLid && /^\d{8,15}$/.test(pnUser) ? `+${pnUser}` : undefined;
   const seconds = Number(m.messageTimestamp);
   const timestamp = Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString() : new Date().toISOString();
-  return { channel: 'whatsapp', senderId, conversationId: chat, messageId: String(key.id), text, timestamp, isGroup, mentioned };
+  return { channel: 'whatsapp', senderId, conversationId: chat, messageId: String(key.id), text, timestamp, isGroup, mentioned, ...(senderPhoneId ? { senderPhoneId } : {}) };
 }
 
 const SAVE_FLUSH_MS = 5000;
@@ -238,7 +243,7 @@ export class WhatsAppAdapter {
     const server = jid.split('@')[1] ?? 'none';
     const type = server === 'lid' ? 'lid' : server === 's.whatsapp.net' ? 'phone' : server;
     const chat = String(key.remoteJid).endsWith('@g.us') ? 'group' : 'private';
-    this.log('info', `sender identifier: type=${type} last4=${user.slice(-4)} chat=${chat} hasParticipant=${Boolean(key.participant)} hasAlt=${Boolean(key.remoteJidAlt ?? key.participantAlt)}`);
+    this.log('info', `sender identifier: type=${type} last4=${user.slice(-4)} chat=${chat} hasParticipant=${Boolean(key.participant)} hasPhone=${Boolean(key.participantPn ?? key.senderPn)}`);
   }
 
   private async process(msg: IncomingMessage) {

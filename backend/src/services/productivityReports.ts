@@ -8,6 +8,7 @@ const TZ = 'Asia/Kolkata';
 const DAY_MS = 86_400_000;
 export const MORNING_MINUTE = 9 * 60;   // 09:00 IST
 export const EVENING_MINUTE = 18 * 60;  // 18:00 IST
+export const REPORT_WINDOW_MINUTES = 30; // a report is sent only within 30 minutes of its time
 
 // Date, weekday and time of an instant in Asia/Kolkata
 export function istParts(now: Date): { date: string; weekday: string; minutes: number } {
@@ -109,6 +110,7 @@ export async function employeeTasks(db: Knex, nowMs: number, projectIds: number[
       completedMs, assignedMs: toMs(r.assigned_at),
     };
     const list = tasks.get(Number(r.user_id)) ?? [];
+    if (list.some((t) => t.id === line.id)) continue;   // a multi-stage task is listed once per person
     list.push(line);
     tasks.set(Number(r.user_id), list);
   }
@@ -191,8 +193,9 @@ export async function enqueueScheduledReports(db: Knex, now: Date = new Date()):
   const { date, weekday, minutes } = istParts(now);
   if (!isWeekday(weekday)) return [];
   const due: { kind: 'report_morning' | 'report_evening'; build: () => Promise<string> }[] = [];
-  if (minutes >= MORNING_MINUTE && minutes < EVENING_MINUTE) due.push({ kind: 'report_morning', build: () => buildMorningReport(db, now) });
-  if (minutes >= EVENING_MINUTE) due.push({ kind: 'report_evening', build: () => buildEveningReport(db, now) });
+  // Only near the scheduled time: a report that could not go out on time is skipped, never sent hours late
+  if (minutes >= MORNING_MINUTE && minutes < MORNING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_morning', build: () => buildMorningReport(db, now) });
+  if (minutes >= EVENING_MINUTE && minutes < EVENING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_evening', build: () => buildEveningReport(db, now) });
   const queued: string[] = [];
   for (const d of due) {
     const eventKey = `${d.kind}:${date}`;

@@ -23,6 +23,9 @@ export interface IncomingMessage {
   isGroup?: boolean;
   // WhatsApp groups: the numbers mentioned in the message (used for the mention-only rule)
   mentioned?: string[];
+  // WhatsApp only: for a sender known by its internal id (lid), the phone number WhatsApp's own server reported with the
+  // message (participant_pn / sender_pn), as "+digits". Never taken from the message text.
+  senderPhoneId?: string;
   attachments?: Attachment[];
 }
 

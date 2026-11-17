@@ -187,8 +187,11 @@ test('Monday evening reports Monday activity only', async () => {
 test('delayed execution: a late run produces the same report for the intended date', async () => {
   assert.equal(await buildMorningReport(db(), ist('2026-11-16T11:45:00')), await buildMorningReport(db(), ist('2026-11-16T09:00:00')));
   assert.equal(await buildEveningReport(db(), ist('2026-11-16T21:30:00')), await buildEveningReport(db(), ist('2026-11-16T18:00:00')));
-  // A Thursday morning report queued late still carries Thursday's key and Wednesday's work
-  assert.deepEqual(await enqueueScheduledReports(db(), ist('2026-11-19T17:30:00')), ['report_morning:2026-11-19']);
+  // A morning report is never sent hours late (e.g. when WhatsApp connects in the afternoon) …
+  assert.deepEqual(await enqueueScheduledReports(db(), ist('2026-11-19T17:30:00')), [], 'too late: skipped, not sent');
+  assert.deepEqual(await enqueueScheduledReports(db(), ist('2026-11-19T09:31:00')), [], 'the window closes after 30 minutes');
+  // … but a pass a few minutes after 09:00 still sends it, with Thursday's key and Wednesday's work
+  assert.deepEqual(await enqueueScheduledReports(db(), ist('2026-11-19T09:20:00')), ['report_morning:2026-11-19']);
   const row = await db()('whatsapp_outbox').where({ event_key: 'report_morning:2026-11-19' }).first();
   assert.match(JSON.parse(row.payload).text, /Pending work from Wed, 18 Nov/);
 });
@@ -224,4 +227,40 @@ test('evening "Assigned today" counts only assignments made by 18:00, even on a 
   }
   const text = await buildEveningReport(d, ist('2026-11-20T21:00:00'));
   assert.match(text, /\*Asha\* — no time recorded\n  Assigned today 2 ·/);
+});
+
+test('no flood on reconnect: a report waiting more than 30 minutes is dropped, not sent late', async () => {
+  const at = ist('2026-11-23T09:00:00');   // a Monday
+  assert.deepEqual(await enqueueScheduledReports(db(), at), ['report_morning:2026-11-23']);
+  await db()('whatsapp_outbox').where({ event_key: 'report_morning:2026-11-23' }).update({ created_at: at });
+  const sent: string[] = [];
+  const sender = { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } };
+  await processOutbox(db(), sender, ist('2026-11-23T15:30:00'), 1000);   // WhatsApp only connects in the afternoon
+  assert.equal(sent.filter((t) => /Good morning/.test(t)).length, 0, 'the morning report is not sent in the afternoon');
+  const row = await db()('whatsapp_outbox').where({ event_key: 'report_morning:2026-11-23' }).first();
+  assert.equal(row.status, 'failed');
+  assert.equal(row.last_error, 'expired');
+});
+
+test('each task is listed once per person, even when a multi-stage task assigns them twice', async () => {
+  const d = db();
+  const [uid] = await d('users').insert({ name: 'Bhagya', email: 'bhagya@rep.test', password_hash: 'x', role: 'employee', pod: 'pod1' });
+  const [tid] = await d('tasks').insert({ title: 'ZE 2nd Video', project_id: U.P, created_by: U.mgr, status: 'pending', priority: 'medium', due_date: '2026-11-10', due_time: '23:59' });
+  for (const stage of [0, 1]) await d('task_assignees').insert({ task_id: tid, user_id: uid, assignee_role: 'employee', acceptance_status: 'accepted', assigned_at: ist('2026-11-09T10:00:00'), stage_idx: stage });
+  const text = await buildMorningReport(d, ist('2026-11-24T09:00:00'));
+  assert.equal((text.match(/ZE 2nd Video/g) ?? []).length, 1);
+  assert.match(text, /\*Bhagya\* — 0 pending, 1 overdue/);
+});
+
+test('reminders: only for assignments from the last day, so connecting never reminds people about weeks-old work', async () => {
+  const { enqueueAcceptanceReminders } = await import('./assignmentNotices');
+  const d = db();
+  const now = ist('2026-11-25T15:00:00');
+  const [oldTask] = await d('tasks').insert({ title: 'Old unaccepted', project_id: U.P, created_by: U.mgr, status: 'pending', priority: 'medium' });
+  await d('task_assignees').insert({ task_id: oldTask, user_id: U.ravi, assignee_role: 'employee', acceptance_status: 'pending', assigned_at: ist('2026-11-01T10:00:00') });
+  const [newTask] = await d('tasks').insert({ title: 'New unaccepted', project_id: U.P, created_by: U.mgr, status: 'pending', priority: 'medium' });
+  await d('task_assignees').insert({ task_id: newTask, user_id: U.ravi, assignee_role: 'employee', acceptance_status: 'pending', assigned_at: ist('2026-11-25T14:00:00') });
+  await enqueueAcceptanceReminders(d, now, 1);
+  const rows = await d('whatsapp_outbox').where({ kind: 'reminder' }).whereIn('task_id', [oldTask, newTask]).select('task_id');
+  assert.deepEqual(rows.map((r: any) => Number(r.task_id)), [Number(newTask)]);
 });

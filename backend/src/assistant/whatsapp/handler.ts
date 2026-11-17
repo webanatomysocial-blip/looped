@@ -39,6 +39,14 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
   const linker = createLinkHandler(db);
   return async (msg: IncomingMessage): Promise<OutgoingResponse | null> => {
     if (msg.channel !== 'whatsapp') return null;
+    // A person linked by phone number writes from an internal WhatsApp id: when that id is not linked, use the phone
+    // number WhatsApp's server reported with the message, if that number is linked
+    if (msg.senderPhoneId && msg.senderId !== msg.senderPhoneId) {
+      const byId = await identity.resolve(msg.channel, msg.senderId);
+      if (byId.status !== 'verified' && (await identity.resolve(msg.channel, msg.senderPhoneId)).status === 'verified') {
+        msg = { ...msg, senderId: msg.senderPhoneId };
+      }
+    }
     if (msg.isGroup !== false) {
       // Groups: only linked Loop staff get the group reply. Anyone else gets nothing at all.
       const groupWho = await identity.resolve(msg.channel, msg.senderId);
