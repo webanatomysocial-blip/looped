@@ -211,14 +211,14 @@ function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; o
 // ── Overview ──
 function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => void }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';   // admins and managers manage WhatsApp
   const { data, error, loading, reload } = useLoader(() => assistantAdminApi.overview().then((r) => r.data));
   const wa = data?.whatsapp; const u = data?.usage;
   const waTone = wa?.state === 'connected' ? 'ok' : wa?.state === 'connecting' ? 'warn' : 'bad';
   return (
     <section>
       <div className="ac__filters"><button className="btn-secondary ac-btn" onClick={reload}><RefreshCw size={14} /> Refresh</button></div>
-      {/* Only administrators can view or start pairing; the server enforces the same rule */}
+      {/* Admins and managers can view the WhatsApp connection and pair it */}
       {isAdmin && <WhatsAppPairing flash={flash} onConnected={reload} />}
       <Status state={data} loading={loading} error={error} />
       {data && (
@@ -270,7 +270,7 @@ function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => v
 // it is active straight away. The row updates at once, without a page refresh.
 function LinkingTab({ flash }: { flash: (m: string) => void }) {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';   // only admins link numbers (linking is immediate)
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';   // admins and managers link numbers
   const { data, error, loading, reload } = useLoader(() => assistantAdminApi.linking().then((r) => r.data));
   const [q, setQ] = useState('');
   // Rows changed in this session, shown immediately while the list reloads from the server
@@ -291,7 +291,7 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
         <label className="ac-search"><Search size={14} /><input className="form-input" placeholder="Search employees" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search employees" /></label>}>
         <p className="ac__muted ac-note">{isAdmin
           ? "Enter the employee's WhatsApp number with its country code and click Link. It is active straight away and recorded in the audit history."
-          : 'Only administrators can link or change numbers.'}</p>
+          : 'You can view numbers here.'}</p>
         <Status state={data} loading={loading} error={error} />
         {data && (
           <div className="ac__table-wrap"><table className="ac__table ac-table">

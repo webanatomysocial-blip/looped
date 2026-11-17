@@ -205,7 +205,7 @@ test('pairing endpoint: admins only, never cached, QR image only while the conne
   const post = (k: string) => fetch(`${b2}/api/assistant-admin/whatsapp/pairing/refresh`, { method: 'POST', headers: { Authorization: tok(k) } });
   try {
     assert.equal((await get(null)).status, 401);
-    assert.equal((await get('mgr')).status, 403);
+    assert.equal((await get('mgr')).status, 200, 'managers can see the pairing panel');
     assert.equal((await get('linked')).status, 403);
     assert.equal((await post('linked')).status, 403, 'an employee cannot start pairing');
     const r = await get('admin');
@@ -269,7 +269,7 @@ test('mobile number endpoint: only admins can save (it links directly); managers
   const put = (k: string) => fetch(b2, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ phone: '+919812345678' }) });
   try {
     assert.equal((await put('linked')).status, 403);
-    assert.equal((await put('mgr')).status, 403);
+    assert.equal((await put('mgr')).status, 200, 'managers can link numbers');
     assert.equal((await put('admin')).status, 200);
   } finally { s2.closeAllConnections?.(); s2.close(); }
 });
@@ -307,7 +307,7 @@ test('direct link endpoint: admin only; managers and employees are refused', asy
   const body = JSON.stringify({ phone: '+919811100003', note: 'Confirmed in person at the office', confirmed: true });
   const post = (k: string) => fetch(b2, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body });
   try {
-    assert.equal((await post('mgr')).status, 403, 'managers cannot direct-link');
+    assert.equal((await post('mgr')).status, 200, 'managers can direct-link');
     assert.equal((await post('linked')).status, 403);
     assert.equal((await post('admin')).status, 200);
   } finally { s2.closeAllConnections?.(); s2.close(); }

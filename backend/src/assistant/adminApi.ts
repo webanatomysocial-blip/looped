@@ -64,11 +64,10 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   const now = () => (d.now ? d.now() : Date.now());
   let groupNameCache: { jid: string; name: string; at: number } | null = null;
   // Every route in this router is admin-only, checked on the server
-  // Admins and managers see the dashboard; the WhatsApp QR pairing routes below stay admin-only
+  // Admins and managers: the whole dashboard, including linking numbers and WhatsApp pairing
   r.use(authenticate, requireRoles('admin', 'manager'));
   // Dashboard data changes with every action: never let a browser or proxy serve an old copy
   r.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-  const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only an administrator can manage the WhatsApp connection' }));
   const wrap = (fn: (req: AuthRequest, res: Response) => Promise<unknown>) => async (req: AuthRequest, res: Response, _n: NextFunction) => {
     try { const out = await fn(req, res); if (!res.headersSent) res.json(out); }
     catch (e: any) {
@@ -157,14 +156,14 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
 
   // ── Employee WhatsApp linking (existing identity system; selecting someone is never proof) ──
   r.get('/linking', wrap(async () => listEmployeeLinking(d.getDB(), new Date(now()))));
-  // Admin only: saving a mobile number links the employee's WhatsApp to it directly (audited)
-  r.put('/linking/:userId/phone', adminOnly, wrap(async (req) => {
+  // Saving a mobile number links the employee's WhatsApp to it directly (audited)
+  r.put('/linking/:userId/phone', wrap(async (req) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id)) throw new IdentityError('not_found', 'Staff member not found');
     return { ok: true, ...(await saveEmployeePhone(d.getDB(), { userId: id, phone: req.body?.phone, actorId: req.user!.id, now: new Date(now()) })) };
   }));
-  // Admin only: link the employee's WhatsApp to the number the admin entered (confirmed by the admin, audited)
-  r.post('/linking/:userId/direct-link', adminOnly, wrap(async (req) => {
+  // Link the employee's WhatsApp to the number entered (audited)
+  r.post('/linking/:userId/direct-link', wrap(async (req) => {
     const id = Number(req.params.userId);
     if (!Number.isInteger(id)) throw new IdentityError('not_found', 'Staff member not found');
     return { ok: true, ...(await directLinkEmployee(d.getDB(), { userId: id, phone: req.body?.phone, actorId: req.user!.id, note: req.body?.note, confirmed: req.body?.confirmed, now: new Date(now()) })) };
@@ -172,8 +171,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   r.post('/linking/link', wrap(async (req, res) => {
     const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids : [];
     if (!ids.length) return res.status(400).json({ error: 'Select at least one employee' }) as any;
-    // Only an admin's click links from a saved number; a manager's click only reports the status
-    return { results: await linkEmployees(d.getDB(), { userIds: ids, actorId: req.user!.id, now: new Date(now()), canDirectLink: req.user!.role === 'admin' }) };
+      return { results: await linkEmployees(d.getDB(), { userIds: ids, actorId: req.user!.id, now: new Date(now()), canDirectLink: true }) };
   }));
 
   // ── Live queue: what is waiting or running now ──
@@ -388,7 +386,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   r.get('/whatsapp', wrap(async () => d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' }));
   // Read-only: group names and JIDs the connected account is in. Nothing is sent, joined or changed.
   // ── Pairing: the QR the existing connection is waiting for, to admins only. Never logged, never cached. ──
-  r.get('/whatsapp/pairing', adminOnly, wrap(async (_req, res) => {
+  r.get('/whatsapp/pairing', wrap(async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     const st: any = d.whatsappStatus?.() ?? { enabled: false, state: 'stopped' };
     const code = st.state === 'awaiting_qr' ? d.whatsappPairing?.() ?? null : null;
@@ -401,7 +399,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       can_request_new: st.state === 'logged_out',
     };
   }));
-  r.post('/whatsapp/pairing/refresh', adminOnly, wrap(async (req, res) => {
+  r.post('/whatsapp/pairing/refresh', wrap(async (req, res) => {
     const st: any = d.whatsappStatus?.() ?? { state: 'stopped' };
     if (st.state !== 'logged_out' || !d.whatsappNewPairing?.()) return res.status(409).json({ error: 'A new code is not needed: the connection issues codes by itself while it is waiting for pairing.' }) as any;
     await audit(d.getDB(), req.user!.id, 'whatsapp_pairing_requested', 'whatsapp', 'new pairing round requested', now());
