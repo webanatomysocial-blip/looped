@@ -50,7 +50,9 @@ export function requestNewPairing(): boolean {
 export async function getWhatsAppStatus(): Promise<WaStatus> {
   if (current) return current.status();
   const shared = sharedDb ? await readState(sharedDb).catch(() => null) : null;
-  return (shared?.status as unknown as WaStatus) ?? stopped;
+  if (shared?.status) return shared.status as unknown as WaStatus;
+  // Waiting to take over (e.g. just after a deploy): show it as reconnecting, not as lost
+  return standby ? { ...stopped, enabled: true, state: 'reconnecting' } : stopped;
 }
 
 export async function startWhatsApp(
@@ -73,7 +75,7 @@ function waitToTakeOver(db: Knex, options: WhatsAppHandlerOptions, config: Whats
       clearInterval(standby); standby = null;
       await own(db, options, config, extra).catch((e) => console.error('[whatsapp] take-over failed:', safeMessage(e)));
     }).catch(() => undefined);
-  }, 20_000);
+  }, 10_000);
   standby.unref?.();
 }
 

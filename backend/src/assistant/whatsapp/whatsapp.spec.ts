@@ -710,3 +710,17 @@ test('activity: every incoming message gets an outcome (replied, not mentioned, 
   assert.ok(!JSON.stringify(rows).includes('secret question'));
   assert.ok(!JSON.stringify(rows).includes(STRANGER_PHONE), 'no full numbers');
 });
+
+test('after a deploy: when the old owner process on this machine is gone, the new copy takes over at once', async () => {
+  const os = require('os');
+  const { claimOwner, ownerProcessGone } = require('./shared');
+  await db()('assistant_settings').where({ name: 'wa_owner' }).del();
+  const t = Date.now();
+  const deadOwner = `${os.hostname()}:999999:old`;               // a process id that does not exist
+  assert.equal(ownerProcessGone(deadOwner), true);
+  assert.equal(ownerProcessGone(`${os.hostname()}:${process.pid}:me`), false, 'never this process');
+  assert.equal(ownerProcessGone(`another-machine:999999:x`), false, 'another machine: wait for the heartbeat instead');
+  assert.equal(await claimOwner(db(), deadOwner, t), true);
+  assert.equal(await claimOwner(db(), `${os.hostname()}:${process.pid}:new`, t + 1000), true, 'same machine, old process gone: immediate take-over');
+  await db()('assistant_settings').where({ name: 'wa_owner' }).del();
+});
