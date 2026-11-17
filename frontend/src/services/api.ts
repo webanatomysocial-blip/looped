@@ -356,6 +356,7 @@ export const assistantAdminApi = {
   retry: (id: string) => api.post('/assistant-admin/failures/' + encodeURIComponent(id) + '/retry'),
   audit: (params: Record<string, string | number | undefined>) => api.get('/assistant-admin/audit', { params }),
   config: () => api.get('/assistant-admin/config'),
+  saveAiKey: (key: string) => api.post('/assistant-admin/config/ai-key', { key }),
   overview: () => api.get('/assistant-admin/overview'),
   pairing: () => api.get('/assistant-admin/whatsapp/pairing'),
   requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),

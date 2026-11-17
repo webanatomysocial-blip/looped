@@ -58,6 +58,7 @@ export async function initDB(): Promise<void> {
   await ensureOutboxSchema(db);
   await ensureUsageSchema(db);
   await ensureEmployeePhoneSchema(db);
+  await (await import('../assistant/settingsStore')).ensureSettingsSchema(db);
   await ensureConversationSchema(db);
   await ensureQueueSchema(db);
   // First-login password change: set for seeded admin and demo accounts until they choose a new password

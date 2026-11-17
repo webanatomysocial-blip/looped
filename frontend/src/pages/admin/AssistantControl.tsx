@@ -46,7 +46,7 @@ export default function AssistantControl() {
         {tab === 'conversations' && <ConversationsTab />}
         {tab === 'failures' && <FailuresTab flash={flash} />}
         {tab === 'audit' && <AuditTab />}
-        {tab === 'config' && <ConfigTab />}
+        {tab === 'config' && <ConfigTab flash={flash} />}
       </div>
     </Layout>
   );
@@ -147,9 +147,9 @@ const PAIR_TEXT: Record<string, { title: string; text: string; tone: string }> =
   reconnecting: { title: 'Reconnecting', text: 'The connection dropped and is reconnecting automatically with the saved session.', tone: 'warn' },
   awaiting_qr: { title: 'Pairing required', text: 'The saved session is not valid any more. Scan a QR code from the company phone to pair again.', tone: 'bad' },
   logged_out: { title: 'Pairing stopped', text: 'The phone refused several pairing codes. Request a new code to try again.', tone: 'bad' },
-  stopped: { title: 'Not running', text: 'WhatsApp is turned off on this server.', tone: 'muted' },
+  stopped: { title: 'Not running', text: 'The assistant is not running on this server yet. Open Configuration to finish the setup.', tone: 'muted' },
 };
-function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; onConnected: () => void }) {
+function WhatsAppPairing({ flash, onConnected, onSetup }: { flash: (m: string) => void; onConnected: () => void; onSetup?: () => void }) {
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [show, setShow] = useState(false);
@@ -186,6 +186,7 @@ function WhatsAppPairing({ flash, onConnected }: { flash: (m: string) => void; o
         <Badge tone={info.tone}>{info.title}</Badge>
       </div>
       <p className="ac-pair__text">{info.text}{data.account ? ` Account ${data.account}.` : ''}</p>
+      {state === 'stopped' && onSetup && <button className="btn-primary ac-btn" onClick={onSetup}>Open Configuration</button>}
       {state === 'awaiting_qr' && !show && <button className="btn-primary ac-btn" onClick={() => { setShow(true); load(); }}><QrCode size={14} /> Show QR code</button>}
       {state === 'logged_out' && <button className="btn-primary ac-btn" disabled={busy} onClick={requestNew}><RefreshCw size={14} /> Request a new QR code</button>}
       {show && state === 'awaiting_qr' && (
@@ -219,7 +220,7 @@ function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => v
     <section>
       <div className="ac__filters"><button className="btn-secondary ac-btn" onClick={reload}><RefreshCw size={14} /> Refresh</button></div>
       {/* Admins and managers can view the WhatsApp connection and pair it */}
-      {isAdmin && <WhatsAppPairing flash={flash} onConnected={reload} />}
+      {isAdmin && <WhatsAppPairing flash={flash} onConnected={reload} onSetup={() => go('config')} />}
       <Status state={data} loading={loading} error={error} />
       {data && (
         <>
@@ -615,13 +616,46 @@ function AuditTab() {
   );
 }
 
-function ConfigTab() {
-  const { data, error, loading } = useLoader(() => assistantAdminApi.config().then((r) => r.data));
+// Setup: what the server still needs, in plain words, and the AI key field. The key is stored encrypted and never shown.
+function SetupPanel({ data, onSaved, flash }: { data: any; onSaved: () => void; flash: (m: string) => void }) {
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const running = data.assistant_enabled && data.api_key_configured;
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await assistantAdminApi.saveAiKey(key.trim());
+      setKey('');
+      flash(r.data.running ? 'Saved. The assistant and WhatsApp are starting: open Overview to scan the QR code.' : 'Key saved, but the assistant is still off. See the list below.');
+      onSaved();
+    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <section className="ac-panel ac-setup">
+      <div className="ac-panel__head"><h2>Setup</h2><Badge tone={running ? 'ok' : 'bad'}>{running ? 'Assistant running' : 'Assistant off'}</Badge></div>
+      {!running && data.problems?.length > 0 && (
+        <ul className="ac-setup__problems">{data.problems.map((p: string) => <li key={p}>{p}</li>)}</ul>
+      )}
+      {data.settings_file_loaded === false && (
+        <p className="ac__muted">The server is not running in production mode (NODE_ENV is "{data.node_env}"), so the WhatsApp settings that ship with the code are not loaded.</p>
+      )}
+      <label className="form-label" htmlFor="ai-key">OpenAI API key {data.api_key_configured ? '(saved — paste a new one to replace it)' : ''}</label>
+      <div className="ac-phone__row">
+        <input id="ai-key" className="form-input" type="password" autoComplete="off" placeholder="sk-..." value={key} onChange={(e) => setKey(e.target.value)} />
+        <button className="btn-primary ac-btn" disabled={busy || key.trim().length < 20} onClick={save}>{busy ? 'Saving…' : 'Save key'}</button>
+      </div>
+      <p className="ac__muted ac-note">Stored encrypted on the server and never shown again. Saving starts the assistant and WhatsApp straight away; then scan the QR code on Overview.</p>
+    </section>
+  );
+}
+
+function ConfigTab({ flash }: { flash: (m: string) => void }) {
+  const { data, error, loading, reload } = useLoader(() => assistantAdminApi.config().then((r) => r.data));
   const row = (k: string, v: any) => <div className="ac__config-row" key={k}><span>{k}</span><strong>{typeof v === 'boolean' ? (v ? 'Enabled' : 'Disabled') : String(v ?? '—')}</strong></div>;
   return (
     <section>
-      <p className="ac__muted">Read-only. Settings change in the server environment, not here. Secrets are never shown.</p>
       <Status state={data} loading={loading} error={error} />
+      {data && <SetupPanel data={data} onSaved={reload} flash={flash} />}
       {data && (
         <div className="ac__config">
           {row('Provider', data.provider)}

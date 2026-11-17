@@ -9,7 +9,7 @@ import { io } from './socket';
 dotenv.config();
 // Production only: the WhatsApp assistant's non-secret settings ship with the code (assistant.production.env).
 // Values already set in the server's .env always win, and the AI key must stay in the server's .env, never in git.
-if (process.env.NODE_ENV === 'production') dotenv.config({ path: path.join(__dirname, '../assistant.production.env') });
+const assistantSettingsFileLoaded = process.env.NODE_ENV === 'production' && !dotenv.config({ path: path.join(__dirname, '../assistant.production.env') }).error;
 
 import { initDB, getDB } from './db';
 import { repairSkippedStageTickets, recoverInterruptedTransitions } from './services/xlr8';
@@ -141,21 +141,70 @@ app.use('/api/regularisation', regularisationRoutes);
 app.use('/api/assistant', assistantRoutes);
 // Phase 4.5: admin-only control centre API. No action handlers are registered, so nothing can be retried or executed.
 let assistantConfig: import('./assistant/config').AssistantConfig | null = null;
-try {
-  assistantConfig = require('./assistant/config').loadAssistantConfig();
-  const c = assistantConfig!;
-  // Safe summary only: no key, no secret, no phone numbers
-  console.log(`[assistant] configured: enabled=${c.enabled} provider=${c.ai.provider} model=${c.ai.model ?? 'none'} timezone=${c.timezone} execution=${c.queue.executionEnabled ? 'ENABLED' : 'disabled'}`);
-  if (c.queue.executionEnabled && !c.enabled) console.warn('[assistant] execution is switched on but the assistant is off: nothing will run');
-} catch (e: any) {
-  assistantConfig = null;
-  const problems: string[] = Array.isArray(e?.problems) ? e.problems : [String(e?.message ?? e)];
-  console.warn('[assistant] configuration is INVALID, so the assistant stays OFF and nothing will run:');
-  for (const p of problems) console.warn(`[assistant]   - ${p}`);
-  if (process.env.ASSISTANT_EXECUTION_ENABLED === 'true') console.error('[assistant] execution was requested but the configuration is invalid: execution stays OFF');
+let assistantProblems: string[] = [];
+// Reads the assistant settings (server .env, then assistant.production.env, then an AI key saved from the dashboard)
+function loadAssistant(): void {
+  try {
+    assistantConfig = require('./assistant/config').loadAssistantConfig();
+    assistantProblems = [];
+    const c = assistantConfig!;
+    // Safe summary only: no key, no secret, no phone numbers
+    console.log(`[assistant] configured: enabled=${c.enabled} provider=${c.ai.provider} model=${c.ai.model ?? 'none'} timezone=${c.timezone} execution=${c.queue.executionEnabled ? 'ENABLED' : 'disabled'}`);
+    if (c.queue.executionEnabled && !c.enabled) console.warn('[assistant] execution is switched on but the assistant is off: nothing will run');
+  } catch (e: any) {
+    assistantConfig = null;
+    assistantProblems = Array.isArray(e?.problems) ? e.problems : [String(e?.message ?? e)];
+    console.warn('[assistant] configuration is INVALID, so the assistant stays OFF and nothing will run:');
+    for (const p of assistantProblems) console.warn(`[assistant]   - ${p}`);
+    if (process.env.ASSISTANT_EXECUTION_ENABLED === 'true') console.error('[assistant] execution was requested but the configuration is invalid: execution stays OFF');
+  }
+}
+loadAssistant();
+
+// Starts the assistant worker and WhatsApp once, when the configuration is valid. Safe to call again: it only starts what is not running.
+let assistantStarted = false;
+async function startAssistantServices(): Promise<void> {
+  if (assistantStarted || !assistantConfig?.enabled) return;
+  assistantStarted = true;
+  const { ticketRegistry, stillVerified } = require('./assistant/actions');
+  const { recoverOnStartup, startWorker } = require('./assistant/worker');
+  const registry = ticketRegistry(getDB());
+  const settings = {
+    workerId: `web-${process.pid}`, maxAttempts: assistantConfig.queue.maxAttempts, leaseSeconds: assistantConfig.queue.leaseSeconds,
+    contextTtlSeconds: assistantConfig.contextTtlSeconds, executionEnabled: assistantConfig.queue.executionEnabled,
+  };
+  const deps = { db: getDB(), registry, stillVerified: (id: number) => stillVerified(getDB(), id), settings };
+  await recoverOnStartup(deps).catch(() => console.error('[assistant-worker] startup recovery failed'));
+  startWorker(deps);
+  // WhatsApp channel: off by default; needs the assistant on as well
+  try {
+    const { loadWhatsAppConfig } = require('./assistant/whatsapp/config');
+    const waConfig = loadWhatsAppConfig();
+    if (waConfig.enabled) {
+      const { startWhatsApp } = require('./assistant/whatsapp/runtime');
+      const c = assistantConfig;
+      await startWhatsApp(getDB(), {
+        ai: new (require('./assistant/aiUsage').RecordingAIProvider)(require('./assistant/ai').createAIProvider(c.ai), getDB), timezone: c.timezone, contextTtlSeconds: c.contextTtlSeconds,
+        confirmationTtlSeconds: c.confirmationTtlSeconds, queueExpirySeconds: c.queue.queueExpirySeconds, executionEnabled: c.queue.executionEnabled,
+      }, waConfig).then(() => console.log('[whatsapp] adapter started; pairing is needed until a session exists'))
+        .catch((e: any) => console.error('[whatsapp] did not start:', String(e?.message ?? 'error').slice(0, 160)));
+    }
+  } catch (e: any) {
+    console.warn('[whatsapp] configuration is INVALID, so WhatsApp stays OFF:');
+    for (const p of (Array.isArray(e?.problems) ? e.problems : [])) console.warn(`[whatsapp]   - ${p}`);
+  }
+}
+
+// A key saved in the dashboard: used when the server's .env has none, then the assistant starts without a restart
+async function useStoredAiKey(): Promise<void> {
+  if (process.env.ASSISTANT_AI_API_KEY || process.env.OPENAI_API_KEY) return;
+  const key = await require('./assistant/settingsStore').loadAiKey(getDB());
+  if (key) { process.env.ASSISTANT_AI_API_KEY = key; loadAssistant(); }
 }
 const assistantRegistry = new (require('./assistant/executor').HandlerRegistry)();
-app.use('/api/assistant-admin', require('./assistant/adminApi').createAssistantAdminRouter({ getDB, registry: assistantRegistry, config: assistantConfig, whatsappStatus: () => require('./assistant/whatsapp/runtime').getWhatsAppStatus(), whatsappPairing: () => require('./assistant/whatsapp/runtime').getPairingCode(), whatsappNewPairing: () => require('./assistant/whatsapp/runtime').requestNewPairing(), whatsappGroups: () => require('./assistant/whatsapp/runtime').listWhatsAppGroups() }));
+app.use('/api/assistant-admin', require('./assistant/adminApi').createAssistantAdminRouter({ getDB, registry: assistantRegistry, config: () => assistantConfig,
+  setup: () => ({ problems: assistantProblems, nodeEnv: process.env.NODE_ENV ?? 'not set', settingsFileLoaded: assistantSettingsFileLoaded }),
+  onAiKeySaved: async (key: string) => { process.env.ASSISTANT_AI_API_KEY = key; loadAssistant(); await startAssistantServices(); return { running: !!assistantConfig?.enabled, problems: assistantProblems }; }, whatsappStatus: () => require('./assistant/whatsapp/runtime').getWhatsAppStatus(), whatsappPairing: () => require('./assistant/whatsapp/runtime').getPairingCode(), whatsappNewPairing: () => require('./assistant/whatsapp/runtime').requestNewPairing(), whatsappGroups: () => require('./assistant/whatsapp/runtime').listWhatsAppGroups() }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -182,38 +231,9 @@ initDB()
     const recovered = await recoverInterruptedTransitions(getDB()).catch((e) => { console.error('[xlr8] recovery failed', e); return 0; });
     if (recovered) console.log(`[xlr8] restored ${recovered} interrupted ticket transition(s)`);
     await repairSkippedStageTickets(getDB()).catch((e) => console.error('[xlr8] skip repair failed', e));
-    // Assistant worker: only when the assistant is on. Recovery runs first; execution still needs its own switch.
-    if (assistantConfig?.enabled) {
-      const { ticketRegistry, stillVerified } = require('./assistant/actions');
-      const { recoverOnStartup, startWorker } = require('./assistant/worker');
-      const registry = ticketRegistry(getDB());
-      const settings = {
-        workerId: `web-${process.pid}`, maxAttempts: assistantConfig.queue.maxAttempts, leaseSeconds: assistantConfig.queue.leaseSeconds,
-        contextTtlSeconds: assistantConfig.contextTtlSeconds, executionEnabled: assistantConfig.queue.executionEnabled,
-      };
-      const deps = { db: getDB(), registry, stillVerified: (id: number) => stillVerified(getDB(), id), settings };
-      await recoverOnStartup(deps).catch((e: any) => console.error('[assistant-worker] startup recovery failed'));
-      startWorker(deps);
-    }
-    // WhatsApp channel: off by default; needs the assistant on as well
-    if (assistantConfig?.enabled) {
-      try {
-        const { loadWhatsAppConfig } = require('./assistant/whatsapp/config');
-        const waConfig = loadWhatsAppConfig();
-        if (waConfig.enabled) {
-          const { startWhatsApp } = require('./assistant/whatsapp/runtime');
-          const c = assistantConfig;
-          await startWhatsApp(getDB(), {
-            ai: new (require('./assistant/aiUsage').RecordingAIProvider)(require('./assistant/ai').createAIProvider(c.ai), getDB), timezone: c.timezone, contextTtlSeconds: c.contextTtlSeconds,
-            confirmationTtlSeconds: c.confirmationTtlSeconds, queueExpirySeconds: c.queue.queueExpirySeconds, executionEnabled: c.queue.executionEnabled,
-          }, waConfig).then(() => console.log('[whatsapp] adapter started; pairing is needed until a session exists'))
-            .catch((e: any) => console.error('[whatsapp] did not start:', String(e?.message ?? 'error').slice(0, 160)));
-        }
-      } catch (e: any) {
-        console.warn('[whatsapp] configuration is INVALID, so WhatsApp stays OFF:');
-        for (const p of (Array.isArray(e?.problems) ? e.problems : [])) console.warn(`[whatsapp]   - ${p}`);
-      }
-    }
+    // Assistant worker and WhatsApp: only when the assistant is on (an AI key saved in the dashboard counts too)
+    await useStoredAiKey().catch(() => console.error('[assistant] stored settings could not be read'));
+    await startAssistantServices();
     startEmailScheduler();
     startRecurringTaskScheduler();
     scheduleWaitingReviewers(getDB()).catch((err) => console.error('[scheduler] Waiting reviews error:', err));

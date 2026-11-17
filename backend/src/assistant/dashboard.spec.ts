@@ -336,3 +336,44 @@ test('dashboard responses are never cached, so the page shows changes straight a
     assert.equal(r.headers.get('cache-control'), 'no-store', url);
   }
 });
+
+// ── Setup from the dashboard: AI key ──
+
+test('AI key storage: encrypted at rest, decrypts with the same server secret, unreadable with another', async () => {
+  const { encryptSetting, decryptSetting, saveAiKey, loadAiKey } = await import('./settingsStore');
+  const stored = encryptSetting('sk-test-1234567890abcdefghij');
+  assert.ok(!stored.includes('sk-test'), 'not stored in plain text');
+  assert.equal(decryptSetting(stored), 'sk-test-1234567890abcdefghij');
+  const saved = process.env.JWT_SECRET;
+  try { process.env.JWT_SECRET = 'a-different-secret'; assert.equal(decryptSetting(stored), null); } finally { process.env.JWT_SECRET = saved; }
+  await saveAiKey(db(), 'sk-test-abcdefghijklmnopqrstuvwxyz', U.admin.id);
+  assert.equal(await loadAiKey(db()), 'sk-test-abcdefghijklmnopqrstuvwxyz');
+  const raw = await db()('assistant_settings').first('value');
+  assert.ok(!String(raw.value).includes('sk-test'));
+  assert.ok(await db()('assistant_admin_audit').where({ action: 'ai_key_saved' }).first());
+});
+
+test('save AI key endpoint: admins and managers only, bad keys refused, starts the assistant, and the key is never sent back', async () => {
+  let started: string | null = null;
+  const app = express(); app.use(express.json());
+  app.use('/api/assistant-admin', createAssistantAdminRouter({
+    getDB, registry: new HandlerRegistry(), config: () => null,
+    setup: () => ({ problems: ['ASSISTANT_AI_API_KEY is required for provider "openai"'], nodeEnv: 'production', settingsFileLoaded: true }),
+    onAiKeySaved: async (k) => { started = k; return { running: true, problems: [] }; },
+  }));
+  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
+  const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
+  const post = (k: string, key: string) => fetch(`${b2}/config/ai-key`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ key }) });
+  try {
+    assert.equal((await post('linked', 'sk-test-abcdefghijklmnopqrstuvwxyz')).status, 403, 'employees cannot');
+    assert.equal((await post('admin', 'short')).status, 400);
+    assert.equal((await post('admin', 'has spaces in it which is wrong')).status, 400);
+    const ok = await post('mgr', 'sk-test-abcdefghijklmnopqrstuvwxyz');
+    assert.equal(ok.status, 200, 'managers can');
+    assert.deepEqual(((await ok.json()) as any).running, true);
+    assert.equal(started, 'sk-test-abcdefghijklmnopqrstuvwxyz', 'the assistant is started with the new key');
+    const cfgBody = await (await fetch(`${b2}/config`, { headers: { Authorization: tok('admin') } })).text();
+    assert.ok(!cfgBody.includes('sk-test'), 'the key is never sent back');
+    assert.match(cfgBody, /ASSISTANT_AI_API_KEY is required/, 'the setup problems are shown in plain words');
+  } finally { s2.closeAllConnections?.(); s2.close(); }
+});

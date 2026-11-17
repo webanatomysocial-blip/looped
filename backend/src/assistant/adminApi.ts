@@ -10,6 +10,7 @@ import { PendingError, listPendingSenders, approvePendingSender, dismissPendingS
 import { AssistantConfig } from './config';
 import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
+import { saveAiKey, validAiKey } from './settingsStore';
 import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
 import { notificationGroupJid } from '../services/assignmentNotices';
 
@@ -35,7 +36,10 @@ async function renderQrSvg(qr: string): Promise<string | null> {
 export interface AdminApiDeps {
   getDB: () => Knex;
   registry: HandlerRegistry;
-  config: AssistantConfig | null;
+  // The live configuration (a function, so a key saved from the dashboard is reflected without a restart)
+  config: AssistantConfig | null | (() => AssistantConfig | null);
+  setup?: () => { problems: string[]; nodeEnv: string; settingsFileLoaded: boolean };
+  onAiKeySaved?: (key: string) => Promise<{ running: boolean; problems: string[] }>;
   now?: () => number;
   whatsappStatus?: () => unknown;
   whatsappGroups?: () => Promise<{ name: string; jid: string }[]>;
@@ -61,6 +65,7 @@ async function audit(db: Knex, actorId: number, action: string, target: string, 
 
 export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   const r = Router();
+  const cfg = (): AssistantConfig | null => (typeof d.config === 'function' ? d.config() : d.config);
   const now = () => (d.now ? d.now() : Date.now());
   let groupNameCache: { jid: string; name: string; at: number } | null = null;
   // Every route in this router is admin-only, checked on the server
@@ -142,7 +147,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       linking: { total: linking.length, linked: count('linked'), unlinked: linking.length - count('linked'), pending: count('pending') + pendingSenders, failed: count('failed') },
       requests: { total: totalRequests },
       usage,
-      model: d.config?.ai.model ?? null,
+      model: cfg()?.ai.model ?? null,
       recent: {
         requests: recentRequests,
         linking: recentLinking.map((x: any) => ({ ...x, detail: maskText(x.detail) })),
@@ -152,7 +157,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     };
   }));
 
-  r.get('/usage', wrap(async (req) => ({ ...(await usageSummary(d.getDB(), new Date(now()), clampInt(req.query.days, 30, 90))), model: d.config?.ai.model ?? null })));
+  r.get('/usage', wrap(async (req) => ({ ...(await usageSummary(d.getDB(), new Date(now()), clampInt(req.query.days, 30, 90))), model: cfg()?.ai.model ?? null })));
 
   // ── Employee WhatsApp linking (existing identity system; selecting someone is never proof) ──
   r.get('/linking', wrap(async () => listEmployeeLinking(d.getDB(), new Date(now()))));
@@ -408,8 +413,17 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
 
   r.get('/whatsapp/groups', wrap(async () => d.whatsappGroups ? await d.whatsappGroups() : []));
 
+  // Save the AI key from the dashboard: stored encrypted, never shown again; the assistant and WhatsApp start straight away
+  r.post('/config/ai-key', wrap(async (req, res) => {
+    const key = validAiKey(req.body?.key);
+    if (!key) return res.status(400).json({ error: 'Paste the full API key (it has no spaces)' }) as any;
+    await saveAiKey(d.getDB(), key, req.user!.id, new Date(now()));
+    const out = d.onAiKeySaved ? await d.onAiKeySaved(key) : { running: false, problems: [] };
+    return { ok: true, ...out };
+  }));
+
   r.get('/config', wrap(async () => {
-    const c = d.config;
+    const c = cfg();
     return {
       provider: c?.ai.provider ?? 'none',
       model: c?.ai.model ?? null,
@@ -422,6 +436,11 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
       registered_actions: d.registry.size,
       provider_connectivity: 'not checked (no paid calls are made to populate this page)',
       api_key_configured: !!c?.ai.apiKey,
+      // What is missing on the server, in plain words (no secrets)
+      problems: d.setup?.().problems ?? [],
+      node_env: d.setup?.().nodeEnv ?? null,
+      settings_file_loaded: d.setup?.().settingsFileLoaded ?? null,
+      whatsapp_state: (d.whatsappStatus?.() as any)?.state ?? 'stopped',
     };
   }));
 

@@ -134,3 +134,6 @@
 .ac-stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .ac-phone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ac-linkbtn { background: none; border: 0; padding: 0; font-size: 12px; color: var(--blue); cursor: pointer; text-decoration: underline; }
+
+.ac-setup { margin-bottom: 16px; }
+.ac-setup__problems { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: #b3242b; line-height: 1.7; }
