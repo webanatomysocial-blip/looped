@@ -254,8 +254,7 @@ test('mobile number: saved for an employee, masked in the list, invalid numbers 
   await saveEmployeePhone(db(), { userId: U.none.id, phone: '+919876500000', actorId: U.admin.id });
   const after = (await listEmployeeLinking(db())).find((r) => r.user_id === U.none.id)!;
   assert.equal(after.declared_number, '+91 •••• 0000', 'the newest number replaces the old one');
-  assert.equal(after.status, nora.status, 'a recorded number does not change the link status');
-  assert.notEqual(after.status, 'linked', 'a recorded number never links anyone');
+  assert.equal(after.status, 'linked', 'saving the admin number links the employee directly');
   assert.ok(!JSON.stringify(await listEmployeeLinking(db())).includes('+919876500000'), 'the full number is never listed');
   await assert.rejects(saveEmployeePhone(db(), { userId: U.none.id, phone: '12345', actorId: U.admin.id }), /country code/);
   await assert.rejects(saveEmployeePhone(db(), { userId: U.client.id, phone: '+919876500001', actorId: U.admin.id }), /not found/);

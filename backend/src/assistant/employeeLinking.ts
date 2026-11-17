@@ -54,17 +54,10 @@ export async function directLinkEmployee(db: Knex, args: { userId: number; phone
   return { masked: maskSender(phone)! };
 }
 
+// Saving the admin's number links the employee directly: the number entered by the admin is the employee's WhatsApp.
+// Audited as an admin entry. Any earlier number for the employee is replaced.
 export async function saveEmployeePhone(db: Knex, args: { userId: number; phone: unknown; actorId: number; now?: Date }): Promise<{ masked: string }> {
-  const phone = normalizePhoneInput(args.phone);
-  if (!phone) throw new IdentityError('invalid_phone', 'Enter the number with its country code, e.g. +919876543210');
-  const user = await db('users').where({ id: args.userId }).first('id', 'role', 'name');
-  if (!user || !STAFF_ROLES.includes(user.role)) throw new IdentityError('not_found', 'Staff member not found');
-  const now = args.now ?? new Date();
-  const exists = await db('assistant_employee_phones').where({ user_id: args.userId }).first('user_id');
-  if (exists) await db('assistant_employee_phones').where({ user_id: args.userId }).update({ phone, updated_by: args.actorId, updated_at: now });
-  else await db('assistant_employee_phones').insert({ user_id: args.userId, phone, updated_by: args.actorId, updated_at: now });
-  await db('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'employee_phone_saved', target: `user:${args.userId}`, detail: `number ${maskSender(phone)} recorded; not linked`, created_at: now });
-  return { masked: maskSender(phone)! };
+  return directLinkEmployee(db, { ...args, note: 'Number entered by administrator in the dashboard', confirmed: true });
 }
 
 export type LinkStatus = 'linked' | 'pending' | 'failed' | 'mapping_required';
@@ -111,8 +104,9 @@ export async function listEmployeeLinking(db: Knex, now: Date = new Date()): Pro
   return out;
 }
 
-export type LinkOutcome = 'already_linked' | 'mapping_required' | 'pending' | 'not_eligible';
+export type LinkOutcome = 'linked' | 'already_linked' | 'mapping_required' | 'pending' | 'not_eligible';
 export const OUTCOME_TEXT: Record<LinkOutcome, string> = {
+  linked: 'Linked to the saved mobile number.',
   already_linked: 'Already linked to a verified WhatsApp identity.',
   pending: 'A verification is already in progress.',
   mapping_required: 'No verified WhatsApp identity exists for this employee. Identity mapping required.',
@@ -125,9 +119,21 @@ export async function linkEmployees(db: Knex, args: { userIds: number[]; actorId
   const ids = [...new Set(args.userIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 200);
   const rows = await listEmployeeLinking(db, now);
   const users = await db('users').whereIn('id', ids).select('id', 'name');
+  const saved = new Map<number, string>((await db('assistant_employee_phones').whereIn('user_id', ids).select('user_id', 'phone')).map((r: any) => [Number(r.user_id), String(r.phone)]));
   const results = [];
   for (const id of ids) {
     const row = rows.find((r) => r.user_id === id);
+    // A saved number is linked directly, as an admin entry; without one, the existing checks apply
+    if (row && row.status !== 'linked' && saved.has(id)) {
+      try {
+        await directLinkEmployee(db, { userId: id, phone: saved.get(id), actorId: args.actorId, note: 'Linked by administrator from the saved number', confirmed: true, now });
+        results.push({ user_id: id, name: row.name, outcome: 'linked' as LinkOutcome, message: OUTCOME_TEXT.linked });
+        continue;
+      } catch (e: any) {
+        results.push({ user_id: id, name: row.name, outcome: 'mapping_required' as LinkOutcome, message: String(e?.message ?? 'Could not link') });
+        continue;
+      }
+    }
     const outcome: LinkOutcome = !row ? 'not_eligible' : row.status === 'linked' ? 'already_linked' : row.status === 'pending' ? 'pending' : 'mapping_required';
     const name = row?.name ?? String(users.find((u: any) => Number(u.id) === id)?.name ?? 'Unknown');
     await db('assistant_admin_audit').insert({ actor_id: args.actorId, action: 'link_requested', target: `user:${id}`, detail: `result: ${outcome}`, created_at: now });

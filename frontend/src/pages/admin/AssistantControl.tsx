@@ -337,36 +337,20 @@ function LinkingTab({ flash }: { flash: (m: string) => void }) {
 // Mobile number entry: a record only. Saving it never links the WhatsApp account.
 function PhoneCell({ userId, masked, linked, onSaved, flash }: { userId: number; masked: string | null; linked: boolean; onSaved: () => void; flash: (m: string) => void }) {
   const [value, setValue] = useState('');
-  const [note, setNote] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Saving the number links the employee straight away: the number entered here is their WhatsApp
   const save = async () => {
     setBusy(true);
-    try { await assistantAdminApi.saveEmployeePhone(userId, value.trim()); setValue(''); flash('Mobile number saved.'); onSaved(); }
+    try { await assistantAdminApi.saveEmployeePhone(userId, value.trim()); setValue(''); flash('Saved and linked. The employee can use the assistant from this number.'); onSaved(); }
     catch (e) { flash(errText(e)); } finally { setBusy(false); }
-  };
-  const link = async () => {
-    setBusy(true);
-    try {
-      await assistantAdminApi.directLink(userId, { phone: value.trim(), note, confirmed });
-      setValue(''); setNote(''); setConfirmed(false);
-      flash('Linked. The WhatsApp number is active and recorded in the audit history.'); onSaved();
-    } catch (e) { flash(errText(e)); } finally { setBusy(false); }
   };
   return (
     <div className="ac-phone">
       {masked && <div className="ac-phone__saved ac__mono">{masked}{linked ? ' · linked' : ''}</div>}
       <div className="ac-phone__row">
         <input className="form-input" placeholder={masked ? 'Change number' : '+91 98765 43210'} value={value} onChange={(e) => setValue(e.target.value)} aria-label="Mobile number with country code" />
-        <button className="btn-secondary ac-btn" disabled={busy || !value.trim()} onClick={save}>Save</button>
+        <button className="btn-primary ac-btn" disabled={busy || !value.trim()} onClick={save}><Link2 size={14} /> Save &amp; link</button>
       </div>
-      {value.trim() && (
-        <div className="ac-phone__link">
-          <label className="ac-phone__check"><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> I confirm this is their WhatsApp number</label>
-          <input className="form-input" placeholder="Reason, e.g. confirmed in person (10+ characters)" value={note} onChange={(e) => setNote(e.target.value)} aria-label="Audit note" />
-          <button className="btn-primary ac-btn" disabled={busy || !confirmed || note.trim().length < 10} onClick={link}><Link2 size={14} /> Link now</button>
-        </div>
-      )}
     </div>
   );
 }
