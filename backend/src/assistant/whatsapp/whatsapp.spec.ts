@@ -773,3 +773,22 @@ test('database login: an existing file session is imported once; a logged-out lo
     assert.ok(Number(((await db()('assistant_wa_auth').where('auth_key', 'like', 'archived-%').count({ n: '*' }).first()) as any).n) >= 2, 'kept aside, not deleted');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); await db()('assistant_wa_auth').del(); }
 });
+
+test('groups: when a message carries no phone number, the sender is matched through the group member list (and that list is not fetched on every message)', async () => {
+  const adapter = makeAdapter(false);
+  let fetches = 0;
+  await adapter.start();
+  (sock as any).groupMetadata = async () => { fetches++; return { participants: [{ id: '444555666777888@lid', jid: `${EMPLOYEE_PHONE}@s.whatsapp.net`, lid: '444555666777888@lid' }] }; };
+  sock.sent = [];
+  const tag = (id: string, participant: string) => ({ key: { id, remoteJid: GROUP, participant, fromMe: false }, message: { extendedTextMessage: { text: 'hi', contextInfo: { mentionedJid: ['919000000099@s.whatsapp.net'] } } }, messageTimestamp: Math.floor(Date.now() / 1000) });
+  sock.emit('messages.upsert', { type: 'notify', messages: [tag('m-1', '444555666777888@lid')] });
+  await waitFor(() => sock.sent.length >= 1);
+  assert.equal(sock.sent.length, 1, 'Sam (linked by phone number) is recognised through the member list');
+  sock.emit('messages.upsert', { type: 'notify', messages: [tag('m-2', '444555666777888@lid')] });
+  await waitFor(() => sock.sent.length >= 2);
+  assert.equal(fetches, 1, 'the member list is cached');
+  sock.emit('messages.upsert', { type: 'notify', messages: [tag('m-3', '999000111222333@lid')] });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(sock.sent.length, 2, 'someone not in the list stays silent');
+  await adapter.stop();
+});

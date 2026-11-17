@@ -9,6 +9,7 @@ export interface SocketLike {
   ev: { on(event: string, fn: (...args: any[]) => void): unknown };
   sendMessage(jid: string, content: { text: string; mentions?: string[] }): Promise<unknown>;
   groupFetchAllParticipating?(): Promise<Record<string, { id?: string; subject?: string }>>;
+  groupMetadata?(jid: string): Promise<{ participants?: { id?: string; jid?: string; lid?: string }[] }>;
   end(error?: unknown): void;
   user?: { id?: string };
 }
@@ -266,8 +267,33 @@ export class WhatsAppAdapter {
     try { this.d.onEvent?.({ chat: isGroup ? 'group' : 'private', outcome: undecryptable ? 'could_not_decrypt' : 'not_text', senderId, conversationId: chat }); } catch { /* ignore */ }
   }
 
+  // Hidden id -> phone number, from the group's member list (WhatsApp's server sends both for every member). Used when a
+  // message arrives without the sender's phone number, so people linked by phone number are still recognised.
+  private memberPhones = new Map<string, { at: number; map: Map<string, string> }>();
+  private async phoneForMember(groupJid: string, lidUser: string): Promise<string | undefined> {
+    if (!this.socket?.groupMetadata) return undefined;
+    const cached = this.memberPhones.get(groupJid);
+    if (cached?.map.has(lidUser)) return cached.map.get(lidUser);        // a member's id-to-number pairing does not change
+    if (cached && this.now() - cached.at < 60_000) return undefined;     // refreshed a moment ago: not found, don't ask again
+    try {
+      const meta = await this.socket.groupMetadata(groupJid);
+      const map = new Map<string, string>();
+      for (const p of meta?.participants ?? []) {
+        const lid = String(p.lid ?? (String(p.id ?? '').endsWith('@lid') ? p.id : '')).split('@')[0].split(':')[0];
+        const pn = String(p.jid ?? '').endsWith('@s.whatsapp.net') ? String(p.jid).split('@')[0].split(':')[0] : '';
+        if (lid && /^\d{8,15}$/.test(pn)) map.set(lid, `+${pn}`);
+      }
+      this.memberPhones.set(groupJid, { at: this.now(), map });
+      return map.get(lidUser);
+    } catch { return cached?.map.get(lidUser); }
+  }
+
   private async process(msg: IncomingMessage) {
     if (!this.groupAllowed(msg)) { if (msg.isGroup) this.note(msg, 'not_mentioned'); return; }
+    if (msg.isGroup && !msg.senderPhoneId && msg.senderId.startsWith('lid:')) {
+      const pn = await this.phoneForMember(msg.conversationId, msg.senderId.slice(4));
+      if (pn) msg = { ...msg, senderPhoneId: pn };
+    }
     try {
       const reply = await this.d.handle(msg);
       if (!reply || !reply.text || this.stopping || !this.socket) { this.note(msg, 'not_recognised'); return; }
