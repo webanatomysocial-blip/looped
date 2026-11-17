@@ -583,11 +583,19 @@ test('config: a session folder written as ~/folder is the home folder of the ser
   assert.equal(c.sessionDir, path.join(os.homedir(), 'loop-whatsapp-session'));
 });
 
-test('the production settings file holds no secrets and keeps execution off', () => {
-  const fs = require('fs');
-  const text = fs.readFileSync(path.join(__dirname, '../../../assistant.production.env'), 'utf8');
-  assert.ok(!/^\s*(ASSISTANT_AI_API_KEY|OPENAI_API_KEY|JWT_SECRET|DB_PASS)\s*=/m.test(text), 'no secrets in git');
-  assert.match(text, /^ASSISTANT_EXECUTION_ENABLED=false$/m);
-  assert.match(text, /^ASSISTANT_OPENAI_MODEL=gpt-5\.4-nano$/m);
-  assert.ok(!/ASSISTANT_TASK_OPS_ENABLED/.test(text), 'task operations stay off');
+test('production settings: compiled into the code, applied only in production, never override the server, hold no secrets', () => {
+  const { applyProductionDefaults, PRODUCTION_DEFAULTS } = require('../productionDefaults');
+  const dev: any = { NODE_ENV: 'development' };
+  assert.equal(applyProductionDefaults(dev), false);
+  assert.equal(dev.ASSISTANT_WHATSAPP_ENABLED, undefined, 'local development is untouched');
+  const prod: any = { NODE_ENV: 'production', ASSISTANT_TIMEZONE: 'Europe/London' };
+  assert.equal(applyProductionDefaults(prod), true);
+  assert.equal(prod.ASSISTANT_OPENAI_MODEL, 'gpt-5.4-nano');
+  assert.equal(prod.ASSISTANT_EXECUTION_ENABLED, 'false');
+  assert.equal(prod.WHATSAPP_NOTIFICATION_GROUP_JID, '120363412745413406@g.us');
+  assert.equal(prod.ASSISTANT_TIMEZONE, 'Europe/London', 'a value the server set itself wins');
+  const keys = Object.keys(PRODUCTION_DEFAULTS).join(' ');
+  assert.ok(!/API_KEY|SECRET|PASS|TASK_OPS/.test(keys), 'no secrets, and task operations stay off');
+  const c = loadWhatsAppConfig(prod);
+  assert.equal(c.enabled, true, 'the WhatsApp settings are valid as shipped');
 });

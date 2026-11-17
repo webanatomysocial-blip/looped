@@ -7,9 +7,9 @@ import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { io } from './socket';
 dotenv.config();
-// Production only: the WhatsApp assistant's non-secret settings ship with the code (assistant.production.env).
+// Production only: the WhatsApp assistant's non-secret settings are compiled into the code (assistant/productionDefaults.ts).
 // Values already set in the server's .env always win, and the AI key must stay in the server's .env, never in git.
-const assistantSettingsFileLoaded = process.env.NODE_ENV === 'production' && !dotenv.config({ path: path.join(__dirname, '../assistant.production.env') }).error;
+const assistantSettingsFileLoaded: boolean = require('./assistant/productionDefaults').applyProductionDefaults();
 
 import { initDB, getDB } from './db';
 import { repairSkippedStageTickets, recoverInterruptedTransitions } from './services/xlr8';
