@@ -9,7 +9,7 @@ export const PRODUCTION_DEFAULTS: Readonly<Record<string, string>> = {
   ASSISTANT_EXECUTION_ENABLED: 'false',
   ASSISTANT_WHATSAPP_ENABLED: 'true',
   // In the home folder of the user that runs the server, outside the deploy folder, so redeploys keep the pairing
-  ASSISTANT_WHATSAPP_SESSION_DIR: '~/loop-whatsapp-session',
+  ASSISTANT_WHATSAPP_SESSION_DIR: '~/.loop-whatsapp-session',
   // The Loop Testing group
   WHATSAPP_NOTIFICATION_GROUP_JID: '120363412745413406@g.us',
 };

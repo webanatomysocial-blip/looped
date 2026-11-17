@@ -1,9 +1,11 @@
-// WhatsApp channel settings. Off by default. When on, the session folder must sit outside the project, so
-// credentials are never stored in the repository.
+// WhatsApp channel settings. Off by default. When on, the session folder must sit outside the backend code folder,
+// which every build and deploy replaces, so the WhatsApp login is never wiped by a deploy or shipped with the code.
 import path from 'path';
 
-// backend/src/assistant/whatsapp -> the project root
-const PROJECT_ROOT = path.resolve(__dirname, '../../../..');
+// backend/src/assistant/whatsapp (or backend/dist/assistant/whatsapp) -> the backend folder.
+// Only this folder is off-limits: on hosting where the repository sits directly in the home folder (cPanel), the
+// home folder itself must stay usable for the session.
+const CODE_ROOT = path.resolve(__dirname, '../../..');
 
 export interface WhatsAppConfig {
   enabled: boolean;
@@ -19,7 +21,7 @@ export class WhatsAppConfigError extends Error {
 }
 
 const insideProject = (p: string) => {
-  const rel = path.relative(PROJECT_ROOT, path.resolve(p));
+  const rel = path.relative(CODE_ROOT, path.resolve(p));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
@@ -34,9 +36,9 @@ export function loadWhatsAppConfig(env: NodeJS.ProcessEnv = process.env): WhatsA
   const problems: string[] = [];
   if (!sessionDir) problems.push('ASSISTANT_WHATSAPP_SESSION_DIR is required when WhatsApp is enabled');
   else if (!path.isAbsolute(sessionDir)) problems.push('ASSISTANT_WHATSAPP_SESSION_DIR must be an absolute path');
-  else if (insideProject(sessionDir)) problems.push('ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder');
+  else if (insideProject(sessionDir)) problems.push('ASSISTANT_WHATSAPP_SESSION_DIR must be outside the backend code folder');
   if (qrFile && (!path.isAbsolute(qrFile) || insideProject(qrFile))) {
-    problems.push('ASSISTANT_WHATSAPP_QR_FILE must be an absolute path outside the project folder');
+    problems.push('ASSISTANT_WHATSAPP_QR_FILE must be an absolute path outside the backend code folder');
   }
   if (problems.length) throw new WhatsAppConfigError(problems);
   return { enabled, sessionDir, qrFile };

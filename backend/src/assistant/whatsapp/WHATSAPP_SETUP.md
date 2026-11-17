@@ -14,8 +14,8 @@ Status: **implemented and tested with a fake connection. Not connected to any re
 | Variable | Default | Meaning |
 |---|---|---|
 | `ASSISTANT_WHATSAPP_ENABLED` | `false` | Turns the WhatsApp channel on. Needs the assistant on too. |
-| `ASSISTANT_WHATSAPP_SESSION_DIR` | none | Absolute path, **outside the project folder**, where WhatsApp session credentials are kept (owner-only). Required when enabled. |
-| `ASSISTANT_WHATSAPP_QR_FILE` | none | Absolute path, outside the project, where the pairing code is written (owner-only) while pairing. Optional. |
+| `ASSISTANT_WHATSAPP_SESSION_DIR` | none | Absolute path, **outside the backend code folder**, where WhatsApp session credentials are kept (owner-only). Required when enabled. |
+| `ASSISTANT_WHATSAPP_QR_FILE` | none | Absolute path, outside the backend code folder, where the pairing code is written (owner-only) while pairing. Optional. |
 
 Keep `ASSISTANT_EXECUTION_ENABLED=false` in production until the pilot is approved.
 

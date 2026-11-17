@@ -106,7 +106,7 @@ test('configuration: off by default; enabling needs a session folder outside the
   assert.equal(loadWhatsAppConfig({}).enabled, false);
   assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true' }), (e: any) => e instanceof WhatsAppConfigError && e.problems.some((p: string) => /SESSION_DIR is required/.test(p)));
   assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: 'relative/dir' }), /absolute/);
-  assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: path.join(process.cwd(), 'sessions') }), /outside the project/);
+  assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: path.join(process.cwd(), 'sessions') }), /outside the backend code folder/);
   const ok = loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: '/var/lib/loop-whatsapp-session' });
   assert.equal(ok.enabled, true);
 });
@@ -579,8 +579,8 @@ test('new pairing round: refused while connected or waiting; allowed only after 
 
 test('config: a session folder written as ~/folder is the home folder of the server user, and is accepted', () => {
   const os = require('os');
-  const c = loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: '~/loop-whatsapp-session' } as any);
-  assert.equal(c.sessionDir, path.join(os.homedir(), 'loop-whatsapp-session'));
+  const c = loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: '~/.loop-whatsapp-session' } as any);
+  assert.equal(c.sessionDir, path.join(os.homedir(), '.loop-whatsapp-session'));
 });
 
 test('production settings: compiled into the code, applied only in production, never override the server, hold no secrets', () => {
@@ -598,4 +598,11 @@ test('production settings: compiled into the code, applied only in production, n
   assert.ok(!/API_KEY|SECRET|PASS|TASK_OPS/.test(keys), 'no secrets, and task operations stay off');
   const c = loadWhatsAppConfig(prod);
   assert.equal(c.enabled, true, 'the WhatsApp settings are valid as shipped');
+});
+
+test('config: on hosting where the repository is the home folder (cPanel), a session folder beside the code is accepted; inside the code it is not', () => {
+  const backend = path.resolve(__dirname, '../../..');
+  const beside = path.join(path.dirname(backend), '.loop-whatsapp-session');
+  assert.equal(loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: beside } as any).sessionDir, beside);
+  assert.throws(() => loadWhatsAppConfig({ ASSISTANT_WHATSAPP_ENABLED: 'true', ASSISTANT_WHATSAPP_SESSION_DIR: path.join(backend, 'dist', 'session') } as any), /outside the backend code folder/);
 });

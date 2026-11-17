@@ -35,3 +35,7 @@ Thumbs.db
 
 # Demo account passwords generated at first seed (never commit)
 backend/.demo-credentials
+
+# WhatsApp login for the live server (lives in the home folder; never commit it)
+.loop-whatsapp-session/
+loop-whatsapp-session/
