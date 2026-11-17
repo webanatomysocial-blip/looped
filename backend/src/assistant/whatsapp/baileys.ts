@@ -31,3 +31,24 @@ export const baileysSocketFactory: SocketFactory = async (sessionDir) => {
   });
   return { socket, saveCreds: secureSessionSaver(sessionDir, saveCreds) };
 };
+
+// The live setup: the login is kept in the database (encrypted), so deploys cannot wipe it and every copy shares it.
+// An existing file session is imported once, so a working pairing is not lost.
+export const databaseSocketFactory = (db: import('knex').Knex): SocketFactory => async (sessionDir) => {
+  const baileys: any = await import('@whiskeysockets/baileys');
+  const pino: any = (await import('pino')).default;
+  const { useDatabaseAuthState, importFileSession } = await import('./dbAuthState');
+  const imported = await importFileSession(db, sessionDir).catch(() => 0);
+  if (imported) console.log(`[whatsapp] moved the saved WhatsApp login into the database (${imported} items)`);
+  const { state, saveCreds } = await useDatabaseAuthState(db, baileys);
+  const make = baileys.default ?? baileys.makeWASocket;
+  const socket = make({
+    auth: state,
+    logger: pino({ level: 'silent' }),          // no library logging: it can include message content
+    printQRInTerminal: false,
+    browser: ['Loop Assistant', 'Desktop', '1.0'],
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
+  });
+  return { socket, saveCreds };
+};

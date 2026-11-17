@@ -4,7 +4,8 @@ import { Knex } from 'knex';
 import type { AIProvider } from '../ai';
 import { WhatsAppAdapter, WaStatus, AdapterDeps, safeMessage } from './adapter';
 import { WhatsAppConfig } from './config';
-import { baileysSocketFactory } from './baileys';
+import { databaseSocketFactory } from './baileys';
+import { archiveDatabaseLogin } from './dbAuthState';
 import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts } from '../../services/assignmentNotices';
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
@@ -92,7 +93,9 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
   const writeQr = config.qrFile ? (qr: string) => writeQrPayload(config.qrFile!, qr) : undefined;
   const clearQr = config.qrFile ? () => fs.rmSync(config.qrFile!, { force: true }) : undefined;
   const adapter = new WhatsAppAdapter({
-    config, makeSocket: baileysSocketFactory, handle: buildWhatsAppHandler(db, options), writeQr, clearQr,
+    config, makeSocket: databaseSocketFactory(db), handle: buildWhatsAppHandler(db, options), writeQr, clearQr,
+    // The login lives in the database: when WhatsApp ends it, it is moved aside there (kept, not deleted)
+    archiveSession: () => archiveDatabaseLogin(db),
     onEvent: (e) => { recordWaEvent(db, e).catch(() => undefined); },
     ...extra,
   });

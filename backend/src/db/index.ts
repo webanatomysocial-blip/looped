@@ -60,6 +60,7 @@ export async function initDB(): Promise<void> {
   await ensureEmployeePhoneSchema(db);
   await (await import('../assistant/settingsStore')).ensureSettingsSchema(db);
   await (await import('../assistant/whatsapp/activity')).ensureWaActivitySchema(db);
+  await (await import('../assistant/whatsapp/dbAuthState')).ensureWaAuthSchema(db);
   await ensureConversationSchema(db);
   await ensureQueueSchema(db);
   // First-login password change: set for seeded admin and demo accounts until they choose a new password

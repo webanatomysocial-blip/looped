@@ -28,7 +28,7 @@ export interface AdapterDeps {
   writeQr?: (qr: string) => void;                     // stores the pairing code privately; never logged
   clearQr?: () => void;                               // removes the private pairing file once the phone is paired
   // Moves an invalid session folder aside (kept, not deleted) and returns where it went. Tests can replace it.
-  archiveSession?: (dir: string) => string;
+  archiveSession?: (dir: string) => string | Promise<string>;
   log?: (level: 'info' | 'warn' | 'error', message: string) => void;
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => unknown;
@@ -182,16 +182,17 @@ export class WhatsAppAdapter {
         }
         // The phone ended the session. Keep the old files aside, then start a clean connection so Baileys issues a new QR.
         this.log('warn', 'the phone ended the WhatsApp session: the old session is kept aside and a new pairing code is being requested');
-        try {
-          const archived = (this.d.archiveSession ?? defaultArchive)(this.d.config.sessionDir!);
-          this.log('info', `old session kept at a private path (${archived.split('/').pop()})`);
-        } catch {
-          this.state = 'logged_out';
-          this.log('error', 'the old session could not be moved aside; pairing stopped (check the session folder permissions)');
-          return;
-        }
         this.state = 'starting';
-        void this.connect();
+        Promise.resolve()
+          .then(() => (this.d.archiveSession ?? defaultArchive)(this.d.config.sessionDir!))
+          .then((archived) => {
+            this.log('info', `old session kept at a private path (${String(archived).split('/').pop()})`);
+            if (!this.stopping) void this.connect();
+          })
+          .catch(() => {
+            this.state = 'logged_out';
+            this.log('error', 'the old session could not be moved aside; pairing stopped (check the session storage)');
+          });
         return;
       }
       this.state = 'reconnecting';
