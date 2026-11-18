@@ -121,19 +121,18 @@ test('a task with no allotted duration, or no deadline date, is not alerted', as
 
 // ── Mentions and content ──
 
-test('the alert mentions linked assignees, names others without a mention, and leaves out declined assignees', async () => {
+test('the alert goes privately to each linked assignee (no tag needed); unlinked and declined assignees get nothing', async () => {
   const id = await task({ title: 'Mentions task', assignees: [{ key: 'nit' }, { key: 'ravi' }, { key: 'gone', acceptance: 'declined' }] });
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS - 5 * MIN), 12);
-  const [row] = await alertsFor(id);
-  const p = JSON.parse(row.payload);
+  const rows = await alertsFor(id);
+  assert.equal(rows.length, 1, 'only Nitish is linked');
+  const p = JSON.parse(rows[0].payload);
+  assert.equal(p.to, '919391283396@s.whatsapp.net');
   assert.match(p.text, /Deadline approaching/);
   assert.match(p.text, /\*Task:\* Mentions task/);
   assert.match(p.text, /\*Due:\* .*\(IST\)/);
-  assert.match(p.text, /@Nitish/);
-  assert.match(p.text, /Ravi/);
-  assert.ok(!/@Ravi/.test(p.text), 'an unlinked assignee gets no mention');
-  assert.ok(!/Declined Dev/.test(p.text), 'a declined assignee is not listed');
-  assert.deepEqual(p.mentions, ['919391283396@s.whatsapp.net']);
+  assert.ok(!/Ravi|Declined Dev|@/.test(p.text), 'only about the recipient, no tags');
+  assert.deepEqual(p.mentions, []);
 });
 
 test('the alert text has no phone number and states the time left', () => {
@@ -160,12 +159,12 @@ test('a changed deadline is a new deadline and may be alerted again', async () =
   await db()('tasks').where({ id }).update({ due_time: '12:00' });
   const newDeadline = Date.UTC(2026, 10, 20, 6, 30);
   await enqueueDeadlineAlerts(db(), new Date(newDeadline - 5 * MIN), 12);
-  assert.deepEqual((await alertsFor(id)).map((r: any) => r.event_key), [`deadline:${id}:${DEADLINE_MS}`, `deadline:${id}:${newDeadline}`], 'an alert for the new deadline; the old one is not "crossed" because it was moved');
+  assert.deepEqual((await alertsFor(id)).map((r: any) => r.event_key.split(':').slice(0, 3).join(':')), [`deadline:${id}:${DEADLINE_MS}`, `deadline:${id}:${newDeadline}`], 'an alert for the new deadline; the old one is not "crossed" because it was moved');
 });
 
 // ── Sending ──
 
-test('the sender gets the configured group JID and mention metadata; a task completed before sending is not sent', async () => {
+test('the alert is sent to the person\'s private chat; a task completed before sending is not sent', async () => {
   const live = await task({ title: 'Sent task' });
   const done = await task({ title: 'Finished in time' });
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS - 5 * MIN), 12);
@@ -177,8 +176,7 @@ test('the sender gets the configured group JID and mention metadata; a task comp
   assert.equal(JSON.parse((await alertsFor(live))[0].payload).card.title, 'Sent task', 'task details are in the picture');
   const mine = s.sent.find((m) => /Deadline approaching/.test(m.text));
   assert.ok(mine, 'the live task alert was sent');
-  assert.equal(mine.jid, '120363412745413406@g.us', 'only the configured group');
-  assert.deepEqual(mine.mentions, ['919391283396@s.whatsapp.net']);
+  assert.equal(mine.jid, '919391283396@s.whatsapp.net', 'private chat of the linked assignee');
   assert.equal(s.sent.filter((m) => /Deadline approaching/.test(m.text)).length, 1, 'no alert for a task finished before sending');
   const cancelled = await alertsFor(done);
   assert.equal(cancelled[0].status, 'cancelled');
@@ -210,8 +208,8 @@ test('deadline crossed: one alert once the deadline passes on an open task; none
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
   assert.equal(f['Overdue by'], '25 minutes');
   assert.equal(f['Was due'], '20 Nov, 10:00 am (IST)');
-  assert.match(p.caption, /^🚨 \*Deadline crossed\* · @/);
+  assert.match(p.caption, /^🚨 \*Deadline crossed\* · Nitish\n/);
   const late = await task({ title: 'Crossed long ago', hours: 2 });
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * 3600_000), 12);
-  assert.equal((await db()('whatsapp_outbox').where({ event_key: `overdue:${late}:${DEADLINE_MS}` })).length, 0, 'not announced a day late');
+  assert.equal((await db()('whatsapp_outbox').where('event_key', 'like', `overdue:${late}:${DEADLINE_MS}%`)).length, 0, 'not announced a day late');
 });

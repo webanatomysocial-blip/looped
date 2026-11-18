@@ -11,7 +11,8 @@ import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroup
 const db = () => getDB();
 const U: Record<string, number> = {};
 const actor = (k: string, role: string) => ({ id: U[k], role, name: k });
-const outboxRows = async () => db()('whatsapp_outbox').orderBy('id');
+// Group rows only; each linked person also gets a private copy ("dm:" rows), checked in their own test
+const outboxRows = async () => db()('whatsapp_outbox').whereNot('event_key', 'like', 'dm:%').orderBy('id');
 const fakeSender = (connected: boolean, ok = true) => {
   const sent: { jid: string; text: string; mentions: string[] }[] = [];
   return { sent, isConnected: () => connected, sendGroup: async (jid: string, text: string, mentions: string[]) => { if (ok) sent.push({ jid, text, mentions }); return ok; } };
@@ -44,7 +45,7 @@ test('a successful assignment queues one group notice with the task, project, as
   assert.match(payload.text, /\*Priority:\* High/);
   assert.match(payload.text, /\*Deadline:\* 20 Nov\n/, 'only the saved date: no made-up time');
   assert.match(payload.text, /\*Status:\* 🕒 Waiting for Nitish to accept/);
-  assert.match(payload.text, /accept your assignment in Loop/);
+  assert.match(payload.text, /Please review the task and accept it in Loop/);
   assert.equal(rows[rows.length - 1].status, 'pending');
 });
 
@@ -129,13 +130,13 @@ test('a sent notice is marked sent; a failing send is retried and given up after
   const d = db();
   await queueAssignmentNotice(d, { taskId: 1, kind: 'assigned', employeeIds: [U.nit], eventKey: 'assign:send:ok' });
   const ok = fakeSender(true, true);
-  await processOutbox(d, ok);
+  await processOutbox(d, ok, new Date(), 1000);
   assert.equal((await d('whatsapp_outbox').where({ event_key: 'assign:send:ok' }).first()).status, 'sent');
-  assert.equal(ok.sent[0].jid, '120363000000000001@g.us', 'only the configured group');
+  assert.ok(ok.sent.every((m) => m.jid === '120363000000000001@g.us' || /@(s\.whatsapp\.net|lid)$/.test(m.jid)), 'the configured group or a linked person only');
   await queueAssignmentNotice(d, { taskId: 1, kind: 'assigned', employeeIds: [U.nit], eventKey: 'assign:send:fail' });
   const bad = fakeSender(true, false);
   let t = new Date();
-  for (let i = 0; i < NOTICE_MAX_ATTEMPTS; i++) { t = new Date(t.getTime() + 120_000); await processOutbox(d, bad, t); }
+  for (let i = 0; i < NOTICE_MAX_ATTEMPTS; i++) { t = new Date(t.getTime() + 120_000); await processOutbox(d, bad, t, 1000); }
   const row = await d('whatsapp_outbox').where({ event_key: 'assign:send:fail' }).first();
   assert.equal(row.status, 'failed');
   assert.equal(row.last_error, 'send_failed', 'only a fixed error code is stored');
@@ -177,17 +178,20 @@ test('multi-stage tickets: "assigned" notice and one reminder for the stage hold
   const old = await mk('Old ticket', new Date(now.getTime() - 30 * 3600_000));
   await enqueueTicketNotices(d, now, 1);
   const rows = await d('whatsapp_outbox').whereIn('task_id', [fresh, old]);
-  assert.deepEqual(rows.map((r: any) => r.kind).sort(), ['assigned', 'reminder'], 'one of each, only for the fresh ticket');
+  assert.deepEqual(rows.map((r: any) => r.event_key.split(':').slice(0, 2).join(':')).sort(), ['dm:tassign', 'tassign:' + fresh, 'tremind2:' + fresh], 'group card, private copy, and (at 5 min with a 1-min threshold) the second private reminder');
   assert.ok(rows.every((r: any) => Number(r.task_id) === fresh));
-  assert.match(JSON.parse(rows.find((r: any) => r.kind === 'assigned').payload).text, /New task assigned[\s\S]*Pearl Redesign/);
+  const group = JSON.parse(rows.find((r: any) => r.event_key.startsWith('tassign:')).payload);
+  assert.match(group.text, /New ticket created[\s\S]*Pearl Redesign/);
+  assert.ok(!group.to, 'the ticket card goes to the group');
+  assert.equal(JSON.parse(rows.find((r: any) => r.kind === 'reminder').payload).to, '919391283396@s.whatsapp.net', 'reminders are private');
   await enqueueTicketNotices(d, now, 1);
-  assert.equal((await d('whatsapp_outbox').whereIn('task_id', [fresh, old])).length, 2, 'never queued twice');
+  assert.equal((await d('whatsapp_outbox').whereIn('task_id', [fresh, old])).length, 3, 'never queued twice');
   // Accepted before the reminder went out: the reminder is dropped
   await d('tasks').where({ id: fresh }).update({ xlr8_status: 'in_progress' });
   const sent: string[] = [];
   await processOutbox(d, { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } }, now, 1000);
-  assert.ok(sent.some((t) => /New task assigned/.test(t)));
-  assert.ok(!sent.some((t) => /Acceptance reminder[\s\S]*Pearl Redesign/.test(t)), 'no reminder after accepting');
+  assert.ok(sent.some((t) => /New ticket created/.test(t)));
+  assert.ok(!sent.some((t) => /Reminder: acceptance pending/.test(t)), 'no reminder after accepting');
 });
 
 test('picture details match the saved task exactly: title, project, person, priority, deadline, status', async () => {
@@ -233,7 +237,7 @@ test('start point: nothing from before the first start is announced; work after 
     const after = await mk('Made after deploy', new Date(now.getTime() - 2 * 60_000));
     await enqueueTicketNotices(d, now, 1);
     assert.equal((await d('whatsapp_outbox').where({ task_id: before })).length, 0, 'old ticket: no notice, no reminder');
-    assert.deepEqual((await d('whatsapp_outbox').where({ task_id: after })).map((r: any) => r.kind).sort(), ['assigned', 'reminder']);
+    assert.deepEqual((await d('whatsapp_outbox').where({ task_id: after })).map((r: any) => r.kind).sort(), ['assigned', 'assigned', 'reminder']);
   } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
 });
 
@@ -252,7 +256,8 @@ test('over the estimated time: one alert when the stage timer passes its estimat
   await enqueueOvertimeAlerts(d, new Date(now));
   await enqueueOvertimeAlerts(d, new Date(now + 60_000));
   const rows = await d('whatsapp_outbox').where('event_key', 'like', 'overtime:%').whereIn('task_id', [over, under]);
-  assert.deepEqual(rows.map((r: any) => r.event_key), [`overtime:${over}:1`], 'only the one over its estimate, once');
+  assert.deepEqual(rows.map((r: any) => r.event_key.split(':').slice(0, 3).join(':')), [`overtime:${over}:1`], 'only the one over its estimate, once');
+  assert.equal(JSON.parse(rows[0].payload).to, '919391283396@s.whatsapp.net', 'sent privately to the person on the stage');
   const p = JSON.parse(rows[0].payload);
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
   assert.equal(f.Estimated, '1h 00m');
@@ -261,7 +266,7 @@ test('over the estimated time: one alert when the stage timer passes its estimat
   assert.equal(f.Stage, 'Stage 2 · Web Developer');
   assert.equal(f['Assigned to'], 'Nitish');
   assert.equal(f.Status, 'Working');
-  assert.match(p.caption, /^⏱️ \*Over the estimated time\* · @/);
+  assert.match(p.caption, /^⏱️ \*Over the estimated time\* · Nitish\n/);
   // Went over before the start point: not announced
   await d('assistant_settings').insert({ name: 'notices_since', value: String(now), updated_at: new Date() });
   try {
@@ -269,4 +274,30 @@ test('over the estimated time: one alert when the stage timer passes its estimat
     await enqueueOvertimeAlerts(d, new Date(now));
     assert.equal((await d('whatsapp_outbox').where({ task_id: old })).length, 0);
   } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
+});
+
+test('each linked assignee also gets a private copy of the assignment, addressed to them', async () => {
+  const d = db();
+  const r: any = await createTask(d, actor('mgr', 'manager'), { title: 'Private copy', project_id: U.P, working_person_id: U.nit, task_manager_id: U.mgr, priority: 'high', due_date: '2026-11-21', due_time: '17:30' });
+  const rows = await d('whatsapp_outbox').where({ task_id: Number(r?.id ?? r) }).where('event_key', 'like', 'dm:%');
+  assert.equal(rows.length, 1);
+  const p = JSON.parse(rows[0].payload);
+  assert.equal(p.to, '919391283396@s.whatsapp.net');
+  assert.match(p.text, /You have a new task[\s\S]*Hi Nitish, please review the task and accept it in Loop/);
+  const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
+  assert.equal(f.Deadline, '21 Nov, 5:30 pm (IST)');
+  assert.equal(f.Priority, 'High');
+  assert.deepEqual(p.mentions, []);
+  assert.ok(!/9391283396/.test(p.text + p.caption));
+});
+
+test('dashboard samples: every message type from real data; group ones to the group, private ones only to the requester, nobody tagged', async () => {
+  const { queueSamples } = await import('./assignmentNotices');
+  const d = db();
+  const out = await queueSamples(d, U.nit, new Date());
+  assert.ok(out.group >= 3 && out.private === 4);
+  const rows = (await d('whatsapp_outbox').where({ kind: 'sample' })).map((r: any) => JSON.parse(r.payload));
+  assert.ok(rows.every((p: any) => p.mentions.length === 0 && /^🧪 Sample/.test(p.caption)));
+  assert.ok(rows.filter((p: any) => p.to).every((p: any) => p.to === '919391283396@s.whatsapp.net'));
+  assert.ok(rows.some((p: any) => /POD 1 · Good morning/.test(p.caption)) && rows.some((p: any) => /Acceptance overdue/.test(p.caption)) && rows.some((p: any) => /Second reminder/.test(p.text)));
 });

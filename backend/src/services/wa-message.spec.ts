@@ -76,8 +76,8 @@ test('assignment notice: heading first, labelled fields, status, mention, one ca
 
 test('reminder and deadline alert use the same layout', () => {
   const r = buildReminderText({ title: 'Logo', project: 'Brand', person: { name: 'Nitish', mention: null } });
-  assert.match(r.text, /^⏰ \*Acceptance reminder\*\n\nNitish, please review/);
-  assert.match(r.text, /_The task can't start until you accept it._$/);
+  assert.match(r.text, /^⏰ \*Reminder: acceptance pending\*\n\nHi Nitish, this task is waiting/);
+  assert.match(r.text, /\*Title:\* Logo\n\*Project:\* Brand$/);
   const d = buildDeadlineText({ title: 'Logo', project: 'Brand', dueLabel: '20 Nov, 5:00 pm', minutesLeft: 1, people: [{ name: 'Nitish', mention: null }] });
   assert.match(d.text, /^⏳ \*Deadline approaching\*\n\n\*about 1 minute\* left/);
   assert.match(buildDeadlineText({ title: 'L', project: 'B', dueLabel: 'x', minutesLeft: 180, people: [] }).text, /about 3 hours/);
@@ -154,8 +154,8 @@ test('unsupported clients: everything is plain text with mentions; no buttons, l
 });
 
 test('tags: internal-ID links get a real WhatsApp tag (@id); phone-number links show @Name so no phone number is ever in the text', () => {
-  const lid = buildReminderText({ title: 'Logo', project: 'Brand', person: { name: 'Nitish', mention: '123456789012345@lid' } });
-  assert.match(lid.text, /^⏰ \*Acceptance reminder\*\n\n@123456789012345, please review/);
+  const lid = buildAssignmentText({ kind: 'assigned', title: 'Logo', project: 'Brand', priority: null, due: null, people: [{ name: 'Nitish', mention: '123456789012345@lid' }] });
+  assert.match(lid.text, /\*Assigned to:\* @123456789012345/);
   assert.deepEqual(lid.mentions, ['123456789012345@lid']);
   const phone = buildAssignmentText({ kind: 'assigned', title: 'T', project: 'P', priority: null, due: null, people: [{ name: 'Ravi', mention: '919000000002@s.whatsapp.net' }] });
   assert.match(phone.text, /\*Assigned to:\* @Ravi/);

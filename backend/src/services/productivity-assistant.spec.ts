@@ -189,10 +189,18 @@ test('an ambiguous name gets a short clarification', async () => {
 const handler = () => buildWhatsAppHandler(db(), { ai, timezone: 'Asia/Kolkata', contextTtlSeconds: 1800, confirmationTtlSeconds: 600, queueExpirySeconds: 900, executionEnabled: false } as any);
 const groupMsg = (senderId: string, text: string, group = GROUP) => ({ channel: 'whatsapp' as const, senderId, conversationId: group, messageId: `m-${Math.random()}`, text, timestamp: new Date().toISOString(), isGroup: true, mentioned: ['999'] });
 
-test('group: a verified manager in the configured group gets the answer', async () => {
+test('group: a question in the group is answered with a request to ask privately; no work data is shown', async () => {
   const out = await handler()(groupMsg('lid:1110001', '@999 Who has the highest workload?'));
   assert.ok(out);
-  assert.equal(out!.conversationId, GROUP, 'the reply goes to the configured group only');
+  assert.equal(out!.conversationId, GROUP);
+  assert.match(out!.text, /Let's continue in a private chat[\s\S]*Hi Mia, to keep your work details private, please send me your question as a direct message/);
+  assert.ok(!/Highest workload|@2220002/.test(out!.text));
+  const mine = await handler()(groupMsg('lid:2220002', '@999 my tasks'));
+  assert.match(mine!.text, /direct message/);
+});
+
+test('private chat: a verified manager gets the team answer there', async () => {
+  const out = await handler()({ ...groupMsg('lid:1110001', 'Who has the highest workload?'), conversationId: '1110001@lid', isGroup: false });
   assert.match(out!.text, /Highest workload/);
 });
 

@@ -1,5 +1,5 @@
 // Turns a WhatsApp message into the assistant's answer. Private chats go through the existing pipeline (identity,
-// dedupe, engine, confirmation, queue). Group chats get the fixed reply and nothing is read or changed.
+// dedupe, engine, confirmation, queue). Group chats get a short note to ask in a private chat; nothing is read or changed.
 import { Knex } from 'knex';
 import { IncomingMessage, OutgoingResponse, Channel } from '../types';
 import { processMessage } from '../pipeline';
@@ -11,7 +11,6 @@ import { EXPOSED_INTENTS } from '../actions';
 import { searchTickets, viewTicket, listMyTasks } from '../../services/ticketReads';
 import type { AIProvider } from '../ai';
 import { answerForGroup } from '../../services/productivityAssistant';
-import { notificationGroupJid } from '../../services/assignmentNotices';
 import { msg as waMsg } from '../../services/waMessage';
 
 export interface WhatsAppHandlerOptions {
@@ -48,19 +47,22 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
       }
     }
     if (msg.isGroup !== false) {
-      // Groups: only linked Loop staff get the group reply. Anyone else gets nothing at all.
+      // Groups: only linked Loop staff get a reply. Anyone else gets nothing at all.
       const groupWho = await identity.resolve(msg.channel, msg.senderId);
       if (groupWho.status !== 'verified') return null;
-      // Productivity questions: only in the configured group, only for verified managers and admins. Authority comes from
-      // the verified identity's Loop role, never from a name or a mention in the message.
+      // The group is for reports, new tickets and escalations. Questions are answered in a private chat, so one
+      // person's tasks are never shown to everyone.
+      const user = await db('users').where({ id: groupWho.loopUserId }).first('name').catch(() => null);
       const greet = /^(hi+|hello|hey|good (morning|afternoon|evening))[\s!.,]*$/i.test(msg.text.replace(/@\S+/g, ' ').trim());
-      if (!greet && msg.conversationId === notificationGroupJid() && (groupWho.role === 'manager' || groupWho.role === 'admin')) {
-        const answer = await answerForGroup(db, o.ai, { userId: groupWho.loopUserId, role: groupWho.role, text: msg.text })
-          .catch(() => ({ text: waMsg.error(), mentions: [] as string[] }));
-        return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: answer.text, mentions: answer.mentions, tags: (answer as any).tags };
-      }
-      // Everyone else linked gets the same personal assistant as in a private chat, answered in the group
-      msg = { ...msg, isGroup: false, text: msg.text.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() };
+      return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: waMsg.askInPrivate(String(user?.name ?? ''), greet) };
+    }
+    // Private chat. Managers and admins can also ask about their team (hours, workload, summary); their own tasks,
+    // task details and search go to the personal assistant like everyone else's.
+    const who = await identity.resolve(msg.channel, msg.senderId);
+    const personal = /\b(my|mine|me|i)\b|\bdetails?\b|^find\b|^(hi+|hello|hey|help|menu|good (morning|afternoon|evening))\b|^link\b/i;
+    if (who.status === 'verified' && (who.role === 'manager' || who.role === 'admin') && !personal.test(msg.text.trim())) {
+      const answer = await answerForGroup(db, o.ai, { userId: who.loopUserId, role: who.role, text: msg.text }).catch(() => null);
+      if (answer && answer.text !== waMsg.unknown()) return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: answer.text, mentions: [], tags: [] };
     }
     if (msg.senderId.startsWith('lid:')) await recordPendingSender(db, msg.senderId).catch(() => undefined);
     const out: any = await processMessage(msg, {

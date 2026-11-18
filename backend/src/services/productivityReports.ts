@@ -124,11 +124,12 @@ const inDay = (ms: number | null, date: string) => ms !== null && ms >= istDaySt
 // 09:00 report: the previous working day (Friday on a Monday) and all work still outstanding from it or earlier, by
 // employee. Everything is judged at 09:00 of the report date, whenever the report actually runs.
 export async function buildMorningReport(db: Knex, now: Date): Promise<string> { return (await morningReport(db, now)).text; }
-export async function morningReport(db: Knex, now: Date): Promise<ReportOut> {
+export async function morningReport(db: Knex, now: Date, pod: Pod | null = null): Promise<ReportOut> {
   const today = istParts(now).date;
   const workday = previousWorkingDate(today);
   const asOf = istDayStart(today) + MORNING_MINUTE * 60_000;
-  const { employees, tasks } = await employeeTasks(db, asOf);
+  const { employees, tasks } = await employeeTasks(db, asOf, null, pod ? pod.ids : null);
+  const tag = pod ? `${pod.label} · ` : '';
   const completedWhen = previousIstDate(today) === workday ? `on ${dayLabel(workday)}` : `${dayLabel(workday)} – ${dayLabel(previousIstDate(today))}`;
   const blocks: string[][] = [];
   const clear: string[] = [];
@@ -156,17 +157,18 @@ export async function morningReport(db: Knex, now: Date): Promise<ReportOut> {
     clear.length ? `${ICON.completed} No pending work from ${dayLabel(workday)}: ${clear.join(', ')}` : '',
     employees.length ? '' : 'No employees found in Loop.',
   );
-  const card: Card = { title: `Good morning · ${dayLabel(today)}`, subtitle: `Work from ${dayLabel(workday)} · as of 9:00 am IST`,
+  const card: Card = { title: `${tag}Good morning · ${dayLabel(today)}`, subtitle: `Work from ${dayLabel(workday)} · as of 9:00 am IST`,
     columns: [{ label: 'Done', tone: 'good' }, { label: 'Pending', tone: 'warn' }, { label: 'Overdue', tone: 'bad' }], rows: sortRows(rows) };
-  return { text, card, caption: caption(ICON.morning, `Good morning · ${dayLabel(today)}`, rows) };
+  return { text, card, caption: caption(ICON.morning, `${tag}Good morning · ${dayLabel(today)}`, rows) };
 }
 
 // 18:00 report: the working day's activity, workload and actual tracked hours, by employee, judged at 18:00 of that day
 export async function buildEveningReport(db: Knex, now: Date): Promise<string> { return (await eveningReport(db, now)).text; }
-export async function eveningReport(db: Knex, now: Date): Promise<ReportOut> {
+export async function eveningReport(db: Knex, now: Date, pod: Pod | null = null): Promise<ReportOut> {
   const today = istParts(now).date;
   const asOf = istDayStart(today) + EVENING_MINUTE * 60_000;
-  const { employees, tasks } = await employeeTasks(db, asOf);
+  const { employees, tasks } = await employeeTasks(db, asOf, null, pod ? pod.ids : null);
+  const tag = pod ? `${pod.label} · ` : '';
   const hours = await trackedTime(db, employees.map((e) => e.id), today, asOf);
   const blocks: string[][] = [];
   const rows: Card['rows'] = [];
@@ -193,9 +195,20 @@ export async function eveningReport(db: Knex, now: Date): Promise<ReportOut> {
     employees.length ? '' : 'No employees found in Loop.',
     italic('Hours come from Loop time tracking (timer sessions and manual entries), not from estimates.'),
   );
-  const card: Card = { title: `Day-end report · ${dayLabel(today)}`, subtitle: 'As of 6:00 pm IST', footer: 'Hours come from Loop time tracking (timers and manual entries).',
+  const card: Card = { title: `${tag}Day-end report · ${dayLabel(today)}`, subtitle: 'As of 6:00 pm IST', footer: 'Hours come from Loop time tracking (timers and manual entries).',
     columns: [{ label: 'Assigned' }, { label: 'Done', tone: 'good' }, { label: 'Pending', tone: 'warn' }, { label: 'Overdue', tone: 'bad' }], rows: sortRows(rows) };
-  return { text, card, caption: caption(ICON.evening, `Day-end report · ${dayLabel(today)}`, rows) };
+  return { text, card, caption: caption(ICON.evening, `${tag}Day-end report · ${dayLabel(today)}`, rows) };
+}
+
+// A pod and its employees, from users.pod in Loop. Employees with no pod get their own report so nobody is left out.
+export interface Pod { key: string; label: string; ids: number[] }
+export async function employeePods(db: Knex): Promise<Pod[]> {
+  const rows = await db('users').where({ role: 'employee' }).select('id', 'pod');
+  const by = new Map<string, number[]>();
+  for (const r of rows) { const k = r.pod ? String(r.pod).trim().toLowerCase() : ''; by.set(k, [...(by.get(k) ?? []), Number(r.id)]); }
+  const label = (k: string) => (k ? k.replace(/^pod\s*/i, 'POD ').toUpperCase().replace(/^POD (\S)/, 'POD $1') : 'No pod');
+  return [...by].sort(([a], [b]) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b, undefined, { numeric: true }))
+    .map(([k, ids]) => ({ key: k || 'none', label: label(k), ids }));
 }
 
 export interface ReportOut { text: string; card: Card; caption: string }
@@ -218,15 +231,19 @@ export async function enqueueScheduledReports(db: Knex, now: Date = new Date()):
   if (!notificationGroupJid()) return [];
   const { date, weekday, minutes } = istParts(now);
   if (!isWeekday(weekday)) return [];
-  const due: { kind: 'report_morning' | 'report_evening'; build: () => Promise<ReportOut> }[] = [];
+  const due: { kind: 'report_morning' | 'report_evening'; build: (pod: Pod) => Promise<ReportOut> }[] = [];
   // Only near the scheduled time: a report that could not go out on time is skipped, never sent hours late
-  if (minutes >= MORNING_MINUTE && minutes < MORNING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_morning', build: () => morningReport(db, now) });
-  if (minutes >= EVENING_MINUTE && minutes < EVENING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_evening', build: () => eveningReport(db, now) });
+  if (minutes >= MORNING_MINUTE && minutes < MORNING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_morning', build: (pod) => morningReport(db, now, pod) });
+  if (minutes >= EVENING_MINUTE && minutes < EVENING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_evening', build: (pod) => eveningReport(db, now, pod) });
   const queued: string[] = [];
-  for (const d of due) {
-    const eventKey = `${d.kind}:${date}`;
+  const pods = due.length ? await employeePods(db) : [];
+  for (const d of due) for (const pod of pods) {
+    // One report per pod, each with only its own members and their numbers
+    const eventKey = `${d.kind}:${pod.key}:${date}`;
     if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
-    const { text, caption, card } = await d.build();
+    const { text, caption, card } = await d.build(pod);
+    // People with no pod set get a report only when there is something to report, not an empty card twice a day
+    if (pod.key === 'none' && card.rows.every((r) => r.values.every((v) => !Number(v)))) continue;
     try {
       await db('whatsapp_outbox').insert({
         event_key: eventKey, kind: d.kind, task_id: 0, payload: JSON.stringify({ text, caption, card, mentions: [] }),

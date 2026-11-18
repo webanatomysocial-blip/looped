@@ -256,9 +256,12 @@ function GroupPicker({ current, flash }: { current: string | null; flash: (m: st
         <div className="ac-phone__row">
           <button className="btn-secondary ac-btn" disabled={busy} onClick={async () => {
             setBusy(true);
-            try { const r = await assistantAdminApi.sendSample(); flash(`Sample sent to the group using "${r.data.task}". It arrives within a few seconds.`); }
+            try {
+              const r = await assistantAdminApi.sendSample();
+              flash(`${r.data.group} samples to the group (pod reports, new ticket, escalation)${r.data.private ? ` and ${r.data.private} to your WhatsApp (assignment, 2 reminders, deadline alert)` : '. Link your own WhatsApp to also see the private-chat samples'}. Using "${r.data.task}"; nobody is tagged.`);
+            }
             catch (e) { flash(errText(e)); } finally { setBusy(false); }
-          }}>Send sample to group</button>
+          }}>Send samples of all messages</button>
         </div>
       )}
       <p className="ac__muted ac-note">{currentName ? `Now: ${currentName}. ` : saved ? 'Now: a group the company WhatsApp is no longer in. ' : 'No group chosen yet. '}Only groups the company WhatsApp has joined are listed.</p>
