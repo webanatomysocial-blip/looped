@@ -64,6 +64,7 @@ export const QUICK_REPLY_LINE = italic('Quick replies (mention me): pending · w
 export const msg = {
   error: () => compose(heading(ICON.error, 'Something went wrong'), "I couldn't look that up right now. Please try again in a moment."),
   unknown: () => compose(heading(ICON.question, "I'm not sure what you'd like to know"), 'Try asking about tasks, hours, workload or the team summary.'),
+  coolDown: (minutes: number) => compose(heading('⏳', 'Please take a short break'), `You've reached the limit for questions for now. You can ask again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`, italic('Task reminders and alerts will still reach you as usual.')),
   askInPrivate: (name = '', greet = false) => compose(
     heading(greet ? '👋' : '💬', greet ? `Hi ${clean(name, 40).split(' ')[0] || 'there'}` : "Let's continue in a private chat"),
     `${greet ? '' : `Hi ${clean(name, 40).split(' ')[0] || 'there'}, `}${greet ? 'Good to see you here. For your tasks, task details or any other question, please send me a direct message.' : 'to keep your work details private, please send me your question as a direct message.'}`,

@@ -203,7 +203,7 @@ test('picture details match the saved task exactly: title, project, person, prio
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
   assert.equal(p.card.title, 'Card accuracy check');
   assert.equal(f.Project, 'WebAnatomy Website');
-  assert.equal(f['Assigned to'], 'Pardu');
+  assert.equal(f['Assigned to'], 'Pardu, Mia Manager', 'the task manager is listed too');
   assert.match(f.Priority, /^High$/);
   assert.equal(f.Status, 'Waiting for Pardu to accept');
   assert.equal(f.Status, 'Waiting for Pardu to accept', 'same wording as the Loop app');

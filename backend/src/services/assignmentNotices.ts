@@ -142,8 +142,10 @@ export async function queueAssignmentNotice(db: Knex, args: {
 }): Promise<'queued' | 'duplicate' | 'disabled' | 'no_assignee'> {
   await refreshNotificationGroup(db);
   if (!notificationGroupJid()) return 'disabled';
-  const employeeIds = [...new Set(args.employeeIds.map(Number).filter((n) => n > 0))];
-  if (!employeeIds.length) return 'no_assignee';
+  const assigned = [...new Set(args.employeeIds.map(Number).filter((n) => n > 0))];
+  if (!assigned.length) return 'no_assignee';
+  // Managers on the task are involved too: listed, tagged and asked to accept like the employees
+  const employeeIds = [...new Set([...assigned, ...(await involvedManagers(db, args.taskId))])];
   if (await db('whatsapp_outbox').where({ event_key: args.eventKey }).first('id')) return 'duplicate';
   const task = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .where('t.id', args.taskId).select('t.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 'p.name as project_name').first();
@@ -161,7 +163,10 @@ export async function queueAssignmentNotice(db: Knex, args: {
   if (!people.length) return 'no_assignee';
   const common = { kind: args.kind, title: String(task.title), project: task.project_name ? String(task.project_name) : '',
     priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), ticket: !!task.ticket_type_id };
-  const built = buildAssignmentText({ ...common, people, status: statusLabel(task, people.map((p) => p.name)) });
+  // "Waiting for … to accept" names only the people who have not accepted yet (from Loop)
+  const accepted = new Set((await db('task_assignees').where({ task_id: args.taskId, acceptance_status: 'accepted' }).select('user_id')).map((r: any) => Number(r.user_id)));
+  const waiting = employeeIds.filter((id) => byId.has(id) && !accepted.has(id)).map((id) => byId.get(id)!);
+  const built = buildAssignmentText({ ...common, people, status: statusLabel(task, waiting) });
   const now = args.now ?? new Date();
   // Each linked person also gets their own copy in a private chat
   for (const p of people) {
@@ -202,6 +207,14 @@ export function dueLabel(dueDate: unknown, dueTime: unknown): string | null {
 }
 
 // Used by the assignment code after commit. Any failure is logged without detail and never reaches the caller.
+// Managers on a task (any stage), not skipped or declined
+async function involvedManagers(db: Knex, taskId: number): Promise<number[]> {
+  return (await db('task_assignees').where({ task_id: taskId, assignee_role: 'manager' }).whereNotNull('user_id')
+    .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
+    .where((q: any) => q.whereNull('acceptance_status').orWhereNot('acceptance_status', 'declined'))
+    .select('user_id')).map((r: any) => Number(r.user_id));
+}
+
 export async function noticeAfterCommit(args: { taskId: number; kind: 'assigned' | 'reassigned'; employeeIds: number[]; eventKey: string }): Promise<void> {
   try { await queueAssignmentNotice(getDB(), args); }
   catch { console.error('[whatsapp-notice] could not queue an assignment notice'); }
@@ -527,7 +540,7 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     const people = t.ticket_type_id
       ? (t.xlr8_assignee_id ? await db('users').where({ id: t.xlr8_assignee_id }).select('id as user_id', 'name') : [])
       : await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
-      .where('ta.task_id', t.id).where('ta.assignee_role', 'employee')
+      .where('ta.task_id', t.id).whereIn('ta.assignee_role', ['employee', 'manager'])
       .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined'))
       .select('ta.user_id', 'u.name');
@@ -578,8 +591,13 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
     const waitFor = { ticketId: Number(t.id), assigneeId: Number(t.xlr8_assignee_id) };
     if (nowMs - since <= TICKET_NOTICE_HOURS * 3600_000) {
       const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true };
+      // Everyone on the ticket's stages (employees and managers) is tagged; the current stage holder first
+      const others = (await db('task_assignees').where({ task_id: t.id }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).select('user_id'))
+        .map((r: any) => Number(r.user_id)).filter((id: number) => id !== Number(t.xlr8_assignee_id));
+      const otherPpl = await peopleFor(db, others);
+      const everyone = [person, ...[...new Set(others)].filter((id) => otherPpl.has(id)).map((id) => otherPpl.get(id)!)];
       if (await insertRow(db, { event_key: `tassign:${base}`, kind: 'assigned', task_id: Number(t.id), now,
-        payload: buildAssignmentText({ ...common, people: [person], status: statusLabel(t, [person.name]) }) })) queued++;
+        payload: buildAssignmentText({ ...common, people: everyone, status: statusLabel(t, [person.name]) }) })) queued++;
       if (person.mention && await insertRow(db, { event_key: `dm:tassign:${base}`, kind: 'assigned', task_id: Number(t.id), now,
         payload: { ...buildDirectAssignment({ ...common, name: person.name, status: statusLabel(t, []) }), to: person.mention } })) queued++;
     }
@@ -641,7 +659,7 @@ export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): P
     // Who is on it and the estimate: the current stage's assignees (ticket) or the task's assignees and estimate (task)
     const rows = await db('task_assignees').where({ task_id: t.id }).whereNotNull('user_id')
       .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
-      .modify((q: any) => { if (stageIdx !== null) q.where('stage_idx', stageIdx); else q.where('assignee_role', 'employee'); })
+      .modify((q: any) => { if (stageIdx !== null) q.where('stage_idx', stageIdx); else q.whereIn('assignee_role', ['employee', 'manager']); })
       .select('user_id', 'est_hours');
     if (!rows.length) continue;
     const estSec = stageIdx !== null ? rows.reduce((n: number, r: any) => n + (Number(r.est_hours) || 0) * 3600, 0) : (Number(t.estimated_hours) || 0) * 3600;

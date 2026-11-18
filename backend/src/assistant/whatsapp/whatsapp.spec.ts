@@ -829,3 +829,14 @@ test('tags that notify: a person linked by phone is tagged by their id in the gr
   assert.ok(!/9391283396/.test(sent.text), 'no phone number in the text');
   await adapter.stop();
 });
+
+test('query limit: 5 questions per window, then one cool-down note, then silence until the window ends', async () => {
+  const { queryLimiter } = await import('./handler');
+  const l = queryLimiter(5, 10);
+  const t0 = 1_000_000;
+  for (let i = 0; i < 5; i++) assert.equal(l.hit('7', t0 + i * 1000), null);
+  assert.equal(l.hit('7', t0 + 60_000), 9, 'the window started with the first question: 9 minutes left');
+  assert.equal(l.hit('7', t0 + 61_000), 'silent', 'told once only');
+  assert.equal(l.hit('8', t0 + 61_000), null, 'other people are not affected');
+  assert.equal(l.hit('7', t0 + 10 * 60_000 + 5000), null, 'allowed again after the window');
+});

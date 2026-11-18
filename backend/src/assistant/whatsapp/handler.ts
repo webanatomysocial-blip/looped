@@ -22,7 +22,27 @@ export interface WhatsAppHandlerOptions {
   executionEnabled: boolean;
 }
 
+// Per-person question limit, in memory: only the one process that owns WhatsApp handles messages.
+// shortcut: resets on restart, move to the database if several copies ever answer messages.
+export function queryLimiter(limit = Number(process.env.WHATSAPP_QUERY_LIMIT) || 5, windowMin = Number(process.env.WHATSAPP_QUERY_WINDOW_MINUTES) || 10) {
+  const seen = new Map<string, { times: number[]; warned: boolean }>();
+  return {
+    // null: allowed. A number: minutes left, tell them once. 'silent': already told, say nothing.
+    hit(key: string, now: number): number | 'silent' | null {
+      const e = seen.get(key) ?? { times: [], warned: false };
+      e.times = e.times.filter((t) => now - t < windowMin * 60_000);
+      if (!e.times.length) e.warned = false;
+      seen.set(key, e);
+      if (e.times.length < limit) { e.times.push(now); return null; }
+      if (e.warned) return 'silent';
+      e.warned = true;
+      return Math.max(1, Math.ceil((e.times[0] + windowMin * 60_000 - now) / 60_000));
+    },
+  };
+}
+
 export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
+  const limiter = queryLimiter();
   const engine = new RequestEngine({
     db, ai: o.ai, timezone: o.timezone, contextTtlSeconds: o.contextTtlSeconds,
     confirmationTtlSeconds: o.confirmationTtlSeconds, queueExpirySeconds: o.queueExpirySeconds,
@@ -59,6 +79,13 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
     // Private chat. Managers and admins can also ask about their team (hours, workload, summary); their own tasks,
     // task details and search go to the personal assistant like everyone else's.
     const who = await identity.resolve(msg.channel, msg.senderId);
+    // Employees: a limited number of questions per window, then one cool-down note and silence until it ends.
+    // Only incoming questions count; reminders and alerts go through the outbox and are never limited.
+    if (who.status === 'verified' && who.role === 'employee') {
+      const wait = limiter.hit(String(who.loopUserId), Date.now());
+      if (wait === 'silent') return null;
+      if (wait) return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: waMsg.coolDown(wait) };
+    }
     const personal = /\b(my|mine|me|i)\b|\bdetails?\b|^find\b|^(hi+|hello|hey|help|menu|good (morning|afternoon|evening))\b|^link\b/i;
     if (who.status === 'verified' && (who.role === 'manager' || who.role === 'admin') && !personal.test(msg.text.trim())) {
       const answer = await answerForGroup(db, o.ai, { userId: who.loopUserId, role: who.role, text: msg.text }).catch(() => null);
