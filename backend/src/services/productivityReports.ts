@@ -2,7 +2,7 @@
 // Each report is queued once per IST day in the durable outbox, and sent by the same worker as the other notices.
 import { Knex } from 'knex';
 import { Card } from './reportCard';
-import { notificationGroupJid, deadlineInstant } from './assignmentNotices';
+import { notificationGroupJid, deadlineInstant, dueLabel } from './assignmentNotices';
 import { compose, heading, bold, clean, italic, bullet, capped, priority, ICON } from './waMessage';
 
 const TZ = 'Asia/Kolkata';
@@ -38,7 +38,6 @@ const toMs = (v: unknown): number | null => {
   return Number.isFinite(p) ? p : null;
 };
 
-const label = (ms: number) => new Intl.DateTimeFormat('en-IN', { timeZone: TZ, day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).format(new Date(ms));
 const dayLabel = (date: string) => new Intl.DateTimeFormat('en-IN', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(istDayStart(date) + DAY_MS / 2));
 
 export function formatHours(ms: number): string {
@@ -82,7 +81,7 @@ export async function trackedTime(db: Knex, userIds: number[], date: string, now
   return out;
 }
 
-export interface TaskLine { id: number; title: string; project: string; priority: string | null; deadlineMs: number | null; open: boolean; overdue: boolean; completedMs: number | null; assignedMs: number | null }
+export interface TaskLine { id: number; title: string; project: string; priority: string | null; deadlineMs: number | null; dueText: string | null; open: boolean; overdue: boolean; completedMs: number | null; assignedMs: number | null }
 
 // Every employee and the tasks they are actively assigned to (employee role, not skipped, not declined; never cancelled tasks).
 // projectIds and employeeIds, when given, limit the result to a requester's scope. Null means everything.
@@ -107,7 +106,7 @@ export async function employeeTasks(db: Knex, nowMs: number, projectIds: number[
     const open = r.status !== 'completed' || (completedMs !== null && completedMs > nowMs);
     const line: TaskLine = {
       id: Number(r.id), title: String(r.title), project: String(r.project_name || 'No project'), priority: r.priority ?? null,
-      deadlineMs, open, overdue: open && deadlineMs !== null && deadlineMs < nowMs,
+      deadlineMs, dueText: dueLabel(r.due_date, r.due_time), open, overdue: open && deadlineMs !== null && deadlineMs < nowMs,
       completedMs, assignedMs: toMs(r.assigned_at),
     };
     const list = tasks.get(Number(r.user_id)) ?? [];
@@ -118,7 +117,7 @@ export async function employeeTasks(db: Knex, nowMs: number, projectIds: number[
   return { employees, tasks };
 }
 
-const describe = (t: TaskLine) => `${clean(t.title)} (${clean(t.project, 40)}, ${priority(t.priority)}, ${t.deadlineMs !== null ? `due ${label(t.deadlineMs)}` : 'no deadline'})`;
+const describe = (t: TaskLine) => `${clean(t.title)} (${clean(t.project, 40)}, ${priority(t.priority)}, ${t.dueText ? `due ${t.dueText}` : 'no deadline'})`;
 const listed = (items: string[]) => capped(items).map((l) => bullet(l, 1));
 const inDay = (ms: number | null, date: string) => ms !== null && ms >= istDayStart(date) && ms < istDayStart(date) + DAY_MS;
 

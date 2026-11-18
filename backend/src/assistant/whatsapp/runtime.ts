@@ -6,7 +6,7 @@ import { WhatsAppAdapter, WaStatus, AdapterDeps, safeMessage } from './adapter';
 import { WhatsAppConfig } from './config';
 import { databaseSocketFactory } from './baileys';
 import { forgetLogin } from './dbAuthState';
-import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts, enqueueTicketNotices } from '../../services/assignmentNotices';
+import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts, enqueueTicketNotices, markNoticesStart } from '../../services/assignmentNotices';
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
 import { claimOwner, releaseOwner, publishState, readState } from './shared';
@@ -103,6 +103,7 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
   });
   current = adapter;
   await adapter.start();
+  await markNoticesStart(db).catch(() => undefined);   // first start only: nothing from before this moment is announced
   // Assignment notices: sent from the outbox to the configured group only, while connected (owner only, so never twice)
   const outbox = setInterval(() => {
     enqueueAcceptanceReminders(db)

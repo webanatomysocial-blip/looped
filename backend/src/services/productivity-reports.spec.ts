@@ -81,8 +81,8 @@ test('morning report: pending, overdue and completed work per employee; complete
   const text = await buildMorningReport(db(), ist('2026-11-16T09:00:00'));
   assert.match(text, /Good morning! Pending work from Fri, 13 Nov/);
   assert.match(text, /\*Nitish\* — 2 pending, 1 overdue, 1 completed Fri, 13 Nov – Sun, 15 Nov/);
-  assert.match(text, /⚠️ Overdue: Overdue banner \(WebAnatomy, High, due 15 Nov, 5:00 pm\)/);
-  assert.match(text, /Pending: Pending logo \(WebAnatomy, Medium, due 20 Nov, 12:00 pm\)/);
+  assert.match(text, /⚠️ Overdue: Overdue banner \(WebAnatomy, High, due 15 Nov, 5:00 pm \(IST\)\)/);
+  assert.match(text, /Pending: Pending logo \(WebAnatomy, Medium, due 20 Nov, 12:00 pm \(IST\)\)/);
   assert.match(text, /✅ Completed: Done Friday/);
   assert.match(text, /Pending: Done today/, 'completed at 14:00 today, so still outstanding at 09:00');
   assert.ok(!/✅ Completed: Done today/.test(text), 'completed today is not part of Friday');

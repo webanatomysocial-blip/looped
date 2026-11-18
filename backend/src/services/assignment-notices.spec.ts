@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { initDB, getDB } from '../db';
 import { createTask, updateTask } from './tasks';
-import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS, enqueueTicketNotices } from './assignmentNotices';
+import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS, enqueueTicketNotices, statusLabel, dueLabel, markNoticesStart } from './assignmentNotices';
 
 const db = () => getDB();
 const U: Record<string, number> = {};
@@ -42,7 +42,8 @@ test('a successful assignment queues one group notice with the task, project, as
   assert.match(payload.text, /\*Task:\* Homepage redesign/);
   assert.match(payload.text, /\*Project:\* WebAnatomy Website/);
   assert.match(payload.text, /\*Priority:\* High/);
-  assert.match(payload.text, /\*Deadline:\* 20 Nov, 11:59 pm \(IST\)/);
+  assert.match(payload.text, /\*Deadline:\* 20 Nov\n/, 'only the saved date: no made-up time');
+  assert.match(payload.text, /\*Status:\* 🕒 Waiting for Nitish to accept/);
   assert.match(payload.text, /accept your assignment in Loop/);
   assert.equal(rows[rows.length - 1].status, 'pending');
 });
@@ -200,8 +201,38 @@ test('picture details match the saved task exactly: title, project, person, prio
   assert.equal(f.Project, 'WebAnatomy Website');
   assert.equal(f['Assigned to'], 'Pardu');
   assert.match(f.Priority, /^High$/);
-  assert.equal(f.Deadline, '21 Nov, 5:30 pm (IST)');
-  assert.equal(f.Status, 'Awaiting acceptance');
+  assert.equal(f.Status, 'Waiting for Pardu to accept');
+  assert.equal(f.Status, 'Waiting for Pardu to accept', 'same wording as the Loop app');
   assert.match(p.caption, /^📌 \*New task assigned\* · @/);
   assert.deepEqual(p.mentions, ['4455667788@lid'], 'Pardu is tagged');
+});
+
+test('status and deadline in the picture use the saved values and the Loop app wording', () => {
+  assert.equal(statusLabel({ status: 'todo' }, ['Nitish']), 'Waiting for Nitish to accept');
+  assert.equal(statusLabel({ status: 'in_progress' }, ['Nitish']), 'Working');
+  assert.equal(statusLabel({ ticket_type_id: 3, xlr8_status: 'pending_assignee', status: 'todo' }, ['Nitish Vetcha']), 'Waiting for Nitish Vetcha to accept');
+  assert.equal(statusLabel({ ticket_type_id: 3, xlr8_status: 'pending_manager' }, ['Nitish']), 'Needs Manager');
+  assert.equal(dueLabel('2026-11-18', null), '18 Nov', 'no time saved: no time shown');
+  assert.equal(dueLabel('2026-11-18', '15:30'), '18 Nov, 3:30 pm (IST)');
+});
+
+test('start point: nothing from before the first start is announced; work after it is, and a restart keeps the same point', async () => {
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Since type', stages: JSON.stringify([{ category_name: 'Dev' }]) }).catch(() => [1]))[0];
+  const now = new Date();
+  const mk = async (title: string, at: Date) => {
+    const [id] = await d('tasks').insert({ title, project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_assignee_id: U.nit, assigned_to: U.nit });
+    await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+    return Number(id);
+  };
+  await d('assistant_settings').where({ name: 'notices_since' }).del();
+  try {
+    const before = await mk('Made before deploy', new Date(now.getTime() - 10 * 60_000));
+    await markNoticesStart(d, new Date(now.getTime() - 5 * 60_000));      // "deploy" 5 minutes ago
+    await markNoticesStart(d, now);                                       // a later restart does not move it
+    const after = await mk('Made after deploy', new Date(now.getTime() - 2 * 60_000));
+    await enqueueTicketNotices(d, now, 1);
+    assert.equal((await d('whatsapp_outbox').where({ task_id: before })).length, 0, 'old ticket: no notice, no reminder');
+    assert.deepEqual((await d('whatsapp_outbox').where({ task_id: after })).map((r: any) => r.kind).sort(), ['assigned', 'reminder']);
+  } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
 });

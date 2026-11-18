@@ -63,13 +63,13 @@ test('helpers: one blank line between blocks, empty blocks dropped, long lists c
 // ── Every category ──
 
 test('assignment notice: heading first, labelled fields, status, mention, one call to action', () => {
-  const { text, mentions } = buildAssignmentText({ kind: 'assigned', title: 'Logo *pack*\nv2', project: 'Brand', priority: 'high', due: '20 Nov, 5:00 pm', people: [{ name: 'Nitish', mention: '919000000001@s.whatsapp.net' }, { name: 'Ravi', mention: null }] });
+  const { text, mentions } = buildAssignmentText({ kind: 'assigned', title: 'Logo *pack*\nv2', project: 'Brand', priority: 'high', due: '20 Nov, 5:00 pm (IST)', status: 'Waiting for Nitish, Ravi to accept', people: [{ name: 'Nitish', mention: '919000000001@s.whatsapp.net' }, { name: 'Ravi', mention: null }] });
   assert.match(text, /^📌 \*New task assigned\*\n\n/);
   assert.match(text, /\*Task:\* Logo pack v2/);
   assert.match(text, /\*Assigned to:\* @Nitish, Ravi/);
   assert.match(text, /\*Priority:\* High/);
-  assert.match(text, /\*Deadline:\* 20 Nov, 5:00 pm \(IST\)/);
-  assert.match(text, /\*Status:\* 🕒 Awaiting acceptance/);
+  assert.match(text, /\*Deadline:\* 20 Nov, 5:00 pm/);
+  assert.match(text, /\*Status:\* 🕒 Waiting/);
   assert.deepEqual(mentions, ['919000000001@s.whatsapp.net']);
   assert.match(buildAssignmentText({ kind: 'reassigned', title: 'T', project: 'P', priority: null, due: null, people: [] }).text, /^🔄 \*Task reassigned\*[\s\S]*\*Assigned to:\* —/);
 });

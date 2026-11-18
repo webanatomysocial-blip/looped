@@ -75,23 +75,24 @@ const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p
 
 export function buildAssignmentText(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
-  people: { name: string; mention: string | null }[];
+  people: { name: string; mention: string | null }[]; status?: string | null;
 }): { text: string; mentions: string[]; card: Card; caption: string } {
+  const status = args.status || null;   // from the saved task only; left out when unknown
   const head = args.kind === 'reassigned' ? heading(ICON.reassigned, 'Task reassigned') : heading(ICON.task, 'New task assigned');
   const pic = detailCard(head, clean(args.title, 60), [
-    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
     { label: 'Priority', value: args.priority ? priority(args.priority) : null, tone: tone(args.priority) },
-    { label: 'Deadline', value: args.due ? `${args.due} (IST)` : null }, { label: 'Status', value: 'Awaiting acceptance', tone: 'warn' },
+    { label: 'Deadline', value: args.due }, { label: 'Status', value: status, tone: 'warn' },
   ], names(args.people), '👉 Please review and accept your assignment in Loop.');
   const text = compose(
     head,
     [
       field('Task', clean(args.title)),
-      field('Project', clean(args.project)),
+      args.project ? field('Project', clean(args.project)) : '',
       field('Assigned to', names(args.people)),
       args.priority ? field('Priority', priority(args.priority)) : '',
-      args.due ? field('Deadline', `${args.due} (IST)`) : '',
-      field('Status', `${ICON.pending} Awaiting acceptance`),
+      args.due ? field('Deadline', args.due) : '',
+      status ? field('Status', `${ICON.pending} ${status}`) : '',
     ],
     '👉 Please review and accept your assignment in Loop.',
   );
@@ -108,7 +109,7 @@ export async function queueAssignmentNotice(db: Knex, args: {
   if (!employeeIds.length) return 'no_assignee';
   if (await db('whatsapp_outbox').where({ event_key: args.eventKey }).first('id')) return 'duplicate';
   const task = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
-    .where('t.id', args.taskId).select('t.title', 't.priority', 't.due_date', 't.due_time', 'p.name as project_name').first();
+    .where('t.id', args.taskId).select('t.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 'p.name as project_name').first();
   if (!task) return 'no_assignee';
   const users = await db('users').whereIn('id', employeeIds).select('id', 'name');
   const byId = new Map(users.map((u: any) => [Number(u.id), String(u.name)]));
@@ -119,10 +120,12 @@ export async function queueAssignmentNotice(db: Knex, args: {
     const jid = jidForIdentity(String(i.external_sender_id));
     if (jid) jidByUser.set(Number(i.user_id), jid);
   }
-  const people = employeeIds.map((id) => ({ name: byId.get(id) ?? 'Employee', mention: jidByUser.get(id) ?? null }));
+  const people = employeeIds.filter((id) => byId.has(id)).map((id) => ({ name: byId.get(id)!, mention: jidByUser.get(id) ?? null }));
+  if (!people.length) return 'no_assignee';
   const built = buildAssignmentText({
-    kind: args.kind, title: String(task.title), project: String(task.project_name || 'a project'),
+    kind: args.kind, title: String(task.title), project: task.project_name ? String(task.project_name) : '',
     priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), people,
+    status: statusLabel(task, people.map((p) => p.name)),
   });
   const now = args.now ?? new Date();
   try {
@@ -138,11 +141,23 @@ export async function queueAssignmentNotice(db: Knex, args: {
   return 'queued';
 }
 
-// "20 Nov, 5:00 pm" in IST, or the plain date when it can't be read
-function dueLabel(dueDate: unknown, dueTime: unknown): string | null {
+// The status as the Loop app shows it (same labels), from the saved task: never a fixed text
+const TASK_STATUS: Record<string, string> = { todo: 'Waiting', in_progress: 'Working', in_review: 'Submitted', on_hold: 'On hold', completed: 'Approved', draft: 'Draft', overdue: 'Delayed', pending_approval: 'Pending Approval', changes_requested: 'Changes requested' };
+const TICKET_STATUS: Record<string, string> = { pending_manager: 'Needs Manager', pending_assignee: 'Waiting', in_progress: 'Working', pending_admin: 'Admin Review', pending_client: 'Client Review', completed: 'Approved', pending_crosspod: 'Awaiting Approval', needs_reassignment: 'Needs Reassignment', pending_approval: 'Pending Approval' };
+export function statusLabel(t: { status?: string | null; ticket_type_id?: unknown; xlr8_status?: string | null }, names: string[]): string {
+  const raw = t.ticket_type_id ? String(t.xlr8_status ?? '') : String(t.status ?? '');
+  const label = (t.ticket_type_id ? TICKET_STATUS : TASK_STATUS)[raw] ?? raw.replace(/_/g, ' ');
+  return label === 'Waiting' && names.length ? `Waiting for ${names.join(', ')} to accept` : label;
+}
+
+// "21 Nov, 5:30 pm (IST)" when a time is saved, "21 Nov" when only a date is: never a made-up time
+export function dueLabel(dueDate: unknown, dueTime: unknown): string | null {
   if (!dueDate) return null;
-  const ms = deadlineInstant(String(dueDate), dueTime ? String(dueTime).slice(0, 5) : null);
-  return ms === null ? String(dueDate).slice(0, 10) : dateTime(ms);
+  const time = dueTime ? String(dueTime).slice(0, 5) : null;
+  const ms = deadlineInstant(String(dueDate), time);
+  if (ms === null) return String(dueDate).slice(0, 10);
+  const label = dateTime(ms);
+  return time && /^\d{2}:\d{2}$/.test(time) ? `${label} (IST)` : label.split(',')[0];
 }
 
 // Used by the assignment code after commit. Any failure is logged without detail and never reaches the caller.
@@ -213,12 +228,12 @@ export function acceptanceReminderMinutes(env: NodeJS.ProcessEnv = process.env):
 export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[]; card: Card; caption: string } {
   const who = args.person.mention ? mentionTag(args.person.mention, args.person.name) : clean(args.person.name, 40);
   const pic = detailCard(heading(ICON.reminder, 'Acceptance reminder'), clean(args.title, 60), [
-    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: clean(args.person.name, 40) }, { label: 'Status', value: 'Awaiting acceptance', tone: 'warn' },
+    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: clean(args.person.name, 40) }, { label: 'Status', value: `Waiting for ${clean(args.person.name, 40)} to accept`, tone: 'warn' },
   ], who, "👉 Please accept it in Loop. The task can't start until you do.");
   const text = compose(
     heading(ICON.reminder, 'Acceptance reminder'),
     `${who}, please review and accept your assignment in Loop.`,
-    [field('Task', clean(args.title)), field('Project', clean(args.project)), field('Status', `${ICON.pending} Awaiting acceptance`)],
+    [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Status', `${ICON.pending} Waiting for ${clean(args.person.name, 40)} to accept`)],
     italic("The task can't start until you accept it."),
   );
   return { text, mentions: args.person.mention ? [args.person.mention] : [], ...pic };
@@ -226,13 +241,28 @@ export function buildReminderText(args: { title: string; project: string; person
 
 // Queues one reminder per pending assignment. The key is the assignment row and the time it was assigned, so a restart
 // or a retry can never queue the same reminder twice, while a later reassignment gets its own.
+// ── Start point ──
+// Messages are only for things that happen after the WhatsApp notices were first switched on. The moment is saved once
+// (the first start of this version) and never moved, so a deploy neither replays old work nor drops new work.
+const SINCE = 'notices_since';
+export async function markNoticesStart(db: Knex, now: Date = new Date()): Promise<void> {
+  if (await db('assistant_settings').where({ name: SINCE }).first('name').catch(() => null)) return;
+  await db('assistant_settings').insert({ name: SINCE, value: String(now.getTime()), updated_at: now }).catch(() => undefined);
+}
+export async function noticesSince(db: Knex): Promise<number> {
+  const row = await db('assistant_settings').where({ name: SINCE }).first('value').catch(() => null);
+  const ms = Number(row?.value);
+  return Number.isFinite(ms) ? ms : 0;   // not set (tests, or before the first start): no cut-off
+}
+
 export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(), minutes = acceptanceReminderMinutes()): Promise<number> {
   if (!notificationGroupJid()) return 0;
   const cutoff = new Date(now.getTime() - minutes * 60_000);
+  const start = await noticesSince(db);
   const rows = await db('task_assignees as ta').join('tasks as t', 't.id', 'ta.task_id')
     .whereIn('ta.assignee_role', ['employee', 'manager'])   // managers get reminders too; accepted ones are excluded below
     .whereNotNull('ta.assigned_at').where('ta.assigned_at', '<=', cutoff)
-    .where('ta.assigned_at', '>=', new Date(now.getTime() - REMINDER_LOOKBACK_HOURS * 3600_000))
+    .where('ta.assigned_at', '>=', new Date(Math.max(start, now.getTime() - REMINDER_LOOKBACK_HOURS * 3600_000)))
     .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
     .where((q: any) => q.whereNull('ta.acceptance_status').orWhere('ta.acceptance_status', 'pending'))
     .whereNull('t.ticket_type_id')
@@ -246,7 +276,8 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
     const user = await db('users').where({ id: r.user_id }).first('name');
     const identity = await db('assistant_identities').where({ user_id: r.user_id, status: 'active', channel: 'whatsapp' }).first('external_sender_id');
     const mention = identity ? jidForIdentity(String(identity.external_sender_id)) : null;
-    const built = buildReminderText({ title: String(r.title), project: String(proj?.name || 'a project'), person: { name: String(user?.name || 'Employee'), mention } });
+    if (!user?.name) continue;
+    const built = buildReminderText({ title: String(r.title), project: proj?.name ? String(proj.name) : '', person: { name: String(user?.name ?? ''), mention } });
     try {
       await db('whatsapp_outbox').insert({
         event_key: eventKey, kind: 'reminder', task_id: Number(r.task_id),
@@ -293,13 +324,13 @@ export function buildDeadlineText(args: {
 }): { text: string; mentions: string[]; card: Card; caption: string } {
   const left = args.minutesLeft >= 120 ? `about ${plural(Math.round(args.minutesLeft / 60), 'hour')}` : `about ${plural(args.minutesLeft, 'minute')}`;
   const pic = detailCard(heading(ICON.deadline, 'Deadline approaching'), clean(args.title, 60), [
-    { label: 'Time left', value: left, tone: 'bad' }, { label: 'Due', value: `${args.dueLabel} (IST)` },
-    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Time left', value: left, tone: 'bad' }, { label: 'Due', value: args.dueLabel },
+    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
   ], names(args.people), '👉 Please wrap up or update the task in Loop.');
   const text = compose(
     heading(ICON.deadline, 'Deadline approaching'),
     `${bold(left)} left on this task.`,
-    [field('Task', clean(args.title)), field('Project', clean(args.project)), field('Due', `${args.dueLabel} (IST)`), field('Assigned to', names(args.people))],
+    [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Due', args.dueLabel), field('Assigned to', names(args.people))],
     '👉 Please wrap up or update the task in Loop.',
   );
   return { text, mentions: mentionsOf(args.people), ...pic };
@@ -309,6 +340,7 @@ export function buildDeadlineText(args: {
 // repeated across passes, retries or restarts. A later change to the deadline is a new deadline and gets its own alert.
 export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), percent = deadlineAlertPercent()): Promise<number> {
   if (!notificationGroupJid()) return 0;
+  const start = await noticesSince(db);
   const tasks = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .whereNotNull('t.due_date').whereNotNull('t.estimated_hours').where('t.estimated_hours', '>', 0)
     .whereNotIn('t.status', ['completed', 'cancelled', 'draft', 'pending_approval'])
@@ -319,6 +351,8 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     const deadlineMs = deadlineInstant(String(t.due_date), t.due_time ?? null);
     if (deadlineMs === null) continue;
     if (!deadlineAlertDue({ deadlineMs, estimatedHours: Number(t.estimated_hours), nowMs: now.getTime(), percent })) continue;
+    // Only alerts that fell due after the start point: a task already close to its deadline at that moment is not announced
+    if (deadlineMs - (Number(t.estimated_hours) * 3_600_000 * percent) / 100 < start) continue;
     const eventKey = `deadline:${t.id}:${deadlineMs}`;
     if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
     // A multi-stage ticket: the person holding the current stage
@@ -334,10 +368,10 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
       .where({ status: 'active', channel: 'whatsapp' }).select('user_id', 'external_sender_id');
     const jidBy = new Map<number, string>();
     for (const i of identities) { const jid = jidForIdentity(String(i.external_sender_id)); if (jid) jidBy.set(Number(i.user_id), jid); }
-    const due = dateTime(deadlineMs);
+    const due = dueLabel(t.due_date, t.due_time) ?? dateTime(deadlineMs);
     const minutesLeft = Math.max(1, Math.ceil((deadlineMs - now.getTime()) / 60_000));
     const built = buildDeadlineText({
-      title: String(t.title), project: String(t.project_name || 'a project'), dueLabel: due, minutesLeft,
+      title: String(t.title), project: t.project_name ? String(t.project_name) : '', dueLabel: due, minutesLeft,
       people: people.map((p: any) => ({ name: String(p.name), mention: jidBy.get(Number(p.user_id)) ?? null })),
     });
     try {
@@ -359,23 +393,25 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
 const TICKET_NOTICE_HOURS = 2;   // a waiting ticket older than this gets no "assigned" notice (no flood after a deploy)
 export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), minutes = acceptanceReminderMinutes()): Promise<number> {
   if (!notificationGroupJid()) return 0;
+  const start = await noticesSince(db);
   const waiting = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .whereNotNull('t.ticket_type_id').where('t.xlr8_status', 'pending_assignee').whereNotNull('t.xlr8_assignee_id')
     .whereNotIn('t.status', ['completed', 'cancelled'])
-    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 'p.name as project_name');
+    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 'p.name as project_name');
   let queued = 0;
   for (const t of waiting) {
     // When it started waiting for this person: the latest hand-over in the ticket log
     const log = await db('xlr8_ticket_log').where({ task_id: t.id, to_state: 'pending_assignee' }).orderBy('id', 'desc').first('created_at').catch(() => null);
     const since = log?.created_at ? toMs(log.created_at) : NaN;
-    if (!Number.isFinite(since) || now.getTime() - since > REMINDER_LOOKBACK_HOURS * 3600_000) continue;
+    if (!Number.isFinite(since) || since < start || now.getTime() - since > REMINDER_LOOKBACK_HOURS * 3600_000) continue;
     const user = await db('users').where({ id: t.xlr8_assignee_id }).first('name');
     const identity = await db('assistant_identities').where({ user_id: t.xlr8_assignee_id, status: 'active', channel: 'whatsapp' }).first('external_sender_id');
-    const person = { name: String(user?.name || 'Employee'), mention: identity ? jidForIdentity(String(identity.external_sender_id)) : null };
-    const project = String(t.project_name || 'a project');
+    if (!user?.name) continue;
+    const person = { name: String(user.name), mention: identity ? jidForIdentity(String(identity.external_sender_id)) : null };
+    const project = t.project_name ? String(t.project_name) : '';
     const due: { kind: string; key: string; build: () => object; extra: object }[] = [];
     if (now.getTime() - since <= TICKET_NOTICE_HOURS * 3600_000) due.push({ kind: 'assigned', key: `tassign:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: {},
-      build: () => buildAssignmentText({ kind: 'assigned', title: String(t.title), project, priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), people: [person] }) });
+      build: () => buildAssignmentText({ kind: 'assigned', title: String(t.title), project, priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), people: [person], status: statusLabel(t, [person.name]) }) });
     if (now.getTime() - since >= minutes * 60_000) due.push({ kind: 'reminder', key: `tremind:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: { ticketId: Number(t.id), assigneeId: Number(t.xlr8_assignee_id) },
       build: () => buildReminderText({ title: String(t.title), project, person }) });
     for (const d of due) {

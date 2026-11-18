@@ -3,6 +3,8 @@
 import { Knex } from 'knex';
 import { AIProvider, AIError, UsageRecorder, describeAIFailure } from './ai';
 import { IncomingMessage } from './types';
+import { statusLabel, dueLabel } from '../services/assignmentNotices';
+import { priority as priorityText } from '../services/waMessage';
 import {
   TicketIntent, FieldKey, REQUIRED, QUESTIONS, MIN_CONFIDENCE, Understanding,
   parseUnderstanding, promptFor, resolveDeadline, resolvePriority,
@@ -196,7 +198,7 @@ export class RequestEngine {
         if (!r.total) return pm.info('You have no open tasks in Loop.');
         this.lastCard = { title: `Your open tasks · ${r.total}`, subtitle: r.total > r.items.length ? `Showing ${r.items.length} · the rest are in Loop` : 'Everything assigned to you',
           columns: [{ label: 'Status' }, { label: 'Priority' }, { label: 'Due' }],
-          rows: r.items.map((t) => ({ name: `#${t.id} ${clean(t.title)}`, values: [t.status.replace(/_/g, ' '), t.priority, t.due_date ? String(t.due_date).slice(0, 10) : '—'] })) };
+          rows: r.items.map((t) => ({ name: `#${t.id} ${clean(t.title)}`, values: [statusLabel(t as any, []) || '—', priorityText(t.priority) || '—', dueLabel(t.due_date, (t as any).due_time) ?? '—'] })) };   // Loop's own labels; '—' = not set in Loop
         // The text is the fallback when the picture cannot be drawn; with the picture only a one-line caption is sent
         const lines = r.items.map((t) => bullet(`#${t.id} ${clean(t.title)} — ${t.status.replace(/_/g, ' ')}, ${t.priority}${t.due_date ? ', due ' + t.due_date : ''}`));
         return pm.list(`You have ${plural(r.total, 'open task')}`, lines, r.total > r.items.length ? '…and more in Loop.' : '');
