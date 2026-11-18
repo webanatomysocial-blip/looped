@@ -1,5 +1,6 @@
 import { enforceSessionPermissions } from './session-perms';
 import { renderCard } from '../../services/reportCard';
+import { Tag } from '../../services/assignmentNotices';
 // WhatsApp connection adapter. Owns the socket: pairing, reconnection, incoming and outgoing text, status and shutdown.
 // It turns a WhatsApp message into an IncomingMessage and hands it to the assistant. It never trusts a display name,
 // and it never logs QR codes, session data or message text.
@@ -10,7 +11,7 @@ export interface SocketLike {
   ev: { on(event: string, fn: (...args: any[]) => void): unknown };
   sendMessage(jid: string, content: { text: string; mentions?: string[] } | { image: Buffer; caption: string; mentions?: string[] }): Promise<unknown>;
   groupFetchAllParticipating?(): Promise<Record<string, { id?: string; subject?: string }>>;
-  groupMetadata?(jid: string): Promise<{ participants?: { id?: string; jid?: string; lid?: string }[] }>;
+  groupMetadata?(jid: string): Promise<{ participants?: { id?: string; jid?: string; lid?: string; phoneNumber?: string }[] }>;
   end(error?: unknown): void;
   user?: { id?: string };
 }
@@ -277,6 +278,26 @@ export class WhatsAppAdapter {
   // Hidden id -> phone number, from the group's member list (WhatsApp's server sends both for every member). Used when a
   // message arrives without the sender's phone number, so people linked by phone number are still recognised.
   private memberPhones = new Map<string, { at: number; map: Map<string, string> }>();
+  private memberLids = new Map<string, Map<string, string>>();   // group -> phone digits -> hidden id
+
+  // Tags that WhatsApp actually notifies: a person linked by phone number is tagged by their hidden id in this group
+  // (from the member list), both in the text and in the mention list. Not in the group: their name, no tag.
+  private async resolveTags(chat: string, text: string, mentions: string[], tags: Tag[] = []): Promise<{ text: string; mentions: string[] }> {
+    const byPhone = tags.filter((t) => String(t.jid).endsWith('@s.whatsapp.net') && t.name);
+    if (!byPhone.length || !chat.endsWith('@g.us')) return { text, mentions };
+    const phoneOf = (t: Tag) => String(t.jid).split('@')[0];
+    let lids = this.memberLids.get(chat);
+    if (byPhone.some((t) => !lids?.has(phoneOf(t)))) { await this.phoneForMember(chat, '').catch(() => undefined); lids = this.memberLids.get(chat); }
+    const swap = new Map<string, string>();
+    // Longest names first, so "@Nitish Vetcha" is replaced before a shorter "@Nitish"
+    for (const t of [...byPhone].sort((a, b) => b.name.length - a.name.length)) {
+      const lid = lids?.get(phoneOf(t));
+      if (!lid) continue;                                    // not listed in this group: stays "@Name"
+      text = text.split(`@${t.name}`).join(`@${lid}`);
+      swap.set(t.jid, `${lid}@lid`);
+    }
+    return { text, mentions: [...new Set(mentions.map((m) => swap.get(m) ?? m))] };
+  }
   private async phoneForMember(groupJid: string, lidUser: string): Promise<string | undefined> {
     if (!this.socket?.groupMetadata) return undefined;
     const cached = this.memberPhones.get(groupJid);
@@ -285,12 +306,16 @@ export class WhatsAppAdapter {
     try {
       const meta = await this.socket.groupMetadata(groupJid);
       const map = new Map<string, string>();
+      const lidsByPhone = new Map<string, string>();
       for (const p of meta?.participants ?? []) {
         const lid = String(p.lid ?? (String(p.id ?? '').endsWith('@lid') ? p.id : '')).split('@')[0].split(':')[0];
-        const pn = String(p.jid ?? '').endsWith('@s.whatsapp.net') ? String(p.jid).split('@')[0].split(':')[0] : '';
-        if (lid && /^\d{8,15}$/.test(pn)) map.set(lid, `+${pn}`);
+        // The phone id can sit in jid, phoneNumber or id depending on how the group addresses its members
+        const pnJid = [p.jid, p.phoneNumber, p.id].map((x: any) => String(x ?? '')).find((x) => x.endsWith('@s.whatsapp.net')) ?? '';
+        const pn = pnJid ? pnJid.split('@')[0].split(':')[0] : '';
+        if (lid && /^\d{8,15}$/.test(pn)) { map.set(lid, `+${pn}`); lidsByPhone.set(pn, lid); }
       }
       this.memberPhones.set(groupJid, { at: this.now(), map });
+      this.memberLids.set(groupJid, lidsByPhone);
       return map.get(lidUser);
     } catch { return cached?.map.get(lidUser); }
   }
@@ -304,7 +329,9 @@ export class WhatsAppAdapter {
     try {
       const reply = await this.d.handle(msg);
       if (!reply || !reply.text || this.stopping || !this.socket) { this.note(msg, 'not_recognised'); return; }
-      const mentions = reply.mentions?.length ? { mentions: reply.mentions } : {};
+      const tagged = await this.resolveTags(msg.conversationId, reply.text, reply.mentions ?? [], reply.tags ?? []);
+      reply.text = tagged.text;
+      const mentions = tagged.mentions.length ? { mentions: tagged.mentions } : {};
       let image: Buffer | undefined;
       if (reply.card) try { image = renderCard(reply.card); } catch { image = undefined; }   // text alone if the picture fails
       await this.socket.sendMessage(msg.conversationId, image ? { image, caption: `📋 *${reply.card!.title}*`, ...mentions } : { text: reply.text, ...mentions });
@@ -340,8 +367,9 @@ export class WhatsAppAdapter {
   }
 
   // Group notices only. The caller validates the destination; nothing here sends to any other chat.
-  async sendGroup(jid: string, text: string, mentions: string[], image?: Buffer): Promise<boolean> {
+  async sendGroup(jid: string, text: string, mentions: string[], image?: Buffer, tags: Tag[] = []): Promise<boolean> {
     if (!this.isConnected() || !this.socket) return false;
+    ({ text, mentions } = await this.resolveTags(jid, text, mentions, tags));
     await this.socket.sendMessage(jid, image ? { image, caption: text, mentions } : { text, mentions });
     return true;
   }

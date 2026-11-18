@@ -5,7 +5,7 @@ import { Knex } from 'knex';
 import type { AIProvider } from '../assistant/ai';
 import { projectScope } from './access';
 import { employeeTasks, trackedTime, istParts, istDayStart, formatHours, TaskLine } from './productivityReports';
-import { jidForIdentity, mentionTag } from './assignmentNotices';
+import { jidForIdentity, mentionTag, Tag } from './assignmentNotices';
 import { compose, heading, bold, clean, italic, bullet, capped, plural, dateTime, timeOnly, msg, ICON, QUICK_REPLIES, QUICK_REPLY_LINE, HELP_ENABLED } from './waMessage';
 
 const TZ = 'Asia/Kolkata';
@@ -112,13 +112,14 @@ async function periodTime(db: Knex, ids: number[], dates: string[], nowMs: numbe
 }
 
 // The group answer with the people it names, tagged: WhatsApp notifies a person only for a real mention (text + JID)
-export async function answerForGroup(db: Knex, ai: AIProvider, args: { userId: number; role: string; text: string; now?: Date }): Promise<{ text: string; mentions: string[] }> {
+export async function answerForGroup(db: Knex, ai: AIProvider, args: { userId: number; role: string; text: string; now?: Date }): Promise<{ text: string; mentions: string[]; tags: Tag[] }> {
   const mentions = new Set<string>();
-  const text = await answerProductivityQuestion(db, ai, args, mentions);
-  return { text, mentions: [...mentions] };
+  const names = new Map<string, string>();
+  const text = await answerProductivityQuestion(db, ai, args, mentions, names);
+  return { text, mentions: [...mentions], tags: [...names].map(([jid, name]) => ({ jid, name })) };
 }
 
-export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args: { userId: number; role: string; text: string; now?: Date }, mentions: Set<string> = new Set()): Promise<string> {
+export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args: { userId: number; role: string; text: string; now?: Date }, mentions: Set<string> = new Set(), tagNames: Map<string, string> = new Map()): Promise<string> {
   const now = args.now ?? new Date();
   const nowMs = now.getTime();
   const scope = await requesterScope(db, { id: args.userId, role: args.role });
@@ -167,6 +168,7 @@ export async function answerProductivityQuestion(db: Knex, ai: AIProvider, args:
     const jid = jidByUser.get(Number(p.id));
     if (!jid) return clean(p.name, 40);
     mentions.add(jid);
+    tagNames.set(jid, clean(p.name, 40));
     return mentionTag(jid, p.name);
   };
   const done = (t: TaskLine) => !t.open && t.completedMs !== null && t.completedMs >= rangeStart && t.completedMs < rangeEnd;

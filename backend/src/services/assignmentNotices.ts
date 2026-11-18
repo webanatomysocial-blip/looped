@@ -34,7 +34,11 @@ export function notificationGroupJid(env: NodeJS.ProcessEnv = process.env): stri
 // notifies them. Writing "@Name" instead only shows plain text and nobody is notified.
 // Only internal WhatsApp ids (@lid) are written into the text. A phone-number JID would put the full phone number in the
 // message, which is never allowed, so those people are shown as "@Name" (the mention is still attached to the message).
+// A tag in the text. A hidden-id (@lid) person: "@<id>". A person linked by phone number: "@Name"; the WhatsApp sender
+// swaps it for their id in that group (that is what makes WhatsApp notify them). No phone number is ever shown.
 export const mentionTag = (jid: string, name: string) => (String(jid).endsWith('@lid') ? `@${String(jid).split('@')[0]}` : `@${clean(name, 40)}`);
+// Who "@Name" in the text is. The WhatsApp sender uses it to tag a person linked by phone number by their id in the group.
+export interface Tag { jid: string; name: string }
 
 // Participant JID from a verified identity mapping only. Never built from a name, and never from a number that is not linked.
 export function jidForIdentity(externalSenderId: string): string | null {
@@ -71,12 +75,13 @@ function detailCard(head: string, title: string, fields: { label: string; value:
   return { card, caption: `${head}${tags ? ` · ${tags}` : ''}\n${action}` };
 }
 const plainNames = (people: { name: string }[]) => people.map((p) => clean(p.name, 40)).join(', ') || '—';
+const tagsOf = (people: { name: string; mention: string | null }[]): Tag[] => people.filter((p) => p.mention).map((p) => ({ jid: p.mention!, name: clean(p.name, 40) }));
 const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p.mention).filter((m): m is string => !!m);
 
 export function buildAssignmentText(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
   people: { name: string; mention: string | null }[]; status?: string | null;
-}): { text: string; mentions: string[]; card: Card; caption: string } {
+}): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const status = args.status || null;   // from the saved task only; left out when unknown
   const head = args.kind === 'reassigned' ? heading(ICON.reassigned, 'Task reassigned') : heading(ICON.task, 'New task assigned');
   const pic = detailCard(head, clean(args.title, 60), [
@@ -96,7 +101,7 @@ export function buildAssignmentText(args: {
     ],
     '👉 Please review and accept your assignment in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people), ...pic };
+  return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
 
 // Queues one notice for one assignment event. Returns 'duplicate' if this event was already queued.
@@ -166,7 +171,7 @@ export async function noticeAfterCommit(args: { taskId: number; kind: 'assigned'
   catch { console.error('[whatsapp-notice] could not queue an assignment notice'); }
 }
 
-export interface GroupSender { isConnected(): boolean; sendGroup(jid: string, text: string, mentions: string[], image?: Buffer): Promise<boolean> }
+export interface GroupSender { isConnected(): boolean; sendGroup(jid: string, text: string, mentions: string[], image?: Buffer, tags?: Tag[]): Promise<boolean> }
 
 // Sends pending notices. Skips everything while WhatsApp is not connected: rows wait in the outbox.
 export async function processOutbox(db: Knex, sender: GroupSender, now: Date = new Date(), batch = 10): Promise<{ sent: number; failed: number; waiting: number }> {
@@ -200,7 +205,7 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
     let image: Buffer | undefined;
     if (payload.card) try { image = renderCard(payload.card); } catch { image = undefined; }
     const text = image ? String(payload.caption) : String(payload.text);
-    try { ok = await sender.sendGroup(jid, text, (payload.mentions ?? []).map(String), image); } catch { ok = false; }
+    try { ok = await sender.sendGroup(jid, text, (payload.mentions ?? []).map(String), image, Array.isArray(payload.tags) ? payload.tags : []); } catch { ok = false; }
     if (ok) {
       await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'sent', sent_at: now, attempts: row.attempts + 1, last_error: null });
       sent++;
@@ -225,7 +230,7 @@ export function acceptanceReminderMinutes(env: NodeJS.ProcessEnv = process.env):
   return Number.isFinite(n) && n >= 1 && n <= 1440 ? n : 1;
 }
 
-export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[]; card: Card; caption: string } {
+export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const who = args.person.mention ? mentionTag(args.person.mention, args.person.name) : clean(args.person.name, 40);
   const pic = detailCard(heading(ICON.reminder, 'Acceptance reminder'), clean(args.title, 60), [
     { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: clean(args.person.name, 40) }, { label: 'Status', value: `Waiting for ${clean(args.person.name, 40)} to accept`, tone: 'warn' },
@@ -236,7 +241,7 @@ export function buildReminderText(args: { title: string; project: string; person
     [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Status', `${ICON.pending} Waiting for ${clean(args.person.name, 40)} to accept`)],
     italic("The task can't start until you accept it."),
   );
-  return { text, mentions: args.person.mention ? [args.person.mention] : [], ...pic };
+  return { text, mentions: args.person.mention ? [args.person.mention] : [], tags: tagsOf([args.person]), ...pic };
 }
 
 // Queues one reminder per pending assignment. The key is the assignment row and the time it was assigned, so a restart
@@ -321,7 +326,7 @@ export function deadlineAlertDue(args: { deadlineMs: number; estimatedHours: num
 export function buildDeadlineText(args: {
   title: string; project: string; dueLabel: string; minutesLeft: number;
   people: { name: string; mention: string | null }[];
-}): { text: string; mentions: string[]; card: Card; caption: string } {
+}): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const left = args.minutesLeft >= 120 ? `about ${plural(Math.round(args.minutesLeft / 60), 'hour')}` : `about ${plural(args.minutesLeft, 'minute')}`;
   const pic = detailCard(heading(ICON.deadline, 'Deadline approaching'), clean(args.title, 60), [
     { label: 'Time left', value: left, tone: 'bad' }, { label: 'Due', value: args.dueLabel },
@@ -333,13 +338,13 @@ export function buildDeadlineText(args: {
     [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Due', args.dueLabel), field('Assigned to', names(args.people))],
     '👉 Please wrap up or update the task in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people), ...pic };
+  return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
 
 export function buildOverdueText(args: {
   title: string; project: string; dueLabel: string; minutesLate: number; status: string | null;
   people: { name: string; mention: string | null }[];
-}): { text: string; mentions: string[]; card: Card; caption: string } {
+}): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const late = args.minutesLate >= 120 ? `about ${plural(Math.round(args.minutesLate / 60), 'hour')}` : plural(args.minutesLate, 'minute');
   const head = heading('🚨', 'Deadline crossed');
   const pic = detailCard(head, clean(args.title, 60), [
@@ -353,7 +358,7 @@ export function buildOverdueText(args: {
     [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Was due', args.dueLabel), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
     '👉 Please finish it or update the deadline in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people), ...pic };
+  return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
 
 const OVERDUE_LOOKBACK_HOURS = 24;   // a deadline crossed longer ago than this (e.g. while WhatsApp was down) is not announced late
@@ -461,7 +466,7 @@ const dur = (sec: number) => { const h = Math.floor(sec / 3600), m = Math.floor(
 export function buildOvertimeText(args: {
   title: string; project: string; stage: string | null; estSec: number; loggedSec: number; status: string | null;
   people: { name: string; mention: string | null }[];
-}): { text: string; mentions: string[]; card: Card; caption: string } {
+}): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const head = heading('⏱️', 'Over the estimated time');
   const over = dur(args.loggedSec - args.estSec);
   const pic = detailCard(head, clean(args.title, 60), [
@@ -476,7 +481,7 @@ export function buildOvertimeText(args: {
       field('Estimated', dur(args.estSec)), field('Logged', dur(args.loggedSec)), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
     '👉 Please wrap up, or update the estimate in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people), ...pic };
+  return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
 
 export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): Promise<number> {

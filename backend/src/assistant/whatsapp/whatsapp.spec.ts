@@ -33,11 +33,11 @@ const ai = new MockAIProvider((req: any) => {
 // A fake WhatsApp connection: records what the adapter sends and lets the test emit events
 class FakeSocket {
   handlers: Record<string, ((...a: any[]) => void)[]> = {};
-  sent: { jid: string; text: string }[] = [];
+  sent: { jid: string; text: string; mentions?: string[] }[] = [];
   ended = false;
   user = { id: '919000000099:3@s.whatsapp.net' };
   ev = { on: (event: string, fn: (...a: any[]) => void) => { (this.handlers[event] ||= []).push(fn); } };
-  async sendMessage(jid: string, content: { text: string }) { this.sent.push({ jid, text: content.text }); return {}; }
+  async sendMessage(jid: string, content: any) { this.sent.push({ jid, text: content.text ?? content.caption, mentions: content.mentions }); return {}; }
   end() { this.ended = true; }
   emit(event: string, payload: any) { for (const fn of this.handlers[event] ?? []) fn(payload); }
 }
@@ -811,5 +811,21 @@ test('a mention by hidden id is matched from the saved login when the socket doe
   sock.emit('messages.upsert', { type: 'notify', messages: [{ key: { id: 'lidm-1', remoteJid: GROUP, participant: `${EMPLOYEE_PHONE}@s.whatsapp.net`, fromMe: false }, messageTimestamp: Math.floor(Date.now() / 1000),
     message: { extendedTextMessage: { text: '@bot hi', contextInfo: { mentionedJid: ['777000111222333@lid'] } } } }] });
   await waitFor(() => sock.sent.length === 1);
+  await adapter.stop();
+});
+
+test('tags that notify: a person linked by phone is tagged by their id in the group; the text never shows the number', async () => {
+  const adapter = makeAdapter(false);
+  await adapter.start();
+  sock.emit('connection.update', { connection: 'open' });
+  (sock as any).groupMetadata = async () => ({ participants: [{ id: '555000111222333@lid', phoneNumber: '919391283396@s.whatsapp.net' }] });
+  sock.sent = [];
+  const ok = await adapter.sendGroup(GROUP, '📌 *New task assigned* · @Nitish Vetcha and @Ravi', ['919391283396@s.whatsapp.net', '919000000555@s.whatsapp.net'], undefined,
+    [{ jid: '919391283396@s.whatsapp.net', name: 'Nitish Vetcha' }, { jid: '919000000555@s.whatsapp.net', name: 'Ravi' }]);
+  assert.equal(ok, true);
+  const sent: any = sock.sent[0];
+  assert.equal(sent.text, '📌 *New task assigned* · @555000111222333 and @Ravi', 'member tagged by id; non-member keeps the name');
+  assert.ok(sent.mentions.includes('555000111222333@lid'), 'mention uses the group id, so WhatsApp notifies');
+  assert.ok(!/9391283396/.test(sent.text), 'no phone number in the text');
   await adapter.stop();
 });

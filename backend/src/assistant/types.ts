@@ -36,6 +36,8 @@ export interface OutgoingResponse {
   text: string;
   // WhatsApp mentions (JIDs of linked people named in the text), so they are notified
   mentions?: string[];
+  // Who each "@Name" is, so the sender can tag them by their id in the group
+  tags?: import('../services/assignmentNotices').Tag[];
   // A table drawn as an image; the text is sent as its caption
   card?: import('../services/reportCard').Card;
   requestId?: string;

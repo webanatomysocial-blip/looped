@@ -57,7 +57,7 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
       if (!greet && msg.conversationId === notificationGroupJid() && (groupWho.role === 'manager' || groupWho.role === 'admin')) {
         const answer = await answerForGroup(db, o.ai, { userId: groupWho.loopUserId, role: groupWho.role, text: msg.text })
           .catch(() => ({ text: waMsg.error(), mentions: [] as string[] }));
-        return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: answer.text, mentions: answer.mentions };
+        return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: answer.text, mentions: answer.mentions, tags: (answer as any).tags };
       }
       // Everyone else linked gets the same personal assistant as in a private chat, answered in the group
       msg = { ...msg, isGroup: false, text: msg.text.replace(/@\S+/g, ' ').replace(/\s+/g, ' ').trim() };
