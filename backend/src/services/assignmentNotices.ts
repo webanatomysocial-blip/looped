@@ -2,6 +2,7 @@
 // A notice is queued in the outbox after the assignment commits, and a worker sends it to the one configured group.
 // Nothing here changes an assignment. A failure to queue or send never rolls back or blocks the assignment.
 import { Knex } from 'knex';
+import { renderCard } from './reportCard';
 import { getDB } from '../db';
 import { compose, heading, field, bold, clean, italic, priority, dateTime, plural, ICON } from './waMessage';
 
@@ -128,7 +129,7 @@ export async function noticeAfterCommit(args: { taskId: number; kind: 'assigned'
   catch { console.error('[whatsapp-notice] could not queue an assignment notice'); }
 }
 
-export interface GroupSender { isConnected(): boolean; sendGroup(jid: string, text: string, mentions: string[]): Promise<boolean> }
+export interface GroupSender { isConnected(): boolean; sendGroup(jid: string, text: string, mentions: string[], image?: Buffer): Promise<boolean> }
 
 // Sends pending notices. Skips everything while WhatsApp is not connected: rows wait in the outbox.
 export async function processOutbox(db: Knex, sender: GroupSender, now: Date = new Date(), batch = 10): Promise<{ sent: number; failed: number; waiting: number }> {
@@ -153,7 +154,11 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
       if (!stillNeeded) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
     }
     let ok = false;
-    try { ok = await sender.sendGroup(jid, String(payload.text), (payload.mentions ?? []).map(String)); } catch { ok = false; }
+    // A report with a card goes as an image with a short caption; if the image cannot be drawn, the full text is sent
+    let image: Buffer | undefined;
+    if (payload.card) try { image = renderCard(payload.card); } catch { image = undefined; }
+    const text = image ? String(payload.caption) : String(payload.text);
+    try { ok = await sender.sendGroup(jid, text, (payload.mentions ?? []).map(String), image); } catch { ok = false; }
     if (ok) {
       await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'sent', sent_at: now, attempts: row.attempts + 1, last_error: null });
       sent++;

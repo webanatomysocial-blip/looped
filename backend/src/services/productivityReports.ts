@@ -1,6 +1,7 @@
 // Scheduled productivity reports for the WhatsApp group. Loop is the source of truth; the reports only read from it.
 // Each report is queued once per IST day in the durable outbox, and sent by the same worker as the other notices.
 import { Knex } from 'knex';
+import { Card } from './reportCard';
 import { notificationGroupJid, deadlineInstant } from './assignmentNotices';
 import { compose, heading, bold, clean, italic, bullet, capped, priority, ICON } from './waMessage';
 
@@ -123,7 +124,8 @@ const inDay = (ms: number | null, date: string) => ms !== null && ms >= istDaySt
 
 // 09:00 report: the previous working day (Friday on a Monday) and all work still outstanding from it or earlier, by
 // employee. Everything is judged at 09:00 of the report date, whenever the report actually runs.
-export async function buildMorningReport(db: Knex, now: Date): Promise<string> {
+export async function buildMorningReport(db: Knex, now: Date): Promise<string> { return (await morningReport(db, now)).text; }
+export async function morningReport(db: Knex, now: Date): Promise<ReportOut> {
   const today = istParts(now).date;
   const workday = previousWorkingDate(today);
   const asOf = istDayStart(today) + MORNING_MINUTE * 60_000;
@@ -131,6 +133,7 @@ export async function buildMorningReport(db: Knex, now: Date): Promise<string> {
   const completedWhen = previousIstDate(today) === workday ? `on ${dayLabel(workday)}` : `${dayLabel(workday)} – ${dayLabel(previousIstDate(today))}`;
   const blocks: string[][] = [];
   const clear: string[] = [];
+  const rows: Card['rows'] = [];
   for (const e of employees) {
     const mine = tasks.get(e.id) ?? [];
     // Carried forward: open at 09:00 and assigned before today began (or with no assignment time recorded)
@@ -139,6 +142,7 @@ export async function buildMorningReport(db: Knex, now: Date): Promise<string> {
     const pending = carried.filter((t) => !t.overdue);
     // Completed from the start of the previous working day until today began: on a Monday that is Friday to Sunday
     const completed = mine.filter((t) => !t.open && t.completedMs !== null && t.completedMs >= istDayStart(workday) && t.completedMs < istDayStart(today));
+    rows.push({ name: clean(e.name, 40), values: [completed.length, pending.length, overdue.length] });
     if (!carried.length && !completed.length) { clear.push(clean(e.name, 40)); continue; }
     blocks.push([
       `${bold(e.name, 40)} — ${pending.length} pending, ${overdue.length} overdue, ${completed.length} completed ${completedWhen}`,
@@ -147,21 +151,26 @@ export async function buildMorningReport(db: Knex, now: Date): Promise<string> {
       ...listed(completed.map((t) => `${ICON.completed} Completed: ${clean(t.title)}`)),
     ]);
   }
-  return compose(
+  const text = compose(
     [heading(ICON.morning, `Good morning! Pending work from ${dayLabel(workday)}`), italic(`As of 9:00 am IST · ${employees.length} employee${employees.length === 1 ? '' : 's'}`)],
     ...blocks,
     clear.length ? `${ICON.completed} No pending work from ${dayLabel(workday)}: ${clear.join(', ')}` : '',
     employees.length ? '' : 'No employees found in Loop.',
   );
+  const card: Card = { title: `Good morning · ${dayLabel(today)}`, subtitle: `Work from ${dayLabel(workday)} · as of 9:00 am IST`,
+    columns: [{ label: 'Done', tone: 'good' }, { label: 'Pending', tone: 'warn' }, { label: 'Overdue', tone: 'bad' }], rows: sortRows(rows) };
+  return { text, card, caption: caption(ICON.morning, `Good morning · ${dayLabel(today)}`, rows) };
 }
 
 // 18:00 report: the working day's activity, workload and actual tracked hours, by employee, judged at 18:00 of that day
-export async function buildEveningReport(db: Knex, now: Date): Promise<string> {
+export async function buildEveningReport(db: Knex, now: Date): Promise<string> { return (await eveningReport(db, now)).text; }
+export async function eveningReport(db: Knex, now: Date): Promise<ReportOut> {
   const today = istParts(now).date;
   const asOf = istDayStart(today) + EVENING_MINUTE * 60_000;
   const { employees, tasks } = await employeeTasks(db, asOf);
   const hours = await trackedTime(db, employees.map((e) => e.id), today, asOf);
   const blocks: string[][] = [];
+  const rows: Card['rows'] = [];
   for (const e of employees) {
     const mine = tasks.get(e.id) ?? [];
     const assignedToday = mine.filter((t) => inDay(t.assignedMs, today) && t.assignedMs! <= asOf);
@@ -171,6 +180,7 @@ export async function buildEveningReport(db: Knex, now: Date): Promise<string> {
     const pending = open.filter((t) => !t.overdue);
     const h = hours.get(e.id)!;
     const time = h.hasRecords ? `tracked ${formatHours(h.ms)}` : 'no time recorded';
+    rows.push({ name: clean(e.name, 40), note: h.hasRecords ? `${formatHours(h.ms)} tracked` : 'no time recorded', values: [assignedToday.length, completedToday.length, pending.length, overdue.length] });
     blocks.push([
       `${bold(e.name, 40)} — ${time}`,
       `  Assigned today ${assignedToday.length} · Completed ${completedToday.length} · Pending ${pending.length} · Overdue ${overdue.length} · Workload ${open.length} open`,
@@ -178,12 +188,29 @@ export async function buildEveningReport(db: Knex, now: Date): Promise<string> {
       ...listed(completedToday.map((t) => `${ICON.completed} Completed: ${clean(t.title)}`)),
     ]);
   }
-  return compose(
+  const text = compose(
     [heading(ICON.evening, `Day-end report — ${dayLabel(today)}`), italic(`As of 6:00 pm IST · ${employees.length} employee${employees.length === 1 ? '' : 's'}`)],
     ...blocks,
     employees.length ? '' : 'No employees found in Loop.',
     italic('Hours come from Loop time tracking (timer sessions and manual entries), not from estimates.'),
   );
+  const card: Card = { title: `Day-end report · ${dayLabel(today)}`, subtitle: 'As of 6:00 pm IST', footer: 'Hours come from Loop time tracking (timers and manual entries).',
+    columns: [{ label: 'Assigned' }, { label: 'Done', tone: 'good' }, { label: 'Pending', tone: 'warn' }, { label: 'Overdue', tone: 'bad' }], rows: sortRows(rows) };
+  return { text, card, caption: caption(ICON.evening, `Day-end report · ${dayLabel(today)}`, rows) };
+}
+
+export interface ReportOut { text: string; card: Card; caption: string }
+// Most overdue first, then most pending: the people who need attention are at the top
+const sortRows = (rows: Card['rows']) => [...rows].sort((a, b) => Number(b.values.at(-1)) - Number(a.values.at(-1)) || Number(b.values.at(-2)) - Number(a.values.at(-2)));
+// The short message that goes with the image: totals, the top finisher and who needs help
+function caption(icon: string, title: string, rows: Card['rows']): string {
+  const sum = (i: number) => rows.reduce((n, r) => n + Number(r.values.at(i)), 0);
+  const top = [...rows].sort((a, b) => Number(b.values.at(-3)) - Number(a.values.at(-3)))[0];
+  const help = rows.filter((r) => Number(r.values.at(-1)) > 0).sort((a, b) => Number(b.values.at(-1)) - Number(a.values.at(-1)))[0];
+  const lines = [`${icon} *${title}*`, `${ICON.completed} ${sum(-3)} done · ${ICON.pending} ${sum(-2)} pending · ${ICON.overdue} ${sum(-1)} overdue`];
+  const who = [top && Number(top.values.at(-3)) > 0 ? `Top: ${top.name} (${top.values.at(-3)} done)` : '', help ? `Needs help: ${help.name} (${help.values.at(-1)} overdue)` : ''].filter(Boolean);
+  if (who.length) lines.push(who.join(' · '));
+  return lines.join('\n');
 }
 
 // Queues the day's reports once each, Monday to Friday, in IST. The outbox key (kind and IST date) makes a retry or a
@@ -192,18 +219,18 @@ export async function enqueueScheduledReports(db: Knex, now: Date = new Date()):
   if (!notificationGroupJid()) return [];
   const { date, weekday, minutes } = istParts(now);
   if (!isWeekday(weekday)) return [];
-  const due: { kind: 'report_morning' | 'report_evening'; build: () => Promise<string> }[] = [];
+  const due: { kind: 'report_morning' | 'report_evening'; build: () => Promise<ReportOut> }[] = [];
   // Only near the scheduled time: a report that could not go out on time is skipped, never sent hours late
-  if (minutes >= MORNING_MINUTE && minutes < MORNING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_morning', build: () => buildMorningReport(db, now) });
-  if (minutes >= EVENING_MINUTE && minutes < EVENING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_evening', build: () => buildEveningReport(db, now) });
+  if (minutes >= MORNING_MINUTE && minutes < MORNING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_morning', build: () => morningReport(db, now) });
+  if (minutes >= EVENING_MINUTE && minutes < EVENING_MINUTE + REPORT_WINDOW_MINUTES) due.push({ kind: 'report_evening', build: () => eveningReport(db, now) });
   const queued: string[] = [];
   for (const d of due) {
     const eventKey = `${d.kind}:${date}`;
     if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
-    const text = await d.build();
+    const { text, caption, card } = await d.build();
     try {
       await db('whatsapp_outbox').insert({
-        event_key: eventKey, kind: d.kind, task_id: 0, payload: JSON.stringify({ text, mentions: [] }),
+        event_key: eventKey, kind: d.kind, task_id: 0, payload: JSON.stringify({ text, caption, card, mentions: [] }),
         status: 'pending', attempts: 0, next_attempt_at: now,
       });
       queued.push(eventKey);

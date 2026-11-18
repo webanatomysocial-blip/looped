@@ -7,7 +7,7 @@ import type { WhatsAppConfig } from './config';
 
 export interface SocketLike {
   ev: { on(event: string, fn: (...args: any[]) => void): unknown };
-  sendMessage(jid: string, content: { text: string; mentions?: string[] }): Promise<unknown>;
+  sendMessage(jid: string, content: { text: string; mentions?: string[] } | { image: Buffer; caption: string; mentions?: string[] }): Promise<unknown>;
   groupFetchAllParticipating?(): Promise<Record<string, { id?: string; subject?: string }>>;
   groupMetadata?(jid: string): Promise<{ participants?: { id?: string; jid?: string; lid?: string }[] }>;
   end(error?: unknown): void;
@@ -330,9 +330,9 @@ export class WhatsAppAdapter {
   }
 
   // Group notices only. The caller validates the destination; nothing here sends to any other chat.
-  async sendGroup(jid: string, text: string, mentions: string[]): Promise<boolean> {
+  async sendGroup(jid: string, text: string, mentions: string[], image?: Buffer): Promise<boolean> {
     if (!this.isConnected() || !this.socket) return false;
-    await this.socket.sendMessage(jid, { text, mentions });
+    await this.socket.sendMessage(jid, image ? { image, caption: text, mentions } : { text, mentions });
     return true;
   }
 

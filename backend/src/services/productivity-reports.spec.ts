@@ -140,6 +140,23 @@ test('failed delivery: a report is not marked sent when sending fails, and is re
   assert.equal(report.jid, '120363412745413406@g.us', 'only the configured group');
 });
 
+test('report card: sent as a PNG with a short caption; full text if the image cannot be drawn', async () => {
+  const at = ist('2026-11-20T18:05:00');
+  await enqueueScheduledReports(db(), at);
+  await db()('whatsapp_outbox').where({ event_key: 'report_evening:2026-11-20' }).update({ created_at: at });
+  const sent: { text: string; image?: Buffer }[] = [];
+  await processOutbox(db(), { isConnected: () => true, sendGroup: async (_j: string, text: string, _m: string[], image?: Buffer) => { sent.push({ text, image }); return true; } }, at, 1000);
+  const r = sent.find((s) => /Day-end report/.test(s.text))!;
+  assert.ok(r.image && r.image.subarray(1, 4).toString() === 'PNG', 'a PNG image');
+  assert.ok(r.text.split('\n').length <= 3, 'caption is at most 3 lines');
+  assert.match(r.text, /done · .* pending · .* overdue/);
+  // A damaged card falls back to the full text report
+  await db()('whatsapp_outbox').where({ event_key: 'report_evening:2026-11-20' }).update({ status: 'pending', payload: JSON.stringify({ text: 'FULL TEXT', caption: 'c', card: { bad: true }, mentions: [] }) });
+  sent.length = 0;
+  await processOutbox(db(), { isConnected: () => true, sendGroup: async (_j: string, text: string, _m: string[], image?: Buffer) => { sent.push({ text, image }); return true; } }, at, 1000);
+  assert.deepEqual(sent, [{ text: 'FULL TEXT', image: undefined }]);
+});
+
 test('disconnected WhatsApp: the report waits and nothing is sent', async () => {
   const at = ist('2026-11-19T18:05:00');
   await enqueueScheduledReports(db(), at);
