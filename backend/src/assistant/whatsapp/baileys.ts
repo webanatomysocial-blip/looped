@@ -23,6 +23,7 @@ export const baileysSocketFactory: SocketFactory = async (sessionDir) => {
   const make = baileys.default ?? baileys.makeWASocket;
   const socket = make({
     auth: state,
+    version: await currentWaVersion(baileys),
     logger: pino({ level: 'silent' }),          // no library logging: it can include message content
     printQRInTerminal: false,                    // pairing codes go to the private file only
     browser: ['Loop Assistant', 'Desktop', '1.0'],
@@ -44,6 +45,7 @@ export const databaseSocketFactory = (db: import('knex').Knex): SocketFactory =>
   const make = baileys.default ?? baileys.makeWASocket;
   const socket = make({
     auth: state,
+    version: await currentWaVersion(baileys),
     logger: pino({ level: 'silent' }),          // no library logging: it can include message content
     printQRInTerminal: false,
     browser: ['Loop Assistant', 'Desktop', '1.0'],
@@ -52,3 +54,9 @@ export const databaseSocketFactory = (db: import('knex').Knex): SocketFactory =>
   });
   return { socket, saveCreds };
 };
+
+// WhatsApp refuses an outdated web version: the phone says "Couldn't log in" and the server keeps reconnecting (405).
+// Ask WhatsApp for the current version on each connect; fall back to the library's own if that check fails.
+async function currentWaVersion(baileys: any): Promise<number[] | undefined> {
+  try { const r = await baileys.fetchLatestWaWebVersion({ timeout: 10_000 }); return r?.version; } catch { return undefined; }
+}

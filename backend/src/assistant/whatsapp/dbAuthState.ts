@@ -50,12 +50,12 @@ export async function importFileSession(db: Knex, folder: string | null): Promis
   return n;
 }
 
-// Moves the current login aside (kept, not deleted) after WhatsApp ended it, so the next connection starts a new pairing
-export async function archiveDatabaseLogin(db: Knex, now: Date = new Date()): Promise<string> {
-  const tag = `archived-${now.toISOString().replace(/[:.]/g, '-')}:`;
-  const rows = await db(T).whereNot('auth_key', 'like', 'archived-%').select('auth_key');
-  for (const r of rows) await db(T).where({ auth_key: r.auth_key }).update({ auth_key: (tag + r.auth_key).slice(0, 255) }).catch(() => db(T).where({ auth_key: r.auth_key }).del());
-  return tag.slice(0, -1);
+// The phone ended the session: the login is deleted from the database and the old session files, so it can never be
+// imported or used again. The next connection starts a new pairing.
+export async function forgetLogin(db: Knex, folder: string | null): Promise<string> {
+  await db(T).del();
+  if (folder) fs.rmSync(folder, { recursive: true, force: true });
+  return 'deleted';
 }
 
 // Same shape as Baileys' useMultiFileAuthState, backed by the database

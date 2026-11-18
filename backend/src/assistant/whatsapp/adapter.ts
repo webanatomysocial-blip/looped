@@ -171,7 +171,7 @@ export class WhatsAppAdapter {
       this.qr = null;
       this.lastDisconnectedAt = new Date(this.now()).toISOString();
       const code = u.lastDisconnect?.error?.output?.statusCode;
-      if (code === LOGGED_OUT) {
+      if (code === LOGGED_OUT || code === 403) {   // 403: WhatsApp refused this login
         this.account = null;
         this.socket = null;
         this.qrPending = false;
@@ -182,12 +182,12 @@ export class WhatsAppAdapter {
           return;
         }
         // The phone ended the session. Keep the old files aside, then start a clean connection so Baileys issues a new QR.
-        this.log('warn', 'the phone ended the WhatsApp session: the old session is kept aside and a new pairing code is being requested');
+        this.log('warn', 'the phone ended the WhatsApp session: the old login is deleted and a new pairing code is being requested');
         this.state = 'starting';
         Promise.resolve()
           .then(() => (this.d.archiveSession ?? defaultArchive)(this.d.config.sessionDir!))
           .then((archived) => {
-            this.log('info', `old session kept at a private path (${String(archived).split('/').pop()})`);
+            this.log('info', `old session removed (${String(archived).split('/').pop()})`);
             if (!this.stopping) void this.connect();
           })
           .catch(() => {

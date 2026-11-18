@@ -748,10 +748,10 @@ test('database login: credentials and keys round-trip (binary data intact), are 
   assert.equal(await hasDatabaseLogin(db()), true);
 });
 
-test('database login: an existing file session is imported once; a logged-out login is moved aside so a new pairing starts', async () => {
+test('database login: an existing file session is imported once; a logged-out login is deleted with its files and never re-imported', async () => {
   const fs = require('fs'); const os = require('os');
   const baileys: any = await import('@whiskeysockets/baileys');
-  const { importFileSession, archiveDatabaseLogin, hasDatabaseLogin, useDatabaseAuthState } = require('./dbAuthState');
+  const { importFileSession, forgetLogin, hasDatabaseLogin, useDatabaseAuthState } = require('./dbAuthState');
   await db()('assistant_wa_auth').del();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-import-'));
   try {
@@ -764,10 +764,11 @@ test('database login: an existing file session is imported once; a logged-out lo
     assert.equal(st.state.creds.me.id, '919000000088:1@s.whatsapp.net', 'the existing pairing is kept');
     assert.deepEqual(Buffer.from((await st.state.keys.get('pre-key', ['7']))['7'].public), Buffer.from([7]));
     assert.ok(fs.existsSync(path.join(dir, 'creds.json')), 'the files are left as they were');
-    const tag = await archiveDatabaseLogin(db());
-    assert.match(tag, /^archived-/);
+    await forgetLogin(db(), dir);
     assert.equal(await hasDatabaseLogin(db()), false, 'the next connection starts a new pairing');
-    assert.ok(Number(((await db()('assistant_wa_auth').where('auth_key', 'like', 'archived-%').count({ n: '*' }).first()) as any).n) >= 2, 'kept aside, not deleted');
+    assert.equal(Number(((await db()('assistant_wa_auth').count({ n: '*' }).first()) as any).n), 0, 'nothing kept');
+    assert.equal(fs.existsSync(dir), false, 'old files deleted');
+    assert.equal(await importFileSession(db(), dir), 0, 'the dead login cannot come back');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); await db()('assistant_wa_auth').del(); }
 });
 

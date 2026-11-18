@@ -5,7 +5,7 @@ import type { AIProvider } from '../ai';
 import { WhatsAppAdapter, WaStatus, AdapterDeps, safeMessage } from './adapter';
 import { WhatsAppConfig } from './config';
 import { databaseSocketFactory } from './baileys';
-import { archiveDatabaseLogin } from './dbAuthState';
+import { forgetLogin } from './dbAuthState';
 import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts } from '../../services/assignmentNotices';
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
@@ -90,12 +90,14 @@ let shutdownHooked = false;
 async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppConfig, extra: Partial<AdapterDeps>): Promise<WhatsAppAdapter> {
   console.log('[whatsapp] this copy owns the WhatsApp connection');
   // The pairing code is written only to the private file, with owner-only permissions
-  const writeQr = config.qrFile ? (qr: string) => writeQrPayload(config.qrFile!, qr) : undefined;
+  // Each new QR is published at once so the dashboard never shows one WhatsApp has already replaced
+  let publishNow: () => void = () => undefined;
+  const writeQr = (qr: string) => { if (config.qrFile) try { writeQrPayload(config.qrFile, qr); } catch { /* the dashboard still gets it */ } publishNow(); };
   const clearQr = config.qrFile ? () => fs.rmSync(config.qrFile!, { force: true }) : undefined;
   const adapter = new WhatsAppAdapter({
     config, makeSocket: databaseSocketFactory(db), handle: buildWhatsAppHandler(db, options), writeQr, clearQr,
-    // The login lives in the database: when WhatsApp ends it, it is moved aside there (kept, not deleted)
-    archiveSession: () => archiveDatabaseLogin(db),
+    // Logged out from the phone: the login is deleted (database and old files), never reused
+    archiveSession: () => forgetLogin(db, config.sessionDir ?? null),
     onEvent: (e) => { recordWaEvent(db, e).catch(() => undefined); },
     ...extra,
   });
@@ -117,6 +119,7 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
     }
     await publishState(db, { status: adapter.status() as any, qr: adapter.pairingCode(), groups: groupsCache?.groups ?? null });
   };
+  publishNow = () => { publish().catch(() => undefined); };
   await publish().catch(() => undefined);
   // Hosting such as cPanel puts an app to sleep when the site has no visitors, which would drop WhatsApp and miss the
   // daily reports. A visit to our own health page every 4 minutes keeps it awake. Live server only; harmless elsewhere.
