@@ -11,7 +11,6 @@ import { AssistantConfig } from './config';
 import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
 import { saveAiKey, validAiKey, saveNotificationGroup } from './settingsStore';
-import { listWaEvents } from './whatsapp/activity';
 import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
 import { notificationGroupJid, setChosenNotificationGroup, GROUP_JID } from '../services/assignmentNotices';
 
@@ -274,44 +273,7 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     return { ok: true };
   }));
 
-  // ── Conversations: grouped by employee, channel and group ──
-  // Every conversation with any turn, including lookups that created no request
-  r.get('/conversations', wrap(async () => {
-    const db = d.getDB();
-    const turns = await db('assistant_conversation_log').select('conversation_key').max('created_at as last_activity')
-      .groupBy('conversation_key').orderBy('last_activity', 'desc').limit(200);
-    const reqs = await db('assistant_requests').select('conversation_key').count('id as requests').max('updated_at as last_activity')
-      .groupBy('conversation_key');
-    const byKey = new Map<string, any>();
-    for (const t of turns) byKey.set(t.conversation_key, { conversation_key: t.conversation_key, requests: 0, last_activity: t.last_activity });
-    for (const q of reqs) {
-      const e = byKey.get(q.conversation_key) ?? { conversation_key: q.conversation_key, requests: 0, last_activity: null };
-      e.requests = Number(q.requests);
-      if (!e.last_activity || new Date(q.last_activity) > new Date(e.last_activity)) e.last_activity = q.last_activity;
-      byKey.set(q.conversation_key, e);
-    }
-    const rows = [...byKey.values()];
-    const ids = [...new Set(rows.map((r) => Number(String(r.conversation_key).split(':').pop())))];
-    const users = ids.length ? await db('users').whereIn('id', ids).select('id', 'name') : [];
-    const names = new Map(users.map((u: any) => [Number(u.id), u.name]));
-    return rows.map((r) => {
-      const parts = String(r.conversation_key).split(':');
-      const loopUserId = Number(parts.pop());
-      return {
-        conversation_key: r.conversation_key, channel: parts[0], conversation_id: parts.slice(1).join(':'),
-        loop_user_id: loopUserId, employee: names.get(loopUserId) ?? null, requests: r.requests, last_activity: r.last_activity,
-      };
-    }).sort((x, y) => new Date(y.last_activity).getTime() - new Date(x.last_activity).getTime()).slice(0, 200);
-  }));
-
-  r.get('/conversations/messages', wrap(async (req) => {
-    const db = d.getDB();
-    const key = typeof req.query.key === 'string' ? req.query.key.slice(0, 200) : '';
-    if (!key) return { items: [] };
-    const items = await db('assistant_conversation_log').where({ conversation_key: key }).orderBy('id', 'desc').limit(200)
-      .select('role', 'text', 'request_id', 'created_at');
-    return { items: items.reverse().map((t: any) => ({ ...t, text: maskText(t.text) })) };
-  }));
+  // Conversations and recent WhatsApp activity are not served: they expose who said what to the bot
 
   // ── Failures ──
   r.get('/failures', wrap(async () => {
@@ -438,7 +400,6 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
   }));
 
   // What the bot did with the latest incoming WhatsApp messages (no message text)
-  r.get('/whatsapp/activity', wrap(async () => listWaEvents(d.getDB(), 30)));
 
   r.get('/whatsapp/groups', wrap(async () => d.whatsappGroups ? await d.whatsappGroups() : []));
 

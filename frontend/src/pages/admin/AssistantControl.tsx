@@ -6,10 +6,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { MessageCircle, Users, UserX, Clock, Activity, Cpu, CalendarDays, CalendarRange, RefreshCw, Link2, AlertTriangle, Bell, CheckCircle2, Search, QrCode, Smartphone } from 'lucide-react';
 import '../../css/admin/AssistantControl.css';
 
-type Tab = 'overview' | 'linking' | 'usage' | 'queue' | 'requests' | 'identities' | 'conversations' | 'failures' | 'audit' | 'config';
+type Tab = 'overview' | 'linking' | 'usage' | 'queue' | 'requests' | 'identities' | 'failures' | 'audit' | 'config';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' }, { id: 'linking', label: 'Employee linking' }, { id: 'usage', label: 'AI usage' }, { id: 'queue', label: 'Live queue' }, { id: 'requests', label: 'Requests' },
-  { id: 'identities', label: 'Identities' }, { id: 'conversations', label: 'Conversations' }, { id: 'failures', label: 'Failures' },
+  { id: 'identities', label: 'Identities' }, { id: 'failures', label: 'Failures' },
   { id: 'audit', label: 'Audit' }, { id: 'config', label: 'Configuration' },
 ];
 const STATUSES = ['NEEDS_CLARIFICATION', 'READY_FOR_CONFIRMATION', 'CONFIRMED', 'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED', 'REJECTED'];
@@ -43,7 +43,7 @@ export default function AssistantControl() {
         {tab === 'queue' && <QueueTab />}
         {tab === 'requests' && <RequestsTab />}
         {tab === 'identities' && <IdentitiesTab flash={flash} />}
-        {tab === 'conversations' && <ConversationsTab />}
+
         {tab === 'failures' && <FailuresTab flash={flash} />}
         {tab === 'audit' && <AuditTab />}
         {tab === 'config' && <ConfigTab flash={flash} />}
@@ -258,43 +258,6 @@ function GroupPicker({ current, flash }: { current: string | null; flash: (m: st
 }
 
 // What the bot did with each recent incoming message, so "why didn't it reply?" has an answer. No message text.
-const OUTCOME: Record<string, { label: string; tone: string; why: string }> = {
-  replied: { label: 'Replied', tone: 'ok', why: '' },
-  not_mentioned: { label: 'Not mentioned', tone: 'muted', why: 'The bot was not mentioned. Pick it from the @ list; typing its name is not a mention.' },
-  not_recognised: { label: 'Sender not linked', tone: 'warn', why: 'This sender is not linked to a Loop employee, so the bot stays silent. Link their number in Employee linking.' },
-  could_not_decrypt: { label: 'Could not read', tone: 'warn', why: 'WhatsApp had not shared the encryption keys yet (common right after pairing). It fixes itself; ask again in a minute.' },
-  not_text: { label: 'Not text', tone: 'muted', why: 'Photos, stickers and voice notes are ignored.' },
-  send_failed: { label: 'Reply failed', tone: 'bad', why: 'The reply could not be sent. Check the WhatsApp connection above.' },
-};
-function WhatsAppActivity() {
-  const { data, error, reload } = useLoader(() => assistantAdminApi.whatsappActivity().then((r) => r.data as any[]));
-  useEffect(() => { const t = setInterval(reload, 15000); return () => clearInterval(t); }, [reload]);
-  return (
-    <Panel wide title="Recent WhatsApp messages" action={<button className="btn-secondary ac-btn" onClick={reload}><RefreshCw size={14} /> Refresh</button>}>
-      {error && <div className="ac__error">{error}</div>}
-      {data && data.length === 0 && <p className="ac__muted">No messages received yet since this list was added. Mention the bot in the group to test it.</p>}
-      {data && data.length > 0 && (
-        <div className="ac__table-wrap"><table className="ac__table ac-table">
-          <thead><tr><th>Time</th><th>Where</th><th>From</th><th>What the bot did</th></tr></thead>
-          <tbody>{data.map((e) => {
-            const o = OUTCOME[e.outcome] ?? { label: label(e.outcome), tone: 'muted', why: '' };
-            const hidden = e.outcome === 'not_recognised' && e.phone_hidden ? ' Their phone number is hidden from the group, so the bot cannot match them by number.' : '';
-            return (
-              <tr key={e.id}>
-                <td>{when(e.created_at)}</td>
-                <td>{e.place}</td>
-                <td>{e.linked ? <strong>{e.sender}</strong> : <span className="ac__mono">{e.sender}</span>}</td>
-                <td><Badge tone={o.tone}>{o.label}</Badge>{(o.why || hidden) && <div className="ac__muted">{o.why}{hidden}</div>}</td>
-              </tr>
-            );
-          })}</tbody>
-        </table></div>
-      )}
-    </Panel>
-  );
-}
-
-// ── Overview ──
 function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => void }) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'manager';   // admins and managers manage WhatsApp
@@ -306,7 +269,7 @@ function Overview({ go, flash }: { go: (t: Tab) => void; flash: (m: string) => v
       <div className="ac__filters"><button className="btn-secondary ac-btn" onClick={reload}><RefreshCw size={14} /> Refresh</button></div>
       {/* Admins and managers can view the WhatsApp connection and pair it */}
       {isAdmin && <WhatsAppPairing flash={flash} onConnected={reload} onSetup={() => go('config')} />}
-      {isAdmin && <WhatsAppActivity />}
+
       <Status state={data} loading={loading} error={error} />
       {data && (
         <>
@@ -622,28 +585,6 @@ function IdentitiesTab({ flash }: { flash: (m: string) => void }) {
           ))}</tbody>
         </table></div>
       )}
-    </section>
-  );
-}
-
-function ConversationsTab() {
-  const [key, setKey] = useState<string | null>(null);
-  const { data, error, loading } = useLoader(() => assistantAdminApi.conversations().then((r) => r.data));
-  const msgs = useLoader(() => (key ? assistantAdminApi.conversationMessages(key).then((r) => r.data) : Promise.resolve(null)), [key]);
-  return (
-    <section className="ac__split">
-      <div>
-        <Status state={data} loading={loading} error={error} />
-        {data && <ul className="ac__list">{data.map((c: any) => (
-          <li key={c.conversation_key}><button className={`ac__list-item${key === c.conversation_key ? ' is-active' : ''}`} onClick={() => setKey(c.conversation_key)}>
-            <strong>{c.employee ?? 'Unknown employee'}</strong><span className="ac__muted"> · {c.channel} · {c.conversation_id}</span><div className="ac__muted">{c.requests} requests · last {when(c.last_activity)}</div>
-          </button></li>))}</ul>}
-      </div>
-      <div>
-        {!key && <div className="ac__muted">Select a conversation to view its messages.</div>}
-        <Status state={msgs.data} loading={msgs.loading} error={msgs.error} />
-        {msgs.data && <ol className="ac__messages">{msgs.data.items.map((m: any, i: number) => <li key={i} className={`ac__msg ac__msg--${m.role}`}><span className="ac__msg-role">{m.role === 'employee' ? 'Employee' : 'Assistant'}</span> {m.text} <span className="ac__muted">{when(m.created_at)}</span></li>)}</ol>}
-      </div>
     </section>
   );
 }

@@ -94,7 +94,7 @@ after(async () => { server?.close(); await db.destroy(); });
 
 // ── Access control ──
 test('every endpoint refuses anonymous callers and employees; managers get the dashboard (QR pairing is tested separately)', async () => {
-  const paths: [string, string][] = [['GET', '/dashboard'], ['GET', '/queue'], ['GET', '/requests'], ['GET', '/requests/req-1'], ['GET', '/identities'], ['GET', '/conversations'], ['GET', '/conversations/messages?key=x'], ['GET', '/failures'], ['GET', '/audit'], ['GET', '/config'], ['POST', '/failures/req-5/retry'], ['POST', '/identities/1/revoke']];
+  const paths: [string, string][] = [['GET', '/dashboard'], ['GET', '/queue'], ['GET', '/requests'], ['GET', '/requests/req-1'], ['GET', '/identities'], ['GET', '/failures'], ['GET', '/audit'], ['GET', '/config'], ['POST', '/failures/req-5/retry'], ['POST', '/identities/1/revoke']];
   for (const [m, p] of paths) {
     assert.equal((await call(null, m, p)).status, 401, 'anonymous ' + p);
     assert.equal((await call('priya', m, p)).status, 403, 'employee ' + p);
@@ -173,15 +173,13 @@ test('retry eligibility is shown with its reason', async () => {
   assert.match(terminal.retry.reason, /cannot be fixed|not safe|terminal/);
 });
 
-// ── Conversation isolation ──
-test("one employee's conversation never shows another employee's messages", async () => {
-  const priya = (await call('admin', 'GET', `/conversations/messages?key=${encodeURIComponent(`simulator:g1:${U.priya.id}`)}`)).body;
-  assert.ok(priya.items.length >= 2);
-  assert.ok(!JSON.stringify(priya).includes('secret sam message'));
-  const sam = (await call('admin', 'GET', `/conversations/messages?key=${encodeURIComponent(`simulator:g2:${U.sam.id}`)}`)).body;
-  assert.ok(!JSON.stringify(sam).includes('+919'));
-  const groups = (await call('admin', 'GET', '/conversations')).body;
-  assert.ok(groups.some((g: any) => g.employee === 'Priya Rao' && g.conversation_id === 'g1'));
+// ── Conversations and WhatsApp activity are not served to anyone ──
+test('conversation and WhatsApp activity endpoints are gone', async () => {
+  for (const p of ['/conversations', `/conversations/messages?key=${encodeURIComponent(`simulator:g1:${U.priya.id}`)}`, '/whatsapp/activity']) {
+    const res = await call('admin', 'GET', p);
+    assert.equal(res.status, 404, p);
+    assert.ok(!JSON.stringify(res.body ?? '').includes('secret sam message'));
+  }
 });
 
 // ── Identities: masked, no secrets, revocable ──
