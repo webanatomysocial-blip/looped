@@ -254,8 +254,7 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
     }
     if (row.kind === 'reminder' && payload.ticketId) {
       // A ticket reminder is sent only while the same person still has not accepted the stage
-      const t = await db('tasks').where({ id: payload.ticketId }).first('xlr8_status', 'xlr8_assignee_id');
-      if (!t || t.xlr8_status !== 'pending_assignee' || Number(t.xlr8_assignee_id) !== Number(payload.assigneeId)) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
+      if (!(await stillWaiting(db, payload))) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
     } else if (row.kind === 'reminder') {
       // A reminder is sent only while the assignee still has not accepted
       const a = await db('task_assignees').where({ id: payload.assignmentId }).first('acceptance_status', 'skipped');
@@ -377,10 +376,22 @@ async function leadsFor(db: Knex, taskId: number, userIds: number[]) {
 }
 
 // Still waiting: a task assignment not yet accepted, or a ticket stage still with the same person
-async function stillWaiting(db: Knex, p: { assignmentId?: number; ticketId?: number; assigneeId?: number }): Promise<boolean> {
+// Who a ticket is still waiting on: the same rule Loop uses to start it (waitingOn in xlr8.ts): everyone doing work
+// on the current and later stages who has not accepted. All of them are reminded together, not stage by stage.
+async function ticketPending(db: Knex, ticketId: number, fromIdx: number): Promise<number[]> {
+  return (await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
+    .where('ta.task_id', ticketId).where('ta.stage_idx', '>=', fromIdx).where('ta.assignee_role', 'employee').whereNot('u.role', 'admin')
+    .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+    .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNotIn('ta.acceptance_status', ['accepted', 'pre_pending']))
+    .distinct('ta.user_id').pluck('ta.user_id')).map(Number);
+}
+
+async function stillWaiting(db: Knex, p: { assignmentId?: number; ticketId?: number; assigneeId?: number; userId?: number }): Promise<boolean> {
   if (p.ticketId) {
-    const t = await db('tasks').where({ id: p.ticketId }).first('xlr8_status', 'xlr8_assignee_id');
-    return !!t && t.xlr8_status === 'pending_assignee' && Number(t.xlr8_assignee_id) === Number(p.assigneeId);
+    const t = await db('tasks').where({ id: p.ticketId }).first('xlr8_status', 'xlr8_assignee_id', 'xlr8_stage_idx');
+    if (!t || t.xlr8_status !== 'pending_assignee') return false;
+    if (!p.userId) return Number(t.xlr8_assignee_id) === Number(p.assigneeId);   // rows queued before this change
+    return (await ticketPending(db, Number(p.ticketId), Number(t.xlr8_stage_idx ?? 0))).includes(Number(p.userId));
   }
   const a = await db('task_assignees').where({ id: p.assignmentId }).first('acceptance_status', 'skipped');
   return !!a && a.acceptance_status !== 'accepted' && a.acceptance_status !== 'declined' && !Number(a.skipped);
@@ -576,19 +587,21 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
   const waiting = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .whereNotNull('t.ticket_type_id').where('t.xlr8_status', 'pending_assignee').whereNotNull('t.xlr8_assignee_id')
     .whereNotIn('t.status', ['completed', 'cancelled'])
-    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 'p.name as project_name');
+    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 't.xlr8_stage_idx', 'p.name as project_name');
   let queued = 0;
   for (const t of waiting) {
     // When it started waiting for this person: the latest hand-over in the ticket log
     const log = await db('xlr8_ticket_log').where({ task_id: t.id, to_state: 'pending_assignee' }).orderBy('id', 'desc').first('created_at').catch(() => null);
     const since = log?.created_at ? toMs(log.created_at) : NaN;
     if (!Number.isFinite(since) || since < start || nowMs - since > REMINDER_LOOKBACK_HOURS * 3600_000) continue;
-    const person = (await peopleFor(db, [Number(t.xlr8_assignee_id)])).get(Number(t.xlr8_assignee_id));
+    const pendingIds = await ticketPending(db, Number(t.id), Number(t.xlr8_stage_idx ?? 0));
+    const ppl = await peopleFor(db, [Number(t.xlr8_assignee_id), ...pendingIds]);
+    const person = ppl.get(Number(t.xlr8_assignee_id));
     if (!person) continue;
+    const pending = pendingIds.filter((id) => ppl.has(id)).map((id) => ({ id, ...ppl.get(id)! }));
     const project = t.project_name ? String(t.project_name) : '';
     const due = dueLabel(t.due_date, t.due_time);
-    const base = `${t.id}:${t.xlr8_assignee_id}:${since}`;
-    const waitFor = { ticketId: Number(t.id), assigneeId: Number(t.xlr8_assignee_id) };
+    const base = `${t.id}:${since}`;
     if (nowMs - since <= TICKET_NOTICE_HOURS * 3600_000) {
       const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true };
       // Everyone on the ticket's stages (employees and managers) is tagged; the current stage holder first
@@ -597,22 +610,26 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
       const otherPpl = await peopleFor(db, others);
       const everyone = [person, ...[...new Set(others)].filter((id) => otherPpl.has(id)).map((id) => otherPpl.get(id)!)];
       if (await insertRow(db, { event_key: `tassign:${base}`, kind: 'assigned', task_id: Number(t.id), now,
-        payload: buildAssignmentText({ ...common, people: everyone, status: statusLabel(t, [person.name]) }) })) queued++;
-      if (person.mention && await insertRow(db, { event_key: `dm:tassign:${base}`, kind: 'assigned', task_id: Number(t.id), now,
-        payload: { ...buildDirectAssignment({ ...common, name: person.name, status: statusLabel(t, []) }), to: person.mention } })) queued++;
+        payload: buildAssignmentText({ ...common, people: everyone, status: statusLabel(t, pending.map((p) => p.name)) }) })) queued++;
+      for (const p of pending) if (p.mention && await insertRow(db, { event_key: `dm:tassign:${base}:${p.id}`, kind: 'assigned', task_id: Number(t.id), now,
+        payload: { ...buildDirectAssignment({ ...common, name: p.name, status: 'Waiting for your acceptance' }), to: p.mention } })) queued++;
     }
+    // Every step goes to everyone still pending at the same time
     for (const step of followUpSteps(since, nowMs, minutes)) {
+      if (!pending.length) break;
       if (step === 'escalate') {
-        const { managers, admins } = await leadsFor(db, Number(t.id), [Number(t.xlr8_assignee_id)]);
+        const { managers, admins } = await leadsFor(db, Number(t.id), pending.map((p) => p.id));
         const args = { title: String(t.title), project, minutes: acceptanceEscalateMinutes(process.env, minutes), managers, admins, ticket: true };
-        const people = [{ ...person, ...waitFor }];
+        const people = pending.map((p) => ({ name: p.name, mention: p.mention, ticketId: Number(t.id), userId: p.id }));
         if (await insertRow(db, { event_key: `tescalate:${base}`, kind: 'escalation', task_id: Number(t.id), now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) queued++;
         continue;
       }
-      if (!person.mention) continue;
       const n = step === 'remind1' ? 1 : 2;
-      if (await insertRow(db, { event_key: `${n === 1 ? 'tremind' : 'tremind2'}:${base}`, kind: 'reminder', task_id: Number(t.id), now,
-        payload: { ...buildReminderText({ title: String(t.title), project, person, n, ticket: true, due }), ...waitFor, to: person.mention } })) queued++;
+      for (const p of pending) {
+        if (!p.mention) continue;
+        if (await insertRow(db, { event_key: `${n === 1 ? 'tremind' : 'tremind2'}:${base}:${p.id}`, kind: 'reminder', task_id: Number(t.id), now,
+          payload: { ...buildReminderText({ title: String(t.title), project, person: p, n, ticket: true, due }), ticketId: Number(t.id), userId: p.id, to: p.mention } })) queued++;
+      }
     }
   }
   return queued;

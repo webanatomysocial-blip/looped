@@ -171,6 +171,7 @@ test('multi-stage tickets: "assigned" notice and one reminder for the stage hold
   const mk = async (title: string, at: Date) => {
     const [id] = await d('tasks').insert({ title, project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_assignee_id: U.nit, assigned_to: U.nit });
     await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+    await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: 0, est_hours: 1, skipped: 0 });
     return Number(id);
   };
   const now = new Date();
@@ -187,7 +188,7 @@ test('multi-stage tickets: "assigned" notice and one reminder for the stage hold
   await enqueueTicketNotices(d, now, 1);
   assert.equal((await d('whatsapp_outbox').whereIn('task_id', [fresh, old])).length, 3, 'never queued twice');
   // Accepted before the reminder went out: the reminder is dropped
-  await d('tasks').where({ id: fresh }).update({ xlr8_status: 'in_progress' });
+  await d('task_assignees').where({ task_id: fresh, user_id: U.nit }).update({ acceptance_status: 'accepted' });
   const sent: string[] = [];
   await processOutbox(d, { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } }, now, 1000);
   assert.ok(sent.some((t) => /New ticket created/.test(t)));
@@ -227,6 +228,7 @@ test('start point: nothing from before the first start is announced; work after 
   const mk = async (title: string, at: Date) => {
     const [id] = await d('tasks').insert({ title, project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_assignee_id: U.nit, assigned_to: U.nit });
     await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+    await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: 0, est_hours: 1, skipped: 0 });
     return Number(id);
   };
   await d('assistant_settings').where({ name: 'notices_since' }).del();
@@ -302,4 +304,21 @@ test('dashboard samples: every message type from real data; group ones to the gr
   assert.ok(card.mentions.length > 0 && /@/.test(card.caption), 'linked people are really tagged, as in the live message');
   assert.ok(rows.filter((p: any) => p.to).every((p: any) => p.to === '919391283396@s.whatsapp.net'));
   assert.ok(rows.some((p: any) => /POD 1 · Good morning/.test(p.caption)) && rows.some((p: any) => /Acceptance overdue/.test(p.caption)) && rows.some((p: any) => /Second reminder/.test(p.text)));
+});
+
+test('multi-stage tickets: everyone still pending on the stage is reminded together, and all are named in one escalation', async () => {
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Team type', stages: JSON.stringify([{ category_name: 'Dev' }, { category_name: 'QA' }]) }).catch(() => [1]))[0];
+  const at = new Date(Date.now() - 6 * 60_000);
+  const [id] = await d('tasks').insert({ title: 'Team ticket', project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_stage_idx: 0, xlr8_assignee_id: U.nit, assigned_to: U.nit });
+  await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+  // Stage 1: Nitish and Pardu; stage 2: Ghost. All pending.
+  for (const [u, st] of [[U.nit, 0], [U.pardu, 0], [U.ghost, 1]]) await d('task_assignees').insert({ task_id: id, user_id: u, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: st, est_hours: 1, skipped: 0 });
+  await enqueueTicketNotices(d, new Date(at.getTime() + 6 * 60_000), 5);   // 6 min: first reminder
+  const r1 = (await d('whatsapp_outbox').where({ task_id: id, kind: 'reminder' })).map((r: any) => JSON.parse(r.payload).to).sort();
+  assert.deepEqual(r1, ['4455667788@lid', '919391283396@s.whatsapp.net'], 'both linked people at the same time (Ghost has no WhatsApp linked)');
+  await d('task_assignees').where({ task_id: id, user_id: U.pardu }).update({ acceptance_status: 'accepted' });
+  await enqueueTicketNotices(d, new Date(at.getTime() + 13 * 60_000), 5);   // 13 min: escalation
+  const esc = JSON.parse((await d('whatsapp_outbox').where({ task_id: id, kind: 'escalation' }).first()).payload);
+  assert.deepEqual(esc.people.map((p: any) => p.name).sort(), ['Ghost Person', 'Nitish'], 'everyone still pending, on any later stage too; Pardu accepted');
 });
