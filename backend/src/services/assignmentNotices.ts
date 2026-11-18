@@ -128,10 +128,29 @@ export function buildDirectAssignment(args: {
 const firstName = (n: string) => clean(n, 40).split(' ')[0] || clean(n, 40);
 // A private chat with one linked person (never a group, never built from anything but a verified identity)
 export const DM_JID = /^\d{5,20}@(s\.whatsapp\.net|lid)$/;
+// Keys the earlier version used for the same event. The earlier version had one group alert per task (no person in
+// the key) and ticket keys with the stage holder in the middle. An event it already sent is never sent again after a
+// deploy, in any new form (private copy, group follow-up, per-person reminder).
+export function earlierKeys(key: string): { exact: string[]; like: string[] } {
+  const p = key.split(':');
+  const exact: string[] = [];
+  const like: string[] = [];
+  // deadline:T:MS:x, overdue:T:MS:x / :group, overtime:T(:STAGE):x → the shorter key without the person
+  if (['deadline', 'overdue', 'overtime'].includes(p[0])) for (let n = 2; n < p.length; n++) exact.push(p.slice(0, n).join(':'));
+  // Tickets: tassign:T:S (and its private copy dm:tassign:T:S:U) → tassign:T:<holder>:S; tremind:T:S:U → tremind:T:U:S
+  const t = p[0] === 'dm' ? p.slice(1) : p;
+  if (t[0] === 'tassign' && t.length >= 3) like.push(`tassign:${t[1]}:%:${t[2]}`);
+  if (t[0] === 'tremind' && t.length === 4) exact.push(`tremind:${t[1]}:${t[3]}:${t[2]}`);
+  return { exact, like };
+}
 async function insertRow(db: Knex, row: { event_key: string; kind: string; task_id: number; payload: object; now: Date }): Promise<boolean> {
+  row = { ...row, event_key: row.event_key.slice(0, 120) };
   if (await db('whatsapp_outbox').where({ event_key: row.event_key }).first('id')) return false;
+  const old = earlierKeys(row.event_key);
+  if (old.exact.length && await db('whatsapp_outbox').whereIn('event_key', old.exact).first('id')) return false;
+  for (const l of old.like) if (await db('whatsapp_outbox').where('event_key', 'like', l).whereNot('event_key', 'like', 'dm:%').first('id')) return false;
   try {
-    await db('whatsapp_outbox').insert({ event_key: row.event_key.slice(0, 120), kind: row.kind, task_id: row.task_id, payload: JSON.stringify(row.payload), status: 'pending', attempts: 0, next_attempt_at: row.now });
+    await db('whatsapp_outbox').insert({ event_key: row.event_key, kind: row.kind, task_id: row.task_id, payload: JSON.stringify(row.payload), status: 'pending', attempts: 0, next_attempt_at: row.now });
     return true;
   } catch (err: any) { if (/unique|duplicate/i.test(String(err?.message))) return false; throw err; }
 }
@@ -326,13 +345,14 @@ export function buildReminderText(args: { title: string; project: string; person
 
 export function buildEscalationText(args: {
   title: string; project: string; minutes: number; ticket?: boolean;
-  people: { name: string; mention: string | null }[]; managers: { name: string; mention: string | null }[]; admins: { name: string; mention: string | null }[];
+  people: { name: string; mention: string | null }[]; managers: { name: string; mention: string | null }[];
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const what = args.ticket ? 'ticket' : 'task';
   const head = heading('🚩', 'Acceptance overdue');
   // Private reminders reach only people whose WhatsApp is linked in Loop: say what actually happened
   const reminded = args.people.every((p) => p.mention);
-  const leads = [...args.managers, ...args.admins].filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
+  // Acceptance follow-up is the managers' job: admins are not tagged here
+  const leads = args.managers.filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
   const pic = detailCard(head, clean(args.title, 60), [
     { label: 'Project', value: args.project ? clean(args.project) : null },
     { label: 'Not accepted', value: plainNames(args.people), tone: 'bad' },
@@ -403,15 +423,22 @@ async function stillWaiting(db: Knex, p: { assignmentId?: number; ticketId?: num
 // Messages are only for things that happen after the WhatsApp notices were first switched on. The moment is saved once
 // (the first start of this version) and never moved, so a deploy neither replays old work nor drops new work.
 const SINCE = 'notices_since';
+// The private reminders and the 12-minute escalation came later, with their own start point (set once, when this
+// version first starts): a deploy never sends them for assignments the earlier version already handled.
+const FOLLOWUP_SINCE = 'followups_since';
 export async function markNoticesStart(db: Knex, now: Date = new Date()): Promise<void> {
-  if (await db('assistant_settings').where({ name: SINCE }).first('name').catch(() => null)) return;
-  await db('assistant_settings').insert({ name: SINCE, value: String(now.getTime()), updated_at: now }).catch(() => undefined);
+  for (const name of [SINCE, FOLLOWUP_SINCE]) {
+    if (await db('assistant_settings').where({ name }).first('name').catch(() => null)) continue;
+    await db('assistant_settings').insert({ name, value: String(now.getTime()), updated_at: now }).catch(() => undefined);
+  }
 }
-export async function noticesSince(db: Knex): Promise<number> {
-  const row = await db('assistant_settings').where({ name: SINCE }).first('value').catch(() => null);
+async function settingMs(db: Knex, name: string): Promise<number> {
+  const row = await db('assistant_settings').where({ name }).first('value').catch(() => null);
   const ms = Number(row?.value);
   return Number.isFinite(ms) ? ms : 0;   // not set (tests, or before the first start): no cut-off
 }
+export const noticesSince = (db: Knex) => settingMs(db, SINCE);
+export const followUpsSince = (db: Knex) => settingMs(db, FOLLOWUP_SINCE);
 
 export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(), minutes = acceptanceReminderMinutes()): Promise<number> {
   if (!notificationGroupJid()) return 0;
@@ -427,13 +454,14 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
     .whereNotIn('t.status', ['completed', 'cancelled'])
     .select('ta.id', 'ta.user_id', 'ta.assigned_at', 't.id as task_id', 't.title', 't.due_date', 't.due_time', 'p.name as project_name');
   const ppl = await peopleFor(db, rows.map((r: any) => r.user_id));
+  const followStart = await followUpsSince(db);
   let queued = 0;
   const escalate = new Map<number, { rows: any[] }>();
   for (const r of rows) {
     const person = ppl.get(Number(r.user_id));
     if (!person) continue;
     const since = toMs(r.assigned_at);
-    const steps = followUpSteps(since, nowMs, minutes);
+    const steps = since >= followStart ? followUpSteps(since, nowMs, minutes) : [];
     const project = r.project_name ? String(r.project_name) : '';
     for (const step of steps) {
       if (step === 'escalate') { const e = escalate.get(Number(r.task_id)) ?? { rows: [] }; e.rows.push({ ...r, person, since }); escalate.set(Number(r.task_id), e); continue; }
@@ -448,9 +476,9 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
   for (const [taskId, e] of escalate) {
     const key = `escalate:${taskId}:${e.rows.map((r) => r.id).sort((x, y) => x - y).join('.')}`;
     if (await db('whatsapp_outbox').where({ event_key: key.slice(0, 120) }).first('id')) continue;
-    const { managers, admins } = await leadsFor(db, taskId, e.rows.map((r) => Number(r.user_id)));
+    const { managers } = await leadsFor(db, taskId, e.rows.map((r) => Number(r.user_id)));
     const r0 = e.rows[0];
-    const args = { title: String(r0.title), project: r0.project_name ? String(r0.project_name) : '', minutes: acceptanceEscalateMinutes(process.env, minutes), managers, admins };
+    const args = { title: String(r0.title), project: r0.project_name ? String(r0.project_name) : '', minutes: acceptanceEscalateMinutes(process.env, minutes), managers };
     const people = e.rows.map((r) => ({ ...r.person, assignmentId: Number(r.id) }));
     if (await insertRow(db, { event_key: key, kind: 'escalation', task_id: taskId, now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) queued++;
   }
@@ -505,21 +533,25 @@ export function buildDeadlineText(args: {
 export function buildOverdueText(args: {
   title: string; project: string; dueLabel: string; minutesLate: number; status: string | null;
   people: { name: string; mention: string | null }[];
+  leads?: { name: string; mention: string | null }[];   // group follow-up: managers and admins to tag
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
+  const leads = (args.leads ?? []).filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
+  const action = leads.length ? `👉 *Please follow up:* ${names(leads)}` : '👉 Please finish it or update the deadline in Loop.';
   const late = args.minutesLate >= 120 ? `about ${plural(Math.round(args.minutesLate / 60), 'hour')}` : plural(args.minutesLate, 'minute');
   const head = heading('🚨', 'Deadline crossed');
   const pic = detailCard(head, clean(args.title, 60), [
     { label: 'Overdue by', value: late, tone: 'bad' }, { label: 'Was due', value: args.dueLabel },
     { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
     { label: 'Status', value: args.status, tone: 'warn' },
-  ], names(args.people), '👉 Please finish it or update the deadline in Loop.');
+  ], names(args.people), action);
   const text = compose(
     head,
     `This task is ${bold(late)} past its deadline.`,
     [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Was due', args.dueLabel), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
-    '👉 Please finish it or update the deadline in Loop.',
+    action,
   );
-  return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
+  const all = [...args.people, ...leads];
+  return { text, mentions: mentionsOf(all), tags: tagsOf(all), ...pic };
 }
 
 const OVERDUE_LOOKBACK_HOURS = 24;   // a deadline crossed longer ago than this (e.g. while WhatsApp was down) is not announced late
@@ -572,6 +604,12 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
         : buildDeadlineText({ title: String(t.title), project, dueLabel: due, minutesLeft: Math.max(1, Math.ceil((deadlineMs - nowMs) / 60_000)), people: me });
       if (await insertRow(db, { event_key: `${eventKey}:${p.mention.split('@')[0].slice(-12)}`, kind: 'deadline', task_id: Number(t.id), now, payload: { ...built, taskId: Number(t.id), to: p.mention } })) queued++;
     }
+    // A crossed deadline is also posted in the group, tagging the people on it, their managers and the admins
+    if (crossed) {
+      const { managers, admins } = await leadsFor(db, Number(t.id), people.map((p: any) => Number(p.user_id)));
+      const built = buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, []) || null, people: list, leads: [...managers, ...admins] });
+      if (await insertRow(db, { event_key: `${eventKey}:group`, kind: 'deadline', task_id: Number(t.id), now, payload: { ...built, taskId: Number(t.id) } })) queued++;
+    }
   }
   return queued;
 }
@@ -615,11 +653,11 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
         payload: { ...buildDirectAssignment({ ...common, name: p.name, status: 'Waiting for your acceptance' }), to: p.mention } })) queued++;
     }
     // Every step goes to everyone still pending at the same time
-    for (const step of followUpSteps(since, nowMs, minutes)) {
+    for (const step of since >= (await followUpsSince(db)) ? followUpSteps(since, nowMs, minutes) : []) {
       if (!pending.length) break;
       if (step === 'escalate') {
-        const { managers, admins } = await leadsFor(db, Number(t.id), pending.map((p) => p.id));
-        const args = { title: String(t.title), project, minutes: acceptanceEscalateMinutes(process.env, minutes), managers, admins, ticket: true };
+        const { managers } = await leadsFor(db, Number(t.id), pending.map((p) => p.id));
+        const args = { title: String(t.title), project, minutes: acceptanceEscalateMinutes(process.env, minutes), managers, ticket: true };
         const people = pending.map((p) => ({ name: p.name, mention: p.mention, ticketId: Number(t.id), userId: p.id }));
         if (await insertRow(db, { event_key: `tescalate:${base}`, kind: 'escalation', task_id: Number(t.id), now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) queued++;
         continue;
@@ -719,20 +757,20 @@ export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): P
 // One of every message, built from real Loop data, so an admin can see the look. Group samples tag people exactly
 // like the real ones; private samples go only to the admin who asked, never to an employee.
 export async function queueSamples(db: Knex, adminUserId: number, now: Date = new Date()): Promise<{ group: number; private: number; task: string }> {
-  const { employeePods, morningReport } = await import('./productivityReports');
+  const { employeePods, morningReport, withPodManagers } = await import('./productivityReports');
   const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').whereNotNull('t.assigned_to').whereNotIn('t.status', ['completed', 'cancelled'])
     .orderBy('t.id', 'desc').first('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 't.assigned_to', 'p.name as project_name');
   if (!t) throw new Error('no_task');
   const ppl = await peopleFor(db, [Number(t.assigned_to), adminUserId]);
   const who = ppl.get(Number(t.assigned_to)) ?? { name: '', mention: null };
   const me = ppl.get(adminUserId);
-  const { managers, admins } = await leadsFor(db, Number(t.id), [Number(t.assigned_to)]);
+  const { managers } = await leadsFor(db, Number(t.id), [Number(t.assigned_to)]);
   const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id };
   const label = (b: any) => ({ ...b, caption: `🧪 _Sample preview_\n\n${b.caption}`, text: `🧪 _Sample preview_\n\n${b.text}` });
   const group: object[] = [];
-  for (const pod of await employeePods(db)) { const r = await morningReport(db, now, pod); group.push(label({ text: r.text, caption: r.caption, card: r.card })); }
+  for (const pod of await employeePods(db)) group.push(label(await withPodManagers(db, pod, await morningReport(db, now, pod))));
   group.push(label(buildAssignmentText({ ...common, people: [who], status: statusLabel(t, [who.name]) })));
-  group.push(label(buildEscalationText({ title: common.title, project: common.project, minutes: acceptanceEscalateMinutes(), ticket: common.ticket, people: [who], managers, admins })));
+  group.push(label(buildEscalationText({ title: common.title, project: common.project, minutes: acceptanceEscalateMinutes(), ticket: common.ticket, people: [who], managers })));
   const dm: object[] = [];
   if (me?.mention) {
     const mine = { name: me.name, mention: null };

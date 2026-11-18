@@ -2,7 +2,7 @@
 // Each report is queued once per IST day in the durable outbox, and sent by the same worker as the other notices.
 import { Knex } from 'knex';
 import { Card } from './reportCard';
-import { notificationGroupJid, deadlineInstant, dueLabel } from './assignmentNotices';
+import { notificationGroupJid, deadlineInstant, dueLabel, jidForIdentity, mentionTag } from './assignmentNotices';
 import { compose, heading, bold, clean, italic, bullet, capped, priority, ICON } from './waMessage';
 
 const TZ = 'Asia/Kolkata';
@@ -211,6 +211,27 @@ export async function employeePods(db: Knex): Promise<Pod[]> {
     .map(([k, ids]) => ({ key: k || 'none', label: label(k), ids }));
 }
 
+// A pod report with the pod's managers tagged under it, so it reaches the people responsible for that pod
+export async function withPodManagers(db: Knex, pod: Pod, r: ReportOut) {
+  const mgr = await podManagers(db, pod);
+  const line = mgr.length ? `👥 ${mgr.map((m) => (m.jid ? mentionTag(m.jid, m.name) : clean(m.name, 40))).join(', ')}` : '';
+  return {
+    text: [r.text, line].filter(Boolean).join('\n\n'), caption: [r.caption, line].filter(Boolean).join('\n\n'), card: r.card,
+    mentions: mgr.map((m) => m.jid).filter((j): j is string => !!j),
+    tags: mgr.filter((m) => m.jid).map((m) => ({ jid: m.jid!, name: clean(m.name, 40) })),
+  };
+}
+
+// Managers whose pod is this pod, with their verified WhatsApp JID when linked (none for the "No pod" report)
+async function podManagers(db: Knex, pod: Pod): Promise<{ name: string; jid: string | null }[]> {
+  if (pod.key === 'none') return [];
+  const users = await db('users').where({ role: 'manager' }).whereRaw('LOWER(TRIM(pod)) = ?', [pod.key]).orderBy('name').select('id', 'name');
+  if (!users.length) return [];
+  const ids = await db('assistant_identities').whereIn('user_id', users.map((u: any) => u.id)).where({ status: 'active', channel: 'whatsapp' }).select('user_id', 'external_sender_id');
+  const jid = new Map(ids.map((i: any) => [Number(i.user_id), jidForIdentity(String(i.external_sender_id))]));
+  return users.map((u: any) => ({ name: String(u.name), jid: jid.get(Number(u.id)) ?? null }));
+}
+
 export interface ReportOut { text: string; card: Card; caption: string }
 // Most overdue first, then most pending: the people who need attention are at the top
 const sortRows = (rows: Card['rows']) => [...rows].sort((a, b) => Number(b.values.at(-1)) - Number(a.values.at(-1)) || Number(b.values.at(-2)) - Number(a.values.at(-2)));
@@ -240,13 +261,16 @@ export async function enqueueScheduledReports(db: Knex, now: Date = new Date()):
   for (const d of due) for (const pod of pods) {
     // One report per pod, each with only its own members and their numbers
     const eventKey = `${d.kind}:${pod.key}:${date}`;
-    if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
-    const { text, caption, card } = await d.build(pod);
+    // The earlier version sent one report for everyone (key without the pod): a deploy during the report window
+    // must not send that day's report again per pod
+    if (await db('whatsapp_outbox').whereIn('event_key', [eventKey, `${d.kind}:${date}`]).first('id')) continue;
+    const built = await d.build(pod);
+    const { card } = built;
     // People with no pod set get a report only when there is something to report, not an empty card twice a day
     if (pod.key === 'none' && card.rows.every((r) => r.values.every((v) => !Number(v)))) continue;
     try {
       await db('whatsapp_outbox').insert({
-        event_key: eventKey, kind: d.kind, task_id: 0, payload: JSON.stringify({ text, caption, card, mentions: [] }),
+        event_key: eventKey, kind: d.kind, task_id: 0, payload: JSON.stringify(await withPodManagers(db, pod, built)),
         status: 'pending', attempts: 0, next_attempt_at: now,
       });
       queued.push(eventKey);

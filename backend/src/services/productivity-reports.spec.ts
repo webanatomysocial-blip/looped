@@ -148,7 +148,8 @@ test('report card: sent as a PNG with a short caption; full text if the image ca
   await processOutbox(db(), { isConnected: () => true, sendGroup: async (_j: string, text: string, _m: string[], image?: Buffer) => { sent.push({ text, image }); return true; } }, at, 1000);
   const r = sent.find((s) => /Day-end report/.test(s.text))!;
   assert.ok(r.image && r.image.subarray(1, 4).toString() === 'PNG', 'a PNG image');
-  assert.ok(r.text.split('\n').length <= 3, 'caption is at most 3 lines');
+  assert.ok(r.text.split('\n').length <= 5, 'caption: at most 3 summary lines, a gap, and the pod managers');
+  assert.match(r.text, /\n\n👥 Mia$/, 'the pod manager is named under the report');
   assert.match(r.text, /done · .* pending · .* overdue/);
   // A damaged card falls back to the full text report
   await db()('whatsapp_outbox').where({ event_key: 'report_evening:pod1:2026-11-20' }).update({ status: 'pending', payload: JSON.stringify({ text: 'FULL TEXT', caption: 'c', card: { bad: true }, mentions: [] }) });
@@ -302,4 +303,18 @@ test('pods: one report per pod, each with only its own members and their numbers
   assert.match(r2.caption, /POD 2 · Good morning[\s\S]*1 overdue/);
   await d('users').where({ id: zara }).del();
   await d('task_assignees').where({ task_id: tid }).del();
+});
+
+test('pod reports tag that pod\'s managers only (linked ones as real tags), never another pod\'s', async () => {
+  const { employeePods, morningReport, withPodManagers } = await import('./productivityReports');
+  const d = db();
+  const [m2] = await d('users').insert({ name: 'Pod2 Lead', email: 'p2l@rep.test', password_hash: 'x', role: 'manager', pod: 'pod2' });
+  await d('assistant_identities').insert({ user_id: U.mgr, channel: 'whatsapp', external_sender_id: 'lid:777000111', status: 'active', active_sender_key: 'whatsapp:lid:777000111', active_user_key: `${U.mgr}:whatsapp`, linked_via: 'admin', verified_at: new Date() });
+  const p1 = (await employeePods(d)).find((p) => p.key === 'pod1')!;
+  const out = await withPodManagers(d, p1, await morningReport(d, ist('2026-11-26T09:00:00'), p1));
+  assert.match(out.caption, /\n\n👥 @777000111$/, 'Mia (pod 1 manager) is tagged under the report');
+  assert.deepEqual(out.mentions, ['777000111@lid']);
+  assert.ok(!/Pod2 Lead/.test(out.caption), 'the pod 2 manager is not tagged on pod 1');
+  await d('users').where({ id: m2 }).del();
+  await d('assistant_identities').where({ user_id: U.mgr }).del();
 });

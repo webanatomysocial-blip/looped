@@ -109,7 +109,9 @@ async function managerApproveTaskInTx(db: Db, actor: Actor, taskId: number | str
 export async function acceptTask(db: Db, actor: Actor, taskId: number | string, body: any): Promise<Record<string, unknown>> {
   const action = body?.action;
   if (!['accept', 'decline'].includes(action)) throw new ServiceError(400, 'Invalid action');
-  const row = await db('task_assignees').where({ task_id: taskId, user_id: actor.id }).first();
+  // Someone on several stages: look at a row still waiting first, so one accepted stage doesn't hide a pending one
+  const row = await db('task_assignees').where({ task_id: taskId, user_id: actor.id })
+    .orderByRaw("CASE WHEN acceptance_status = 'accepted' THEN 1 ELSE 0 END").first();
   if (!row) throw new ServiceError(403, 'Not assigned to this ticket');
   const held = await db('tasks').where({ id: taskId }).first();
   if (action === 'accept' && held && awaitingPodApproval(held)) throw new ServiceError(409, AWAITING_APPROVAL);

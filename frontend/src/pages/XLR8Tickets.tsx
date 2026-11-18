@@ -17,7 +17,7 @@ interface FinalApproval { adminRequired: boolean; adminSkippable: boolean; clien
 interface TicketType { id: number; name: string; stages: Stage[]; final_approval: FinalApproval }
 interface LogEntry { id: number; actor_name: string; action: string; from_state: string | null; to_state: string | null; comment: string | null; created_at: string }
 interface Ticket {
-  id: number; title: string; description?: string; status: string; xlr8_status: string;
+  id: number; title: string; description?: string; status: string; xlr8_status: string; my_acceptance_pending?: boolean;
   xlr8_stage_idx: number; ticket_type_id: number; ticket_type_name: string;
   project_id: number; project_name: string; creator_id: number; creator_name: string; creator_color: string;
   assignee_name?: string; assignee_color?: string; assignee_avatar_url?: string | null; assignee_role?: string; xlr8_assignee_id?: number;
@@ -183,13 +183,20 @@ export default function XLR8Tickets() {
     if (!selected) return;
     setActionLoading(true);
     try { await xlr8Api.employeeAccept(selected.id); await refresh(); }
+    catch (e: any) { alert(e?.response?.data?.error || 'Could not accept ticket'); }
     finally { setActionLoading(false); }
   };
 
   const employeeDecline = async () => {
     if (!selected) return;
     setActionLoading(true);
-    try { await xlr8Api.employeeDecline(selected.id, employeeDeclineComment); await refresh(); setShowEmployeeDecline(false); setEmployeeDeclineComment(''); }
+    try {
+      // The current stage holder declines the stage; someone on a later stage declines their own stages
+      if (selected.xlr8_assignee_id === userId) await xlr8Api.employeeDecline(selected.id, employeeDeclineComment);
+      else await xlr8Api.stagePreDecline(selected.id, employeeDeclineComment);
+      await refresh(); setShowEmployeeDecline(false); setEmployeeDeclineComment('');
+    }
+    catch (e: any) { alert(e?.response?.data?.error || 'Could not decline ticket'); }
     finally { setActionLoading(false); }
   };
 
@@ -332,7 +339,8 @@ export default function XLR8Tickets() {
       );
     }
 
-    if (s === 'pending_assignee' && isAssignee) {
+    // The current stage holder, or anyone on a later stage who still has to accept (the ticket waits for them too)
+    if (s === 'pending_assignee' && (isAssignee || selected.my_acceptance_pending)) {
       if (showEmployeeDecline) {
         return (
           <div style={{ marginTop: 12, padding: 12, background: 'var(--surface-2)', borderRadius: 8 }}>

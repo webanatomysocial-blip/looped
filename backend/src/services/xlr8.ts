@@ -468,7 +468,11 @@ export async function getTicket(db: Db, actor: Actor, id: number | string) {
     throw new ServiceError(404, 'Ticket not found');
   }
   const log = await db('xlr8_ticket_log').where({ task_id: id }).orderBy('created_at', 'asc');
-  return { ...ticket, stages: pj(ticket.stages, []), final_approval: pj(ticket.final_approval, {}), log };
+  // Whether this person still has a stage to accept (any stage), so the page can show them the Accept button
+  const myPending = !!(await db('task_assignees').where({ task_id: ticket.id, user_id: actor.id, assignee_role: 'employee' })
+    .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
+    .where((q: any) => q.whereNull('acceptance_status').orWhere('acceptance_status', 'pending')).first());
+  return { ...ticket, stages: pj(ticket.stages, []), final_approval: pj(ticket.final_approval, {}), log, my_acceptance_pending: myPending };
 }
 
 export async function getTicketLog(db: Db, actor: Actor, id: number | string) {
@@ -808,10 +812,22 @@ export async function preDeclineStage(db: Db, actor: Actor, id: number | string,
 
 export async function acceptCurrentStage(db: Db, actor: Actor, id: number | string): Promise<Result> {
   if (!['employee', 'manager'].includes(actor.role)) throw new ServiceError(403, 'Not authorized');
-  const ticket = await db('tasks')
-    .where({ id, xlr8_status: 'pending_assignee' })
-    .where(function (this: any) { this.where('xlr8_assignee_id', actor.id).orWhereNull('xlr8_assignee_id'); })
-    .first();
+  const waitingTicket = await db('tasks').where({ id, xlr8_status: 'pending_assignee' }).first();
+  // Someone on a later stage: the ticket waits for them too (waitingOn), so "Accept" accepts all their stages.
+  // Before, this route only let the current stage holder in and everyone else got "Ticket not found".
+  if (waitingTicket?.xlr8_assignee_id && waitingTicket.xlr8_assignee_id !== actor.id) {
+    const mine = await db('task_assignees').where({ task_id: waitingTicket.id, user_id: actor.id })
+      .where('stage_idx', '>=', waitingTicket.xlr8_stage_idx ?? 0).where((q: any) => q.whereNull('skipped').orWhere('skipped', 0));
+    if (!mine.length) throw new ServiceError(404, 'Ticket not found or not available');
+    if (mine.every((r: any) => ['accepted', 'pre_pending'].includes(r.acceptance_status))) throw new ServiceError(409, 'You have already accepted this ticket');
+    await acceptAllMyStages(db, waitingTicket.id, actor.id);
+    await startIfAccepted(db, waitingTicket.id, actor);
+    const waiting = await waitingOn(db, waitingTicket.id, waitingTicket.xlr8_stage_idx ?? 0);
+    await appendLog(waitingTicket.id, actor, 'stage_pre_accepted', null, null, waiting.length ? `Accepted — waiting on ${waiting.join(', ')}` : 'Accepted');
+    scheduleOne(actor.id, db);
+    return { ok: true, waiting_on: waiting };
+  }
+  const ticket = waitingTicket;
   if (!ticket) throw new ServiceError(404, 'Ticket not found or not available');
   // Verify the caller is actually assigned to this stage — prevents any employee from grabbing an unassigned ticket
   const stageAssignment = await db('task_assignees').where({ task_id: ticket.id, stage_idx: ticket.xlr8_stage_idx ?? 0, user_id: actor.id }).first();

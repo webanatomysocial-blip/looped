@@ -240,7 +240,7 @@ test('start point: nothing from before the first start is announced; work after 
     await enqueueTicketNotices(d, now, 1);
     assert.equal((await d('whatsapp_outbox').where({ task_id: before })).length, 0, 'old ticket: no notice, no reminder');
     assert.deepEqual((await d('whatsapp_outbox').where({ task_id: after })).map((r: any) => r.kind).sort(), ['assigned', 'assigned', 'reminder']);
-  } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
+  } finally { await d('assistant_settings').whereIn('name', ['notices_since', 'followups_since']).del(); }
 });
 
 test('over the estimated time: one alert when the stage timer passes its estimate, with the same numbers as the app', async () => {
@@ -275,7 +275,7 @@ test('over the estimated time: one alert when the stage timer passes its estimat
     const old = await mk('Over before deploy', 1, 90);
     await enqueueOvertimeAlerts(d, new Date(now));
     assert.equal((await d('whatsapp_outbox').where({ task_id: old })).length, 0);
-  } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
+  } finally { await d('assistant_settings').whereIn('name', ['notices_since', 'followups_since']).del(); }
 });
 
 test('each linked assignee also gets a private copy of the assignment, addressed to them', async () => {
@@ -321,4 +321,41 @@ test('multi-stage tickets: everyone still pending on the stage is reminded toget
   await enqueueTicketNotices(d, new Date(at.getTime() + 13 * 60_000), 5);   // 13 min: escalation
   const esc = JSON.parse((await d('whatsapp_outbox').where({ task_id: id, kind: 'escalation' }).first()).payload);
   assert.deepEqual(esc.people.map((p: any) => p.name).sort(), ['Ghost Person', 'Nitish'], 'everyone still pending, on any later stage too; Pardu accepted');
+});
+
+test('deploy over the earlier version: events it already sent are not sent again in any new form', async () => {
+  const { earlierKeys } = await import('./assignmentNotices');
+  assert.deepEqual(earlierKeys('overdue:9:1700:919391283396').exact, ['overdue:9', 'overdue:9:1700']);
+  assert.deepEqual(earlierKeys('overdue:9:1700:group').exact, ['overdue:9', 'overdue:9:1700']);
+  assert.deepEqual(earlierKeys('overtime:10:1:9193').exact, ['overtime:10', 'overtime:10:1']);
+  assert.deepEqual(earlierKeys('dm:tassign:5:1700:7').like, ['tassign:5:%:1700']);
+  assert.deepEqual(earlierKeys('tremind:5:1700:7').exact, ['tremind:5:7:1700']);
+  // A ticket the earlier version announced and reminded: the new version adds nothing for it
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Deploy type', stages: JSON.stringify([{ category_name: 'Dev' }]) }).catch(() => [1]))[0];
+  const at = new Date(Date.now() - 6 * 60_000);
+  const [id] = await d('tasks').insert({ title: 'Already announced', project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_stage_idx: 0, xlr8_assignee_id: U.nit, assigned_to: U.nit });
+  await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+  await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: 0, est_hours: 1, skipped: 0 });
+  const since = new Date(at).getTime();
+  for (const k of [`tassign:${id}:${U.nit}:${since}`, `tremind:${id}:${U.nit}:${since}`]) await d('whatsapp_outbox').insert({ event_key: k, kind: 'assigned', task_id: id, payload: '{}', status: 'sent', attempts: 1, next_attempt_at: new Date() });
+  await enqueueTicketNotices(d, new Date(), 5);
+  assert.equal((await d('whatsapp_outbox').where({ task_id: id })).length, 2, 'no new card, private copy or reminder');
+});
+
+test('deploy: the new follow-ups (second reminder, escalation) only for assignments after this version first started', async () => {
+  const { enqueueAcceptanceReminders } = await import('./assignmentNotices');
+  const d = db();
+  const now = Date.now();
+  const r: any = await createTask(d, actor('mgr', 'manager'), { title: 'Assigned before deploy', project_id: U.P, working_person_id: U.nit, task_manager_id: U.mgr, priority: 'medium' });
+  const id = Number(r?.id ?? r);
+  await d('task_assignees').where({ task_id: id }).update({ assigned_at: new Date(now - 15 * 60_000) });
+  await d('assistant_settings').whereIn('name', ['notices_since', 'followups_since']).del();
+  await d('assistant_settings').insert({ name: 'notices_since', value: String(now - 3600_000), updated_at: new Date() });
+  try {
+    await markNoticesStart(d, new Date(now - 60_000));    // this version first started a minute ago
+    await enqueueAcceptanceReminders(d, new Date(now), 5);
+    assert.equal((await d('whatsapp_outbox').where({ task_id: id }).whereIn('kind', ['reminder', 'escalation'])).length, 0, 'no escalation burst at deploy');
+    assert.equal(Number((await d('assistant_settings').where({ name: 'notices_since' }).first()).value), now - 3600_000, 'the original start point is not moved');
+  } finally { await d('assistant_settings').whereIn('name', ['notices_since', 'followups_since']).del(); }
 });

@@ -105,8 +105,8 @@ test('an overdue task gets no "approaching" alert, and exactly one "crossed" ale
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * MIN), 12);
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 60 * MIN), 12);
   const rows = await alertsFor(id);
-  assert.equal(rows.length, 1);
-  assert.match(rows[0].event_key, /^overdue:/);
+  assert.deepEqual(rows.map((r: any) => r.event_key.endsWith(':group') ? 'group' : 'private').sort(), ['group', 'private'], 'one private alert and one group follow-up, once');
+  assert.ok(rows.every((r: any) => /^overdue:/.test(r.event_key)));
 });
 
 test('a task with no allotted duration, or no deadline date, is not alerted', async () => {
@@ -202,7 +202,10 @@ test('deadline crossed: one alert once the deadline passes on an open task; none
   const at = new Date(DEADLINE_MS + 25 * MIN);
   await enqueueDeadlineAlerts(db(), at, 12);
   await enqueueDeadlineAlerts(db(), at, 12);
-  const rows = await db()('whatsapp_outbox').where('event_key', 'like', 'overdue:%').whereIn('task_id', [open, done, noEstimate]);
+  const rows = await db()('whatsapp_outbox').where('event_key', 'like', 'overdue:%').whereNot('event_key', 'like', '%:group').whereIn('task_id', [open, done, noEstimate]);
+  const group = JSON.parse((await db()('whatsapp_outbox').where({ event_key: `overdue:${open}:${DEADLINE_MS}:group` }).first()).payload);
+  assert.ok(!group.to, 'the follow-up goes to the group');
+  assert.match(group.caption, /🚨 \*Deadline crossed\*\n\n👥 @Nitish[\s\S]*Please follow up:\* .*Mia/, 'people on it tagged, managers (and admins) asked to follow up');
   assert.deepEqual(rows.map((r: any) => Number(r.task_id)).sort(), [open, noEstimate].sort(), 'open tasks only, once each, estimate not needed');
   const p = JSON.parse(rows.find((r: any) => Number(r.task_id) === open).payload);
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));

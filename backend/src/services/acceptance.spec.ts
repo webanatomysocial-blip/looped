@@ -149,6 +149,7 @@ test('escalation: names in the group only the people still not accepted, with th
   assert.match(m.text, /Not accepted:\* @Nitish/);
   assert.ok(!/Dhanush/.test(m.text), 'an assignee who accepted meanwhile is left out');
   assert.match(m.text, /Please follow up:\* @555000111/, 'the task manager is tagged');
+  assert.ok(!/Admin User/.test(m.text), 'admins are not tagged for acceptance follow-up');
   assert.ok(m.mentions.includes('555000111@lid') && m.mentions.includes('919391283396@s.whatsapp.net'));
   await acceptTask(db(), emp('nit') as any, id, { action: 'accept' }).catch(() => undefined);
 });
