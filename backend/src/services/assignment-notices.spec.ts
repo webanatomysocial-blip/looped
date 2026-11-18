@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { initDB, getDB } from '../db';
 import { createTask, updateTask } from './tasks';
-import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS } from './assignmentNotices';
+import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS, enqueueTicketNotices } from './assignmentNotices';
 
 const db = () => getDB();
 const U: Record<string, number> = {};
@@ -161,4 +161,30 @@ test('a group chosen on the dashboard is used by the sending copy without a rest
     await d('assistant_settings').where({ name: 'notification_group_jid' }).del();
     await processOutbox(d, { isConnected: () => false, sendGroup: async () => true });   // back to the configured default
   }
+});
+
+test('multi-stage tickets: "assigned" notice and one reminder for the stage holder; nothing once accepted or for old tickets', async () => {
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Notice type', stages: JSON.stringify([{ category_name: 'Dev' }]) }).catch(() => [1]))[0];
+  const mk = async (title: string, at: Date) => {
+    const [id] = await d('tasks').insert({ title, project_id: U.P, created_by: U.mgr, priority: 'high', status: 'todo', ticket_type_id: type, xlr8_status: 'pending_assignee', xlr8_assignee_id: U.nit, assigned_to: U.nit });
+    await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'assigned', from_state: null, to_state: 'pending_assignee', created_at: at });
+    return Number(id);
+  };
+  const now = new Date();
+  const fresh = await mk('Pearl Redesign', new Date(now.getTime() - 5 * 60_000));
+  const old = await mk('Old ticket', new Date(now.getTime() - 30 * 3600_000));
+  await enqueueTicketNotices(d, now, 1);
+  const rows = await d('whatsapp_outbox').whereIn('task_id', [fresh, old]);
+  assert.deepEqual(rows.map((r: any) => r.kind).sort(), ['assigned', 'reminder'], 'one of each, only for the fresh ticket');
+  assert.ok(rows.every((r: any) => Number(r.task_id) === fresh));
+  assert.match(JSON.parse(rows.find((r: any) => r.kind === 'assigned').payload).text, /New task assigned[\s\S]*Pearl Redesign/);
+  await enqueueTicketNotices(d, now, 1);
+  assert.equal((await d('whatsapp_outbox').whereIn('task_id', [fresh, old])).length, 2, 'never queued twice');
+  // Accepted before the reminder went out: the reminder is dropped
+  await d('tasks').where({ id: fresh }).update({ xlr8_status: 'in_progress' });
+  const sent: string[] = [];
+  await processOutbox(d, { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } }, now, 1000);
+  assert.ok(sent.some((t) => /New task assigned/.test(t)));
+  assert.ok(!sent.some((t) => /Acceptance reminder[\s\S]*Pearl Redesign/.test(t)), 'no reminder after accepting');
 });

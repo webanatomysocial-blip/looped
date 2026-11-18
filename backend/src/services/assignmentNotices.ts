@@ -156,7 +156,11 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
       const t = await db('tasks').where({ id: payload.taskId }).first('status');
       if (!t || t.status === 'completed' || t.status === 'cancelled') { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
     }
-    if (row.kind === 'reminder') {
+    if (row.kind === 'reminder' && payload.ticketId) {
+      // A ticket reminder is sent only while the same person still has not accepted the stage
+      const t = await db('tasks').where({ id: payload.ticketId }).first('xlr8_status', 'xlr8_assignee_id');
+      if (!t || t.xlr8_status !== 'pending_assignee' || Number(t.xlr8_assignee_id) !== Number(payload.assigneeId)) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
+    } else if (row.kind === 'reminder') {
       // A reminder is sent only while the assignee still has not accepted
       const a = await db('task_assignees').where({ id: payload.assignmentId }).first('acceptance_status', 'skipped');
       const stillNeeded = !!a && a.acceptance_status !== 'accepted' && !Number(a.skipped);
@@ -286,10 +290,9 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
   if (!notificationGroupJid()) return 0;
   const tasks = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .whereNotNull('t.due_date').whereNotNull('t.estimated_hours').where('t.estimated_hours', '>', 0)
-    .whereNull('t.ticket_type_id')
     .whereNotIn('t.status', ['completed', 'cancelled', 'draft', 'pending_approval'])
     .where((q: any) => q.whereNull('t.pending_assign').orWhere('t.pending_assign', 0))
-    .select('t.id', 't.title', 't.due_date', 't.due_time', 't.estimated_hours', 'p.name as project_name');
+    .select('t.id', 't.title', 't.due_date', 't.due_time', 't.estimated_hours', 'p.name as project_name', 't.ticket_type_id', 't.xlr8_assignee_id');
   let queued = 0;
   for (const t of tasks) {
     const deadlineMs = deadlineInstant(String(t.due_date), t.due_time ?? null);
@@ -297,7 +300,10 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     if (!deadlineAlertDue({ deadlineMs, estimatedHours: Number(t.estimated_hours), nowMs: now.getTime(), percent })) continue;
     const eventKey = `deadline:${t.id}:${deadlineMs}`;
     if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
-    const people = await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
+    // A multi-stage ticket: the person holding the current stage
+    const people = t.ticket_type_id
+      ? (t.xlr8_assignee_id ? await db('users').where({ id: t.xlr8_assignee_id }).select('id as user_id', 'name') : [])
+      : await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id')
       .where('ta.task_id', t.id).where('ta.assignee_role', 'employee')
       .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
       .where((q: any) => q.whereNull('ta.acceptance_status').orWhereNot('ta.acceptance_status', 'declined'))
@@ -321,6 +327,43 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
       queued++;
     } catch (err: any) {
       if (!/unique|duplicate/i.test(String(err?.message))) throw err;
+    }
+  }
+  return queued;
+}
+
+// ── Multi-stage (XLR8) tickets ──
+// Their stages are handed out by the ticket workflow, not by the task assignment code, so they are found here: a ticket
+// waiting for its current stage holder to accept gets the "assigned" notice, then one acceptance reminder.
+const TICKET_NOTICE_HOURS = 2;   // a waiting ticket older than this gets no "assigned" notice (no flood after a deploy)
+export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), minutes = acceptanceReminderMinutes()): Promise<number> {
+  if (!notificationGroupJid()) return 0;
+  const waiting = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
+    .whereNotNull('t.ticket_type_id').where('t.xlr8_status', 'pending_assignee').whereNotNull('t.xlr8_assignee_id')
+    .whereNotIn('t.status', ['completed', 'cancelled'])
+    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 'p.name as project_name');
+  let queued = 0;
+  for (const t of waiting) {
+    // When it started waiting for this person: the latest hand-over in the ticket log
+    const log = await db('xlr8_ticket_log').where({ task_id: t.id, to_state: 'pending_assignee' }).orderBy('id', 'desc').first('created_at').catch(() => null);
+    const since = log?.created_at ? toMs(log.created_at) : NaN;
+    if (!Number.isFinite(since) || now.getTime() - since > REMINDER_LOOKBACK_HOURS * 3600_000) continue;
+    const user = await db('users').where({ id: t.xlr8_assignee_id }).first('name');
+    const identity = await db('assistant_identities').where({ user_id: t.xlr8_assignee_id, status: 'active', channel: 'whatsapp' }).first('external_sender_id');
+    const person = { name: String(user?.name || 'Employee'), mention: identity ? jidForIdentity(String(identity.external_sender_id)) : null };
+    const project = String(t.project_name || 'a project');
+    const due: { kind: string; key: string; build: () => { text: string; mentions: string[] }; extra: object }[] = [];
+    if (now.getTime() - since <= TICKET_NOTICE_HOURS * 3600_000) due.push({ kind: 'assigned', key: `tassign:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: {},
+      build: () => buildAssignmentText({ kind: 'assigned', title: String(t.title), project, priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), people: [person] }) });
+    if (now.getTime() - since >= minutes * 60_000) due.push({ kind: 'reminder', key: `tremind:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: { ticketId: Number(t.id), assigneeId: Number(t.xlr8_assignee_id) },
+      build: () => buildReminderText({ title: String(t.title), project, person }) });
+    for (const d of due) {
+      if (await db('whatsapp_outbox').where({ event_key: d.key }).first('id')) continue;
+      const { text, mentions } = d.build();
+      try {
+        await db('whatsapp_outbox').insert({ event_key: d.key, kind: d.kind, task_id: Number(t.id), payload: JSON.stringify({ text, mentions, ...d.extra }), status: 'pending', attempts: 0, next_attempt_at: now });
+        queued++;
+      } catch (err: any) { if (!/unique|duplicate/i.test(String(err?.message))) throw err; }
     }
   }
   return queued;

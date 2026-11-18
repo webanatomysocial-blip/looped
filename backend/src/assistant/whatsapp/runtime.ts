@@ -6,7 +6,7 @@ import { WhatsAppAdapter, WaStatus, AdapterDeps, safeMessage } from './adapter';
 import { WhatsAppConfig } from './config';
 import { databaseSocketFactory } from './baileys';
 import { forgetLogin } from './dbAuthState';
-import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts } from '../../services/assignmentNotices';
+import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts, enqueueTicketNotices } from '../../services/assignmentNotices';
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
 import { claimOwner, releaseOwner, publishState, readState } from './shared';
@@ -106,6 +106,7 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
   // Assignment notices: sent from the outbox to the configured group only, while connected (owner only, so never twice)
   const outbox = setInterval(() => {
     enqueueAcceptanceReminders(db)
+      .then(() => enqueueTicketNotices(db))
       .then(() => enqueueDeadlineAlerts(db))
       .then(() => enqueueScheduledReports(db))
       .catch(() => console.error('[whatsapp-notice] reminder queue pass failed'))
