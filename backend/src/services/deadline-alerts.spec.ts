@@ -100,11 +100,13 @@ test('completed and cancelled tasks are never alerted', async () => {
   assert.equal((await alertsFor(cancelled)).length, 0);
 });
 
-test('overdue tasks get no deadline alert, however often the pass runs', async () => {
+test('an overdue task gets no "approaching" alert, and exactly one "crossed" alert however often the pass runs', async () => {
   const id = await task({ title: 'Overdue task' });
-  assert.equal(await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * MIN), 12), 0);
-  assert.equal(await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 60 * MIN), 12), 0);
-  assert.equal((await alertsFor(id)).length, 0);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * MIN), 12);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 60 * MIN), 12);
+  const rows = await alertsFor(id);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].event_key, /^overdue:/);
 });
 
 test('a task with no allotted duration, or no deadline date, is not alerted', async () => {
@@ -157,8 +159,8 @@ test('a changed deadline is a new deadline and may be alerted again', async () =
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS - 5 * MIN), 12);
   await db()('tasks').where({ id }).update({ due_time: '12:00' });
   const newDeadline = Date.UTC(2026, 10, 20, 6, 30);
-  assert.equal(await enqueueDeadlineAlerts(db(), new Date(newDeadline - 5 * MIN), 12), 1);
-  assert.equal((await alertsFor(id)).length, 2);
+  await enqueueDeadlineAlerts(db(), new Date(newDeadline - 5 * MIN), 12);
+  assert.deepEqual((await alertsFor(id)).map((r: any) => r.event_key), [`deadline:${id}:${DEADLINE_MS}`, `deadline:${id}:${newDeadline}`], 'an alert for the new deadline; the old one is not "crossed" because it was moved');
 });
 
 // ── Sending ──
@@ -193,4 +195,23 @@ test('no group configured: nothing is queued', async () => {
   } finally {
     process.env.WHATSAPP_NOTIFICATION_GROUP_JID = saved;
   }
+});
+
+test('deadline crossed: one alert once the deadline passes on an open task; none if finished, none twice, none for deadlines long gone', async () => {
+  const open = await task({ title: 'Crossed open', hours: 2 });
+  const done = await task({ title: 'Crossed but done', hours: 2, status: 'completed' });
+  const noEstimate = await task({ title: 'Crossed no estimate', hours: 0 });
+  const at = new Date(DEADLINE_MS + 25 * MIN);
+  await enqueueDeadlineAlerts(db(), at, 12);
+  await enqueueDeadlineAlerts(db(), at, 12);
+  const rows = await db()('whatsapp_outbox').where('event_key', 'like', 'overdue:%').whereIn('task_id', [open, done, noEstimate]);
+  assert.deepEqual(rows.map((r: any) => Number(r.task_id)).sort(), [open, noEstimate].sort(), 'open tasks only, once each, estimate not needed');
+  const p = JSON.parse(rows.find((r: any) => Number(r.task_id) === open).payload);
+  const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
+  assert.equal(f['Overdue by'], '25 minutes');
+  assert.equal(f['Was due'], '20 Nov, 10:00 am (IST)');
+  assert.match(p.caption, /^🚨 \*Deadline crossed\* · @/);
+  const late = await task({ title: 'Crossed long ago', hours: 2 });
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * 3600_000), 12);
+  assert.equal((await db()('whatsapp_outbox').where({ event_key: `overdue:${late}:${DEADLINE_MS}` })).length, 0, 'not announced a day late');
 });

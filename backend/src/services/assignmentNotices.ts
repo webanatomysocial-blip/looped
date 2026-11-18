@@ -336,24 +336,51 @@ export function buildDeadlineText(args: {
   return { text, mentions: mentionsOf(args.people), ...pic };
 }
 
-// Queues one alert per task deadline. The key is the task and its exact deadline instant, so the alert is never
-// repeated across passes, retries or restarts. A later change to the deadline is a new deadline and gets its own alert.
+export function buildOverdueText(args: {
+  title: string; project: string; dueLabel: string; minutesLate: number; status: string | null;
+  people: { name: string; mention: string | null }[];
+}): { text: string; mentions: string[]; card: Card; caption: string } {
+  const late = args.minutesLate >= 120 ? `about ${plural(Math.round(args.minutesLate / 60), 'hour')}` : plural(args.minutesLate, 'minute');
+  const head = heading('🚨', 'Deadline crossed');
+  const pic = detailCard(head, clean(args.title, 60), [
+    { label: 'Overdue by', value: late, tone: 'bad' }, { label: 'Was due', value: args.dueLabel },
+    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Status', value: args.status, tone: 'warn' },
+  ], names(args.people), '👉 Please finish it or update the deadline in Loop.');
+  const text = compose(
+    head,
+    `This task is ${bold(late)} past its deadline.`,
+    [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Was due', args.dueLabel), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
+    '👉 Please finish it or update the deadline in Loop.',
+  );
+  return { text, mentions: mentionsOf(args.people), ...pic };
+}
+
+const OVERDUE_LOOKBACK_HOURS = 24;   // a deadline crossed longer ago than this (e.g. while WhatsApp was down) is not announced late
+
+// Queues, per task deadline, one "approaching" alert and one "crossed" alert. Each key is the task and its exact deadline
+// instant, so neither repeats across passes, retries or restarts; a changed deadline is a new deadline with its own alerts.
 export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), percent = deadlineAlertPercent()): Promise<number> {
   if (!notificationGroupJid()) return 0;
   const start = await noticesSince(db);
+  const nowMs = now.getTime();
   const tasks = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
-    .whereNotNull('t.due_date').whereNotNull('t.estimated_hours').where('t.estimated_hours', '>', 0)
+    .whereNotNull('t.due_date')
     .whereNotIn('t.status', ['completed', 'cancelled', 'draft', 'pending_approval'])
     .where((q: any) => q.whereNull('t.pending_assign').orWhere('t.pending_assign', 0))
-    .select('t.id', 't.title', 't.due_date', 't.due_time', 't.estimated_hours', 'p.name as project_name', 't.ticket_type_id', 't.xlr8_assignee_id');
+    .select('t.id', 't.title', 't.due_date', 't.due_time', 't.estimated_hours', 't.status', 't.xlr8_status', 'p.name as project_name', 't.ticket_type_id', 't.xlr8_assignee_id');
   let queued = 0;
   for (const t of tasks) {
     const deadlineMs = deadlineInstant(String(t.due_date), t.due_time ?? null);
     if (deadlineMs === null) continue;
-    if (!deadlineAlertDue({ deadlineMs, estimatedHours: Number(t.estimated_hours), nowMs: now.getTime(), percent })) continue;
-    // Only alerts that fell due after the start point: a task already close to its deadline at that moment is not announced
-    if (deadlineMs - (Number(t.estimated_hours) * 3_600_000 * percent) / 100 < start) continue;
-    const eventKey = `deadline:${t.id}:${deadlineMs}`;
+    const est = Number(t.estimated_hours) || 0;
+    // Approaching: only when an estimate exists, and only if it fell due after the start point
+    const approaching = est > 0 && deadlineAlertDue({ deadlineMs, estimatedHours: est, nowMs, percent })
+      && deadlineMs - (est * 3_600_000 * percent) / 100 >= start;
+    // Crossed: the deadline passed after the start point, recently, and the task is still open
+    const crossed = deadlineMs <= nowMs && deadlineMs >= start && nowMs - deadlineMs <= OVERDUE_LOOKBACK_HOURS * 3600_000;
+    if (!approaching && !crossed) continue;
+    const eventKey = crossed ? `overdue:${t.id}:${deadlineMs}` : `deadline:${t.id}:${deadlineMs}`;
     if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
     // A multi-stage ticket: the person holding the current stage
     const people = t.ticket_type_id
@@ -368,12 +395,12 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
       .where({ status: 'active', channel: 'whatsapp' }).select('user_id', 'external_sender_id');
     const jidBy = new Map<number, string>();
     for (const i of identities) { const jid = jidForIdentity(String(i.external_sender_id)); if (jid) jidBy.set(Number(i.user_id), jid); }
+    const list = people.map((p: any) => ({ name: String(p.name), mention: jidBy.get(Number(p.user_id)) ?? null }));
     const due = dueLabel(t.due_date, t.due_time) ?? dateTime(deadlineMs);
-    const minutesLeft = Math.max(1, Math.ceil((deadlineMs - now.getTime()) / 60_000));
-    const built = buildDeadlineText({
-      title: String(t.title), project: t.project_name ? String(t.project_name) : '', dueLabel: due, minutesLeft,
-      people: people.map((p: any) => ({ name: String(p.name), mention: jidBy.get(Number(p.user_id)) ?? null })),
-    });
+    const project = t.project_name ? String(t.project_name) : '';
+    const built = crossed
+      ? buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, list.map((p) => p.name)) || null, people: list })
+      : buildDeadlineText({ title: String(t.title), project, dueLabel: due, minutesLeft: Math.max(1, Math.ceil((deadlineMs - nowMs) / 60_000)), people: list });
     try {
       await db('whatsapp_outbox').insert({
         event_key: eventKey, kind: 'deadline', task_id: Number(t.id),
@@ -422,6 +449,88 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
         queued++;
       } catch (err: any) { if (!/unique|duplicate/i.test(String(err?.message))) throw err; }
     }
+  }
+  return queued;
+}
+
+// ── Over the estimated time ──
+// Same numbers the Loop app shows ("+01:31 over"): timer time on the stage (ticket) or task, by its assignees, against
+// the estimate. One alert per stage (ticket) or per task, once the logged time passes the estimate after the start point.
+const dur = (sec: number) => { const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60); return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m ${String(Math.floor(sec % 60)).padStart(2, '0')}s`; };
+
+export function buildOvertimeText(args: {
+  title: string; project: string; stage: string | null; estSec: number; loggedSec: number; status: string | null;
+  people: { name: string; mention: string | null }[];
+}): { text: string; mentions: string[]; card: Card; caption: string } {
+  const head = heading('⏱️', 'Over the estimated time');
+  const over = dur(args.loggedSec - args.estSec);
+  const pic = detailCard(head, clean(args.title, 60), [
+    { label: 'Over by', value: over, tone: 'bad' }, { label: 'Estimated', value: dur(args.estSec) }, { label: 'Logged', value: dur(args.loggedSec) },
+    { label: 'Stage', value: args.stage }, { label: 'Project', value: args.project ? clean(args.project) : null },
+    { label: 'Assigned to', value: plainNames(args.people) }, { label: 'Status', value: args.status, tone: 'warn' },
+  ], names(args.people), '👉 Please wrap up, or update the estimate in Loop.');
+  const text = compose(
+    head,
+    `${bold(over)} over the estimated time.`,
+    [field('Task', clean(args.title)), args.stage ? field('Stage', args.stage) : '', args.project ? field('Project', clean(args.project)) : '',
+      field('Estimated', dur(args.estSec)), field('Logged', dur(args.loggedSec)), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
+    '👉 Please wrap up, or update the estimate in Loop.',
+  );
+  return { text, mentions: mentionsOf(args.people), ...pic };
+}
+
+export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): Promise<number> {
+  if (!notificationGroupJid()) return 0;
+  const start = await noticesSince(db);
+  const nowMs = now.getTime();
+  const tasks = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
+    .whereNotIn('t.status', ['completed', 'cancelled', 'draft', 'pending_approval'])
+    // Time only goes over while a timer runs: only tasks with a running timer (or one stopped in the last few minutes)
+    .whereIn('t.id', db('task_sessions').where((q: any) => q.whereNull('ended_at').orWhere('ended_at', '>=', new Date(nowMs - 5 * 60_000))).select('task_id'))
+    .select('t.id', 't.title', 't.status', 't.xlr8_status', 't.ticket_type_id', 't.xlr8_stage_idx', 't.estimated_hours', 'p.name as project_name');
+  let queued = 0;
+  for (const t of tasks) {
+    const stageIdx = t.ticket_type_id ? Number(t.xlr8_stage_idx ?? 0) : null;
+    // Who is on it and the estimate: the current stage's assignees (ticket) or the task's assignees and estimate (task)
+    const rows = await db('task_assignees').where({ task_id: t.id }).whereNotNull('user_id')
+      .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
+      .modify((q: any) => { if (stageIdx !== null) q.where('stage_idx', stageIdx); else q.where('assignee_role', 'employee'); })
+      .select('user_id', 'est_hours');
+    if (!rows.length) continue;
+    const estSec = stageIdx !== null ? rows.reduce((n: number, r: any) => n + (Number(r.est_hours) || 0) * 3600, 0) : (Number(t.estimated_hours) || 0) * 3600;
+    if (!(estSec > 0)) continue;
+    const userIds = rows.map((r: any) => Number(r.user_id));
+    const sessions = await db('task_sessions').where({ task_id: t.id }).whereIn('user_id', userIds)
+      .modify((q: any) => { if (stageIdx !== null) q.where((w: any) => w.where('stage_idx', stageIdx).orWhereNull('stage_idx')); })
+      .select('started_at', 'ended_at');
+    let loggedSec = 0;
+    for (const x of sessions) {
+      const a = toMs(x.started_at), b = x.ended_at ? toMs(x.ended_at) : nowMs;
+      if (Number.isFinite(a) && Number.isFinite(b) && b > a) loggedSec += (b - a) / 1000;
+    }
+    if (loggedSec <= estSec) continue;
+    // The moment it went over; only announced if that was after the start point
+    if (nowMs - (loggedSec - estSec) * 1000 < start) continue;
+    const eventKey = stageIdx !== null ? `overtime:${t.id}:${stageIdx}` : `overtime:${t.id}`;
+    if (await db('whatsapp_outbox').where({ event_key: eventKey }).first('id')) continue;
+    const users = await db('users').whereIn('id', userIds).select('id', 'name');
+    const identities = await db('assistant_identities').whereIn('user_id', userIds).where({ status: 'active', channel: 'whatsapp' }).select('user_id', 'external_sender_id');
+    const jidBy = new Map<number, string>();
+    for (const i of identities) { const jid = jidForIdentity(String(i.external_sender_id)); if (jid) jidBy.set(Number(i.user_id), jid); }
+    const people = users.map((u: any) => ({ name: String(u.name), mention: jidBy.get(Number(u.id)) ?? null }));
+    let stageName: string | null = null;
+    if (stageIdx !== null) {
+      const tt = await db('xlr8_ticket_types').where({ id: t.ticket_type_id }).first('stages').catch(() => null);
+      const st = (() => { try { return (typeof tt?.stages === 'string' ? JSON.parse(tt.stages) : tt?.stages ?? [])[stageIdx]; } catch { return null; } })();
+      stageName = st ? `Stage ${stageIdx + 1} · ${st.type === 'admin' ? 'Admin Review' : st.type === 'manager' ? 'Manager Review' : st.category_name ?? ''}`.replace(/ · $/, '') : `Stage ${stageIdx + 1}`;
+    }
+    const built = buildOvertimeText({ title: String(t.title), project: t.project_name ? String(t.project_name) : '', stage: stageName,
+      estSec: Math.round(estSec), loggedSec: Math.round(loggedSec), status: statusLabel(t, people.map((p) => p.name)) || null, people });
+    try {
+      await db('whatsapp_outbox').insert({ event_key: eventKey, kind: 'deadline', task_id: Number(t.id),
+        payload: JSON.stringify({ ...built, taskId: Number(t.id) }), status: 'pending', attempts: 0, next_attempt_at: now });
+      queued++;
+    } catch (err: any) { if (!/unique|duplicate/i.test(String(err?.message))) throw err; }
   }
   return queued;
 }

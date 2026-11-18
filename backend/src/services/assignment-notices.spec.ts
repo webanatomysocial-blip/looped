@@ -6,7 +6,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { initDB, getDB } from '../db';
 import { createTask, updateTask } from './tasks';
-import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS, enqueueTicketNotices, statusLabel, dueLabel, markNoticesStart } from './assignmentNotices';
+import { queueAssignmentNotice, processOutbox, jidForIdentity, notificationGroupJid, buildAssignmentText, NOTICE_MAX_ATTEMPTS, enqueueTicketNotices, statusLabel, dueLabel, markNoticesStart, enqueueOvertimeAlerts } from './assignmentNotices';
 
 const db = () => getDB();
 const U: Record<string, number> = {};
@@ -234,5 +234,39 @@ test('start point: nothing from before the first start is announced; work after 
     await enqueueTicketNotices(d, now, 1);
     assert.equal((await d('whatsapp_outbox').where({ task_id: before })).length, 0, 'old ticket: no notice, no reminder');
     assert.deepEqual((await d('whatsapp_outbox').where({ task_id: after })).map((r: any) => r.kind).sort(), ['assigned', 'reminder']);
+  } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
+});
+
+test('over the estimated time: one alert when the stage timer passes its estimate, with the same numbers as the app', async () => {
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Over type', stages: JSON.stringify([{ category_name: 'SEO' }, { category_name: 'Web Developer' }]) }).catch(() => [1]))[0];
+  const now = Date.now();
+  const mk = async (title: string, estH: number, startedMinAgo: number) => {
+    const [id] = await d('tasks').insert({ title, project_id: U.P, created_by: U.mgr, priority: 'high', status: 'in_progress', ticket_type_id: type, xlr8_status: 'in_progress', xlr8_stage_idx: 1, xlr8_assignee_id: U.nit, assigned_to: U.nit });
+    await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'accepted', stage_idx: 1, est_hours: estH, skipped: 0 });
+    await d('task_sessions').insert({ task_id: id, user_id: U.nit, started_at: new Date(now - startedMinAgo * 60_000), ended_at: null, stage_idx: 1, session_date: '2026-11-18' });
+    return Number(id);
+  };
+  const over = await mk('Over stage', 1, 62);      // 62 min logged on a 60 min estimate
+  const under = await mk('Under stage', 2, 30);
+  await enqueueOvertimeAlerts(d, new Date(now));
+  await enqueueOvertimeAlerts(d, new Date(now + 60_000));
+  const rows = await d('whatsapp_outbox').where('event_key', 'like', 'overtime:%').whereIn('task_id', [over, under]);
+  assert.deepEqual(rows.map((r: any) => r.event_key), [`overtime:${over}:1`], 'only the one over its estimate, once');
+  const p = JSON.parse(rows[0].payload);
+  const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
+  assert.equal(f.Estimated, '1h 00m');
+  assert.equal(f.Logged, '1h 02m');
+  assert.match(f['Over by'], /^2m \d\ds$/);
+  assert.equal(f.Stage, 'Stage 2 · Web Developer');
+  assert.equal(f['Assigned to'], 'Nitish');
+  assert.equal(f.Status, 'Working');
+  assert.match(p.caption, /^⏱️ \*Over the estimated time\* · @/);
+  // Went over before the start point: not announced
+  await d('assistant_settings').insert({ name: 'notices_since', value: String(now), updated_at: new Date() });
+  try {
+    const old = await mk('Over before deploy', 1, 90);
+    await enqueueOvertimeAlerts(d, new Date(now));
+    assert.equal((await d('whatsapp_outbox').where({ task_id: old })).length, 0);
   } finally { await d('assistant_settings').where({ name: 'notices_since' }).del(); }
 });

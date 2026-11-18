@@ -17,8 +17,10 @@ export const INSTANCE_ID = `${os.hostname()}:${process.pid}:${crypto.randomBytes
 // After a deploy or restart the old copy is gone at once, but its heartbeat still looks fresh for a while. If the owner
 // ran on this same machine and its process no longer exists, take over immediately instead of waiting.
 export function ownerProcessGone(ownerId: string | undefined, host: string = os.hostname()): boolean {
-  const [ownerHost, pidText] = String(ownerId ?? '').split(':');
-  const pid = Number(pidText);
+  // "<host>:<pid>:<random>", read from the right: a host name can itself contain ":"
+  const parts = String(ownerId ?? '').split(':');
+  const pid = Number(parts[parts.length - 2]);
+  const ownerHost = parts.slice(0, -2).join(':');
   if (ownerHost !== host || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
   try { process.kill(pid, 0); return false; }            // still running (or not ours to signal)
   catch (e: any) { return e?.code === 'ESRCH'; }          // no such process: the old copy is gone

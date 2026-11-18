@@ -715,7 +715,10 @@ test('after a deploy: when the old owner process on this machine is gone, the ne
   const { claimOwner, ownerProcessGone } = require('./shared');
   await db()('assistant_settings').where({ name: 'wa_owner' }).del();
   const t = Date.now();
-  const deadOwner = `${os.hostname()}:999999:old`;               // a process id that does not exist
+  // A valid process id that is not running right now (some systems reject very large ids outright)
+  let freePid = 90000;
+  for (; freePid > 1000; freePid--) { try { process.kill(freePid, 0); } catch (e: any) { if (e.code === 'ESRCH') break; } }
+  const deadOwner = `${os.hostname()}:${freePid}:old`;
   assert.equal(ownerProcessGone(deadOwner), true);
   assert.equal(ownerProcessGone(`${os.hostname()}:${process.pid}:me`), false, 'never this process');
   assert.equal(ownerProcessGone(`another-machine:999999:x`), false, 'another machine: wait for the heartbeat instead');
