@@ -147,3 +147,18 @@ test('the message text is informative and never contains a phone number or an in
   assert.ok(!/Deadline/.test(text), 'no deadline line when none is set');
   assert.equal(mentions.length, 1);
 });
+
+test('a group chosen on the dashboard is used by the sending copy without a restart', async () => {
+  const d = db();
+  const chosen = '120363000000000777@g.us';
+  await d('assistant_settings').where({ name: 'notification_group_jid' }).del();
+  await d('assistant_settings').insert({ name: 'notification_group_jid', value: chosen, updated_at: new Date() });
+  try {
+    const sent: string[] = [];
+    await processOutbox(d, { isConnected: () => true, sendGroup: async (jid: string) => { sent.push(jid); return true; } });
+    assert.equal(notificationGroupJid(), chosen);
+  } finally {
+    await d('assistant_settings').where({ name: 'notification_group_jid' }).del();
+    await processOutbox(d, { isConnected: () => false, sendGroup: async () => true });   // back to the configured default
+  }
+});

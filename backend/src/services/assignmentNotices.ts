@@ -3,6 +3,7 @@
 // Nothing here changes an assignment. A failure to queue or send never rolls back or blocks the assignment.
 import { Knex } from 'knex';
 import { renderCard } from './reportCard';
+import { loadNotificationGroup } from '../assistant/settingsStore';
 import { getDB } from '../db';
 import { compose, heading, field, bold, clean, italic, priority, dateTime, plural, ICON } from './waMessage';
 
@@ -17,6 +18,12 @@ export const GROUP_JID = /^\d{10,20}(-\d{1,10})?@g\.us$/;
 // A group chosen in the dashboard (saved in the database) takes priority over the server setting.
 let chosenGroup: string | null = null;
 export function setChosenNotificationGroup(jid: string | null): void { chosenGroup = jid && GROUP_JID.test(jid) ? jid : null; }
+// The group chosen on the dashboard is read from the database, not only at startup: several copies of the server run,
+// and the one sending WhatsApp messages may have started before the group was chosen
+export async function refreshNotificationGroup(db: Knex): Promise<void> {
+  const jid = await loadNotificationGroup(db).catch(() => undefined);
+  if (jid !== undefined) setChosenNotificationGroup(jid);
+}
 export function notificationGroupJid(env: NodeJS.ProcessEnv = process.env): string | null {
   if (chosenGroup) return chosenGroup;
   const v = (env.WHATSAPP_NOTIFICATION_GROUP_JID || '').trim();
@@ -81,6 +88,7 @@ export function buildAssignmentText(args: {
 export async function queueAssignmentNotice(db: Knex, args: {
   taskId: number; kind: 'assigned' | 'reassigned'; employeeIds: number[]; eventKey: string; now?: Date;
 }): Promise<'queued' | 'duplicate' | 'disabled' | 'no_assignee'> {
+  await refreshNotificationGroup(db);
   if (!notificationGroupJid()) return 'disabled';
   const employeeIds = [...new Set(args.employeeIds.map(Number).filter((n) => n > 0))];
   if (!employeeIds.length) return 'no_assignee';
@@ -133,6 +141,7 @@ export interface GroupSender { isConnected(): boolean; sendGroup(jid: string, te
 
 // Sends pending notices. Skips everything while WhatsApp is not connected: rows wait in the outbox.
 export async function processOutbox(db: Knex, sender: GroupSender, now: Date = new Date(), batch = 10): Promise<{ sent: number; failed: number; waiting: number }> {
+  await refreshNotificationGroup(db);
   const jid = notificationGroupJid();
   if (!jid || !sender.isConnected()) return { sent: 0, failed: 0, waiting: await db('whatsapp_outbox').where({ status: 'pending' }).count({ n: '*' }).first().then((r: any) => Number(r.n)) };
   const due = await db('whatsapp_outbox').where({ status: 'pending' }).where('next_attempt_at', '<=', now).orderBy('id').limit(batch);
