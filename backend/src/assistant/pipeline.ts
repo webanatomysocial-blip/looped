@@ -57,7 +57,7 @@ export interface PipelineDeps {
   audit: AuditLog;
   linker?: LinkHandler;
   // Phase 3: when present, verified messages go through the request engine instead of the Phase 1 intent stub
-  engine?: { handle(msg: IncomingMessage, who: { id: number; role: string }): Promise<{ reply: string; requestId: string | null; status: string }> };
+  engine?: { handle(msg: IncomingMessage, who: { id: number; role: string }): Promise<{ reply: string; requestId: string | null; status: string; card?: import("../services/reportCard").Card }> };
 }
 
 export type PipelineOutcome =
@@ -93,7 +93,7 @@ export async function processMessage(raw: unknown, deps: PipelineDeps): Promise<
   if (deps.engine) {
     const r = await deps.engine.handle(msg, { id: who.loopUserId, role: who.role });
     await audit('engine', r.status);
-    return { kind: 'responded', response: reply(msg, r.reply, r.requestId ?? requestId) };
+    return { kind: 'responded', response: { ...reply(msg, r.reply, r.requestId ?? requestId), ...(r.card ? { card: r.card } : {}) } };
   }
 
   // 3. Conversation — context is scoped to this employee within this group
@@ -136,5 +136,5 @@ export async function processMessage(raw: unknown, deps: PipelineDeps): Promise<
   request.updatedAt = new Date().toISOString();
   await deps.store.save(request);
   await audit('stopped', 'actions_not_enabled');
-  return { kind: 'responded', request, response: reply(msg, "Got it. I can't act on that yet.", requestId) };
+  return { kind: 'responded', request, response: reply(msg, "Please use the Loop app for this.", requestId) };
 }

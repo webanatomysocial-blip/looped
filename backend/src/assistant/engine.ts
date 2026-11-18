@@ -49,6 +49,7 @@ export interface EngineDeps {
 
 export interface EngineResult {
   reply: string;
+  card?: import('../services/reportCard').Card;
   requestId: string | null;
   status: 'question' | 'cancelled' | 'ready' | 'not_understood' | 'ambiguous_request' | 'error' | 'confirmed' | 'confirmation_refused' | 'answered' | 'not_available';
 }
@@ -182,6 +183,7 @@ function summary(row: RequestRow): string {
 
 export class RequestEngine {
   private readonly store: ConversationStore;
+  private lastCard?: import('../services/reportCard').Card;   // set by a lookup that answers with a picture
   constructor(private readonly d: EngineDeps) { this.store = new ConversationStore(d.db); }
 
   // Group-safe unless the channel is private. Errors and empty results use the same fixed wording.
@@ -192,6 +194,10 @@ export class RequestEngine {
       if (intent === 'VIEW_MY_TASKS') {
         const r = await reader.mine(actor);
         if (!r.total) return pm.info('You have no open tasks in Loop.');
+        this.lastCard = { title: `Your open tasks · ${r.total}`, subtitle: r.total > r.items.length ? `Showing ${r.items.length} · the rest are in Loop` : 'Everything assigned to you',
+          columns: [{ label: 'Status' }, { label: 'Priority' }, { label: 'Due' }],
+          rows: r.items.map((t) => ({ name: `#${t.id} ${clean(t.title)}`, values: [t.status.replace(/_/g, ' '), t.priority, t.due_date ? String(t.due_date).slice(0, 10) : '—'] })) };
+        // The text is the fallback when the picture cannot be drawn; with the picture only a one-line caption is sent
         const lines = r.items.map((t) => bullet(`#${t.id} ${clean(t.title)} — ${t.status.replace(/_/g, ' ')}, ${t.priority}${t.due_date ? ', due ' + t.due_date : ''}`));
         return pm.list(`You have ${plural(r.total, 'open task')}`, lines, r.total > r.items.length ? '…and more in Loop.' : '');
       }
@@ -493,8 +499,10 @@ export class RequestEngine {
     if (!next && !problems.length && READ_INTENTS.has(intent) && this.d.reader) {
       if (focus) await transition(this.d.db, focus.id, 'CANCELLED', { event: 'cancelled', loopUserId: who.id, conversationKey: key, expectFrom: ['NEEDS_CLARIFICATION'], detail: 'answered as a lookup' }, nowMs).catch(() => {});
       const priv = isPrivateChat(msg);
+      this.lastCard = undefined;
       const answer = await this.lookup(intent, data, actor, priv);
-      return reply({ reply: answer, requestId: null, status: 'answered' });
+      const card = this.lastCard; this.lastCard = undefined;
+      return reply({ reply: answer, card, requestId: null, status: 'answered' });
     }
 
     if (next || problems.length) {

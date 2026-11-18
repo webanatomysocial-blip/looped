@@ -1,4 +1,5 @@
 import { enforceSessionPermissions } from './session-perms';
+import { renderCard } from '../../services/reportCard';
 // WhatsApp connection adapter. Owns the socket: pairing, reconnection, incoming and outgoing text, status and shutdown.
 // It turns a WhatsApp message into an IncomingMessage and hands it to the assistant. It never trusts a display name,
 // and it never logs QR codes, session data or message text.
@@ -303,7 +304,10 @@ export class WhatsAppAdapter {
     try {
       const reply = await this.d.handle(msg);
       if (!reply || !reply.text || this.stopping || !this.socket) { this.note(msg, 'not_recognised'); return; }
-      await this.socket.sendMessage(msg.conversationId, { text: reply.text, ...(reply.mentions?.length ? { mentions: reply.mentions } : {}) });
+      const mentions = reply.mentions?.length ? { mentions: reply.mentions } : {};
+      let image: Buffer | undefined;
+      if (reply.card) try { image = renderCard(reply.card); } catch { image = undefined; }   // text alone if the picture fails
+      await this.socket.sendMessage(msg.conversationId, image ? { image, caption: `📋 *${reply.card!.title}*`, ...mentions } : { text: reply.text, ...mentions });
       this.note(msg, 'replied');
     } catch (e) {
       this.log('error', `a reply could not be sent: ${safeMessage(e)}`);

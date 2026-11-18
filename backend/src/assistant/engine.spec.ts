@@ -138,6 +138,7 @@ test('show my tasks: answered from the employee\'s own open tickets, not refused
   const r = await e.handle(msg({ text: 'Show my tasks' }), who('priya'));
   assert.equal(r.status, 'answered');
   assert.ok(r.reply.includes('You have 2 open tasks') && r.reply.includes('Homepage design') && r.reply.includes('Logo refresh'));
+  assert.equal(r.card?.rows.length, 2, 'also drawn as a picture');
   assert.equal((await rows()).length, 0);
 });
 
@@ -753,14 +754,14 @@ test('HELP is hidden: no menu for employees, managers or admins', async () => {
 // ── Phase 1: task operations hidden on WhatsApp (monitoring phase) ──
 test('hidden task operations: default WhatsApp exposure refuses them, creates nothing, and HELP shows none of them', async () => {
   const { EXPOSED_INTENTS } = require('./actions');
-  assert.equal(EXPOSED_INTENTS.length, 0, 'no task operation is exposed by default');
+  assert.deepEqual([...EXPOSED_INTENTS].sort(), ['SEARCH_TICKETS', 'VIEW_MY_TASKS', 'VIEW_TASK_DETAILS'], 'only viewing is exposed by default; no change');
   const ai = new MockAIProvider(script({
     'Show my tasks': { ...base, intent: 'VIEW_MY_TASKS', confidence: 0.95, fields: {} },
     'Create a task': { ...base, intent: 'CREATE_TASK', fields: {} },
   }));
-  const e = new RequestEngine({ db, ai, timezone: 'Asia/Kolkata', contextTtlSeconds: 1800, now: () => NOW, exposedIntents: EXPOSED_INTENTS });
+  const e = new RequestEngine({ db, ai, timezone: 'Asia/Kolkata', contextTtlSeconds: 1800, now: () => NOW, exposedIntents: EXPOSED_INTENTS, reader: { mine: async () => ({ total: 0, items: [] }), search: async () => ({ total: 0, items: [] }), view: async () => { throw new Error('unused'); } } as any });
   const shown = await e.handle(msg({ text: 'Show my tasks' }), who('priya'));
-  assert.equal(shown.status, 'not_available');
+  assert.notEqual(shown.status, 'not_available', 'viewing my tasks is allowed');
   const created = await e.handle(msg({ text: 'Create a task' }), who('priya'));
   assert.equal(created.status, 'not_available');
   assert.equal((await rows()).length, 0, 'no request, draft or task record is created');

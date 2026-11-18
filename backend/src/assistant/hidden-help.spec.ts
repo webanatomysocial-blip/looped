@@ -33,9 +33,9 @@ const helpFor = async (role: string) => {
   return (await e.handle(msg, { id: 1, role })).reply;
 };
 
-test('the switch is unset, so no task operation is exposed', () => {
+test('the switch is unset, so only viewing is exposed (no create, assign or update)', () => {
   assert.equal(TASK_OPS_ENABLED, false);
-  assert.equal(EXPOSED_INTENTS.length, 0);
+  assert.deepEqual([...EXPOSED_INTENTS].sort(), ['SEARCH_TICKETS', 'VIEW_MY_TASKS', 'VIEW_TASK_DETAILS']);
 });
 
 test('HELP is hidden: whatever a Help request returns for an employee, it advertises no suspended operation', async () => {
@@ -83,17 +83,20 @@ test('private help is hidden: "help" gets no help list and goes to the normal cl
   looksClean(r.reply);
 });
 
-test("private fallback: \"didn't quite catch that\" is headed, uses one classification call as before", async () => {
+test('private fallback: lists what can be asked, uses one classification call as before', async () => {
   const { r, ai } = await say('blorp zzz');
   assert.equal(r.status, 'not_understood');
-  assert.equal(r.reply, "❓ *I didn't quite catch that*\n\nPlease rephrase your request, or ask about your tasks in Loop.");
+  assert.match(r.reply, /^🤖 \*Here's what you can ask me\*/);
+  assert.match(r.reply, /my tasks/);
+  assert.doesNotMatch(r.reply, /soon|coming|develop/i, 'nothing about development');
   assert.equal(ai.calls.length, 1, 'no extra AI calls');
 });
 
 test('private: suspended operations get the formatted unavailable reply and nothing is queued', async () => {
   const { r } = await say('create a task for the logo', new MockAIProvider(JSON.stringify({ intent: 'CREATE_TASK', confidence: 0.95, fields: { title: 'Logo' }, ambiguous: [], is_correction: false, cancel: false, answers_pending: false })));
   assert.equal(r.status, 'not_available');
-  assert.match(r.reply, /^🔒 \*Not available on WhatsApp\*\n\nTask management is handled in the Loop app/);
+  assert.match(r.reply, /^🔒 \*Please use the Loop app for this\*/);
+  assert.doesNotMatch(r.reply, /soon|coming/i);
   assert.equal((await db('assistant_requests').whereNotIn('status', ['CANCELLED']).count({ n: '*' }).first() as any).n, 0);
   looksClean(r.reply);
 });
@@ -102,5 +105,5 @@ test('private: cancel with nothing open, and an invalid confirmation code', asyn
   assert.equal((await say('cancel')).r.reply, 'ℹ️ There is nothing to cancel.');
   const bad = (await say('CONFIRM ZZZZ99')).r.reply;
   looksClean(bad);
-  assert.match(bad, /^(ℹ️ |❓ \*)/, "a short formatted reply either way");
+  assert.match(bad, /^(ℹ️ |❓ \*|🤖 \*)/, "a short formatted reply either way");
 });

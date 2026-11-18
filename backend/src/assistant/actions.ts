@@ -14,7 +14,8 @@ export const SUSPENDED_TASK_INTENTS = [
 ] as const;
 export const TASK_OPS_ENABLED = process.env.ASSISTANT_TASK_OPS_ENABLED === 'true';
 // What WhatsApp may do: nothing task-related while the monitoring phase is active
-export const EXPOSED_INTENTS: readonly string[] = TASK_OPS_ENABLED ? SUSPENDED_TASK_INTENTS : [];
+// Viewing is always allowed (read-only, same visibility as the Loop app); changes stay off
+export const EXPOSED_INTENTS: readonly string[] = TASK_OPS_ENABLED ? SUSPENDED_TASK_INTENTS : ['SEARCH_TICKETS', 'VIEW_TASK_DETAILS', 'VIEW_MY_TASKS'];
 
 // Intents that act on one existing ticket: the engine resolves the reference to exactly one visible ticket first
 export const TASK_REF_INTENTS = new Set(['ASSIGN_TASK', 'UPDATE_TASK', 'ADD_COMMENT', 'ACCEPT_TASK', 'APPROVE_TASK', 'REJECT_TASK']);
