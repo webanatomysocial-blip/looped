@@ -68,6 +68,10 @@ export function toIncoming(m: any): IncomingMessage | null {
   if (!key || key.fromMe) return null;
   const chat: string | undefined = key.remoteJid;
   if (!chat || chat === 'status@broadcast' || chat.endsWith('@broadcast') || chat.endsWith('@newsletter')) return null;
+  // Disappearing-message, view-once and edited messages wrap the real message one level down
+  const w = m.message ?? {};
+  const msgBody = w.ephemeralMessage?.message ?? w.viewOnceMessage?.message ?? w.viewOnceMessageV2?.message ?? w.editedMessage?.message ?? w;
+  m = { ...m, message: msgBody };
   const text = m.message?.conversation ?? m.message?.extendedTextMessage?.text;
   if (typeof text !== 'string' || !text.trim()) return null;   // only text is supported
   const isGroup = chat.endsWith('@g.us');
@@ -229,8 +233,10 @@ export class WhatsAppAdapter {
   private groupAllowed(msg: IncomingMessage): boolean {
     if (!msg.isGroup) return true;
     // The company account can be mentioned by its phone id or by its @lid id; both are its own ids, nothing is inferred
+    // Right after pairing socket.user may not carry the hidden id yet; the saved login (creds.me) does
     const self = (this.socket as any)?.user ?? {};
-    const own = [self.id, self.lid].filter(Boolean).map((id: string) => String(id).split('@')[0].split(':')[0]);
+    const me = (this.socket as any)?.authState?.creds?.me ?? {};
+    const own = [self.id, self.lid, me.id, me.lid].filter(Boolean).map((id: string) => String(id).split('@')[0].split(':')[0]);
     const matched = (msg.mentioned ?? []).some((m) => own.includes(m));
     // Diagnostic: counts only, never the text or any identifier
     this.log('info', `group message: mentions=${(msg.mentioned ?? []).length} company_matched=${matched} identities_known=${own.length}`);

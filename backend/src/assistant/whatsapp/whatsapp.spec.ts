@@ -790,3 +790,23 @@ test('groups: when a message carries no phone number, the sender is matched thro
   assert.equal(sock.sent.length, 2, 'someone not in the list stays silent');
   await adapter.stop();
 });
+
+test('disappearing-message groups: the wrapped text and the mention are still read', () => {
+  const { toIncoming } = require('./adapter');
+  const m = toIncoming({ key: { id: 'e1', remoteJid: '1203@g.us', participant: '555@lid', fromMe: false }, messageTimestamp: 1,
+    message: { ephemeralMessage: { message: { extendedTextMessage: { text: '@bot hi', contextInfo: { mentionedJid: ['777@lid'] } } } } } });
+  assert.equal(m.text, '@bot hi');
+  assert.deepEqual(m.mentioned, ['777']);
+});
+
+test('a mention by hidden id is matched from the saved login when the socket does not carry it yet', async () => {
+  const adapter = makeAdapter(false);
+  await adapter.start();
+  (sock as any).user = { id: '919000000099:1@s.whatsapp.net' };              // no lid on the socket
+  (sock as any).authState = { creds: { me: { id: '919000000099:1@s.whatsapp.net', lid: '777000111222333:1@lid' } } };
+  sock.sent = [];
+  sock.emit('messages.upsert', { type: 'notify', messages: [{ key: { id: 'lidm-1', remoteJid: GROUP, participant: `${EMPLOYEE_PHONE}@s.whatsapp.net`, fromMe: false }, messageTimestamp: Math.floor(Date.now() / 1000),
+    message: { extendedTextMessage: { text: '@bot hi', contextInfo: { mentionedJid: ['777000111222333@lid'] } } } }] });
+  await waitFor(() => sock.sent.length === 1);
+  await adapter.stop();
+});
