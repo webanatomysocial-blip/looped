@@ -146,9 +146,9 @@ test('escalation: names in the group only the people still not accepted, with th
   const m = s.sent.find((x) => /Acceptance overdue/.test(x.text));
   assert.ok(m);
   assert.equal(m.jid, '120363412745413406@g.us');
-  assert.match(m.text, /@Nitish has not accepted this task/);
+  assert.match(m.text, /Not accepted:\* @Nitish/);
   assert.ok(!/Dhanush/.test(m.text), 'an assignee who accepted meanwhile is left out');
-  assert.match(m.text, /@555000111[^\n]*please follow up/, 'the task manager is tagged');
+  assert.match(m.text, /Please follow up:\* @555000111/, 'the task manager is tagged');
   assert.ok(m.mentions.includes('555000111@lid') && m.mentions.includes('919391283396@s.whatsapp.net'));
   await acceptTask(db(), emp('nit') as any, id, { action: 'accept' }).catch(() => undefined);
 });

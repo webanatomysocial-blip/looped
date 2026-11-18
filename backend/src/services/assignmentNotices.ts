@@ -72,7 +72,8 @@ const plain = (v: string) => v.replace(/[*_~]/g, '').replace(/[\u{1F000}-\u{1FFF
 const tone = (p: string | null): 'bad' | 'warn' | undefined => (/urgent|high|critical/i.test(String(p)) ? 'bad' : /medium/i.test(String(p)) ? 'warn' : undefined);
 function detailCard(head: string, title: string, fields: { label: string; value: string | null; tone?: 'good' | 'warn' | 'bad' }[], tags: string, action: string) {
   const card: Card = { title, subtitle: plain(head), columns: [], rows: [], fields: fields.filter((f) => f.value).map((f) => ({ ...f, value: plain(String(f.value)) })) };
-  return { card, caption: `${head}${tags ? ` · ${tags}` : ''}\n${action}` };
+  // Heading, then who, then what to do: each on its own line with a gap, so it reads cleanly under the picture
+  return { card, caption: [head, tags.includes('@') ? `👥 ${tags}` : '', action].filter(Boolean).join('\n\n') };
 }
 const plainNames = (people: { name: string }[]) => people.map((p) => clean(p.name, 40)).join(', ') || '—';
 const tagsOf = (people: { name: string; mention: string | null }[]): Tag[] => people.filter((p) => p.mention).map((p) => ({ jid: p.mention!, name: clean(p.name, 40) }));
@@ -325,7 +326,7 @@ export function buildEscalationText(args: {
     { label: 'Not accepted', value: plainNames(args.people), tone: 'bad' },
     { label: 'Waiting for', value: `${plural(args.minutes, 'minute')}`, tone: 'warn' },
     { label: 'Reminders', value: reminded ? '2 sent in private chat' : 'Not sent: WhatsApp not linked in Loop' },
-  ], '', `${names(args.people)} ${args.people.length === 1 ? 'has' : 'have'} not accepted this ${what} yet.${leads.length ? `\n${names(leads)}, please follow up.` : ''}`);
+  ], '', [`❗ *Not accepted:* ${names(args.people)}`, leads.length ? `👉 *Please follow up:* ${names(leads)}` : ''].filter(Boolean).join('\n'));
   const text = compose(
     head,
     `${names(args.people)} ${args.people.length === 1 ? 'has' : 'have'} not accepted this ${what} after ${plural(args.minutes, 'minute')}${reminded ? ' and two private reminders' : ''}.`,
@@ -680,24 +681,23 @@ export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): P
 }
 
 // ── Dashboard samples ──
-// One of every message, built from real Loop data, so an admin can see the look. Nobody is tagged, nothing is
-// sent to an employee: group samples go to the group, private ones only to the admin who asked.
+// One of every message, built from real Loop data, so an admin can see the look. Group samples tag people exactly
+// like the real ones; private samples go only to the admin who asked, never to an employee.
 export async function queueSamples(db: Knex, adminUserId: number, now: Date = new Date()): Promise<{ group: number; private: number; task: string }> {
   const { employeePods, morningReport } = await import('./productivityReports');
   const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').whereNotNull('t.assigned_to').whereNotIn('t.status', ['completed', 'cancelled'])
     .orderBy('t.id', 'desc').first('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 't.assigned_to', 'p.name as project_name');
   if (!t) throw new Error('no_task');
   const ppl = await peopleFor(db, [Number(t.assigned_to), adminUserId]);
-  const who = { name: ppl.get(Number(t.assigned_to))?.name ?? '', mention: null };
+  const who = ppl.get(Number(t.assigned_to)) ?? { name: '', mention: null };
   const me = ppl.get(adminUserId);
   const { managers, admins } = await leadsFor(db, Number(t.id), [Number(t.assigned_to)]);
-  const untag = (l: { name: string }[]) => l.map((p) => ({ name: p.name, mention: null }));
   const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id };
-  const label = (b: any) => ({ ...b, caption: `🧪 Sample · ${b.caption}`, text: `🧪 Sample\n\n${b.text}`, mentions: [], tags: [] });
+  const label = (b: any) => ({ ...b, caption: `🧪 _Sample preview_\n\n${b.caption}`, text: `🧪 _Sample preview_\n\n${b.text}` });
   const group: object[] = [];
   for (const pod of await employeePods(db)) { const r = await morningReport(db, now, pod); group.push(label({ text: r.text, caption: r.caption, card: r.card })); }
   group.push(label(buildAssignmentText({ ...common, people: [who], status: statusLabel(t, [who.name]) })));
-  group.push(label(buildEscalationText({ title: common.title, project: common.project, minutes: acceptanceEscalateMinutes(), ticket: common.ticket, people: [who], managers: untag(managers), admins: untag(admins) })));
+  group.push(label(buildEscalationText({ title: common.title, project: common.project, minutes: acceptanceEscalateMinutes(), ticket: common.ticket, people: [who], managers, admins })));
   const dm: object[] = [];
   if (me?.mention) {
     const mine = { name: me.name, mention: null };

@@ -258,7 +258,7 @@ function GroupPicker({ current, flash }: { current: string | null; flash: (m: st
             setBusy(true);
             try {
               const r = await assistantAdminApi.sendSample();
-              flash(`${r.data.group} samples to the group (pod reports, new ticket, escalation)${r.data.private ? ` and ${r.data.private} to your WhatsApp (assignment, 2 reminders, deadline alert)` : '. Link your own WhatsApp to also see the private-chat samples'}. Using "${r.data.task}"; nobody is tagged.`);
+              flash(`${r.data.group} samples to the group (pod reports, new ticket, escalation)${r.data.private ? ` and ${r.data.private} to your WhatsApp (assignment, 2 reminders, deadline alert)` : '. Link your own WhatsApp to also see the private-chat samples'}. Using "${r.data.task}"; linked people are tagged.`);
             }
             catch (e) { flash(errText(e)); } finally { setBusy(false); }
           }}>Send samples of all messages</button>

@@ -207,7 +207,7 @@ test('picture details match the saved task exactly: title, project, person, prio
   assert.match(f.Priority, /^High$/);
   assert.equal(f.Status, 'Waiting for Pardu to accept');
   assert.equal(f.Status, 'Waiting for Pardu to accept', 'same wording as the Loop app');
-  assert.match(p.caption, /^📌 \*New task assigned\* · @/);
+  assert.match(p.caption, /^📌 \*New task assigned\*\n\n👥 @/);
   assert.deepEqual(p.mentions, ['4455667788@lid'], 'Pardu is tagged');
 });
 
@@ -266,7 +266,7 @@ test('over the estimated time: one alert when the stage timer passes its estimat
   assert.equal(f.Stage, 'Stage 2 · Web Developer');
   assert.equal(f['Assigned to'], 'Nitish');
   assert.equal(f.Status, 'Working');
-  assert.match(p.caption, /^⏱️ \*Over the estimated time\* · Nitish\n/);
+  assert.match(p.caption, /^⏱️ \*Over the estimated time\*\n\n👉 /);
   // Went over before the start point: not announced
   await d('assistant_settings').insert({ name: 'notices_since', value: String(now), updated_at: new Date() });
   try {
@@ -291,13 +291,15 @@ test('each linked assignee also gets a private copy of the assignment, addressed
   assert.ok(!/9391283396/.test(p.text + p.caption));
 });
 
-test('dashboard samples: every message type from real data; group ones to the group, private ones only to the requester, nobody tagged', async () => {
+test('dashboard samples: every message type from real data; group ones to the group, private ones only to the requester, tagged like the real ones', async () => {
   const { queueSamples } = await import('./assignmentNotices');
   const d = db();
   const out = await queueSamples(d, U.nit, new Date());
   assert.ok(out.group >= 3 && out.private === 4);
   const rows = (await d('whatsapp_outbox').where({ kind: 'sample' })).map((r: any) => JSON.parse(r.payload));
-  assert.ok(rows.every((p: any) => p.mentions.length === 0 && /^🧪 Sample/.test(p.caption)));
+  assert.ok(rows.every((p: any) => /^🧪 _Sample preview_\n\n/.test(p.caption)));
+  const card = rows.find((p: any) => !p.to && /New task assigned|New ticket created/.test(p.caption));
+  assert.ok(card.mentions.length > 0 && /@/.test(card.caption), 'linked people are really tagged, as in the live message');
   assert.ok(rows.filter((p: any) => p.to).every((p: any) => p.to === '919391283396@s.whatsapp.net'));
   assert.ok(rows.some((p: any) => /POD 1 · Good morning/.test(p.caption)) && rows.some((p: any) => /Acceptance overdue/.test(p.caption)) && rows.some((p: any) => /Second reminder/.test(p.text)));
 });

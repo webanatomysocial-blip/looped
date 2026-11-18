@@ -208,7 +208,7 @@ test('deadline crossed: one alert once the deadline passes on an open task; none
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
   assert.equal(f['Overdue by'], '25 minutes');
   assert.equal(f['Was due'], '20 Nov, 10:00 am (IST)');
-  assert.match(p.caption, /^🚨 \*Deadline crossed\* · Nitish\n/);
+  assert.match(p.caption, /^🚨 \*Deadline crossed\*\n\n👉 /);
   const late = await task({ title: 'Crossed long ago', hours: 2 });
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * 3600_000), 12);
   assert.equal((await db()('whatsapp_outbox').where('event_key', 'like', `overdue:${late}:${DEADLINE_MS}%`)).length, 0, 'not announced a day late');
