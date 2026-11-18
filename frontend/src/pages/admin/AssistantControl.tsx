@@ -252,6 +252,15 @@ function GroupPicker({ current, flash }: { current: string | null; flash: (m: st
         </select>
         <button className="btn-primary ac-btn" disabled={busy || !pick || pick === saved} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
+      {saved && (
+        <div className="ac-phone__row">
+          <button className="btn-secondary ac-btn" disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { const r = await assistantAdminApi.sendSample(); flash(`Sample sent to the group using "${r.data.task}". It arrives within a few seconds.`); }
+            catch (e) { flash(errText(e)); } finally { setBusy(false); }
+          }}>Send sample to group</button>
+        </div>
+      )}
       <p className="ac__muted ac-note">{currentName ? `Now: ${currentName}. ` : saved ? 'Now: a group the company WhatsApp is no longer in. ' : 'No group chosen yet. '}Only groups the company WhatsApp has joined are listed.</p>
     </div>
   );

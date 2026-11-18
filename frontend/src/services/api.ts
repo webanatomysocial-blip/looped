@@ -360,6 +360,7 @@ export const assistantAdminApi = {
   startWhatsApp: () => api.post('/assistant-admin/whatsapp/start'),
   whatsappGroups: () => api.get('/assistant-admin/whatsapp/groups'),
   chooseGroup: (jid: string) => api.post('/assistant-admin/whatsapp/group', { jid }),
+  sendSample: () => api.post('/assistant-admin/whatsapp/sample'),
   requestNewPairing: () => api.post('/assistant-admin/whatsapp/pairing/refresh'),
   usage: (days = 30) => api.get('/assistant-admin/usage', { params: { days } }),
   linking: () => api.get('/assistant-admin/linking'),

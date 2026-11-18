@@ -12,7 +12,7 @@ import { STATES } from './lifecycle';
 import { usageSummary } from './aiUsage';
 import { saveAiKey, validAiKey, saveNotificationGroup } from './settingsStore';
 import { listEmployeeLinking, linkEmployees, saveEmployeePhone, directLinkEmployee } from './employeeLinking';
-import { notificationGroupJid, setChosenNotificationGroup, GROUP_JID } from '../services/assignmentNotices';
+import { notificationGroupJid, setChosenNotificationGroup, GROUP_JID, queueAssignmentNotice } from '../services/assignmentNotices';
 
 export const maskPhone = (e164: string | null | undefined) => (e164 ? `${e164.slice(0, 3)} •••• ${e164.slice(-4)}` : '');
 // Phone numbers inside free text (messages, errors) are masked too
@@ -397,6 +397,18 @@ export function createAssistantAdminRouter(d: AdminApiDeps): Router {
     setChosenNotificationGroup(jid);
     groupNameCache = { jid, name: group.name, at: now() };
     return { ok: true, name: group.name };
+  }));
+
+  // One sample "New task assigned" card in the group, built from the latest real assigned task, so the design and data
+  // can be checked. Sent by the WhatsApp worker within seconds, like any notice. Recorded in the audit history.
+  r.post('/whatsapp/sample', wrap(async (req, res) => {
+    const db = d.getDB();
+    if (!notificationGroupJid()) return res.status(409).json({ error: 'Choose a group first' }) as any;
+    const t = await db('tasks').whereNotNull('assigned_to').whereNotIn('status', ['completed', 'cancelled']).orderBy('id', 'desc').first('id', 'title', 'assigned_to');
+    if (!t) return res.status(409).json({ error: 'No assigned task to use as a sample' }) as any;
+    await queueAssignmentNotice(db, { taskId: Number(t.id), kind: 'assigned', employeeIds: [Number(t.assigned_to)], eventKey: `sample:${t.id}:${now()}` });
+    await db('assistant_admin_audit').insert({ actor_id: req.user!.id, action: 'whatsapp_sample_sent', target: 'whatsapp', detail: `sample card for task #${t.id}`, created_at: new Date(now()) });
+    return { ok: true, task: String(t.title) };
   }));
 
   // What the bot did with the latest incoming WhatsApp messages (no message text)

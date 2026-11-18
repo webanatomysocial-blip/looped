@@ -172,11 +172,12 @@ test('the sender gets the configured group JID and mention metadata; a task comp
   await db()('whatsapp_outbox').whereIn('task_id', [live, done]).update({ created_at: new Date(DEADLINE_MS - 5 * MIN) });
   const s = sender();
   await processOutbox(db(), s, new Date(DEADLINE_MS - 4 * MIN), 1000);
-  const mine = s.sent.find((m) => /\*Task:\* Sent task/.test(m.text));
+  assert.equal(JSON.parse((await alertsFor(live))[0].payload).card.title, 'Sent task', 'task details are in the picture');
+  const mine = s.sent.find((m) => /Deadline approaching/.test(m.text));
   assert.ok(mine, 'the live task alert was sent');
   assert.equal(mine.jid, '120363412745413406@g.us', 'only the configured group');
   assert.deepEqual(mine.mentions, ['919391283396@s.whatsapp.net']);
-  assert.ok(!s.sent.some((m) => /\*Task:\* Finished in time/.test(m.text)), 'no alert for a task finished before sending');
+  assert.equal(s.sent.filter((m) => /Deadline approaching/.test(m.text)).length, 1, 'no alert for a task finished before sending');
   const cancelled = await alertsFor(done);
   assert.equal(cancelled[0].status, 'cancelled');
   assert.ok((await alertsFor(live))[0].status === 'sent');

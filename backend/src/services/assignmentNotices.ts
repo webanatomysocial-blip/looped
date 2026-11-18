@@ -2,7 +2,7 @@
 // A notice is queued in the outbox after the assignment commits, and a worker sends it to the one configured group.
 // Nothing here changes an assignment. A failure to queue or send never rolls back or blocks the assignment.
 import { Knex } from 'knex';
-import { renderCard } from './reportCard';
+import { renderCard, Card } from './reportCard';
 import { loadNotificationGroup } from '../assistant/settingsStore';
 import { getDB } from '../db';
 import { compose, heading, field, bold, clean, italic, priority, dateTime, plural, ICON } from './waMessage';
@@ -63,14 +63,28 @@ export async function ensureOutboxSchema(db: Knex): Promise<void> {
 
 // Pure text builder. Linked employees appear as @name with a real mention; unlinked employees appear as plain names.
 const names = (people: { name: string; mention: string | null }[]) => people.map((p) => (p.mention ? mentionTag(p.mention, p.name) : clean(p.name, 40))).join(', ') || '—';
+// A one-task detail card and its short caption (heading, tags, what to do). The full text stays as the fallback.
+const plain = (v: string) => v.replace(/[*_~]/g, '').replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim();   // no emoji: the card font has none
+const tone = (p: string | null): 'bad' | 'warn' | undefined => (/urgent|high|critical/i.test(String(p)) ? 'bad' : /medium/i.test(String(p)) ? 'warn' : undefined);
+function detailCard(head: string, title: string, fields: { label: string; value: string | null; tone?: 'good' | 'warn' | 'bad' }[], tags: string, action: string) {
+  const card: Card = { title, subtitle: plain(head), columns: [], rows: [], fields: fields.filter((f) => f.value).map((f) => ({ ...f, value: plain(String(f.value)) })) };
+  return { card, caption: `${head}${tags ? ` · ${tags}` : ''}\n${action}` };
+}
+const plainNames = (people: { name: string }[]) => people.map((p) => clean(p.name, 40)).join(', ') || '—';
 const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p.mention).filter((m): m is string => !!m);
 
 export function buildAssignmentText(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
   people: { name: string; mention: string | null }[];
-}): { text: string; mentions: string[] } {
+}): { text: string; mentions: string[]; card: Card; caption: string } {
+  const head = args.kind === 'reassigned' ? heading(ICON.reassigned, 'Task reassigned') : heading(ICON.task, 'New task assigned');
+  const pic = detailCard(head, clean(args.title, 60), [
+    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Priority', value: args.priority ? priority(args.priority) : null, tone: tone(args.priority) },
+    { label: 'Deadline', value: args.due ? `${args.due} (IST)` : null }, { label: 'Status', value: 'Awaiting acceptance', tone: 'warn' },
+  ], names(args.people), '👉 Please review and accept your assignment in Loop.');
   const text = compose(
-    args.kind === 'reassigned' ? heading(ICON.reassigned, 'Task reassigned') : heading(ICON.task, 'New task assigned'),
+    head,
     [
       field('Task', clean(args.title)),
       field('Project', clean(args.project)),
@@ -81,7 +95,7 @@ export function buildAssignmentText(args: {
     ],
     '👉 Please review and accept your assignment in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people) };
+  return { text, mentions: mentionsOf(args.people), ...pic };
 }
 
 // Queues one notice for one assignment event. Returns 'duplicate' if this event was already queued.
@@ -106,7 +120,7 @@ export async function queueAssignmentNotice(db: Knex, args: {
     if (jid) jidByUser.set(Number(i.user_id), jid);
   }
   const people = employeeIds.map((id) => ({ name: byId.get(id) ?? 'Employee', mention: jidByUser.get(id) ?? null }));
-  const { text, mentions } = buildAssignmentText({
+  const built = buildAssignmentText({
     kind: args.kind, title: String(task.title), project: String(task.project_name || 'a project'),
     priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), people,
   });
@@ -114,7 +128,7 @@ export async function queueAssignmentNotice(db: Knex, args: {
   try {
     await db('whatsapp_outbox').insert({
       event_key: args.eventKey, kind: args.kind, task_id: args.taskId,
-      payload: JSON.stringify({ text, mentions }), status: 'pending', attempts: 0, next_attempt_at: now,
+      payload: JSON.stringify(built), status: 'pending', attempts: 0, next_attempt_at: now,
     });
   } catch (err: any) {
     // A concurrent duplicate hits the unique key: that is the same event, so it is not queued twice
@@ -196,15 +210,18 @@ export function acceptanceReminderMinutes(env: NodeJS.ProcessEnv = process.env):
   return Number.isFinite(n) && n >= 1 && n <= 1440 ? n : 1;
 }
 
-export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[] } {
+export function buildReminderText(args: { title: string; project: string; person: { name: string; mention: string | null } }): { text: string; mentions: string[]; card: Card; caption: string } {
   const who = args.person.mention ? mentionTag(args.person.mention, args.person.name) : clean(args.person.name, 40);
+  const pic = detailCard(heading(ICON.reminder, 'Acceptance reminder'), clean(args.title, 60), [
+    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: clean(args.person.name, 40) }, { label: 'Status', value: 'Awaiting acceptance', tone: 'warn' },
+  ], who, "👉 Please accept it in Loop. The task can't start until you do.");
   const text = compose(
     heading(ICON.reminder, 'Acceptance reminder'),
     `${who}, please review and accept your assignment in Loop.`,
     [field('Task', clean(args.title)), field('Project', clean(args.project)), field('Status', `${ICON.pending} Awaiting acceptance`)],
     italic("The task can't start until you accept it."),
   );
-  return { text, mentions: args.person.mention ? [args.person.mention] : [] };
+  return { text, mentions: args.person.mention ? [args.person.mention] : [], ...pic };
 }
 
 // Queues one reminder per pending assignment. The key is the assignment row and the time it was assigned, so a restart
@@ -229,11 +246,11 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
     const user = await db('users').where({ id: r.user_id }).first('name');
     const identity = await db('assistant_identities').where({ user_id: r.user_id, status: 'active', channel: 'whatsapp' }).first('external_sender_id');
     const mention = identity ? jidForIdentity(String(identity.external_sender_id)) : null;
-    const { text, mentions } = buildReminderText({ title: String(r.title), project: String(proj?.name || 'a project'), person: { name: String(user?.name || 'Employee'), mention } });
+    const built = buildReminderText({ title: String(r.title), project: String(proj?.name || 'a project'), person: { name: String(user?.name || 'Employee'), mention } });
     try {
       await db('whatsapp_outbox').insert({
         event_key: eventKey, kind: 'reminder', task_id: Number(r.task_id),
-        payload: JSON.stringify({ text, mentions, assignmentId: Number(r.id) }), status: 'pending', attempts: 0, next_attempt_at: now,
+        payload: JSON.stringify({ ...built, assignmentId: Number(r.id) }), status: 'pending', attempts: 0, next_attempt_at: now,
       });
       queued++;
     } catch (err: any) {
@@ -273,15 +290,19 @@ export function deadlineAlertDue(args: { deadlineMs: number; estimatedHours: num
 export function buildDeadlineText(args: {
   title: string; project: string; dueLabel: string; minutesLeft: number;
   people: { name: string; mention: string | null }[];
-}): { text: string; mentions: string[] } {
+}): { text: string; mentions: string[]; card: Card; caption: string } {
   const left = args.minutesLeft >= 120 ? `about ${plural(Math.round(args.minutesLeft / 60), 'hour')}` : `about ${plural(args.minutesLeft, 'minute')}`;
+  const pic = detailCard(heading(ICON.deadline, 'Deadline approaching'), clean(args.title, 60), [
+    { label: 'Time left', value: left, tone: 'bad' }, { label: 'Due', value: `${args.dueLabel} (IST)` },
+    { label: 'Project', value: clean(args.project) }, { label: 'Assigned to', value: plainNames(args.people) },
+  ], names(args.people), '👉 Please wrap up or update the task in Loop.');
   const text = compose(
     heading(ICON.deadline, 'Deadline approaching'),
     `${bold(left)} left on this task.`,
     [field('Task', clean(args.title)), field('Project', clean(args.project)), field('Due', `${args.dueLabel} (IST)`), field('Assigned to', names(args.people))],
     '👉 Please wrap up or update the task in Loop.',
   );
-  return { text, mentions: mentionsOf(args.people) };
+  return { text, mentions: mentionsOf(args.people), ...pic };
 }
 
 // Queues one alert per task deadline. The key is the task and its exact deadline instant, so the alert is never
@@ -315,14 +336,14 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     for (const i of identities) { const jid = jidForIdentity(String(i.external_sender_id)); if (jid) jidBy.set(Number(i.user_id), jid); }
     const due = dateTime(deadlineMs);
     const minutesLeft = Math.max(1, Math.ceil((deadlineMs - now.getTime()) / 60_000));
-    const { text, mentions } = buildDeadlineText({
+    const built = buildDeadlineText({
       title: String(t.title), project: String(t.project_name || 'a project'), dueLabel: due, minutesLeft,
       people: people.map((p: any) => ({ name: String(p.name), mention: jidBy.get(Number(p.user_id)) ?? null })),
     });
     try {
       await db('whatsapp_outbox').insert({
         event_key: eventKey, kind: 'deadline', task_id: Number(t.id),
-        payload: JSON.stringify({ text, mentions, taskId: Number(t.id) }), status: 'pending', attempts: 0, next_attempt_at: now,
+        payload: JSON.stringify({ ...built, taskId: Number(t.id) }), status: 'pending', attempts: 0, next_attempt_at: now,
       });
       queued++;
     } catch (err: any) {
@@ -352,16 +373,16 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
     const identity = await db('assistant_identities').where({ user_id: t.xlr8_assignee_id, status: 'active', channel: 'whatsapp' }).first('external_sender_id');
     const person = { name: String(user?.name || 'Employee'), mention: identity ? jidForIdentity(String(identity.external_sender_id)) : null };
     const project = String(t.project_name || 'a project');
-    const due: { kind: string; key: string; build: () => { text: string; mentions: string[] }; extra: object }[] = [];
+    const due: { kind: string; key: string; build: () => object; extra: object }[] = [];
     if (now.getTime() - since <= TICKET_NOTICE_HOURS * 3600_000) due.push({ kind: 'assigned', key: `tassign:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: {},
       build: () => buildAssignmentText({ kind: 'assigned', title: String(t.title), project, priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), people: [person] }) });
     if (now.getTime() - since >= minutes * 60_000) due.push({ kind: 'reminder', key: `tremind:${t.id}:${t.xlr8_assignee_id}:${since}`, extra: { ticketId: Number(t.id), assigneeId: Number(t.xlr8_assignee_id) },
       build: () => buildReminderText({ title: String(t.title), project, person }) });
     for (const d of due) {
       if (await db('whatsapp_outbox').where({ event_key: d.key }).first('id')) continue;
-      const { text, mentions } = d.build();
+      const built = d.build();
       try {
-        await db('whatsapp_outbox').insert({ event_key: d.key, kind: d.kind, task_id: Number(t.id), payload: JSON.stringify({ text, mentions, ...d.extra }), status: 'pending', attempts: 0, next_attempt_at: now });
+        await db('whatsapp_outbox').insert({ event_key: d.key, kind: d.kind, task_id: Number(t.id), payload: JSON.stringify({ ...built, ...d.extra }), status: 'pending', attempts: 0, next_attempt_at: now });
         queued++;
       } catch (err: any) { if (!/unique|duplicate/i.test(String(err?.message))) throw err; }
     }

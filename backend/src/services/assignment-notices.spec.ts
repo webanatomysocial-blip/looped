@@ -188,3 +188,20 @@ test('multi-stage tickets: "assigned" notice and one reminder for the stage hold
   assert.ok(sent.some((t) => /New task assigned/.test(t)));
   assert.ok(!sent.some((t) => /Acceptance reminder[\s\S]*Pearl Redesign/.test(t)), 'no reminder after accepting');
 });
+
+test('picture details match the saved task exactly: title, project, person, priority, deadline, status', async () => {
+  const d = db();
+  const r: any = await createTask(d, actor('mgr', 'manager'), { title: 'Card accuracy check', project_id: U.P, working_person_id: U.pardu, task_manager_id: U.mgr, priority: 'high', due_date: '2026-11-21', due_time: '17:30' });
+  const id = Number(r?.id ?? r);
+  const row = await d('whatsapp_outbox').where({ task_id: id, kind: 'assigned' }).orderBy('id', 'desc').first();
+  const p = JSON.parse(row.payload);
+  const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
+  assert.equal(p.card.title, 'Card accuracy check');
+  assert.equal(f.Project, 'WebAnatomy Website');
+  assert.equal(f['Assigned to'], 'Pardu');
+  assert.match(f.Priority, /^High$/);
+  assert.equal(f.Deadline, '21 Nov, 5:30 pm (IST)');
+  assert.equal(f.Status, 'Awaiting acceptance');
+  assert.match(p.caption, /^📌 \*New task assigned\* · @/);
+  assert.deepEqual(p.mentions, ['4455667788@lid'], 'Pardu is tagged');
+});

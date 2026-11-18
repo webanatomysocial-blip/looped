@@ -115,11 +115,14 @@ test('reminders: the sender gets the configured group JID, the reminder text and
   await enqueueAcceptanceReminders(db(), new Date(), 1);
   const s = sender(true);
   await processOutbox(db(), s, new Date(), 1000);
-  const mine = s.sent.find((m) => /\*Task:\* Reminder: verify send/.test(m.text) && /@Nitish/.test(m.text));
-  assert.ok(mine, 'the Nitish reminder was sent');
+  const row = await db()('whatsapp_outbox').where({ kind: 'reminder', task_id: id }).whereRaw("payload LIKE '%Nitish%'").first();
+  assert.equal(row.status, 'sent', 'the Nitish reminder was sent');
+  const payload = JSON.parse(row.payload);
+  assert.equal(payload.card.title, 'Reminder: verify send', 'task details are in the picture');
+  const mine = s.sent.find((m) => /Acceptance reminder.*@Nitish/.test(m.text) && m.mentions.includes('919391283396@s.whatsapp.net'));
+  assert.ok(mine, 'short caption tags Nitish');
   assert.equal(mine.jid, '120363412745413406@g.us', 'only the configured group');
-  assert.deepEqual(mine.mentions, ['919391283396@s.whatsapp.net']);
-  assert.match(mine.text, /\*Task:\* Reminder: verify send/);
+  assert.match(mine.text, /👉 Please accept it in Loop/);
 });
 
 test('reminders: an assignee who accepts before the reminder is sent gets no reminder', async () => {
