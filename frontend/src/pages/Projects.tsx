@@ -172,7 +172,8 @@ export default function Projects() {
       status: p.status,
       member_ids: [...new Set([
         ...p.members.map((m) => m.user_id),
-        ...users.filter((u) => u.role === 'admin').map((u) => u.id),
+        // Only an admin's edit adds every admin; a manager's edit would be refused for "adding" an admin
+        ...(user?.role === 'admin' ? users.filter((u) => u.role === 'admin').map((u) => u.id) : []),
       ])],
       service_type: (p.service_type as 'per_project' | 'xlr8') || 'per_project',
       budget_amount: p.budget_amount != null ? String(p.budget_amount) : '',

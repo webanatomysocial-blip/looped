@@ -169,7 +169,7 @@ export async function createProject(db: Knex, actor: Actor, body: any) {
 }
 
 // Website: a manager editing a project has these fields read-only (Projects.tsx readOnly/disabled), and may
-// change only employee memberships. The form still sends unchanged values, so only a real change is refused.
+// change the team: employees and managers can be added; admins and managers already on it stay.
 const MANAGER_LOCKED = ['name', 'is_adhoc', 'client_company_id'];
 const FIELD_LABEL: Record<string, string> = { name: 'name', is_adhoc: 'ad-hoc setting', client_company_id: 'client' };
 export async function updateProject(db: Knex, actor: Actor, projectId: number | string, body: any): Promise<void> {
@@ -177,6 +177,7 @@ export async function updateProject(db: Knex, actor: Actor, projectId: number | 
   const { name, status, start_date, due_date, client_company_id, member_ids, description, is_adhoc,
           briefing_doc, project_drive_doc,
           service_type, budget_amount, budget_cutoff_pct, budgeted_hours, monthly_hours_bucket, billing_cycle_start_day } = body ?? {};
+  let members: number[] | undefined = member_ids;
   if (actor.role === 'manager') {
     const cur = await db('projects').where({ id: projectId }).first();
     const next: Record<string, any> = { name, is_adhoc: is_adhoc === undefined ? undefined : !!is_adhoc, client_company_id: client_company_id === undefined ? undefined : (client_company_id || null) };
@@ -189,10 +190,11 @@ export async function updateProject(db: Knex, actor: Actor, projectId: number | 
     if (member_ids) {
       const currentIds = (await db('project_members').where({ project_id: projectId }).select('user_id')).map((r: any) => Number(r.user_id));
       const roles = new Map<number, string>((await db('users').whereIn('id', [...new Set([...currentIds, ...member_ids.map(Number)])]).select('id', 'role')).map((u: any) => [Number(u.id), u.role]));
-      const nonEmployeeNow = currentIds.filter((uid) => roles.get(uid) !== 'employee');
-      const incoming = new Set((member_ids as number[]).map(Number));
-      if (nonEmployeeNow.some((uid) => !incoming.has(uid))) throw new ServiceError(403, 'Admins and managers stay on the project');
-      for (const uid of incoming) if (!currentIds.includes(uid) && roles.get(uid) !== 'employee') throw new ServiceError(403, 'Managers can only add employees');
+      // A manager edits the team: admins and managers already on it always stay, and they can add employees and managers.
+      // Admins they didn't add are left out rather than refusing the whole save.
+      const incoming = new Set((member_ids as number[]).map(Number).filter((uid) => currentIds.includes(uid) || ['employee', 'manager'].includes(roles.get(uid) ?? '')));
+      for (const uid of currentIds) if (roles.get(uid) !== 'employee') incoming.add(uid);
+      members = [...incoming];
     }
   }
   const updates: any = {};
@@ -215,9 +217,9 @@ export async function updateProject(db: Knex, actor: Actor, projectId: number | 
   }
   if (Object.keys(updates).length) await db('projects').where({ id: projectId }).update(updates);
 
-  if (member_ids) {
+  if (members) {
     await db('project_members').where({ project_id: projectId }).delete();
-    const rows = (member_ids as number[]).map((uid) => ({ project_id: Number(projectId), user_id: uid }));
+    const rows = members.map((uid) => ({ project_id: Number(projectId), user_id: uid }));
     if (rows.length) await db('project_members').insert(rows);
   }
 }

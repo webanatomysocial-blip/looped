@@ -194,11 +194,13 @@ test('S6: employees cannot edit a task through the API; managers edit their pod 
   await expectStatus('cliA', 'PUT', `/tasks/${T1}`, 403, { title: 'x' });
 });
 
-test('manager field locks on projects: unchanged values pass, changes and non-employee membership changes are refused', async () => {
+test('manager field locks on projects: unchanged values pass, field changes are refused, admins and managers stay on the team', async () => {
   await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 200, { name: 'Alpha', is_adhoc: false, description: 'Brief v2', member_ids: [U.mgr1.id, U.emp1.id] });
   await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 403, { name: 'Renamed' });
   await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 403, { is_adhoc: true });
-  await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 403, { member_ids: [U.emp1.id] });
+  // Leaving a manager off the list no longer refuses the save: managers already on the project just stay
+  await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 200, { member_ids: [U.emp1.id] });
+  assert.ok(await getDB()('project_members').where({ project_id: P1, user_id: U.mgr1.id }).first());
   await expectStatus('mgr1', 'PUT', `/projects/${P1}`, 200, { member_ids: [U.mgr1.id, U.emp1.id, U.emp2.id] });
   await expectStatus('admin', 'PUT', `/projects/${P1}`, 200, { name: 'Alpha', is_adhoc: true, member_ids: [U.emp1.id] });
   await getDB()('projects').where({ id: P1 }).update({ is_adhoc: false });
