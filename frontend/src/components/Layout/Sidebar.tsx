@@ -163,7 +163,8 @@ export default function Sidebar() {
 
   if (perms && user.role !== 'admin' && user.role !== 'client') {
     // Use master list filtered by saved permissions
-    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && n.to === '/admin/users'));
+    // Managers always get Users and the AI Assistant, whatever pages were saved for them
+    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && (n.to === '/admin/users' || n.to === '/admin/assistant')));
     top  = allowed.filter(n => n.section === 'top');
     more = allowed.filter(n => n.section === 'more');
   } else {

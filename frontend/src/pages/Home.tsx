@@ -162,7 +162,7 @@ export default function Home() {
         return;
       }
     } else {
-      await tasksApi.accept(task.id, action);
+      try { await tasksApi.accept(task.id, action); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); return; }
     }
     // If accepting a high/urgent task, pause any currently running timer
     if (['high', 'urgent'].includes(task.priority ?? '')) {
@@ -1378,7 +1378,7 @@ export default function Home() {
       )}
 
       {/* Task view canvas */}
-      {viewTask && <TaskViewDrawer taskId={viewTask} onClose={() => setViewTask(null)} />}
+      {viewTask && <TaskViewDrawer taskId={viewTask} onClose={() => setViewTask(null)} onChanged={load} />}
     </Layout>
   );
 }

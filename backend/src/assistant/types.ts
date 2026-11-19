@@ -40,6 +40,7 @@ export interface OutgoingResponse {
   tags?: import('../services/assignmentNotices').Tag[];
   // A table drawn as an image; the text is sent as its caption
   card?: import('../services/reportCard').Card;
+  caption?: string;   // the short message under a card picture (default: the card title)
   requestId?: string;
   awaitingConfirmation?: boolean;
 }

@@ -44,6 +44,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
   const [task, setTask] = useState<any>(null);
   // Bumped after an approval action to reload the task (status, stage flow)
   const [reloadKey, setReloadKey] = useState(0);
+  const [accepting, setAccepting] = useState(false);
   const [log, setLog]   = useState<any[]>([]);
   const [deliverables, setDeliverables] = useState<any[]>([]);
   const [linkInput, setLinkInput] = useState('');
@@ -194,6 +195,34 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
               {showApproval && (
                 <TaskApprovalSection taskId={taskId} onChanged={() => { setReloadKey(k => k + 1); onChanged?.(); }} />
               )}
+              {/* The viewer still has to accept this: the stage flow below says "Awaiting acceptance", so the action is here */}
+              {(() => {
+                if (!user || !['employee', 'manager'].includes(user.role)) return null;
+                if (['pending_approval', 'draft', 'completed', 'cancelled'].includes(task.status)) return null;
+                const mine = (task.stage_assignees ?? task.assignees ?? []).filter((a: any) => a.user_id === user.id && !Number(a.skipped) && (a.acceptance_status === 'pending' || a.acceptance_status == null));
+                if (!mine.length) return null;
+                const ticket = !!task.ticket_type_id;
+                const holder = ticket && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user.id;
+                const act = async (accept: boolean) => {
+                  setAccepting(true);
+                  try {
+                    if (!ticket) await tasksApi.accept(taskId, accept ? 'accept' : 'decline');
+                    else if (accept) await (task.xlr8_status === 'pending_assignee' ? xlr8Api.employeeAccept(taskId) : xlr8Api.stagePreAccept(taskId));
+                    else await (holder ? xlr8Api.employeeDecline(taskId) : xlr8Api.stagePreDecline(taskId));
+                    setReloadKey(k => k + 1); onChanged?.();
+                  } catch (e: any) { alert(e?.response?.data?.error || `Could not ${accept ? 'accept' : 'decline'}`); }
+                  finally { setAccepting(false); }
+                };
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.4)', borderRadius: 10, padding: '12px 14px' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>This {ticket ? 'ticket' : 'task'} is waiting for your acceptance</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="cap-accept-btn cap-accept-btn--yes" disabled={accepting} onClick={() => act(true)}>Accept</button>
+                      <button className="cap-accept-btn cap-accept-btn--no" disabled={accepting} onClick={() => act(false)}>Decline</button>
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Meta */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[

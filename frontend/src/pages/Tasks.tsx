@@ -417,7 +417,7 @@ export default function Tasks() {
 
   const ticketEmployeeDeclineInline = async (taskId: number) => {
     try { await xlr8Api.employeeDecline(taskId); load(); }
-    catch {}
+    catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); }
   };
 
   const ticketMarkDone = async (taskId: number) => {
@@ -459,7 +459,7 @@ export default function Tasks() {
   };
 
   const handleAccept = async (taskId: number, action: 'accept' | 'decline') => {
-    await tasksApi.accept(taskId, action);
+    try { await tasksApi.accept(taskId, action); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); }
     load();
   };
 
@@ -984,12 +984,12 @@ export default function Tasks() {
                         return myAssignment && myAssignment.stage_idx !== currentIdx && (myAssignment.acceptance_status === 'pending' || myAssignment.acceptance_status == null);
                       })() && (
                         <div style={{ display: 'flex', gap: 5 }}>
-                          <button className="ticket-icon-btn ticket-icon-btn--green" title="Pre-accept stage" onClick={async () => { await xlr8Api.stagePreAccept(task.id); load(); }}><Check size={11} /></button>
-                          <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline stage" onClick={async () => { await xlr8Api.stagePreDecline(task.id); load(); }}><X size={11} /></button>
+                          <button className="ticket-icon-btn ticket-icon-btn--green" title="Pre-accept stage" onClick={async () => { try { await xlr8Api.stagePreAccept(task.id); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); } load(); }}><Check size={11} /></button>
+                          <button className="ticket-icon-btn ticket-icon-btn--red" title="Decline stage" onClick={async () => { try { await xlr8Api.stagePreDecline(task.id); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); } load(); }}><X size={11} /></button>
                         </div>
                       )}
                       {/* Accept / Decline for employee assigned tasks */}
-                      {!task.ticket_type_id && user?.role === 'employee' && task.my_acceptance_status === 'pending' && (
+                      {!task.ticket_type_id && (user?.role === 'employee' || user?.role === 'manager') && task.my_acceptance_status === 'pending' && (
                         <>
                           <button
                             className="icon-action"

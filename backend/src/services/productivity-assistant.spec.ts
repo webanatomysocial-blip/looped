@@ -224,3 +224,21 @@ test('group: hi gets "Hi <name>" from managers and employees', async () => {
     assert.match(out!.text, /^👋 \*Hi \S+\*/);
   }
 });
+
+test('group: a manager asking to share the open tasks gets one picture of every employee\'s open work', async () => {
+  const out: any = await handler()(groupMsg('lid:1110001', '@999 share the open tasks'));
+  assert.equal(out.conversationId, GROUP);
+  assert.ok(out.card, 'a picture, not text');
+  assert.equal(out.card.title, 'Open tasks · all employees');
+  assert.deepEqual(out.card.columns.map((c: any) => c.label), ['Open', 'Due today', 'Overdue']);
+  const employees = await db()('users').where({ role: 'employee' }).count({ n: '*' }).first();
+  assert.equal(out.card.rows.length, Number((employees as any).n), 'every employee is listed');
+  assert.match(out.caption, /^📋 \*Open tasks · all employees\*\n\d+ open · \d+ due today · \d+ overdue$/);
+  for (const q of ['open tickets', 'pending tasks', 'tasks of all employees', 'show team tasks']) assert.ok((await handler()(groupMsg('lid:1110001', `@999 ${q}`)) as any).card, q);
+});
+
+test('group: an employee asking for the open tasks is asked to message privately; no team data', async () => {
+  const out: any = await handler()(groupMsg('lid:2220002', '@999 share the open tasks'));
+  assert.ok(!out.card);
+  assert.match(out.text, /direct message/);
+});

@@ -334,7 +334,7 @@ export class WhatsAppAdapter {
       const mentions = tagged.mentions.length ? { mentions: tagged.mentions } : {};
       let image: Buffer | undefined;
       if (reply.card) try { image = renderCard(reply.card); } catch { image = undefined; }   // text alone if the picture fails
-      await this.socket.sendMessage(msg.conversationId, image ? { image, caption: `📋 *${reply.card!.title}*`, ...mentions } : { text: reply.text, ...mentions });
+      await this.socket.sendMessage(msg.conversationId, image ? { image, caption: reply.caption ?? `📋 *${reply.card!.title}*`, ...mentions } : { text: reply.text, ...mentions });
       this.note(msg, 'replied');
     } catch (e) {
       this.log('error', `a reply could not be sent: ${safeMessage(e)}`);

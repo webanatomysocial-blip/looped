@@ -11,6 +11,7 @@ import { EXPOSED_INTENTS } from '../actions';
 import { searchTickets, viewTicket, listMyTasks } from '../../services/ticketReads';
 import type { AIProvider } from '../ai';
 import { answerForGroup } from '../../services/productivityAssistant';
+import { openTasksCard } from '../../services/productivityReports';
 import { msg as waMsg } from '../../services/waMessage';
 
 export interface WhatsAppHandlerOptions {
@@ -24,6 +25,9 @@ export interface WhatsAppHandlerOptions {
 
 // Per-person question limit, in memory: only the one process that owns WhatsApp handles messages.
 // shortcut: resets on restart, move to the database if several copies ever answer messages.
+// "share the open tasks", "open tickets", "pending tasks of the team", "all tasks"…
+export const OPEN_TASKS = /\b(open|pending|all|team'?s?|everyone'?s?)\s+(tasks?|tickets?|work)\b|\b(tasks?|tickets?)\s+of\s+(all|everyone|the team|team|employees)\b/i;
+
 export function queryLimiter(limit = Number(process.env.WHATSAPP_QUERY_LIMIT) || 5, windowMin = Number(process.env.WHATSAPP_QUERY_WINDOW_MINUTES) || 10) {
   const seen = new Map<string, { times: number[]; warned: boolean }>();
   return {
@@ -72,6 +76,12 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
       if (groupWho.status !== 'verified') return null;
       // The group is for reports, new tickets and escalations. Questions are answered in a private chat, so one
       // person's tasks are never shown to everyone.
+      // Managers and admins can ask for everyone's open tasks in the group: the answer is one picture of all employees
+      const asked = msg.text.replace(/@\S+/g, ' ').trim();
+      if ((groupWho.role === 'manager' || groupWho.role === 'admin') && OPEN_TASKS.test(asked)) {
+        const { card, caption } = await openTasksCard(db);
+        return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: caption, caption, card };
+      }
       const user = await db('users').where({ id: groupWho.loopUserId }).first('name').catch(() => null);
       const greet = /^(hi+|hello|hey|good (morning|afternoon|evening))[\s!.,]*$/i.test(msg.text.replace(/@\S+/g, ' ').trim());
       return { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: waMsg.askInPrivate(String(user?.name ?? ''), greet) };

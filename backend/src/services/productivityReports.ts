@@ -280,3 +280,26 @@ export async function enqueueScheduledReports(db: Knex, now: Date = new Date()):
   }
   return queued;
 }
+
+// Every employee's open work right now, as one picture: asked for in the group by a manager or admin
+// ("share the open tasks"). Same task rules as the reports; zeros fade, most overdue first.
+export async function openTasksCard(db: Knex, now: Date = new Date()): Promise<{ card: Card; caption: string }> {
+  const nowMs = now.getTime();
+  const { employees, tasks } = await employeeTasks(db, nowMs);
+  const today = istParts(now).date;
+  const pods = new Map((await db('users').where({ role: 'employee' }).select('id', 'pod')).map((u: any) => [Number(u.id), u.pod ? String(u.pod).toUpperCase().replace(/^POD\s*/, 'POD ') : '']));
+  const rows: Card['rows'] = employees.map((e) => {
+    const open = (tasks.get(e.id) ?? []).filter((t) => t.open);
+    const overdue = open.filter((t) => t.overdue).length;
+    const dueToday = open.filter((t) => !t.overdue && inDay(t.deadlineMs, today)).length;
+    const next = open.filter((t) => t.deadlineMs !== null && !t.overdue).sort((a, b) => a.deadlineMs! - b.deadlineMs!)[0];
+    return { name: clean(e.name, 40), note: [pods.get(e.id), next ? `next: ${clean(next.title, 22)}` : ''].filter(Boolean).join(' · '), values: [open.length, dueToday, overdue] };
+  });
+  const sorted = rows.sort((a, b) => Number(b.values[2]) - Number(a.values[2]) || Number(b.values[0]) - Number(a.values[0]));
+  const total = (i: number) => rows.reduce((n, r) => n + Number(r.values[i]), 0);
+  const card: Card = { title: 'Open tasks · all employees', subtitle: `As of ${dayLabel(today)}, ${new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(now)} IST · ${employees.length} employees`,
+    columns: [{ label: 'Open' }, { label: 'Due today', tone: 'warn' }, { label: 'Overdue', tone: 'bad' }], rows: sorted,
+    footer: 'Open = assigned and not completed in Loop. Overdue = past its deadline.' };
+  const caption = [`📋 *Open tasks · all employees*`, `${total(0)} open · ${total(1)} due today · ${total(2)} overdue`].join('\n');
+  return { card, caption };
+}
