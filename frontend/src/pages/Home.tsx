@@ -149,18 +149,11 @@ export default function Home() {
       setDeclineComment('');
       return;
     }
-    // Only use xlr8 employee-accept if THIS user is the current stage assignee
-    if (task.ticket_type_id && (task as any).future_stage) {
-      try { await xlr8Api.stagePreAccept(task.id, (task as any).my_stage_idx); }
+    // Tickets go through the stage accept, which covers every member of the current or a later stage
+    // (the plain task accept only marks the row and never starts the ticket)
+    if (task.ticket_type_id) {
+      try { await xlr8Api.stagePreAccept(task.id, (task as any).future_stage ? (task as any).my_stage_idx : undefined); }
       catch (e: any) { alert(e?.response?.data?.error || 'Could not accept ticket'); return; }
-    } else if (task.ticket_type_id && task.xlr8_status === 'pending_assignee' && (task.xlr8_assignee_id == null || Number(task.xlr8_assignee_id) === user?.id)) {
-      try {
-        await xlr8Api.employeeAccept(task.id);
-      } catch (e: any) {
-        const msg = e?.response?.data?.error || 'Could not accept ticket';
-        alert(msg);
-        return;
-      }
     } else {
       try { await tasksApi.accept(task.id, action); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); return; }
     }

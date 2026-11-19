@@ -293,7 +293,8 @@ export async function waitingOn(db: Db, ticketId: number, fromIdx: number): Prom
 
 // Accepting a ticket covers every work stage this person has on it (someone can be on two stages)
 export async function acceptAllMyStages(db: Db, ticketId: number, userId: number): Promise<void> {
-  await db('task_assignees').where({ task_id: ticketId, user_id: userId, assignee_role: 'employee' })
+  // Manager-review stages are created 'pending' too and show the manager an Accept button, so accepting covers them
+  await db('task_assignees').where({ task_id: ticketId, user_id: userId }).whereIn('assignee_role', ['employee', 'manager'])
     .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .where((q: any) => q.whereNull('acceptance_status').orWhere('acceptance_status', 'pending'))
     .update({ acceptance_status: 'accepted' });
@@ -469,7 +470,7 @@ export async function getTicket(db: Db, actor: Actor, id: number | string) {
   }
   const log = await db('xlr8_ticket_log').where({ task_id: id }).orderBy('created_at', 'asc');
   // Whether this person still has a stage to accept (any stage), so the page can show them the Accept button
-  const myPending = !!(await db('task_assignees').where({ task_id: ticket.id, user_id: actor.id, assignee_role: 'employee' })
+  const myPending = !!(await db('task_assignees').where({ task_id: ticket.id, user_id: actor.id }).whereIn('assignee_role', ['employee', 'manager'])
     .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .where((q: any) => q.whereNull('acceptance_status').orWhere('acceptance_status', 'pending')).first());
   return { ...ticket, stages: pj(ticket.stages, []), final_approval: pj(ticket.final_approval, {}), log, my_acceptance_pending: myPending };

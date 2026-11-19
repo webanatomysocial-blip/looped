@@ -29,3 +29,17 @@ test('a later-stage member can accept from the ticket (was "Ticket not found"); 
   assert.equal((await db()('tasks').where({ id }).first()).xlr8_status, 'in_progress');
   assert.equal((await getTicket(db(), who('c'), id) as any).my_acceptance_pending, false);
 });
+
+test('a manager on a review stage can accept it (the button used to do nothing); it never holds up the start', async () => {
+  const [id] = await db()('tasks').insert({ title: 'r', project_id: U.P, created_by: U.m, status: 'todo', priority: 'high', ticket_type_id: U.T, xlr8_status: 'pending_assignee', xlr8_stage_idx: 0, xlr8_assignee_id: U.a, assigned_to: U.a });
+  await db()('task_assignees').insert({ task_id: id, user_id: U.a, assignee_role: 'employee', acceptance_status: 'pending', stage_idx: 0, skipped: 0 });
+  await db()('task_assignees').insert({ task_id: id, user_id: U.m, assignee_role: 'manager', acceptance_status: 'pending', stage_idx: 1, skipped: 0 });
+  const mgr = { id: U.m, role: 'manager', name: 'm' } as any;
+  assert.equal((await getTicket(db(), mgr, id) as any).my_acceptance_pending, true);
+  await acceptCurrentStage(db(), mgr, id);
+  assert.equal((await db()('task_assignees').where({ task_id: id, user_id: U.m }).first()).acceptance_status, 'accepted');
+  assert.equal((await getTicket(db(), mgr, id) as any).my_acceptance_pending, false, 'the Accept button goes away');
+  await assert.rejects(acceptCurrentStage(db(), mgr, id), /already accepted/);
+  await acceptCurrentStage(db(), who('a'), id);
+  assert.equal((await db()('tasks').where({ id }).first()).xlr8_status, 'in_progress');
+});
