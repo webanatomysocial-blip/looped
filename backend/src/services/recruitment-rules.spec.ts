@@ -14,7 +14,7 @@ import * as R from './recruitment';
 
 const admin = { id: 1, role: 'admin', name: 'Admin' } as R.Actor;
 const mgr = { id: 2, role: 'manager', name: 'Mgr' } as R.Actor;
-const noMail: R.Mailer = { interviewInvite: async () => undefined, scheduled: async () => undefined, cancelled: async () => undefined, selected: async () => undefined };
+const noMail: R.Mailer = { interviewInvite: async () => undefined, scheduled: async () => undefined, cancelled: async () => undefined, selected: async () => undefined, welcome: async () => undefined };
 let jobA: any, jobB: any, jobA2: any; let n = 0;
 const RESUME = { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' };
 const person = (email: string, phone = '+91 98765 43210') => ({ name: 'Asha', email, phone, experience_years: 1 });
@@ -197,4 +197,20 @@ test('once: openings and questions that pointed at Loop departments move to care
   assert.equal(Number((await d('employee_categories').count({ n: '*' }).first() as any).n), loop, 'Loop departments unchanged');
   await R.ensureRecruitmentSchema(d);
   assert.equal((await d('rec_roles').where({ name: 'Legacy Role' })).length, 1, 'runs once');
+});
+
+test('a candidate who confirmed WhatsApp and writes to the bot is pointed to email once; anyone else is unchanged', async () => {
+  const { candidateReply, CANDIDATE_EMAIL } = await import('../assistant/whatsapp/handler');
+  const { ref } = await apply(jobB, 'wa@x.test', '9888888888');
+  const a = await app(ref);
+  const msg = { senderId: 'lid:123456789', senderPhoneId: '+919888888888', conversationId: '123456789@lid' };
+  assert.equal(await candidateReply(getDB(), msg, 1000), undefined, 'not confirmed yet: usual handling');
+  await getDB()('rec_applications').where({ id: a.id }).update({ whatsapp: '919888888888', whatsapp_confirmed_at: new Date() });
+  const r = await candidateReply(getDB(), msg, 2000);
+  assert.ok(r && r.includes(CANDIDATE_EMAIL) && r.includes(ref) && r.startsWith('Hi Asha'), String(r));
+  assert.equal(await candidateReply(getDB(), msg, 3000), null, 'quiet after telling once');
+  assert.ok(await candidateReply(getDB(), msg, 2000 + 6 * 3600_000 + 1), 'told again after 6 hours');
+  // Recognised by the chat's phone address too
+  assert.ok(await candidateReply(getDB(), { senderId: 'opaque:x', conversationId: '919888888888@s.whatsapp.net' }, 99 * 3600_000));
+  assert.equal(await candidateReply(getDB(), { senderId: '+919000011111', conversationId: '919000011111@s.whatsapp.net' }, 5000), undefined, 'unknown number: unchanged (silent)');
 });

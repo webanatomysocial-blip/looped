@@ -58,7 +58,7 @@ before(async () => {
   // Three general questions keep the interviews in these tests short (every active question is asked)
   const keep = (await db('rec_questions').orderBy('id').limit(3).pluck('id'));
   await db('rec_questions').whereNotIn('id', keep).update({ active: false });
-  for (const m of ['interviewInvite', 'scheduled', 'cancelled', 'selected'] as const) (R.defaultMailer as any)[m] = async (a: any) => { sent.push(`${m}:${a.email}`); };
+  for (const m of ['interviewInvite', 'scheduled', 'cancelled', 'selected', 'welcome'] as const) (R.defaultMailer as any)[m] = async (a: any) => { sent.push(`${m}:${a.email}`); };
   const app = express();
   app.use(express.json());
   app.use('/api/recruitment', recruitmentRoutes);
@@ -307,6 +307,7 @@ test('interview: recording uploads in order; repeats are ignored; gaps are refus
   assert.equal(msg.to, '919876543210@s.whatsapp.net', 'a private chat to the confirmed number');
   assert.ok(msg.text.includes(conf.tracking_url) && /welcome/i.test(msg.text), 'greeting with the new tracking link');
   assert.equal(welcome.status, 'pending', 'queued only: nothing is sent during tests');
+  assert.ok(sent.includes('welcome:asha@x.test'), 'the thank-you email goes to the address on the application');
   // The old tracking link stops working; the new one opens the application
   await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 404);
   assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${conf.tracking_url.split('/').pop()}`, 200)).ref, (await getDB()('rec_applications').where({ id: APP_ID }).first()).ref);

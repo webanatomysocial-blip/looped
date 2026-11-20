@@ -45,6 +45,26 @@ export function queryLimiter(limit = Number(process.env.WHATSAPP_QUERY_LIMIT) ||
   };
 }
 
+// Candidates confirm their WhatsApp number after the video interview and get updates from this number. Replies here
+// aren't read, so they are pointed to email: once per number every 6 hours (no reply loops). Matched by the phone
+// number WhatsApp reports for the sender (or the chat), against numbers candidates confirmed. Anyone else: unchanged.
+export const CANDIDATE_EMAIL = 'webanatomysocial@gmail.com';
+const CANDIDATE_QUIET_MS = 6 * 3600_000;
+const candidateTold = new Map<string, number>();
+export async function candidateReply(db: Knex, msg: { senderId: string; senderPhoneId?: string; conversationId: string }, now: number): Promise<string | null | undefined> {
+  const nums = [msg.senderId, msg.senderPhoneId, msg.conversationId]
+    .map((v) => String(v ?? '')).filter((v) => v.startsWith('+') || /@s\.whatsapp\.net$/.test(v))
+    .map((v) => v.replace(/@.*$/, '').replace(/\D/g, '')).filter((d) => d.length >= 11 && d.length <= 15);
+  if (!nums.length) return undefined;
+  const app = await db('rec_applications').whereIn('whatsapp', [...new Set(nums)]).whereNotNull('whatsapp_confirmed_at').orderBy('id', 'desc').first('ref', 'name', 'whatsapp').catch(() => null);
+  if (!app) return undefined;   // not a candidate: the usual handling (unknown senders stay silent)
+  const last = candidateTold.get(String(app.whatsapp));
+  if (last && now - last < CANDIDATE_QUIET_MS) return null;   // told recently: say nothing
+  candidateTold.set(String(app.whatsapp), now);
+  const first = String(app.name ?? '').trim().split(/\s+/)[0];
+  return `Hi${first ? ` ${first}` : ''}! This WhatsApp number only sends updates about your application, so messages here aren't read.\n\nFor any questions, please email us at ${CANDIDATE_EMAIL} and mention your reference number ${app.ref}.\n\nThank you!`;
+}
+
 export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
   const limiter = queryLimiter();
   const engine = new RequestEngine({
@@ -89,6 +109,11 @@ export function buildWhatsAppHandler(db: Knex, o: WhatsAppHandlerOptions) {
     // Private chat. Managers and admins can also ask about their team (hours, workload, summary); their own tasks,
     // task details and search go to the personal assistant like everyone else's.
     const who = await identity.resolve(msg.channel, msg.senderId);
+    // A job candidate (not Loop staff) replying to their application updates: one pointer to email, then quiet for a while
+    if (who.status !== 'verified') {
+      const reply = await candidateReply(db, msg, Date.now());
+      if (reply !== undefined) return reply ? { channel: 'whatsapp' as Channel, conversationId: msg.conversationId, text: reply } : null;
+    }
     // Employees: a limited number of questions per window, then one cool-down note and silence until it ends.
     // Only incoming questions count; reminders and alerts go through the outbox and are never limited.
     if (who.status === 'verified' && who.role === 'employee') {

@@ -17,6 +17,42 @@ const END = () => new Blob([new Uint8Array(1)]);   // one empty byte: "this part
 const msg = (e: any) => e?.response?.data?.error || 'Something went wrong. Please try again.';
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
 
+// After the interview: the candidate confirms their WhatsApp number (prefilled from the application). Confirming
+// sends a welcome message with a new private tracking link to that number (the earlier link stops working).
+function WhatsAppConfirm({ token, phone, done }: { token: string; phone: string; done: boolean }) {
+  const [number, setNumber] = useState(phone || ''); const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState<{ tracking_url: string; number: string } | null>(null); const [error, setError] = useState('');
+  if (sent) return (
+    <section className="careers-block">
+      <div className="careers-ok">Confirmed. Updates about your application will come to WhatsApp <b>+{sent.number}</b>. We've just sent you a welcome message with your private status link.</div>
+      <p className="careers-text" style={{ marginTop: 12 }}><b>Your status link</b> (keep it private; any earlier link no longer works):</p>
+      <div className="careers-track-link"><a href={sent.tracking_url}>{sent.tracking_url}</a></div>
+    </section>
+  );
+  if (done) return <section className="careers-block"><p className="careers-text">Your WhatsApp number is confirmed. Updates about your application will come there.</p></section>;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setError(''); setBusy(true);
+    try { setSent((await careersApi.confirmWhatsApp(token, number)).data); }
+    catch (err: any) { setError(err?.response?.data?.error || 'Could not confirm the number. Please try again.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <form className="iv-wa" onSubmit={submit}>
+      <div className="iv-wa__icon" aria-hidden="true">💬</div>
+      <div className="iv-wa__body">
+        <h3>Get updates on WhatsApp</h3>
+        <p>Updates about your interview will come to your WhatsApp. Please confirm your number.</p>
+        <div className="iv-wa__row">
+          <input className="form-input" type="tel" inputMode="tel" required value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 98765 43210" aria-label="WhatsApp number" />
+          <button className="btn-primary" disabled={busy || !number.trim()}>{busy ? 'Confirming…' : 'Confirm number'}</button>
+        </div>
+        <span className="rec-muted" style={{ fontSize: 12 }}>10 digits are taken as an Indian number; for other countries, include the country code.</span>
+        {error && <p className="rec-error" role="alert">{error}</p>}
+      </div>
+    </form>
+  );
+}
+
 // When something goes wrong (camera, microphone, recording, upload): a direct way to reach the team
 const HELP_TO = 'webanatomysocial@gmail.com,srujan@mosol9.com,supraja@mosol9.com';
 function HelpBox({ job, name, problem }: { job: string; name: string; problem?: string }) {
@@ -266,7 +302,7 @@ export default function CareerInterview() {
 
   if (error && !st) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
   if (!st) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
-  if (phase === 'done') return <CareersShell><div className="rec-card careers-detail"><h1>Interview submitted ✓</h1><p className="careers-text">Thank you, {st.name}. Your video interview for {st.job} has been received and will be reviewed by our team.</p>{trackBox}</div></CareersShell>;
+  if (phase === 'done') return <CareersShell><div className="rec-card careers-detail"><h1>Interview submitted ✓</h1><p className="careers-text">Thank you, {st.name}. Your video interview for {st.job} has been received and will be reviewed by our team.</p><WhatsAppConfirm token={token!} phone={st.phone} done={st.whatsapp_confirmed} /></div></CareersShell>;
   if (st.state === 'closed') return <CareersShell><div className="rec-empty">This interview is no longer available.</div></CareersShell>;
 
   if (phase === 'intro') return (

@@ -482,7 +482,7 @@ export function whatsappJid(input: unknown): { digits: string; jid: string } | n
 
 // The candidate confirms their WhatsApp number after the video interview. Then the welcome message and a NEW tracking
 // link are queued for WhatsApp (the old link stops working: only its scrambled form is stored, so it can't be sent again).
-export async function confirmWhatsApp(db: Knex, a: any, input: unknown, now = new Date()): Promise<{ tracking_url: string; number: string }> {
+export async function confirmWhatsApp(db: Knex, a: any, input: unknown, now = new Date(), mail: Mailer = defaultMailer): Promise<{ tracking_url: string; number: string }> {
   const iv = await db('rec_interviews').where({ application_id: a.id }).first('status');
   if (!iv || iv.status !== 'submitted') throw new ServiceError(409, 'Please finish the video interview first');
   const fresh = await db('rec_applications').where({ id: a.id }).first('whatsapp_confirmed_at');
@@ -505,6 +505,8 @@ export async function confirmWhatsApp(db: Knex, a: any, input: unknown, now = ne
     payload: JSON.stringify({ text, caption: text, mentions: [], tags: [], to: num.jid }),
     status: 'pending', attempts: 0, next_attempt_at: now, created_at: now,
   }).catch((e: any) => { if (!/unique|duplicate/i.test(String(e?.message))) throw e; });
+  // The same thanks and link by email, to the address on the application (never blocks: a mail failure is only logged)
+  await mail.welcome(a, job?.title ?? 'the role', link);
   return { tracking_url: link, number: num.digits };
 }
 
@@ -836,6 +838,7 @@ export interface Mailer {
   scheduled(a: any, job: string, s: any, resched: boolean): Promise<void>;
   cancelled(a: any, job: string, reason: string): Promise<void>;
   selected(a: any, job: string): Promise<void>;
+  welcome(a: any, job: string, link: string): Promise<void>;
 }
 const site = () => (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://looped.in').replace(/\/$/, '');
 async function sendMail(to: { email: string; name: string }, subject: string, body: string) {
@@ -845,6 +848,8 @@ async function sendMail(to: { email: string; name: string }, subject: string, bo
   catch { console.error('[recruitment] candidate email could not be sent'); }
 }
 export const defaultMailer: Mailer = {
+  welcome: (a, job, link) => sendMail({ email: a.email, name: a.name }, `Thank you for applying for ${job}`,
+    `Hi ${a.name},\n\nThank you for applying for ${job} and for completing your video interview (reference ${a.ref}).\n\nOur team will review your application and keep you updated here and on WhatsApp.\n\nYou can check your application status any time with this private link (please keep it to yourself):\n${link}\n\nBest wishes,\nThe Loooped team`),
   interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `Your video interview for ${job}`,
     `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${expires.toDateString()}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
   scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Updated: ' : ''}Final interview for ${job}`,
