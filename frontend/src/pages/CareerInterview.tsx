@@ -17,6 +17,20 @@ const END = () => new Blob([new Uint8Array(1)]);   // one empty byte: "this part
 const msg = (e: any) => e?.response?.data?.error || 'Something went wrong. Please try again.';
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
 
+// When something goes wrong (camera, microphone, recording, upload): a direct way to reach the team
+const HELP_TO = 'webanatomysocial@gmail.com,srujan@mosol9.com,supraja@mosol9.com';
+function HelpBox({ job, name, problem }: { job: string; name: string; problem?: string }) {
+  const subject = `Video interview problem: ${job}${name ? ` (${name})` : ''}`;
+  const body = `Hi team,\n\nI had a problem with my video interview for ${job}.\n\nWhat happened: ${problem || ''}\n\nBrowser / device: ${navigator.userAgent}\n\nThank you,\n${name || ''}`;
+  const href = `mailto:${HELP_TO}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  return (
+    <div className="iv-help" role="alert">
+      <div><b>Having trouble with your interview?</b><span>Something didn't work as expected. Write to us and we'll help you finish it. Your progress so far is saved.</span></div>
+      <a className="btn-primary" href={href}>✉ Email us</a>
+    </div>
+  );
+}
+
 export default function CareerInterview() {
   const { token } = useParams();
   // Coming straight from the application form: the private tracking link, so it isn't lost
@@ -271,7 +285,7 @@ export default function CareerInterview() {
         <div className="rec-section">
           <h3>Camera &amp; microphone</h3>
           {stream ? (
-            <div className="iv-cam" style={{ maxWidth: 420 }}><video ref={video} autoPlay muted playsInline /><p className="rec-muted">✓ Camera {stream.getVideoTracks().length ? 'connected' : 'missing'} · ✓ Microphone {stream.getAudioTracks().length ? 'connected' : 'missing'}</p></div>
+            <div className="iv-cam" style={{ maxWidth: 640 }}><video ref={video} autoPlay muted playsInline /><p className="rec-muted">✓ Camera {stream.getVideoTracks().length ? 'connected' : 'missing'} · ✓ Microphone {stream.getAudioTracks().length ? 'connected' : 'missing'}</p></div>
           ) : <div><button className="btn-secondary" onClick={getDevices}>Check camera &amp; microphone</button></div>}
           {deviceError && <p className="rec-error">{deviceError}</p>}
         </div>
@@ -283,6 +297,7 @@ export default function CareerInterview() {
           </div>
         )}
         {error && <p className="rec-error">{error}</p>}
+        {(error || deviceError) && <HelpBox job={st.job} name={st.name} problem={error || deviceError} />}
         {!pickMime() && typeof MediaRecorder === 'undefined' && <p className="rec-error">This browser cannot record video. Please use the latest Chrome, Edge, Firefox or Safari.</p>}
         <button className="btn-primary" disabled={!stream || (st.state === 'not_started' && !consent)} onClick={begin}>{st.state === 'in_progress' ? 'Resume interview' : 'Start interview'}</button>
       </div>
@@ -291,8 +306,8 @@ export default function CareerInterview() {
 
   const total = st.question_count; const pos = Math.min(st.position, total);
   return (
-    <CareersShell>
-      <div className="rec-card rec-card--pad">
+    <CareersShell wide>
+      <div className="rec-card rec-card--pad iv-live">
         <div className="iv-progress" style={{ marginBottom: 14 }}><i style={{ width: `${(pos / total) * 100}%` }} /></div>
         {offline && <div className="iv-warn" style={{ marginBottom: 12 }}>You're offline. Keep this page open; the recording will upload when the connection returns.</div>}
         <div className="iv-stage">
@@ -309,7 +324,7 @@ export default function CareerInterview() {
             </>) : (<>
               <p className="iv-question">Finishing up…</p>
               <p className="careers-text">{pending > 0 ? `Uploading your recording (${pending} part${pending > 1 ? 's' : ''} left). Please keep this page open.` : 'Submitting your interview…'}</p>
-              {submitError && <><p className="rec-error">{submitError}</p><div><button className="btn-primary" onClick={finish}>Try again</button></div></>}
+              {submitError && <><p className="rec-error">{submitError}</p><div><button className="btn-primary" onClick={finish}>Try again</button></div><HelpBox job={st.job} name={st.name} problem={submitError} /></>}
             </>)}
             {pending > 2 && phase === 'live' && <span className="rec-muted">Uploading… {pending} parts waiting</span>}
           </div>
