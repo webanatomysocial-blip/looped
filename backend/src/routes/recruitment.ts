@@ -118,7 +118,10 @@ router.get('/applications', run(async (req) => {
   if (to) q.where('a.created_at', '<=', `${String(to).slice(0, 10)} 23:59:59`);
   if (search) { const s = `%${String(search).slice(0, 60)}%`; q.where((w: any) => w.where('a.name', 'like', s).orWhere('a.email', 'like', s).orWhere('a.ref', 'like', s)); }
   const rows = await q.orderBy('a.id', 'desc').limit(500);
-  return rows.map((r: any) => ({ ...r, status_label: R.STATUS_LABEL[r.status] ?? r.status }));
+  // How much storage each applicant's files use (shown so test or old applicants can be cleared)
+  const files = await getDB()('rec_applications').whereIn('id', rows.map((r: any) => r.id)).select('id', 'resume_file');
+  const sizes = await R.storageBytes(getDB(), files);
+  return rows.map((r: any) => ({ ...r, status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0 }));
 }));
 
 router.get('/applications/:id', run(async (req) => {
@@ -191,6 +194,7 @@ router.post('/applications/:id/schedule', run(async (req) => R.schedule(getDB(),
 router.put('/applications/:id/schedule/:sid', run(async (req) => R.schedule(getDB(), actor(req), num(req.params.id), req.body ?? {}, R.defaultMailer, num(req.params.sid))));
 router.post('/applications/:id/schedule/:sid/cancel', run(async (req) => R.cancelSchedule(getDB(), actor(req), num(req.params.id), num(req.params.sid), req.body?.reason)));
 router.post('/applications/:id/final-completed', run(async (req) => R.completeFinal(getDB(), actor(req), num(req.params.id), req.body?.comment)));
+router.post('/applications/bulk-delete', requireRoles('admin'), run(async (req) => R.deleteCandidates(getDB(), actor(req), Array.isArray(req.body?.ids) ? req.body.ids : [])));
 router.delete('/applications/:id', requireRoles('admin'), run(async (req) => R.deleteCandidate(getDB(), num(req.params.id))));
 
 // People who can be interviewers

@@ -393,6 +393,7 @@ export const recruitmentApi = {
   cancelSchedule: (id: number, sid: number, reason: string) => api.post(`/recruitment/applications/${id}/schedule/${sid}/cancel`, { reason }),
   finalCompleted: (id: number) => api.post(`/recruitment/applications/${id}/final-completed`, {}),
   deleteCandidate: (id: number) => api.delete(`/recruitment/applications/${id}`),
+  deleteCandidates: (ids: number[]) => api.post('/recruitment/applications/bulk-delete', { ids }),
   staff: () => api.get('/recruitment/staff'),
   questions: () => api.get('/recruitment/questions'),
   questionCategories: () => api.get('/recruitment/question-categories'),

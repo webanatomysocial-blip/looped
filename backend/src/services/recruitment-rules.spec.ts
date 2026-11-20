@@ -162,3 +162,21 @@ test('media links are never signed without the server secret', () => {
     assert.equal(R.checkMedia('resume', 1, 0, Date.now() / 1000 + 60, 'x'), false);
   } finally { if (saved) process.env.JWT_SECRET = saved; }
 });
+
+test('storage per applicant is measured from disk; only an admin can delete several applicants at once, completely', async () => {
+  const mk = async (email: string, phone: string) => { const { ref } = await apply(jobB, email, phone); const a = await app(ref); fs.writeFileSync(path.join(R.resumeDir(), a.resume_file), Buffer.alloc(2048)); return a; };
+  const a1 = await mk('bulk1@x.test', '9777777771'); const a2 = await mk('bulk2@x.test', '9777777772'); const keep = await mk('keep@x.test', '9777777773');
+  const iv = await R.startInterview(getDB(), await at(a1.ref, 'prelim_pending', { interview_expires_at: new Date(Date.now() + 86_400_000) }), { accepted: true, version: 'v1' });
+  fs.mkdirSync(path.join(R.storageDir(), 'recordings', String(iv.id), 'segment-0'), { recursive: true });
+  fs.writeFileSync(path.join(R.storageDir(), 'recordings', String(iv.id), 'segment-0', '000000.part'), Buffer.alloc(5000));
+  const sizes = await R.storageBytes(getDB(), [a1, a2]);
+  assert.equal(sizes.get(a1.id), 2048 + 5000, 'resume + recording');
+  assert.equal(sizes.get(a2.id), 2048);
+  await assert.rejects(R.deleteCandidates(getDB(), mgr, [a1.id]), /Only an admin/);
+  await assert.rejects(R.deleteCandidates(getDB(), admin, []), /at least one/);
+  const r = await R.deleteCandidates(getDB(), admin, [a1.id, a2.id, a1.id]);
+  assert.deepEqual([r.deleted, r.freed_bytes, r.failed], [2, 2048 + 5000 + 2048, []]);
+  assert.equal(await app(a1.ref), undefined); assert.equal(await app(a2.ref), undefined);
+  assert.ok(!fs.existsSync(path.join(R.storageDir(), 'recordings', String(iv.id))), 'recording files gone');
+  assert.ok(await app(keep.ref), 'others untouched');
+});

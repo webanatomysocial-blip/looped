@@ -229,7 +229,24 @@ function JobForm({ job, departments, onClose, onSaved }: { job: any; departments
 function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; departments: any[]; queue: string; setQueue: (q: string) => void }) {
   const [f, setF] = useState<any>({}); const [search, setSearch] = useState('');
   const [rows, setRows] = useState<any[] | null>(null); const [open, setOpen] = useState<number | null>(null);
-  const load = () => api.applications({ ...f, status: queue || undefined, search: search || undefined }).then((r) => setRows(r.data)).catch(() => setRows([]));
+  const isAdmin = useAuth().user?.role === 'admin';
+  const [picked, setPicked] = useState<Set<number>>(new Set()); const [deleting, setDeleting] = useState(false);
+  const load = () => api.applications({ ...f, status: queue || undefined, search: search || undefined }).then((r) => { setRows(r.data); setPicked(new Set()); }).catch(() => setRows([]));
+  const mb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(0, Math.round(b / 1024))} KB`);
+  const total = (rows ?? []).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
+  const pickedBytes = (rows ?? []).filter((r) => picked.has(r.id)).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
+  const toggle = (id: number) => setPicked((p) => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s; });
+  const allOn = !!rows?.length && rows.every((r) => picked.has(r.id));
+  // Removes the applicants completely: application, history, scores, interview, resume and recording. Not undoable.
+  const removePicked = async () => {
+    const n = picked.size;
+    if (prompt(`Delete ${n} applicant${n > 1 ? 's' : ''} completely (application, interview, resume and recording, ${mb(pickedBytes)})? This cannot be undone.\n\nType DELETE to confirm.`) !== 'DELETE') return;
+    setDeleting(true);
+    try {
+      const r = await api.deleteCandidates([...picked]);
+      alert(`Deleted ${r.data.deleted} applicant${r.data.deleted === 1 ? '' : 's'}, freed ${mb(r.data.freed_bytes)}.${r.data.failed.length ? ` ${r.data.failed.length} could not be deleted.` : ''}`);
+    } catch (e) { alert(err(e)); } finally { setDeleting(false); load(); }
+  };
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [JSON.stringify(f), queue, search]);
   return (<>
     <div className="rec-tabs">
@@ -237,17 +254,23 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
       {QUEUES.map(([l, s]) => <button key={s} className={`rec-tab ${queue === s ? 'rec-tab--on' : ''}`} onClick={() => setQueue(s)}>{l}</button>)}
     </div>
     <Filters jobs={jobs} departments={departments} f={f} setF={setF} extra={<input className="form-input" placeholder="Search name, email, reference" value={search} onChange={(e) => setSearch(e.target.value)} />} />
+    <div className="rec-actions" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
+      <span className="rec-muted">{rows ? `${rows.length} applicant${rows.length === 1 ? '' : 's'} · ${mb(total)} of storage` : ''}</span>
+      {isAdmin && picked.size > 0 && <button className="rec-btn-danger" disabled={deleting} onClick={removePicked}>{deleting ? 'Deleting…' : `Delete selected (${picked.size} · ${mb(pickedBytes)})`}</button>}
+    </div>
     <div className="rec-card rec-table-wrap">
       <table className="rec-table">
-        <thead><tr><th>Candidate</th><th>Opening</th><th>Experience</th><th>Status</th><th>Applied</th></tr></thead>
-        <tbody>{rows === null ? <tr><td colSpan={5} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => (
+        <thead><tr>{isAdmin && <th style={{ width: 32 }}><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set((rows ?? []).map((r) => r.id)))} /></th>}<th>Candidate</th><th>Opening</th><th>Experience</th><th>Status</th><th>Applied</th><th>Storage</th></tr></thead>
+        <tbody>{rows === null ? <tr><td colSpan={7} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => (
           <tr key={r.id} className="rec-row" onClick={() => setOpen(r.id)}>
+            {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} /></td>}
             <td><b>{r.name}</b><div className="rec-sub">{r.ref} · {r.email}</div></td>
             <td>{r.job_title}<div className="rec-sub">{r.department ?? ''}</div></td>
             <td>{Number(r.experience_years)} yrs</td>
             <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span></td>
             <td>{dt(r.created_at)}</td>
-          </tr>)) : <tr><td colSpan={5} className="rec-muted">No applications here.</td></tr>}</tbody>
+            <td style={{ whiteSpace: 'nowrap' }}>{mb(Number(r.storage_bytes || 0))}</td>
+          </tr>)) : <tr><td colSpan={7} className="rec-muted">No applications here.</td></tr>}</tbody>
       </table>
     </div>
     {open && <ApplicationDrawer id={open} onClose={() => setOpen(null)} onChanged={load} />}

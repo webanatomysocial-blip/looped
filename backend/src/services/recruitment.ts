@@ -796,6 +796,40 @@ export async function deleteCandidate(db: Knex, appId: number) {
   console.log(`[recruitment] candidate data deleted for ${a.ref}`);
 }
 
+// ── Storage: what each applicant's files take on disk (resume, recording chunks and the built recording) ──
+const sizeOf = (p: string): number => {
+  try {
+    const st = fs.statSync(p);
+    return st.isDirectory() ? fs.readdirSync(p).reduce((n, f) => n + sizeOf(path.join(p, f)), 0) : st.size;
+  } catch { return 0; }   // already gone
+};
+export async function storageBytes(db: Knex, apps: { id: number; resume_file: string }[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!apps.length) return out;
+  const ivs = await db('rec_interviews').whereIn('application_id', apps.map((a) => a.id)).select('id', 'application_id');
+  const ivOf = new Map(ivs.map((r: any) => [Number(r.application_id), Number(r.id)]));
+  for (const a of apps) {
+    const iv = ivOf.get(Number(a.id));
+    out.set(Number(a.id), sizeOf(path.join(resumeDir(), a.resume_file)) + (iv ? sizeOf(path.join(storageDir(), 'recordings', String(iv))) : 0));
+  }
+  return out;
+}
+/** Admin only: removes several applicants completely (records and files), one by one; returns what was freed. */
+export async function deleteCandidates(db: Knex, actor: Actor, ids: number[]) {
+  if (actor.role !== 'admin') throw new ServiceError(403, 'Only an admin can delete applicants');
+  const unique = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 500);
+  if (!unique.length) throw new ServiceError(400, 'Choose at least one applicant');
+  const rows = await db('rec_applications').whereIn('id', unique).select('id', 'resume_file');
+  const sizes = await storageBytes(db, rows);
+  let deleted = 0; let freed = 0; const failed: number[] = [];
+  for (const r of rows) {
+    try { await deleteCandidate(db, Number(r.id)); deleted++; freed += sizes.get(Number(r.id)) ?? 0; }
+    catch { failed.push(Number(r.id)); }
+  }
+  console.log(`[recruitment] ${actor.name} deleted ${deleted} applicant(s)`);
+  return { deleted, freed_bytes: freed, failed };
+}
+
 // Signed, short-lived media links: a <video> tag cannot send the login header, so playback uses a link that only
 // works for this file, for a few minutes.
 // No fallback: without the server secret, links are refused rather than signed with a guessable key
