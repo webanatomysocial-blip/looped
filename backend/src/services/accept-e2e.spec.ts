@@ -17,6 +17,7 @@ import { requirePage, authenticate, AuthRequest } from '../middleware/auth';
 import { sensitiveLimiter } from '../middleware/rateLimits';
 import { canUsePage } from './access';
 import { recoverInterruptedTransitions } from './xlr8';
+import { listenLocal } from '../testServer';
 
 let base = '';
 let server: any;
@@ -78,7 +79,7 @@ before(async () => {
   app.use('/api/capacity', authenticate, capacityRoutes);
   app.get('/probe/seo', requirePage('/seo'), (_req: express.Request, res: express.Response) => { res.json({ ok: true }); });
   app.post('/probe/sensitive', authenticate, sensitiveLimiter, (_req: AuthRequest, res: express.Response) => { res.json({ ok: true }); });
-  server = app.listen(0);
+  server = await listenLocal(app);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 

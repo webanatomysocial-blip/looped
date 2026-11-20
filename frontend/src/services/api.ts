@@ -370,3 +370,53 @@ export const assistantAdminApi = {
 };
 
 export default api;
+
+// Recruitment (admins and managers)
+export const recruitmentApi = {
+  overview: (params?: Record<string, any>) => api.get('/recruitment/overview', { params }),
+  departments: () => api.get('/recruitment/departments'),
+  addDepartment: (name: string) => api.post('/recruitment/departments', { name }),
+  interviewLink: (id: number, mode: 'new' | 'extend') => api.post(`/recruitment/applications/${id}/interview-link`, { mode }),
+  allowReapply: (id: number, reason: string) => api.post(`/recruitment/applications/${id}/allow-reapply`, { reason }),
+  jobs: () => api.get('/recruitment/jobs'),
+  createJob: (data: any) => api.post('/recruitment/jobs', data),
+  updateJob: (id: number, data: any) => api.put(`/recruitment/jobs/${id}`, data),
+  deleteJob: (id: number) => api.delete(`/recruitment/jobs/${id}`),
+  applications: (params?: Record<string, any>) => api.get('/recruitment/applications', { params }),
+  application: (id: number) => api.get(`/recruitment/applications/${id}`),
+  decide: (id: number, action: 'approve' | 'reject' | 'reopen', comment?: string) => api.post(`/recruitment/applications/${id}/decision`, { action, comment }),
+  resumeLink: (id: number) => api.get(`/recruitment/applications/${id}/resume-link`),
+  recordingLinks: (interviewId: number) => api.get(`/recruitment/interviews/${interviewId}/recording-links`),
+  evaluate: (id: number, data: any) => api.post(`/recruitment/applications/${id}/evaluations`, data),
+  schedule: (id: number, data: any) => api.post(`/recruitment/applications/${id}/schedule`, data),
+  reschedule: (id: number, sid: number, data: any) => api.put(`/recruitment/applications/${id}/schedule/${sid}`, data),
+  cancelSchedule: (id: number, sid: number, reason: string) => api.post(`/recruitment/applications/${id}/schedule/${sid}/cancel`, { reason }),
+  finalCompleted: (id: number) => api.post(`/recruitment/applications/${id}/final-completed`, {}),
+  deleteCandidate: (id: number) => api.delete(`/recruitment/applications/${id}`),
+  staff: () => api.get('/recruitment/staff'),
+  questions: () => api.get('/recruitment/questions'),
+  questionCategories: () => api.get('/recruitment/question-categories'),
+  addQuestion: (data: any) => api.post('/recruitment/questions', data),
+  updateQuestion: (id: number, data: any) => api.put(`/recruitment/questions/${id}`, data),
+  deleteQuestion: (id: number) => api.delete(`/recruitment/questions/${id}`),
+  settings: () => api.get('/recruitment/settings'),
+  saveSettings: (data: any) => api.put('/recruitment/settings', data),
+};
+
+// Public careers pages: no Loop login, so a plain client (no token, no redirect to the login page)
+const pub = axios.create({ baseURL: '/api/public/careers' });
+export const careersApi = {
+  jobs: () => pub.get('/jobs'),
+  job: (id: string) => pub.get(`/jobs/${id}`),
+  apply: (id: string, form: FormData) => pub.post(`/jobs/${id}/apply`, form),
+  track: (token: string) => pub.get(`/applications/${token}`),
+  withdraw: (token: string) => pub.post(`/applications/${token}/withdraw`),
+  interviewLink: (token: string) => pub.post(`/applications/${token}/interview-link`),
+  interview: (token: string) => pub.get(`/interview/${token}`),
+  start: (token: string, consent_version: string) => pub.post(`/interview/${token}/start`, { consent: true, consent_version }),
+  next: (token: string, position: number) => pub.post(`/interview/${token}/next`, { position }),
+  events: (token: string, events: any[]) => pub.post(`/interview/${token}/events`, { events }),
+  chunk: (token: string, form: FormData) => pub.post(`/interview/${token}/chunk`, form),
+  audio: (token: string, form: FormData) => pub.post(`/interview/${token}/audio`, form),
+  submit: (token: string) => pub.post(`/interview/${token}/submit`),
+};

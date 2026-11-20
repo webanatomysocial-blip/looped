@@ -17,6 +17,7 @@ import { RecordingAIProvider, usageSummary } from './aiUsage';
 import { listEmployeeLinking, linkEmployees } from './employeeLinking';
 import { AIError, AIProvider } from './ai';
 import { createLinkCode, verifyLinkCode } from './identityStore';
+import { listenLocal } from '../testServer';
 
 const db = () => getDB();
 const U: Record<string, { id: number; role: string; name: string }> = {};
@@ -51,7 +52,7 @@ before(async () => {
   await createLinkCode(db(), { userId: U.failed.id, channel: 'whatsapp', phone: '+919000000003', createdBy: U.failed.id, via: 'self', now: new Date(Date.now() - 3_600_000) });
   const app = express(); app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: { ai: { provider: 'openai', model: 'gpt-5.4-nano' } } as any, whatsappStatus: () => ({ enabled: true, state: 'connected', account: '+91 •••• 1111' }), whatsappGroups: async () => [{ name: 'Loop Testing', jid: '120363412745413406@g.us' }] }));
-  server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  server = await listenLocal(app); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 after(async () => { server?.closeAllConnections?.(); server?.close(); await db().destroy(); });
 
@@ -199,7 +200,7 @@ test('pairing endpoint: admins only, never cached, QR image only while the conne
     whatsappNewPairing: () => { newRounds++; return true; },
     renderQr: async (qr) => `data:image/svg+xml;base64,${Buffer.from(`<svg>${qr.length}</svg>`).toString('base64')}`,
   }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   const get = (k: string | null) => fetch(`${b2}/api/assistant-admin/whatsapp/pairing`, { headers: k ? { Authorization: tok(k) } : {} });
   const post = (k: string) => fetch(`${b2}/api/assistant-admin/whatsapp/pairing/refresh`, { method: 'POST', headers: { Authorization: tok(k) } });
@@ -232,7 +233,7 @@ test('pairing endpoint: admins only, never cached, QR image only while the conne
 test('pairing endpoint without the qrcode package: says the image is unavailable instead of sending the payload', async () => {
   const app = express(); app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null, whatsappStatus: () => ({ enabled: true, state: 'awaiting_qr' }), whatsappPairing: () => ({ qr: 'RAW', issuedAt: new Date().toISOString() }), renderQr: async () => null }));
-  const s2 = app.listen(0);
+  const s2 = await listenLocal(app);
   try {
     const r = await fetch(`http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/whatsapp/pairing`, { headers: { Authorization: 'Bearer ' + jwt.sign({ id: U.admin.id, role: 'admin', email: 'admin@d.test', name: 'A' }, 'test-secret', { algorithm: 'HS256' }) } });
     const body: any = await r.json();
@@ -264,7 +265,7 @@ test('mobile number: saved for an employee, masked in the list, invalid numbers 
 test('mobile number endpoint: only admins can save (it links directly); managers and employees cannot', async () => {
   const app = express(); app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.none.id}/phone`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.none.id}/phone`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   const put = (k: string) => fetch(b2, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ phone: '+919812345678' }) });
   try {
@@ -302,7 +303,7 @@ test('direct link: the admin-entered number becomes the active WhatsApp identity
 test('direct link endpoint: admin only; managers and employees are refused', async () => {
   const app = express(); app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: new HandlerRegistry(), config: null }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.pending.id}/direct-link`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/linking/${U.pending.id}/direct-link`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   const body = JSON.stringify({ phone: '+919811100003', note: 'Confirmed in person at the office', confirmed: true });
   const post = (k: string) => fetch(b2, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body });
@@ -361,7 +362,7 @@ test('save AI key endpoint: admins and managers only, bad keys refused, starts t
     setup: () => ({ problems: ['ASSISTANT_AI_API_KEY is required for provider "openai"'], nodeEnv: 'production', settingsFileLoaded: true }),
     onAiKeySaved: async (k) => { started = k; return { running: true, problems: [] }; },
   }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   const post = (k: string, key: string) => fetch(`${b2}/config/ai-key`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ key }) });
   try {
@@ -387,7 +388,7 @@ test('WhatsApp not running: the panel shows why in plain words and offers Start,
     setup: () => ({ problems: [], whatsappProblems: ['ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder'], nodeEnv: 'production', settingsFileLoaded: true }),
     whatsappStart: async () => { tries++; return { ok: false, problems: ['ASSISTANT_WHATSAPP_SESSION_DIR must be outside the project folder'] }; },
   }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   try {
     const p: any = await (await fetch(`${b2}/whatsapp/pairing`, { headers: { Authorization: tok('mgr') } })).json();
@@ -409,7 +410,7 @@ test('choose the WhatsApp group from the dashboard: only a group the company acc
     getDB, registry: new HandlerRegistry(), config: () => null,
     whatsappGroups: async () => [{ name: 'Loop Testing', jid: '120363412745413406@g.us' }, { name: 'Design Team', jid: '120363000000000077@g.us' }],
   }));
-  const s2 = app.listen(0); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/whatsapp/group`;
+  const s2 = await listenLocal(app); const b2 = `http://127.0.0.1:${(s2.address() as AddressInfo).port}/api/assistant-admin/whatsapp/group`;
   const tok = (k: string) => 'Bearer ' + jwt.sign({ id: U[k].id, role: U[k].role, email: `${k}@d.test`, name: U[k].name }, 'test-secret', { algorithm: 'HS256' });
   const post = (k: string, jid: string) => fetch(b2, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: tok(k) }, body: JSON.stringify({ jid }) });
   try {

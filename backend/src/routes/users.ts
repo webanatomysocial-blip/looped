@@ -7,6 +7,7 @@ import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest, revokeSessions } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 import { io } from '../socket';
+import { multerName } from '../services/uploads';
 
 // All grantable pages (admin always sees all, client is fixed)
 export const ALL_PAGES: { slug: string; label: string; section: 'top' | 'more' }[] = [
@@ -64,7 +65,7 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 const avatarUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => cb(null, `avatar-${Date.now()}${path.extname(file.originalname)}`),
+    filename: multerName('avatar-'),
   }),
   limits: { fileSize: 500 * 1024 }, // 500 KB
   fileFilter: (_req, file, cb) => {

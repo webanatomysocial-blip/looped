@@ -81,13 +81,14 @@ const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p
 
 export function buildAssignmentText(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
-  people: { name: string; mention: string | null }[]; status?: string | null; ticket?: boolean;
+  people: { name: string; mention: string | null }[]; status?: string | null; ticket?: boolean; createdBy?: string | null;
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const status = args.status || null;   // from the saved task only; left out when unknown
   const what = args.ticket ? 'ticket' : 'task';
   const head = args.kind === 'reassigned' ? heading(ICON.reassigned, `${args.ticket ? 'Ticket' : 'Task'} reassigned`) : heading(ICON.task, args.ticket ? 'New ticket created' : 'New task assigned');
   const pic = detailCard(head, clean(args.title, 60), [
-    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Project', value: args.project ? clean(args.project) : null },
+    { label: 'Created by', value: args.createdBy ? clean(args.createdBy, 40) : null }, { label: 'Assigned to', value: plainNames(args.people) },
     { label: 'Priority', value: args.priority ? priority(args.priority) : null, tone: tone(args.priority) },
     { label: 'Deadline', value: args.due }, { label: 'Status', value: status, tone: 'warn' },
   ], names(args.people), `👉 Please review the ${what} and accept it in Loop.`);
@@ -96,6 +97,7 @@ export function buildAssignmentText(args: {
     [
       field('Task', clean(args.title)),
       args.project ? field('Project', clean(args.project)) : '',
+      args.createdBy ? field('Created by', clean(args.createdBy, 40)) : '',
       field('Assigned to', names(args.people)),
       args.priority ? field('Priority', priority(args.priority)) : '',
       args.due ? field('Deadline', args.due) : '',
@@ -167,7 +169,8 @@ export async function queueAssignmentNotice(db: Knex, args: {
   const employeeIds = [...new Set([...assigned, ...(await involvedManagers(db, args.taskId))])];
   if (await db('whatsapp_outbox').where({ event_key: args.eventKey }).first('id')) return 'duplicate';
   const task = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
-    .where('t.id', args.taskId).select('t.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 'p.name as project_name').first();
+    .leftJoin('users as cb', 'cb.id', 't.created_by')
+    .where('t.id', args.taskId).select('t.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 'p.name as project_name', 'cb.name as created_by_name').first();
   if (!task) return 'no_assignee';
   const users = await db('users').whereIn('id', employeeIds).select('id', 'name');
   const byId = new Map(users.map((u: any) => [Number(u.id), String(u.name)]));
@@ -181,7 +184,7 @@ export async function queueAssignmentNotice(db: Knex, args: {
   const people = employeeIds.filter((id) => byId.has(id)).map((id) => ({ name: byId.get(id)!, mention: jidByUser.get(id) ?? null }));
   if (!people.length) return 'no_assignee';
   const common = { kind: args.kind, title: String(task.title), project: task.project_name ? String(task.project_name) : '',
-    priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), ticket: !!task.ticket_type_id };
+    priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), ticket: !!task.ticket_type_id, createdBy: task.created_by_name ?? null };
   // "Waiting for … to accept" names only the people who have not accepted yet (from Loop)
   const accepted = new Set((await db('task_assignees').where({ task_id: args.taskId, acceptance_status: 'accepted' }).select('user_id')).map((r: any) => Number(r.user_id)));
   const waiting = employeeIds.filter((id) => byId.has(id) && !accepted.has(id)).map((id) => byId.get(id)!);
@@ -625,7 +628,8 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
   const waiting = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
     .whereNotNull('t.ticket_type_id').where('t.xlr8_status', 'pending_assignee').whereNotNull('t.xlr8_assignee_id')
     .whereNotIn('t.status', ['completed', 'cancelled'])
-    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 't.xlr8_stage_idx', 'p.name as project_name');
+    .leftJoin('users as cb', 'cb.id', 't.created_by')
+    .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 't.xlr8_stage_idx', 'p.name as project_name', 'cb.name as created_by_name');
   let queued = 0;
   for (const t of waiting) {
     // When it started waiting for this person: the latest hand-over in the ticket log
@@ -641,7 +645,7 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
     const due = dueLabel(t.due_date, t.due_time);
     const base = `${t.id}:${since}`;
     if (nowMs - since <= TICKET_NOTICE_HOURS * 3600_000) {
-      const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true };
+      const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true, createdBy: t.created_by_name ?? null };
       // Everyone on the ticket's stages (employees and managers) is tagged; the current stage holder first
       const others = (await db('task_assignees').where({ task_id: t.id }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).select('user_id'))
         .map((r: any) => Number(r.user_id)).filter((id: number) => id !== Number(t.xlr8_assignee_id));
@@ -759,13 +763,14 @@ export async function enqueueOvertimeAlerts(db: Knex, now: Date = new Date()): P
 export async function queueSamples(db: Knex, adminUserId: number, now: Date = new Date()): Promise<{ group: number; private: number; task: string }> {
   const { employeePods, morningReport, withPodManagers } = await import('./productivityReports');
   const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').whereNotNull('t.assigned_to').whereNotIn('t.status', ['completed', 'cancelled'])
-    .orderBy('t.id', 'desc').first('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 't.assigned_to', 'p.name as project_name');
+    .leftJoin('users as cb', 'cb.id', 't.created_by')
+    .orderBy('t.id', 'desc').first('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.status', 't.ticket_type_id', 't.xlr8_status', 't.assigned_to', 'p.name as project_name', 'cb.name as created_by_name');
   if (!t) throw new Error('no_task');
   const ppl = await peopleFor(db, [Number(t.assigned_to), adminUserId]);
   const who = ppl.get(Number(t.assigned_to)) ?? { name: '', mention: null };
   const me = ppl.get(adminUserId);
   const { managers } = await leadsFor(db, Number(t.id), [Number(t.assigned_to)]);
-  const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id };
+  const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id, createdBy: t.created_by_name ?? null };
   const label = (b: any) => ({ ...b, caption: `🧪 _Sample preview_\n\n${b.caption}`, text: `🧪 _Sample preview_\n\n${b.text}` });
   const group: object[] = [];
   for (const pod of await employeePods(db)) group.push(label(await withPodManagers(db, pod, await morningReport(db, now, pod))));

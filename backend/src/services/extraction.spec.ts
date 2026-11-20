@@ -15,6 +15,7 @@ import approvalRoutes from '../routes/approvals';
 import { isSafeLink } from './deliverables';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimits';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { listenLocal } from '../testServer';
 
 let base = '';
 let server: any;
@@ -66,7 +67,7 @@ before(async () => {
   app.use(express.json());
   app.use('/api/tasks', taskRoutes);
   app.use('/api/approvals', approvalRoutes);
-  server = app.listen(0);
+  server = await listenLocal(app);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 });
 
@@ -135,7 +136,7 @@ test('rate limits: read-receipt pings never block; real writes are capped per se
   rl.post('/api/messages/mark-read', (_req: any, res: any) => { res.json({ ok: true }); });
   rl.post('/api/tasks/x/comments', (_req: any, res: any) => { res.json({ ok: true }); });
   rl.get('/api/tasks', (_req: any, res: any) => { res.json([]); });
-  const srv = rl.listen(0);
+  const srv = await listenLocal(rl);
   const b = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
   const mint = (u: any) => jwt.sign({ id: u.id, role: u.role, email: u.email, name: u.name }, 'test-secret', { algorithm: 'HS256' });
   const empTok = mint(U.emp1), otherTok = mint(U.emp3);

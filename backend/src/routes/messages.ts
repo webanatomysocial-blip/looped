@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { multerName } from '../services/uploads';
 
 const uploadsDir = path.join(__dirname, '../../uploads/chat');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -18,10 +19,7 @@ const ALLOWED_MIME = new Set([
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10);
-      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext ? '.' + ext : ''}`);
-    },
+    filename: multerName(),
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {

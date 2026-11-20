@@ -4,6 +4,7 @@ import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
 import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
 import { appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn } from '../services/xlr8';
+import { multerName } from '../services/uploads';
 
 import { listTasks, getTask, createTask, updateTask, sameStage } from '../services/tasks';
 import { deleteTask, managerApproveTask, acceptTask, timerAction } from '../services/taskWorkflow';
@@ -20,7 +21,7 @@ if (!fs.existsSync(deliverableUploadDir)) fs.mkdirSync(deliverableUploadDir, { r
 const deliverableUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, deliverableUploadDir),
-    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`),
+    filename: multerName(),
   }),
   limits: { fileSize: 50 * 1024 * 1024 },
 });

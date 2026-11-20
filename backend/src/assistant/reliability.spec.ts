@@ -15,6 +15,7 @@ import { recoverOnStartup } from './worker';
 import { loadAssistantConfig, AssistantConfigError } from './config';
 import { authenticate } from '../middleware/auth';
 import authRouter from '../routes/auth';
+import { listenLocal } from '../testServer';
 
 const db = () => getDB();
 const NOW = () => Date.now();
@@ -163,7 +164,7 @@ test('a user who must change their password is refused everywhere except the cha
   app.get('/api/probe', authenticate, (_req, res) => res.json({ ok: true }));
   app.post('/api/auth/change-password', authenticate, (_req, res) => res.json({ reached: true }));
   app.get('/api/auth/me', authenticate, (_req, res) => res.json({ reached: true }));
-  const srv = app.listen(0);
+  const srv = await listenLocal(app);
   const port = (srv.address() as any).port;
   try {
     const blocked = await fetch(`http://127.0.0.1:${port}/api/probe`, { headers: { Authorization: `Bearer ${token}` } });
@@ -178,7 +179,7 @@ test('changing the password: needs the current one, enforces length, ends other 
   const app = express();
   app.use(express.json());
   app.use('/api/auth', authRouter);
-  const srv = app.listen(0);
+  const srv = await listenLocal(app);
   const base = `http://127.0.0.1:${(srv.address() as any).port}/api/auth`;
   const post = (path: string, body: unknown, token?: string) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
   try {

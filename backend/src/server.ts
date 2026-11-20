@@ -6,12 +6,15 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { io } from './socket';
+import { guardUploads, signUploadLinks } from './services/uploads';
+import { contactFormLimiter } from './middleware/rateLimits';
 dotenv.config();
 // Production only: the WhatsApp assistant's non-secret settings are compiled into the code (assistant/productionDefaults.ts).
 // Values already set in the server's .env always win, and the AI key must stay in the server's .env, never in git.
 const assistantSettingsFileLoaded: boolean = require('./assistant/productionDefaults').applyProductionDefaults();
 
 import { initDB, getDB } from './db';
+import { redactUrl } from './services/redact';
 import { repairSkippedStageTickets, recoverInterruptedTransitions } from './services/xlr8';
 import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
@@ -79,7 +82,8 @@ app.use(express.urlencoded({ extended: true }));
 // Public contact-forms endpoints (embed config + submit): mounted before the
 // global CORS policy below, since embedded WordPress sites call these
 // cross-origin and set their own permissive CORS headers per-route.
-app.use('/api/public/contact-forms', publicContactFormsRouter);
+// Its own rate limit (the /api/public limiter below never sees these, so nothing is counted twice)
+app.use('/api/public/contact-forms', contactFormLimiter, signUploadLinks, publicContactFormsRouter);
 
 app.use(
   helmet({
@@ -101,7 +105,9 @@ app.options(/.*/, cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(morgan(':method :url :status :response-time ms - :res[content-length]'));
+// Logged without secrets: public links, signed media and upload links carry their secret in the address
+morgan.token('safe-url', (req: any) => redactUrl(req.originalUrl || req.url || ''));
+app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));
 
 // Uploads served only via authenticated /api/assets/:id/download
 
@@ -109,6 +115,8 @@ app.use(morgan(':method :url :status :response-time ms - :res[content-length]'))
 app.use('/api/public', publicLinkLimiter);
 app.use('/api', apiLimiter, writeLimiter);
 app.use(['/api/users', '/api/auth/logout-all'], sensitiveLimiter);
+// Every /uploads link in an API answer is signed for the person who was just allowed to see it
+app.use('/api', signUploadLinks);
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -139,6 +147,9 @@ app.use('/api/xlr8', xlr8Routes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/regularisation', regularisationRoutes);
 app.use('/api/assistant', assistantRoutes);
+// Recruitment: internal (admins and managers) and the public careers pages
+app.use('/api/recruitment', require('./routes/recruitment').default);
+app.use('/api/public/careers', require('./routes/publicRecruitment').default);
 // Phase 4.5: admin-only control centre API. No action handlers are registered, so nothing can be retried or executed.
 let assistantConfig: import('./assistant/config').AssistantConfig | null = null;
 let assistantProblems: string[] = [];
@@ -230,7 +241,8 @@ app.use('/api/assistant-admin', require('./assistant/adminApi').createAssistantA
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Serve uploaded files (assets, chat attachments) — always, dev and prod
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Signed links only (avatars excepted), always sandboxed: an uploaded page can never run as Loop
+app.use('/uploads', guardUploads, express.static(path.join(__dirname, '../uploads'), { index: false, dotfiles: 'deny' }));
 
 // Serve built frontend in production (frontend/dist → backend/public via build script)
 if (process.env.NODE_ENV === 'production') {
@@ -259,6 +271,11 @@ initDB()
     await startAssistantServices();
     startEmailScheduler();
     startRecurringTaskScheduler();
+    // Recruitment recordings past the retention period are deleted, once a day
+    const purge = () => require('./services/recruitment').purgeOldRecordings(getDB()).catch(() => console.error('[recruitment] retention clean-up failed'));
+    purge(); setInterval(purge, 24 * 3600_000).unref();
+    // Recordings that were being built when the server stopped are built again (their uploaded chunks are kept)
+    require('./services/recruitment').resumeProcessing(getDB()).catch(() => console.error('[recruitment] recording processing could not resume'));
     scheduleWaitingReviewers(getDB()).catch((err) => console.error('[scheduler] Waiting reviews error:', err));
     httpServer.listen(PORT, () => console.log(`Agency API running on port ${PORT}`));
     httpServer.setTimeout(120000);

@@ -10,6 +10,7 @@ import { initDB, getDB } from '../db';
 import { DbIdentityResolver, setIdentityStatus } from './identityStore';
 import { recordPendingSender, approvePendingSender, dismissPendingSender, listPendingSenders, PendingError } from './pendingSenders';
 import { createAssistantAdminRouter } from './adminApi';
+import { listenLocal } from '../testServer';
 
 const db = () => getDB();
 const DAY = 86_400_000;
@@ -137,7 +138,7 @@ test('the admin endpoints are admin-only and do not reveal full ids', async () =
   const app = express();
   app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB, registry: { canRetry: () => false, get: () => undefined, size: 0 } as any, config: null as any }));
-  const srv = app.listen(0);
+  const srv = await listenLocal(app);
   const base = `http://127.0.0.1:${(srv.address() as any).port}/api/assistant-admin`;
   try {
     assert.equal((await fetch(`${base}/pending-senders`)).status, 401, 'no login');

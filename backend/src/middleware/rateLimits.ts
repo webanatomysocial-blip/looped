@@ -22,6 +22,8 @@ export const LIMITS = {
   writes: { windowMs: 5 * 60 * 1000, limit: 300 },
   sensitive: { windowMs: 15 * 60 * 1000, limit: 30 },
   publicLinks: { windowMs: 5 * 60 * 1000, limit: 300 },
+  contactForms: { windowMs: 5 * 60 * 1000, limit: 120 },   // embedded forms: loading, submitting
+  otp: { windowMs: 15 * 60 * 1000, limit: 20 },            // sending and checking email codes, per visitor
 };
 
 export const apiLimiter = rateLimit({ ...base, ...LIMITS.api, message: { error: 'Too many requests — please slow down' } });
@@ -30,3 +32,6 @@ export const writeLimiter = rateLimit({ ...base, ...LIMITS.writes, skip: (req) =
 export const sensitiveLimiter = rateLimit({ ...base, ...LIMITS.sensitive, skip: (req) => !WRITE.has(req.method), message: { error: 'Too many account changes — try again later' } });
 // Unauthenticated share links (task / SEO / ads reports)
 export const publicLinkLimiter = rateLimit({ ...base, ...LIMITS.publicLinks, message: { error: 'Too many requests' } });
+// Public contact forms embedded on client sites; email codes get a much smaller budget of their own
+export const contactFormLimiter = rateLimit({ ...base, ...LIMITS.contactForms, message: { error: 'Too many requests. Please try again later.' } });
+export const otpLimiter = rateLimit({ ...base, ...LIMITS.otp, message: { error: 'Too many verification attempts. Please try again later.' } });

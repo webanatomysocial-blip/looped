@@ -6,7 +6,7 @@ import { contactFormsApi } from '../../services/api';
 import '../../css/pages/ContactForms.css';
 import { fmtDateTime } from '../../utils/date';
 
-interface FileRecord { stored: string; original: string; fieldname: string; }
+interface FileRecord { stored: string; original: string; fieldname: string; url?: string; }
 
 interface Submission {
   id: number;
@@ -246,7 +246,7 @@ export default function ContactFormSubmissions() {
                     {detail.files.map((f) => (
                       <a
                         key={f.stored}
-                        href={contactFormsApi.fileDownloadUrl(detail.id, f.stored)}
+                        href={f.url ?? contactFormsApi.fileDownloadUrl(detail.id, f.stored)}
                         download={f.original}
                         style={{ fontSize: 13, color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: 6 }}
                         onClick={(e) => e.stopPropagation()}

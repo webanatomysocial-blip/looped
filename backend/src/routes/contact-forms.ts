@@ -6,6 +6,9 @@ import { getDB } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 import { visibleCompanyIds } from '../utils/companyAccess';
+import crypto from 'crypto';
+import { otpLimiter } from '../middleware/rateLimits';
+import { multerName } from '../services/uploads';
 
 const uploadDir = path.join(__dirname, '../../uploads/contact-forms');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -13,10 +16,7 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => {
-      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${Date.now()}_${safe}`);
-    },
+    filename: multerName(),
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
 });
@@ -33,6 +33,13 @@ function parseForm(form: any) {
 }
 
 // ---- clients ----
+
+// Same rule as the client list: a manager or employee only sees the clients they work with
+async function seesClient(req: AuthRequest, clientId: unknown): Promise<boolean> {
+  if (req.user!.role === 'admin') return true;
+  const ids = await visibleCompanyIds(getDB(), req.user!.role, req.user!.id);
+  return ids === null || ids.map(String).includes(String(clientId));
+}
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   const db = getDB();
@@ -62,6 +69,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // ---- forms ----
 
 router.get('/:id/forms', async (req: AuthRequest, res: Response) => {
+  if (!(await seesClient(req, req.params.id))) { res.status(403).json({ error: 'Access denied.' }); return; }
   try {
     const db = getDB();
     const forms = await db('contact_forms').where({ client_id: req.params.id }).orderBy('created_at', 'desc');
@@ -130,7 +138,7 @@ router.post('/:id/forms/:formId/clone', async (req: AuthRequest, res: Response) 
 
 router.get('/forms/:formId', async (req: AuthRequest, res: Response) => {
   const form = await getDB()('contact_forms').where({ id: req.params.formId }).first();
-  if (!form) { res.status(404).json({ error: 'Not found.' }); return; }
+  if (!form || !(await seesClient(req, form.client_id))) { res.status(404).json({ error: 'Not found.' }); return; }
   res.json(parseForm(form));
 });
 
@@ -167,10 +175,7 @@ if (!fs.existsSync(confirmUploadDir)) fs.mkdirSync(confirmUploadDir, { recursive
 const confirmUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, confirmUploadDir),
-    filename: (_req, file, cb) => {
-      const safe = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${Date.now()}_${safe}`);
-    },
+    filename: multerName(),
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
 });
@@ -200,6 +205,7 @@ router.delete('/forms/:formId/confirmation-attachment', async (req: AuthRequest,
 // ---- submissions ----
 
 router.get('/:id/submissions', async (req: AuthRequest, res: Response) => {
+  if (!(await seesClient(req, req.params.id))) { res.status(403).json({ error: 'Access denied.' }); return; }
   const { page = '1', per_page = '50', form_id, unread_only } = req.query as Record<string, string>;
   const db = getDB();
   let q = db('contact_submissions').where({ client_id: req.params.id });
@@ -224,8 +230,10 @@ router.get('/:id/submissions', async (req: AuthRequest, res: Response) => {
 
 router.get('/submissions/:submissionId', async (req: AuthRequest, res: Response) => {
   const s = await getDB()('contact_submissions').where({ id: req.params.submissionId }).first();
-  if (!s) { res.status(404).json({ error: 'Not found.' }); return; }
-  res.json({ ...s, data: JSON.parse(s.data), files: s.files ? JSON.parse(s.files) : [] });
+  if (!s || !(await seesClient(req, s.client_id))) { res.status(404).json({ error: 'Not found.' }); return; }
+  // Each file comes with its own link (signed on the way out), since a plain link can't carry the login
+  const files = (s.files ? JSON.parse(s.files) : []).map((f: any) => ({ ...f, url: `/uploads/contact-forms/${f.stored}` }));
+  res.json({ ...s, data: JSON.parse(s.data), files });
 });
 
 router.patch('/submissions/:submissionId/read', async (req: AuthRequest, res: Response) => {
@@ -237,7 +245,7 @@ router.patch('/submissions/:submissionId/read', async (req: AuthRequest, res: Re
 // Serve uploaded file for a submission
 router.get('/submissions/:submissionId/files/:filename', async (req: AuthRequest, res: Response) => {
   const s = await getDB()('contact_submissions').where({ id: req.params.submissionId }).first();
-  if (!s) { res.status(404).json({ error: 'Not found.' }); return; }
+  if (!s || !(await seesClient(req, s.client_id))) { res.status(404).json({ error: 'Not found.' }); return; }
   const files: Array<{ stored: string; original: string }> = s.files ? JSON.parse(s.files) : [];
   const file = files.find((f) => f.stored === req.params.filename || f.original === req.params.filename);
   if (!file) { res.status(404).json({ error: 'File not found.' }); return; }
@@ -258,27 +266,43 @@ const corsHeaders = (res: Response) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type');
 };
 
-// OTP store: key = `${formId}:${email}`, expires in 10 min
-const otpStore = new Map<string, { code: string; expires: number }>();
-// Cleanup expired OTP entries every 15 min
+// Email codes (one-time passwords), per form and email. One server process, so this map is the single truth and
+// each request's check-and-update runs without interruption: simultaneous guesses can't slip past the attempt limit.
+// shortcut: in-memory, lost on restart (people just ask for a new code); move to the database if Loop ever runs >1 process.
+const OTP_TTL_MS = 10 * 60 * 1000, OTP_MAX_TRIES = 5, RESEND_GAP_MS = 60 * 1000, SENDS_PER_HOUR = 5;
+export const otpStore = new Map<string, { code: string; expires: number; tries: number }>();
+const sends = new Map<string, number[]>();   // per email: when codes were sent (flood guard)
+const otpKey = (formId: unknown, email: unknown) => `${String(formId)}:${String(email ?? '').trim().toLowerCase()}`;
+// Checks a code: a wrong one counts against the limit and the code is gone after the fifth. 'ok' leaves it for the submit, which uses it up.
+export function checkOtp(key: string, code: unknown, now = Date.now()): 'ok' | 'wrong' | 'expired' {
+  const st = otpStore.get(key);
+  if (!st || now > st.expires) { otpStore.delete(key); return 'expired'; }
+  if (st.code !== String(code ?? '').trim()) { st.tries++; if (st.tries >= OTP_MAX_TRIES) otpStore.delete(key); return 'wrong'; }
+  return 'ok';
+}
 setInterval(() => {
   const now = Date.now();
   for (const [key, val] of otpStore) { if (now > val.expires) otpStore.delete(key); }
-}, 15 * 60 * 1000);
+  for (const [key, times] of sends) { const keep = times.filter((t) => now - t < 3600_000); if (keep.length) sends.set(key, keep); else sends.delete(key); }
+}, 15 * 60 * 1000).unref();
 
 publicContactFormsRouter.options('/forms/:formId', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
 publicContactFormsRouter.options('/forms/:formId/submit', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
 publicContactFormsRouter.options('/forms/:formId/send-otp', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
 publicContactFormsRouter.options('/forms/:formId/verify-otp', (_req: Request, res: Response) => { corsHeaders(res); res.status(204).end(); });
 
-publicContactFormsRouter.post('/forms/:formId/send-otp', async (req: Request, res: Response) => {
+publicContactFormsRouter.post('/forms/:formId/send-otp', otpLimiter, async (req: Request, res: Response) => {
   corsHeaders(res);
-  const { email } = req.body || {};
-  if (!email) { res.status(400).json({ error: 'Email is required.' }); return; }
-  const form = await getDB()('contact_forms').where({ id: req.params.formId }).first();
-  if (!form) { res.status(404).json({ error: 'Form not found.' }); return; }
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  otpStore.set(`${req.params.formId}:${email}`, { code, expires: Date.now() + 10 * 60 * 1000 });
+  const email = String(req.body?.email ?? '').trim().toLowerCase();
+  if (!/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i.test(email)) { res.status(400).json({ error: 'Please enter a valid email address.' }); return; }
+  const form = await getDB()('contact_forms').where({ id: req.params.formId }).first('id', 'name', 'otp_enabled');
+  if (!form || !form.otp_enabled) { res.status(404).json({ error: 'Form not found.' }); return; }
+  // One code a minute and five an hour per address, whoever asks: the form can't be used to flood an inbox
+  const now = Date.now(); const recent = (sends.get(email) ?? []).filter((t) => now - t < 3600_000);
+  if (recent.length >= SENDS_PER_HOUR || (recent.length && now - recent[recent.length - 1] < RESEND_GAP_MS)) { res.status(429).json({ error: 'A code was sent recently. Please wait a moment before asking again.' }); return; }
+  sends.set(email, [...recent, now]);
+  const code = String(crypto.randomInt(100000, 1000000));
+  otpStore.set(otpKey(req.params.formId, email), { code, expires: now + OTP_TTL_MS, tries: 0 });
   try {
     await sendEmail({
       to: [{ email, name: email }],
@@ -292,32 +316,42 @@ publicContactFormsRouter.post('/forms/:formId/send-otp', async (req: Request, re
   }
 });
 
-publicContactFormsRouter.post('/forms/:formId/verify-otp', (req: Request, res: Response) => {
+publicContactFormsRouter.post('/forms/:formId/verify-otp', otpLimiter, (req: Request, res: Response) => {
   corsHeaders(res);
   const { email, otp } = req.body || {};
-  if (!email || !otp) { res.status(400).json({ error: 'Email and OTP are required.' }); return; }
-  const key = `${req.params.formId}:${email}`;
-  const stored = otpStore.get(key);
-  if (!stored || Date.now() > stored.expires) { res.status(400).json({ error: 'OTP expired. Please request a new one.' }); return; }
-  if (stored.code !== String(otp)) { res.status(400).json({ error: 'Invalid OTP. Please check and try again.' }); return; }
+  if (!email || !otp) { res.status(400).json({ error: 'Email and code are required.' }); return; }
+  const r = checkOtp(otpKey(req.params.formId, email), otp);
+  if (r !== 'ok') { res.status(400).json({ error: r === 'expired' ? 'This code has expired. Please request a new one.' : 'That code is not right. Please check and try again.' }); return; }
   res.json({ ok: true });
 });
+
+// Google's check, with the secret sent in the request body (never in an address that could be logged). Swappable in tests.
+// The keys an admin saved under Settings (app_settings holds one row per key)
+async function captchaKeys(): Promise<Record<string, string>> {
+  const rows = await getDB()('app_settings').whereIn('key', ['recaptcha_site_key', 'recaptcha_secret_key', 'recaptcha_v3_site_key', 'recaptcha_v3_secret_key']).select('key', 'value').catch(() => []);
+  return Object.fromEntries(rows.map((r: any) => [r.key, String(r.value ?? '').trim()]));
+}
+export const recaptcha = { verify: async (secret: string, token: string): Promise<boolean> => {
+  try {
+    const r = await fetch('https://www.google.com/recaptcha/api/siteverify', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ secret, response: token }), signal: AbortSignal.timeout(8000) });
+    const d = await r.json() as { success?: boolean; score?: number };
+    return !!d.success && (d.score === undefined || d.score >= 0.5);
+  } catch { return false; }
+} };
 
 publicContactFormsRouter.get('/forms/:formId', async (req: Request, res: Response) => {
   corsHeaders(res);
   const db = getDB();
-  const form = await db('contact_forms').where({ id: req.params.formId }).first();
+  const form = await db('contact_forms').where({ id: req.params.formId }).first('id', 'name', 'fields', 'conditions', 'style_config', 'otp_enabled', 'redirect_url', 'confirmation_message');
   if (!form) { res.status(404).json({ error: 'Not found.' }); return; }
   // Expose reCAPTCHA site keys (public-safe) so embed.js can mount widgets
-  let recaptchaV2SiteKey = '';
-  let recaptchaV3SiteKey = '';
-  try {
-    const settings = await db('app_settings').first();
-    recaptchaV2SiteKey = settings?.recaptcha_site_key || '';
-    recaptchaV3SiteKey = settings?.recaptcha_v3_site_key || '';
-  } catch {}
+  const keys = await captchaKeys();
+  const recaptchaV2SiteKey = keys.recaptcha_site_key || '';
+  const recaptchaV3SiteKey = keys.recaptcha_v3_site_key || '';
+  // Only what the form needs to draw itself: never recipients, webhook, template or client
   res.json({
-    ...form,
+    id: form.id, name: form.name, style_config: form.style_config ?? null, otp_enabled: !!form.otp_enabled,
+    redirect_url: form.redirect_url ?? null, confirmation_message: form.confirmation_message ?? null,
     fields: JSON.parse(form.fields || '[]'),
     conditions: form.conditions ? JSON.parse(form.conditions) : [],
     recaptcha_v2_site_key: recaptchaV2SiteKey,
@@ -344,39 +378,26 @@ publicContactFormsRouter.post('/forms/:formId/submit', upload.any(), async (req:
   const senderName = client?.name || form.name;
 
   // reCAPTCHA v2/v3 verification
-  const recaptchaToken = values['g-recaptcha-response'] || values['g-recaptcha-response-v3'];
-  if (recaptchaToken) {
-    const settings = await db('app_settings').first();
-    const secretKey = values['g-recaptcha-response-v3']
-      ? settings?.recaptcha_v3_secret
-      : settings?.recaptcha_v2_secret;
-    if (secretKey) {
-      try {
-        const verifyRes = await fetch(
-          `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${recaptchaToken}`,
-          { method: 'POST' }
-        );
-        const verifyData = await verifyRes.json() as { success: boolean; score?: number };
-        if (!verifyData.success) {
-          res.status(400).json({ error: 'reCAPTCHA verification failed. Please try again.' }); return;
-        }
-      } catch {
-        // If reCAPTCHA check fails due to network, allow submission
-      }
-    }
-    delete values['g-recaptcha-response'];
-    delete values['g-recaptcha-response-v3'];
+  // When reCAPTCHA is set up (a site key the embed shows, and its secret here), every submission must pass it:
+  // leaving the token out is refused, and so is a check that could not be completed
+  const recaptchaToken = String(values['g-recaptcha-response-v3'] || values['g-recaptcha-response'] || '');
+  const captcha = await captchaKeys();
+  const v3 = !!values['g-recaptcha-response-v3'];
+  const configured = (captcha.recaptcha_site_key && captcha.recaptcha_secret_key) || (captcha.recaptcha_v3_site_key && captcha.recaptcha_v3_secret_key);
+  if (configured) {
+    const secretKey = v3 ? captcha.recaptcha_v3_secret_key : captcha.recaptcha_secret_key || captcha.recaptcha_v3_secret_key;
+    if (!recaptchaToken || !secretKey) { res.status(400).json({ error: 'Please complete the "I\'m not a robot" check.' }); return; }
+    if (!(await recaptcha.verify(secretKey, recaptchaToken))) { res.status(400).json({ error: 'The "I\'m not a robot" check failed. Please try again.' }); return; }
   }
+  delete values['g-recaptcha-response'];
+  delete values['g-recaptcha-response-v3'];
 
   // OTP verification
   if (form.otp_enabled) {
-    const email = String(values.email || '').trim();
-    const otp = String(values.__otp || '').trim();
-    const key = `${req.params.formId}:${email}`;
-    const stored = otpStore.get(key);
-    if (!stored || Date.now() > stored.expires) { res.status(400).json({ error: 'OTP expired. Please request a new one.' }); return; }
-    if (stored.code !== otp) { res.status(400).json({ error: 'Invalid OTP. Please check and try again.' }); return; }
-    otpStore.delete(key);
+    const key = otpKey(req.params.formId, values.email);
+    const r = checkOtp(key, values.__otp);
+    if (r !== 'ok') { res.status(400).json({ error: r === 'expired' ? 'This code has expired. Please request a new one.' : 'That code is not right. Please check and try again.' }); return; }
+    otpStore.delete(key);   // used: a code works for one submission only
     delete values.__otp;
   }
 

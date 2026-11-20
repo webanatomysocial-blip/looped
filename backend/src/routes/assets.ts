@@ -4,16 +4,14 @@ import path from 'path';
 import fs from 'fs';
 import { getDB } from '../db';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { multerName } from '../services/uploads';
 
 const uploadDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname)}`);
-  },
+  filename: multerName(),
 });
 const ALLOWED_MIME = new Set([
   'image/jpeg','image/png','image/gif','image/webp','image/svg+xml',

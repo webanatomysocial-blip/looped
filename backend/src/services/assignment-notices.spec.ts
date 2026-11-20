@@ -359,3 +359,9 @@ test('deploy: the new follow-ups (second reminder, escalation) only for assignme
     assert.equal(Number((await d('assistant_settings').where({ name: 'notices_since' }).first()).value), now - 3600_000, 'the original start point is not moved');
   } finally { await d('assistant_settings').whereIn('name', ['notices_since', 'followups_since']).del(); }
 });
+
+test('the assignment card names who created it', () => {
+  const b = buildAssignmentText({ kind: 'assigned', title: 'T', project: 'P', priority: null, due: null, people: [], ticket: true, createdBy: 'Asha' });
+  assert.match(b.text, /\*Created by:\* Asha/);
+  assert.ok(JSON.stringify(b.card).includes('Asha'));
+});

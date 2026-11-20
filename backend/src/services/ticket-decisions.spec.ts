@@ -13,6 +13,7 @@ import { AddressInfo } from 'net';
 import { initDB, getDB } from '../db';
 import xlr8Routes from '../routes/xlr8';
 import approvalRoutes from '../routes/approvals';
+import { listenLocal } from '../testServer';
 
 let base = '';
 let server: any;
@@ -74,7 +75,7 @@ before(async () => {
   app.use(express.json());
   app.use('/api/xlr8', xlr8Routes);
   app.use('/api/approvals', approvalRoutes);
-  server = app.listen(0);
+  server = await listenLocal(app);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 

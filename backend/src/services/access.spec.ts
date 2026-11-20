@@ -17,6 +17,8 @@ import taskRoutes from '../routes/tasks';
 import projectRoutes from '../routes/projects';
 import xlr8Routes from '../routes/xlr8';
 import capacityRoutes from '../routes/capacity';
+import { listenLocal } from '../testServer';
+import { guardUploads, signUploadLinks } from './uploads';
 
 let base = '';
 let server: any;
@@ -70,11 +72,13 @@ before(async () => {
 
   const app = express();
   app.use(express.json());
+  app.use('/api', signUploadLinks);
+  app.use('/uploads', guardUploads, express.static(path.join(__dirname, '../../uploads')));
   app.use('/api/tasks', taskRoutes);
   app.use('/api/projects', projectRoutes);
   app.use('/api/xlr8', xlr8Routes);
   app.use('/api/capacity', capacityRoutes);
-  server = app.listen(0);
+  server = await listenLocal(app);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
 });
 
@@ -126,6 +130,23 @@ test('a blocked upload never writes the file to disk', async () => {
   const res = await fetch(`${base}/tasks/${T1}/deliverables/file`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
   assert.equal(res.status, 404);
   assert.equal(fs.existsSync(dir) ? fs.readdirSync(dir).length : 0, before);
+});
+
+test('a deliverable file opens only through the link its task gives to people allowed to see it', async () => {
+  const u = U.emp1;
+  const token = jwt.sign({ id: u.id, role: u.role, email: u.email, name: u.name }, 'test-secret', { algorithm: 'HS256' });
+  const fd = new FormData(); fd.append('file', new Blob(['<script>steal()</script>']), 'notes.html');
+  const up = await fetch(`${base}/tasks/${T1}/deliverables/file`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+  assert.equal(up.status, 200);
+  const list = (await expectStatus('emp1', 'GET', `/tasks/${T1}/deliverables`, 200)).body;
+  const d = list.find((x: any) => x.name === 'notes.html');
+  assert.match(d.url, /^\/uploads\/deliverables\/[0-9a-f-]{36}\.bin\?e=\d+&s=/, 'random name, stored as a download, signed link');
+  const root = base.replace(/\/api$/, '');
+  const ok = await fetch(root + d.url);
+  assert.equal(ok.status, 200); assert.equal(ok.headers.get('content-security-policy'), 'sandbox');
+  assert.equal((await fetch(root + d.url.split('?')[0])).status, 403, 'the bare address is refused');
+  await expectStatus('emp2', 'GET', `/tasks/${T1}/deliverables`, 404);   // so emp2 never receives a link
+  fs.rmSync(path.join(__dirname, '../..', d.url.split('?')[0]), { force: true });
 });
 
 // ── Projects (S4, S5) ──

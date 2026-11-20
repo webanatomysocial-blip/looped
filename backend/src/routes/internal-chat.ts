@@ -1,5 +1,6 @@
 import { Router, Response } from 'express';
 import { io } from '../socket';
+import { multerName, signDeep } from '../services/uploads';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -25,10 +26,7 @@ const CHAT_ALLOWED_MIME = new Set([
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 10);
-      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext ? '.' + ext : ''}`);
-    },
+    filename: multerName(),
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
@@ -237,7 +235,8 @@ router.post('/:chatId/messages', async (req: AuthRequest, res: Response) => {
       .select('m.*', 'u.name as sender_name', 'u.avatar_color', 'u.avatar_url')
       .first();
 
-    io.to(`chat:${req.params.chatId}`).emit('new_message', { chatId: Number(req.params.chatId), message: msg });
+    // Pushed live too: its file link is signed like every API answer (only members of the chat receive it)
+    io.to(`chat:${req.params.chatId}`).emit('new_message', signDeep({ chatId: Number(req.params.chatId), message: msg }));
 
     const others = await db('internal_chat_members')
       .where('chat_id', req.params.chatId).whereNot('user_id', userId).select('user_id');

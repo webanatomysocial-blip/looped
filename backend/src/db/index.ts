@@ -62,6 +62,7 @@ export async function initDB(): Promise<void> {
   await (await import('../assistant/whatsapp/activity')).ensureWaActivitySchema(db);
   await (await import('../assistant/whatsapp/dbAuthState')).ensureWaAuthSchema(db);
   await ensureConversationSchema(db);
+  await (await import('../services/recruitment')).ensureRecruitmentSchema(db);
   await ensureQueueSchema(db);
   // First-login password change: set for seeded admin and demo accounts until they choose a new password
   if (!(await db.schema.hasColumn('users', 'must_change_password'))) {
@@ -1122,7 +1123,10 @@ async function createSchema(): Promise<void> {
         t.integer('client_id').unsigned().nullable().references('id').inTable('client_companies').onDelete('CASCADE');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
-    } else {
+    }
+    // Columns added over time: on a new database too (they were only added to existing tables, so a fresh install
+    // had contact forms without OTP, webhook, style or conditions)
+    {
       const hasCid = await db.schema.hasColumn('contact_forms', 'client_id');
       if (!hasCid) await db.schema.table('contact_forms', (t) => { t.integer('client_id').nullable(); });
       const hasRedirect = await db.schema.hasColumn('contact_forms', 'redirect_url');
@@ -1163,7 +1167,9 @@ async function createSchema(): Promise<void> {
         t.integer('contact_form_id').unsigned().nullable().references('id').inTable('contact_forms').onDelete('SET NULL');
         t.timestamp('created_at').defaultTo(db.fn.now());
       });
-    } else {
+    }
+    // Added over time; on a new database too (a fresh install had no read flag or files column)
+    {
       const hasCid = await db.schema.hasColumn('contact_submissions', 'client_id');
       if (!hasCid) await db.schema.table('contact_submissions', (t) => { t.integer('client_id').nullable(); });
       const hasRead = await db.schema.hasColumn('contact_submissions', 'read');

@@ -14,6 +14,7 @@ import { AddressInfo } from 'net';
 import { createAssistantAdminRouter, maskPhone, maskText } from './adminApi';
 import { HandlerRegistry, ActionHandler } from './executor';
 import { loadAssistantConfig } from './config';
+import { listenLocal } from '../testServer';
 
 let db: Knex;
 let server: any;
@@ -87,7 +88,7 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/assistant-admin', createAssistantAdminRouter({ getDB: () => db, registry, config, now: () => NOW + 300000 }));
-  server = app.listen(0);
+  server = await listenLocal(app);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/assistant-admin`;
 });
 after(async () => { server?.close(); await db.destroy(); });

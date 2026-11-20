@@ -35,6 +35,9 @@ import XLR8Page from './pages/XLR8Page';
 import XLR8Tickets from './pages/XLR8Tickets';
 import TicketTypes from './pages/admin/TicketTypes';
 import AssistantControl from './pages/admin/AssistantControl';
+import Recruitment from './pages/Recruitment';
+import Careers, { CareerJob, CareerTrack } from './pages/Careers';
+import CareerInterview from './pages/CareerInterview';
 import LandingPage from './pages/LandingPage';
 import CalendarPage from './pages/Calendar';
 import RegularisationPage from './pages/Regularisation';
@@ -263,6 +266,13 @@ function AppRoutes() {
       <Route path="/share/:token" element={<ShareReport />} />
       <Route path="/share/ads/:token" element={<ShareAdsReport />} />
       <Route path="/share/task/:token" element={<ShareTask />} />
+      {/* Public careers: no Loop login */}
+      <Route path="/careers" element={<Careers />} />
+      <Route path="/careers/track/:token" element={<CareerTrack />} />
+      <Route path="/careers/interview/:token" element={<CareerInterview />} />
+      <Route path="/careers/:id" element={<CareerJob />} />
+      {/* Recruitment: every admin and manager (the server enforces the same roles) */}
+      <Route path="/recruitment" element={<PrivateRoute roles={['admin', 'manager']}><Recruitment /></PrivateRoute>} />
       <Route path="/" element={
         user
           ? (user.role === 'client' ? <Navigate to="/projects" replace /> : <Navigate to="/dashboard" replace />)

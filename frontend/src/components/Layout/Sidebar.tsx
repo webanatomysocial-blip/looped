@@ -6,7 +6,7 @@ import {
   RiGroupLine, RiSettings4Line, RiLogoutBoxRLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
-  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiRobot2Line, RiCalendarLine, RiTimeLine,
+  RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiRobot2Line, RiCalendarLine, RiTimeLine, RiUserSearchLine,
 } from 'react-icons/ri';
 import { useAuth } from '../../contexts/AuthContext';
 import { notificationsApi, messagesApi } from '../../services/api';
@@ -35,6 +35,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/xlr8',               icon: RiLightbulbFlashLine, label: 'XLR8' },
       { to: '/admin/ticket-types', icon: RiTicket2Line,    label: 'Ticket Types' },
       { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant' },
+      { to: '/recruitment',        icon: RiUserSearchLine, label: 'Recruitment' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
@@ -58,6 +59,7 @@ const NAV: Record<Role, NavGroup> = {
     more: [
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
       { to: '/admin/assistant',    icon: RiRobot2Line,     label: 'AI Assistant' },
+      { to: '/recruitment',        icon: RiUserSearchLine, label: 'Recruitment' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
@@ -154,6 +156,7 @@ export default function Sidebar() {
     { to: '/admin/users',        icon: RiGroupLine,          label: 'Users',          section: 'more' },
     { to: '/admin/ticket-types', icon: RiTicket2Line,        label: 'Ticket Types',   section: 'more' },
     { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant', section: 'more' },
+    { to: '/recruitment',        icon: RiUserSearchLine,     label: 'Recruitment',    section: 'more' },
     { to: '/contact-forms',      icon: RiMailAddLine,        label: 'Contact Forms',  section: 'more' },
     { to: '/regularisation',     icon: RiTimeLine,           label: 'Regularisation', section: 'more' },
   ];
@@ -163,8 +166,8 @@ export default function Sidebar() {
 
   if (perms && user.role !== 'admin' && user.role !== 'client') {
     // Use master list filtered by saved permissions
-    // Managers always get Users and the AI Assistant, whatever pages were saved for them
-    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && (n.to === '/admin/users' || n.to === '/admin/assistant')));
+    // Managers always get Users, the AI Assistant and Recruitment, whatever pages were saved for them
+    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && (n.to === '/admin/users' || n.to === '/admin/assistant' || n.to === '/recruitment')));
     top  = allowed.filter(n => n.section === 'top');
     more = allowed.filter(n => n.section === 'more');
   } else {
