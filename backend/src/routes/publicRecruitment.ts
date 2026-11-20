@@ -109,6 +109,7 @@ router.post('/interview/:token/audio', (req, res, next) => chunkUpload(req, res,
   if (!req.file?.buffer?.length) throw new ServiceError(400, 'Empty recording');
   return R.saveAudio(getDB(), await iv(req), Number(req.body?.segment), req.file.buffer, req.body?.offset_ms === undefined ? undefined : Number(req.body.offset_ms));
 }));
+router.post('/interview/:token/confirm-whatsapp', run(async (req) => R.confirmWhatsApp(getDB(), await iv(req), req.body?.number)));
 router.post('/interview/:token/submit', run(async (req) => {
   const db = getDB(); const id = await R.submitInterview(db, await iv(req));
   void R.processRecording(db, id);   // building and checking the recording takes a moment; reviewers see "Processing" meanwhile

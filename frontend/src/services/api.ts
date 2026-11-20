@@ -413,6 +413,7 @@ export const careersApi = {
   apply: (id: string, form: FormData) => pub.post(`/jobs/${id}/apply`, form),
   track: (token: string) => pub.get(`/applications/${token}`),
   withdraw: (token: string) => pub.post(`/applications/${token}/withdraw`),
+  confirmWhatsApp: (token: string, number: string) => pub.post(`/interview/${token}/confirm-whatsapp`, { number }),
   interviewLink: (token: string) => pub.post(`/applications/${token}/interview-link`),
   interview: (token: string) => pub.get(`/interview/${token}`),
   start: (token: string, consent_version: string) => pub.post(`/interview/${token}/start`, { consent: true, consent_version }),

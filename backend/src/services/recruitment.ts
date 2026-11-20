@@ -124,6 +124,11 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     ['verified_at', (t: Knex.AlterTableBuilder) => t.timestamp('verified_at').nullable()],
     ['final_file', (t: Knex.AlterTableBuilder) => t.string('final_file', 200).nullable()],
   ] as const) if (!(await db.schema.hasColumn('rec_interviews', col))) await db.schema.alterTable('rec_interviews', add);
+  // WhatsApp number the candidate confirmed after the video interview (for the welcome message and updates)
+  for (const [col, add] of [
+    ['whatsapp', (t: Knex.AlterTableBuilder) => t.string('whatsapp', 20).nullable()],
+    ['whatsapp_confirmed_at', (t: Knex.AlterTableBuilder) => t.timestamp('whatsapp_confirmed_at').nullable()],
+  ] as const) if (!(await db.schema.hasColumn('rec_applications', col))) await db.schema.alterTable('rec_applications', add);
   // Careers roles: recruitment's own list, with no link to Loop's employee departments
   await make('rec_roles', (t) => { t.increments('id').primary(); t.string('name', 100).notNullable(); t.timestamp('created_at').defaultTo(db.fn.now()); });
   if (!(await db.schema.hasColumn('rec_jobs', 'role_id'))) await db.schema.alterTable('rec_jobs', (t) => t.integer('role_id').nullable());
@@ -467,6 +472,42 @@ export const CONSENT_TEXT = 'This interview is recorded (video and audio) from t
   + 'for evaluating your application. They are deleted after the retention period. Activity indicators are reviewed by people and are never used '
   + 'to reject a candidate automatically.';
 
+// The number as WhatsApp needs it: India numbers given without a country code get 91. Null when it can't be a phone number.
+export function whatsappJid(input: unknown): { digits: string; jid: string } | null {
+  let d = String(input ?? '').replace(/\D/g, '');
+  if (d.length === 10) d = `91${d}`;
+  if (d.length < 11 || d.length > 15) return null;
+  return { digits: d, jid: `${d}@s.whatsapp.net` };
+}
+
+// The candidate confirms their WhatsApp number after the video interview. Then the welcome message and a NEW tracking
+// link are queued for WhatsApp (the old link stops working: only its scrambled form is stored, so it can't be sent again).
+export async function confirmWhatsApp(db: Knex, a: any, input: unknown, now = new Date()): Promise<{ tracking_url: string; number: string }> {
+  const iv = await db('rec_interviews').where({ application_id: a.id }).first('status');
+  if (!iv || iv.status !== 'submitted') throw new ServiceError(409, 'Please finish the video interview first');
+  const fresh = await db('rec_applications').where({ id: a.id }).first('whatsapp_confirmed_at');
+  if (fresh?.whatsapp_confirmed_at) throw new ServiceError(409, 'Your WhatsApp number is already confirmed');
+  const num = whatsappJid(input);
+  if (!num) throw new ServiceError(400, 'Please enter a valid WhatsApp number (with country code, e.g. 919876543210)');
+  if (!a.interview_hash) throw new ServiceError(409, 'This page has already been used. Please open the link from your application.');
+  const token = newToken();
+  const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
+  const link = `${site()}/careers/track/${token}`;
+  // The old tracking link stops working; the new one is the only way back to the application
+  await db('rec_applications').where({ id: a.id }).update({ access_hash: sha(token), whatsapp: num.digits, whatsapp_confirmed_at: now, updated_at: now });
+  await log(db, { application_id: a.id, action: 'whatsapp_confirmed', actor: null, comment: 'candidate confirmed WhatsApp; new tracking link sent' });
+  // The interview link is no longer needed: close it now that the number is confirmed
+  await db('rec_applications').where({ id: a.id }).update({ interview_hash: null });
+  const text = `Hi ${clip(a.name, 60).split(' ')[0] || 'there'}, welcome to Loooped Careers! 👋\n\nThank you for completing your video interview for ${clip(job?.title ?? 'the role', 120)} (reference ${a.ref}). Our team will review it and we will update you here and by email.\n\nYou can check your application status any time with this private link (please keep it to yourself):\n${link}`;
+  // Queued like the team's other private notices (sent by the same outbox, only to a verified private chat)
+  await db('whatsapp_outbox').insert({
+    event_key: `rec-welcome:${a.id}`, kind: 'recruitment', task_id: 0,
+    payload: JSON.stringify({ text, caption: text, mentions: [], tags: [], to: num.jid }),
+    status: 'pending', attempts: 0, next_attempt_at: now, created_at: now,
+  }).catch((e: any) => { if (!/unique|duplicate/i.test(String(e?.message))) throw e; });
+  return { tracking_url: link, number: num.digits };
+}
+
 export async function interviewState(db: Knex, a: any) {
   const s = await getSettings(db);
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
@@ -486,6 +527,8 @@ export async function interviewState(db: Knex, a: any) {
     question_count: total, seconds_per_question: iv?.seconds_per_question ?? s.seconds_per_question,
     estimated_minutes: Math.ceil((total * (iv?.seconds_per_question ?? s.seconds_per_question)) / 60) + 2,
     consent_text: CONSENT_TEXT, consent_version: s.consent_version, expires_at: a.interview_expires_at,
+    // After the interview: the number to confirm (prefilled from the application) and whether it is confirmed
+    phone: a.phone ?? '', whatsapp_confirmed: !!a.whatsapp_confirmed_at, whatsapp: a.whatsapp ?? null,
     position: iv?.current_position ?? 0, current, segments: iv ? JSON.parse(iv.segments || '[]').length : 0,
   };
 }
@@ -624,7 +667,8 @@ export async function submitInterview(db: Knex, a: any) {
   const n = await db('rec_interviews').where({ id: iv.id, status: 'in_progress' }).update({ status: 'submitted', submitted_at: now, processing_status: 'processing' });
   if (!n) throw new ServiceError(409, 'This interview has already been submitted');
   await db('rec_events').insert({ interview_id: iv.id, type: 'interview_submitted', at: now });
-  await db('rec_applications').where({ id: a.id, status: 'prelim_pending' }).update({ status: 'interview_review', interview_hash: null, updated_at: now });
+  // The interview link stays open until the candidate confirms their WhatsApp number (see confirmWhatsApp)
+  await db('rec_applications').where({ id: a.id, status: 'prelim_pending' }).update({ status: 'interview_review', updated_at: now });
   await log(db, { application_id: a.id, action: 'interview_submitted', from: 'prelim_pending', to: 'interview_review', actor: null });
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   await notifyStaff(db, `${a.name} completed the preliminary interview for "${job?.title}" — ready for evaluation`);

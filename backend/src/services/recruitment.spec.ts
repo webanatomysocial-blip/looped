@@ -295,6 +295,23 @@ test('interview: recording uploads in order; repeats are ignored; gaps are refus
   assert.equal(fs.readFileSync(path.join(R.recordingDir(iv.id), 'processed', 'source-0.webm'), 'utf8'), 'chunk-0-0chunk-0-1chunk-0-2', 'rebuilt in order, none twice');
   assert.deepEqual(fs.readdirSync(path.join(R.recordingDir(iv.id), 'segment-0')).sort(), chunkFiles, 'originals kept after a failure');
   assert.equal((await getDB()('rec_applications').where({ id: APP_ID }).first()).status, 'interview_review');
+  // Open until the candidate confirms their WhatsApp number
+  const after = await ok(null, 'GET', `/api/public/careers/interview/${IV_TOKEN}`, 200);
+  assert.equal(after.state, 'submitted'); assert.equal(after.whatsapp_confirmed, false); assert.equal(after.phone, '+91 98765 43210', 'prefilled from the application');
+  await ok(null, 'POST', `/api/public/careers/interview/${IV_TOKEN}/confirm-whatsapp`, 400, { number: '12345' });
+  const conf = await ok(null, 'POST', `/api/public/careers/interview/${IV_TOKEN}/confirm-whatsapp`, 200, { number: '+91 98765 43210' });
+  assert.match(conf.tracking_url, /\/careers\/track\/[\w-]{40,}$/); assert.equal(conf.number, '919876543210');
+  const welcome = await getDB()('whatsapp_outbox').where({ event_key: `rec-welcome:${APP_ID}` }).first();
+  assert.equal(welcome.kind, 'recruitment');
+  const msg = JSON.parse(welcome.payload);
+  assert.equal(msg.to, '919876543210@s.whatsapp.net', 'a private chat to the confirmed number');
+  assert.ok(msg.text.includes(conf.tracking_url) && /welcome/i.test(msg.text), 'greeting with the new tracking link');
+  assert.equal(welcome.status, 'pending', 'queued only: nothing is sent during tests');
+  // The old tracking link stops working; the new one opens the application
+  await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 404);
+  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${conf.tracking_url.split('/').pop()}`, 200)).ref, (await getDB()('rec_applications').where({ id: APP_ID }).first()).ref);
+  TOKEN = conf.tracking_url.split('/').pop()!;   // the rest of the suite follows the new link
+  await ok(null, 'POST', `/api/public/careers/interview/${IV_TOKEN}/confirm-whatsapp`, 404, { number: '919876543210' });   // link closed
   await ok(null, 'GET', `/api/public/careers/interview/${IV_TOKEN}`, 404);
   assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Video Interview Completed · Under Review');
 });
