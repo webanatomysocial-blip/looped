@@ -20,14 +20,14 @@ export function CareersShell({ children, wide }: { children: React.ReactNode; wi
   );
 }
 const err = (e: any, fallback = 'Something went wrong. Please try again.') => e?.response?.data?.error || fallback;
-const Pills = ({ j }: { j: any }) => (
-  <div className="careers-meta">
-    {j.department && <span className="rec-pill rec-pill--info">{j.department}</span>}
-    {j.location && <span className="rec-pill">📍 {j.location}</span>}
-    {j.employment_type && <span className="rec-pill">{j.employment_type}</span>}
-    {j.experience && <span className="rec-pill">{j.experience}</span>}
-  </div>
-);
+// Tags without repeats: no role tag when it is the job title, no "Internship" twice
+const Pills = ({ j }: { j: any }) => {
+  const seen = new Set<string>([String(j.title ?? '').toLowerCase()]);
+  const tags = [[j.department, 'info'], [j.location && `📍 ${j.location}`, ''], [j.employment_type, ''], [j.experience, '']]
+    .filter(([v]) => { const k = String(v ?? '').toLowerCase(); if (!v || seen.has(k)) return false; seen.add(k); return true; });
+  return <div className="careers-meta">{tags.map(([v, t]) => <span key={v} className={`rec-pill ${t ? `rec-pill--${t}` : ''}`}>{v}</span>)}</div>;
+};
+export const slugify = (t: string) => String(t ?? '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 const HOW = [['1', 'Apply', 'A short form and your resume.'], ['2', 'Video interview', 'A few questions, recorded right after you apply.'], ['3', 'Final interview', 'One-to-one, walk-in or online.']];
 
 export default function Careers() {
@@ -54,7 +54,7 @@ export default function Careers() {
         <p className="careers-count">{shown.length} open position{shown.length === 1 ? '' : 's'}</p>
         <div className="careers-list">
           {shown.map((j) => (
-            <Link key={j.id} to={`/careers/${j.id}`} className="rec-card careers-job">
+            <Link key={j.id} to={`/careers/${j.slug || j.id}`} className="rec-card careers-job">
               <h2>{j.title}</h2>
               <Pills j={j} />
               {j.description && <p className="careers-job__desc">{String(j.description).slice(0, 170)}{String(j.description).length > 170 ? '…' : ''}</p>}
@@ -87,7 +87,7 @@ export function CareerJob() {
     form.append('resume', file);
     setBusy(true);
     try {
-      const r = await careersApi.apply(id!, form);
+      const r = await careersApi.apply(job.id, form);   // the opening's id (the address may be its readable name)
       // Straight into the video interview; the private tracking link travels with it
       nav(`/careers/interview/${r.data.interview_token}`, { state: { track: r.data.token, ref: r.data.ref } });
     } catch (e2) { setError(err(e2)); } finally { setBusy(false); }
@@ -102,11 +102,14 @@ export function CareerJob() {
         <article className="rec-card careers-detail">
           <h1>{job.title}</h1>
           <Pills j={job} />
-          <div className="careers-meta" style={{ marginTop: 8 }}>
-            <span className="rec-pill">{job.vacancies} opening{job.vacancies > 1 ? 's' : ''}</span>
-            {job.deadline && <span className="rec-pill rec-pill--warn">Apply by {job.deadline}</span>}
-          </div>
+          <p className="careers-sub">{job.vacancies} opening{job.vacancies > 1 ? 's' : ''}{job.deadline ? ` · Apply by ${job.deadline}` : ''}</p>
           {block('About the role', job.description)}{block('Responsibilities', job.responsibilities)}{block('Qualifications', job.qualifications)}{block('Skills', job.skills)}
+          <section className="careers-block">
+            <h3>How it works</h3>
+            <ol className="careers-steps2">
+              {HOW.map(([n, t, d]) => <li key={n}><i>{n}</i><div><b>{t}</b><span>{d}</span></div></li>)}
+            </ol>
+          </section>
         </article>
         <form className="rec-card careers-form" onSubmit={submit}>
           <h2>Apply for this job</h2>

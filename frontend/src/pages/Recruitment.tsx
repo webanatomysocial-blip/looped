@@ -6,6 +6,7 @@ import Layout from '../components/Layout/Layout';
 import Modal from '../components/UI/Modal';
 import Drawer from '../components/UI/Drawer';
 import { recruitmentApi as api } from '../services/api';
+import { slugify } from './Careers';
 import { useAuth } from '../contexts/AuthContext';
 import '../css/pages/Recruitment.css';
 
@@ -173,6 +174,7 @@ function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any
             <td><div className="rec-actions">
               <button className="btn-secondary" onClick={() => setEdit({ ...EMPTY_JOB, ...j, category_id: j.category_id ?? '', deadline: j.deadline ? String(j.deadline).slice(0, 10) : '' })}>Edit</button>
               {j.status !== 'published' && <button className="btn-secondary" onClick={() => setStatus(j, 'published')}>Publish</button>}
+              {j.status === 'published' && <button className="btn-secondary" title="The role's own page, for LinkedIn and Instagram posts" onClick={() => { const url = `${window.location.origin}/careers/${slugify(j.title)}`; navigator.clipboard?.writeText(url).then(() => alert(`Copied: ${url}`)).catch(() => prompt('Copy this link', url)); }}>Copy link</button>}
               {j.status === 'published' && <button className="btn-secondary" onClick={() => setStatus(j, 'closed')}>Close</button>}
               {!Number(j.applications) && <button className="rec-btn-danger" onClick={() => remove(j)}>Delete</button>}
             </div></td>

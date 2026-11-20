@@ -54,11 +54,16 @@ function checkedResume(file?: Express.Multer.File) {
 const openJobs = () => getDB()('rec_jobs as j').leftJoin('rec_roles as c', 'c.id', 'j.role_id')
   .where('j.status', 'published').where((q: any) => q.whereNull('j.deadline').orWhere('j.deadline', '>=', R.todayIST()))
   .select('j.public_id as id', 'j.title', 'c.name as department', 'j.location', 'j.experience', 'j.employment_type', 'j.vacancies', 'j.deadline', 'j.description', 'j.responsibilities', 'j.qualifications', 'j.skills', 'j.created_at');
-router.get('/jobs', run(async () => (await openJobs().orderBy('j.id', 'desc')).map((j: any) => ({ ...j, deadline: j.deadline ? String(j.deadline).slice(0, 10) : null }))));
+// A readable link per role for posts: /careers/development-intern (from the title; the opening's id still works)
+export const slugify = (t: string) => String(t ?? '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+router.get('/jobs', run(async () => (await openJobs().orderBy('j.id', 'desc')).map((j: any) => ({ ...j, slug: slugify(j.title), deadline: j.deadline ? String(j.deadline).slice(0, 10) : null }))));
 router.get('/jobs/:id', run(async (req) => {
-  const j = await openJobs().where('j.public_id', String(req.params.id)).first();
+  const key = String(req.params.id);
+  // By the opening's id, else by its readable name (the newest open opening with that title)
+  const j = (await openJobs().where('j.public_id', key).first())
+    ?? (await openJobs().orderBy('j.id', 'desc')).find((x: any) => slugify(x.title) === key.toLowerCase());
   if (!j) throw new ServiceError(404, 'This job is no longer open');
-  return { ...j, deadline: j.deadline ? String(j.deadline).slice(0, 10) : null };
+  return { ...j, slug: slugify(j.title), deadline: j.deadline ? String(j.deadline).slice(0, 10) : null };
 }));
 
 router.post('/jobs/:id/apply', applyLimiter, withResume, run(async (req) => {

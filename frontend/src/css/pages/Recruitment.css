@@ -49,7 +49,7 @@
 
 /* Public careers */
 /* The app locks html/body to the screen (overflow hidden), so this page scrolls itself */
-.careers { height: 100vh; height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: radial-gradient(1200px 500px at 10% -10%, rgba(76,175,125,0.10), transparent 60%), radial-gradient(900px 400px at 100% 0%, rgba(74,144,226,0.08), transparent 60%), var(--bg, #f5f5f7); font-family: var(--font); display: flex; flex-direction: column; }
+.careers { height: 100vh; height: 100dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; background: linear-gradient(180deg, #f3f6f4 0px, #f7f7f5 320px, #f7f7f5 100%); font-family: var(--font); display: flex; flex-direction: column; color: var(--ink); }
 .careers-bar { position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,0.75); backdrop-filter: blur(14px); border-bottom: 1px solid rgba(0,0,0,0.05); }
 .careers-bar__in { max-width: 1120px; margin: 0 auto; padding: 14px 24px; }
 .careers-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); font-size: 16px; }
@@ -127,3 +127,22 @@
   .careers-track { grid-template-columns: repeat(5, minmax(0, 1fr)); font-size: 11px; }
   .careers-list { grid-template-columns: 1fr; }
 }
+
+/* Careers polish: plain white cards, light inputs, clear spacing */
+.careers .rec-card { background: #fff; border: 1px solid #ebe9e4; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 8px 24px rgba(0,0,0,0.04); backdrop-filter: none; border-radius: 18px; }
+.careers-bar { background: rgba(255,255,255,0.9); }
+.careers-brand span { font-weight: 500; }
+.careers-sub { margin: 10px 0 0; font-size: 13px; color: var(--ink-muted); }
+.careers .rec-pill { font-weight: 600; padding: 4px 11px; }
+.careers-form .form-input, .careers-search .form-input { background: #fff; border: 1px solid #dedbd4; border-radius: 10px; box-shadow: none; padding: 10px 12px; font-size: 14px; min-height: 42px; }
+.careers-form .form-input:focus, .careers-search .form-input:focus { outline: none; border-color: #1a1a1a; box-shadow: 0 0 0 3px rgba(26,26,26,0.08); }
+.careers-form .rec-field label { font-size: 12.5px; font-weight: 600; color: #57534e; }
+.careers-form textarea.form-input { min-height: 84px; resize: vertical; }
+.careers-fields { row-gap: 14px; }
+.careers-note { color: #1e4e86; }
+.careers-steps2 { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.careers-steps2 li { display: flex; gap: 12px; align-items: flex-start; }
+.careers-steps2 i { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 700; font-size: 12px; background: #1a1a1a; color: #fff; }
+.careers-steps2 b { display: block; font-size: 14px; }
+.careers-steps2 span { font-size: 13px; color: var(--ink-muted); }
+.careers-detail h1 { font-size: 28px; }
