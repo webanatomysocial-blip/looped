@@ -6,7 +6,7 @@ import { WhatsAppAdapter, WaStatus, AdapterDeps, safeMessage } from './adapter';
 import { WhatsAppConfig } from './config';
 import { databaseSocketFactory } from './baileys';
 import { forgetLogin } from './dbAuthState';
-import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts, enqueueTicketNotices, markNoticesStart, enqueueOvertimeAlerts } from '../../services/assignmentNotices';
+import { processOutbox, enqueueAcceptanceReminders, enqueueDeadlineAlerts, enqueueTicketNotices, markNoticesStart, enqueueOvertimeAlerts, enqueueCrossPodApprovals, enqueueTurnMessages } from '../../services/assignmentNotices';
 import { enqueueScheduledReports } from '../../services/productivityReports';
 import { buildWhatsAppHandler, WhatsAppHandlerOptions } from './handler';
 import { claimOwner, releaseOwner, publishState, readState } from './shared';
@@ -110,6 +110,8 @@ async function own(db: Knex, options: WhatsAppHandlerOptions, config: WhatsAppCo
       .then(() => enqueueTicketNotices(db))
       .then(() => enqueueDeadlineAlerts(db))
       .then(() => enqueueOvertimeAlerts(db))
+      .then(() => enqueueCrossPodApprovals(db))
+      .then(() => enqueueTurnMessages(db))
       .then(() => enqueueScheduledReports(db))
       .catch(() => console.error('[whatsapp-notice] reminder queue pass failed'))
       .finally(() => { processOutbox(db, adapter).catch(() => console.error('[whatsapp-notice] outbox pass failed')); });

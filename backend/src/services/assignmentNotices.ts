@@ -81,17 +81,18 @@ const mentionsOf = (people: { mention: string | null }[]) => people.map((p) => p
 
 export function buildAssignmentText(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
-  people: { name: string; mention: string | null }[]; status?: string | null; ticket?: boolean; createdBy?: string | null;
+  people: { name: string; mention: string | null }[]; status?: string | null; ticket?: boolean; createdBy?: string | null; link?: string | null;
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const status = args.status || null;   // from the saved task only; left out when unknown
   const what = args.ticket ? 'ticket' : 'task';
+  const open = args.link ? `\n\n🔗 ${args.link}` : '';
   const head = args.kind === 'reassigned' ? heading(ICON.reassigned, `${args.ticket ? 'Ticket' : 'Task'} reassigned`) : heading(ICON.task, args.ticket ? 'New ticket created' : 'New task assigned');
   const pic = detailCard(head, clean(args.title, 60), [
     { label: 'Project', value: args.project ? clean(args.project) : null },
     { label: 'Created by', value: args.createdBy ? clean(args.createdBy, 40) : null }, { label: 'Assigned to', value: plainNames(args.people) },
     { label: 'Priority', value: args.priority ? priority(args.priority) : null, tone: tone(args.priority) },
     { label: 'Deadline', value: args.due }, { label: 'Status', value: status, tone: 'warn' },
-  ], names(args.people), `👉 Please review the ${what} and accept it in Loop.`);
+  ], names(args.people), `👉 Please review the ${what} and accept it in Loop.${open}`);
   const text = compose(
     head,
     [
@@ -103,7 +104,7 @@ export function buildAssignmentText(args: {
       args.due ? field('Deadline', args.due) : '',
       status ? field('Status', `${ICON.pending} ${status}`) : '',
     ],
-    `👉 Please review the ${what} and accept it in Loop.`,
+    `👉 Please review the ${what} and accept it in Loop.${open}`,
   );
   return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
@@ -111,18 +112,19 @@ export function buildAssignmentText(args: {
 // The personal copy of an assignment, sent to one person's private chat: the same card, addressed to them
 export function buildDirectAssignment(args: {
   kind: 'assigned' | 'reassigned'; title: string; project: string; priority: string | null; due: string | null;
-  name: string; status?: string | null; ticket?: boolean;
+  name: string; status?: string | null; ticket?: boolean; link?: string | null;
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
   const what = args.ticket ? 'ticket' : 'task';
+  const open = args.link ? `\n\n🔗 ${args.link}` : '';
   const head = heading(args.kind === 'reassigned' ? ICON.reassigned : ICON.task, args.kind === 'reassigned' ? `A ${what} has been reassigned to you` : `You have a new ${what}`);
   const pic = detailCard(head, clean(args.title, 60), [
     { label: 'Project', value: args.project ? clean(args.project) : null },
     { label: 'Priority', value: args.priority ? priority(args.priority) : null, tone: tone(args.priority) },
     { label: 'Deadline', value: args.due }, { label: 'Status', value: args.status || null, tone: 'warn' },
-  ], '', `Hi ${firstName(args.name)}, please review the ${what} and accept it in Loop.`);
+  ], '', `Hi ${firstName(args.name)}, please review the ${what} and accept it in Loop.${open}`);
   const text = compose(
     head,
-    `Hi ${firstName(args.name)}, please review the ${what} and accept it in Loop.`,
+    `Hi ${firstName(args.name)}, please review the ${what} and accept it in Loop.${open}`,
     [field('Title', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', args.priority ? field('Priority', priority(args.priority)) : '', args.due ? field('Deadline', args.due) : ''],
   );
   return { text, mentions: [], tags: [], ...pic };
@@ -157,6 +159,20 @@ async function insertRow(db: Knex, row: { event_key: string; kind: string; task_
   } catch (err: any) { if (/unique|duplicate/i.test(String(err?.message))) return false; throw err; }
 }
 
+// The task's share page (the same link Loop's Share button gives), so people can open it straight from WhatsApp.
+// Made once per task and reused; none when the site address isn't configured.
+export async function shareLink(db: Knex, taskId: number): Promise<string | null> {
+  const site = String(process.env.FRONTEND_URL || process.env.PUBLIC_APP_URL || '').split(',')[0].trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(site)) return null;
+  let row = await db('task_share_tokens').where({ task_id: taskId }).first('token').catch(() => null);
+  if (!row) {
+    const token = (await import('crypto')).randomBytes(32).toString('hex');
+    await db('task_share_tokens').insert({ task_id: taskId, token }).catch(() => undefined);
+    row = await db('task_share_tokens').where({ task_id: taskId }).first('token').catch(() => null);   // a parallel insert wins: same link
+  }
+  return row?.token ? `${site}/share/task/${row.token}` : null;
+}
+
 // Queues one notice for one assignment event. Returns 'duplicate' if this event was already queued.
 export async function queueAssignmentNotice(db: Knex, args: {
   taskId: number; kind: 'assigned' | 'reassigned'; employeeIds: number[]; eventKey: string; now?: Date;
@@ -184,7 +200,8 @@ export async function queueAssignmentNotice(db: Knex, args: {
   const people = employeeIds.filter((id) => byId.has(id)).map((id) => ({ name: byId.get(id)!, mention: jidByUser.get(id) ?? null }));
   if (!people.length) return 'no_assignee';
   const common = { kind: args.kind, title: String(task.title), project: task.project_name ? String(task.project_name) : '',
-    priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), ticket: !!task.ticket_type_id, createdBy: task.created_by_name ?? null };
+    priority: task.priority ?? null, due: dueLabel(task.due_date, task.due_time), ticket: !!task.ticket_type_id, createdBy: task.created_by_name ?? null,
+    link: await shareLink(db, args.taskId) };
   // "Waiting for … to accept" names only the people who have not accepted yet (from Loop)
   const accepted = new Set((await db('task_assignees').where({ task_id: args.taskId, acceptance_status: 'accepted' }).select('user_id')).map((r: any) => Number(r.user_id)));
   const waiting = employeeIds.filter((id) => byId.has(id) && !accepted.has(id)).map((id) => byId.get(id)!);
@@ -273,6 +290,17 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
       // A deadline alert is not sent once the task is finished or cancelled
       const t = await db('tasks').where({ id: payload.taskId }).first('status');
       if (!t || t.status === 'completed' || t.status === 'cancelled') { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
+    }
+    if (row.kind === 'turn') {
+      // Only while the ticket is still with that person at that step
+      const t = await db('tasks').where({ id: payload.turnTaskId }).first('xlr8_status', 'xlr8_assignee_id');
+      if (!t || t.xlr8_status !== payload.turnState || Number(t.xlr8_assignee_id) !== Number(payload.turnUser)) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
+    }
+    if (row.kind === 'approval') {
+      // Sent only while the work still waits for this manager's pod
+      const t = await db('tasks').where({ id: payload.approvalTaskId }).first('status', 'crosspod_pods');
+      let pods: string[] = []; try { pods = JSON.parse(t?.crosspod_pods ?? '[]') ?? []; } catch { pods = []; }
+      if (!t || t.status !== 'pending_approval' || !pods.includes(payload.pod)) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
     }
     if (row.kind === 'reminder' && payload.ticketId) {
       // A ticket reminder is sent only while the same person still has not accepted the stage
@@ -429,8 +457,13 @@ const SINCE = 'notices_since';
 // The private reminders and the 12-minute escalation came later, with their own start point (set once, when this
 // version first starts): a deploy never sends them for assignments the earlier version already handled.
 const FOLLOWUP_SINCE = 'followups_since';
+// Private cross-pod approval reminders to managers came later still: their own start point, so a deploy doesn't
+// suddenly message managers about requests that were already waiting before it
+const CROSSPOD_SINCE = 'crosspod_since';
+// "Your turn" messages when a ticket moves on: their own start point too (no messages about earlier hand-overs)
+const TURN_SINCE = 'turn_since';
 export async function markNoticesStart(db: Knex, now: Date = new Date()): Promise<void> {
-  for (const name of [SINCE, FOLLOWUP_SINCE]) {
+  for (const name of [SINCE, FOLLOWUP_SINCE, CROSSPOD_SINCE, TURN_SINCE]) {
     if (await db('assistant_settings').where({ name }).first('name').catch(() => null)) continue;
     await db('assistant_settings').insert({ name, value: String(now.getTime()), updated_at: now }).catch(() => undefined);
   }
@@ -645,14 +678,22 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
     const due = dueLabel(t.due_date, t.due_time);
     const base = `${t.id}:${since}`;
     if (nowMs - since <= TICKET_NOTICE_HOURS * 3600_000) {
-      const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true, createdBy: t.created_by_name ?? null };
+      const common = { kind: 'assigned' as const, title: String(t.title), project, priority: t.priority ?? null, due, ticket: true, createdBy: t.created_by_name ?? null, link: await shareLink(db, Number(t.id)) };
       // Everyone on the ticket's stages (employees and managers) is tagged; the current stage holder first
       const others = (await db('task_assignees').where({ task_id: t.id }).whereNotNull('user_id').where((q: any) => q.whereNull('skipped').orWhere('skipped', 0)).select('user_id'))
         .map((r: any) => Number(r.user_id)).filter((id: number) => id !== Number(t.xlr8_assignee_id));
       const otherPpl = await peopleFor(db, others);
       const everyone = [person, ...[...new Set(others)].filter((id) => otherPpl.has(id)).map((id) => otherPpl.get(id)!)];
+      // The status names everyone on the card who still has to accept, managers on a review stage included
+      // (only the work stages hold the ticket's start, but every listed person is asked to accept)
+      const unaccepted = new Set((await db('task_assignees as ta').join('users as u', 'u.id', 'ta.user_id').where('ta.task_id', t.id).whereNot('u.role', 'admin')
+        .where((q: any) => q.whereNull('ta.skipped').orWhere('ta.skipped', 0))
+        .where((q: any) => q.whereNull('ta.acceptance_status').orWhereIn('ta.acceptance_status', ['pending']))
+        .distinct('ta.user_id').pluck('ta.user_id')).map(Number));
+      const allIds = [Number(t.xlr8_assignee_id), ...[...new Set(others)].filter((id) => otherPpl.has(id))];
+      const waitingNames = allIds.filter((id) => unaccepted.has(id)).map((id) => (id === Number(t.xlr8_assignee_id) ? person : otherPpl.get(id)!).name);
       if (await insertRow(db, { event_key: `tassign:${base}`, kind: 'assigned', task_id: Number(t.id), now,
-        payload: buildAssignmentText({ ...common, people: everyone, status: statusLabel(t, pending.map((p) => p.name)) }) })) queued++;
+        payload: buildAssignmentText({ ...common, people: everyone, status: statusLabel(t, waitingNames) }) })) queued++;
       for (const p of pending) if (p.mention && await insertRow(db, { event_key: `dm:tassign:${base}:${p.id}`, kind: 'assigned', task_id: Number(t.id), now,
         payload: { ...buildDirectAssignment({ ...common, name: p.name, status: 'Waiting for your acceptance' }), to: p.mention } })) queued++;
     }
@@ -673,6 +714,110 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
           payload: { ...buildReminderText({ title: String(t.title), project, person: p, n, ticket: true, due }), ticketId: Number(t.id), userId: p.id, to: p.mention } })) queued++;
       }
     }
+  }
+  return queued;
+}
+
+// ── Cross-pod approval: private requests and reminders to the managers who still have to approve ──
+// Work that involves another pod waits for that pod's manager (crosspod_pods lists the pods still to approve; a pod
+// leaves the list when its manager approves). Each of those managers gets a private message when it is requested, then
+// reminders at 30 minutes and 2 hours, then once a day for 3 days, while it still waits for their pod.
+// A step missed by more than an hour (e.g. WhatsApp was down) is skipped, not sent late.
+export const CROSSPOD_STEPS_MIN = [0, 30, 120, 1440, 2880, 4320];
+export function crossPodStep(sinceMs: number, nowMs: number): number | null {
+  const mins = (nowMs - sinceMs) / 60_000;
+  if (mins < 0) return null;
+  let i = -1; for (let k = 0; k < CROSSPOD_STEPS_MIN.length; k++) if (CROSSPOD_STEPS_MIN[k] <= mins) i = k;
+  return i >= 0 && mins - CROSSPOD_STEPS_MIN[i] <= 60 ? i : null;
+}
+export function buildApprovalRequest(args: { title: string; project: string; name: string; reasons: string[]; step: number; ticket?: boolean; link?: string | null; due?: string | null }) {
+  const what = args.ticket ? 'ticket' : 'task';
+  const head = args.step === 0 ? heading(ICON.lock, 'Approval needed: cross-pod work') : heading(ICON.reminder, 'Reminder: approval still needed');
+  const ask = `Hi ${firstName(args.name)}, this ${what} involves your pod and is waiting for your approval. It can't start until you approve it in Loop (Approvals).`
+    + (args.link ? `\n\n🔗 ${args.link}` : '');
+  const pic = detailCard(head, clean(args.title, 60), [
+    { label: 'Project', value: args.project ? clean(args.project) : null },
+    { label: 'Why', value: args.reasons.length ? clean(args.reasons.join('; '), 160) : null },
+    { label: 'Deadline', value: args.due ?? null },
+    { label: 'Status', value: 'Waiting for your approval', tone: 'warn' },
+  ], '', ask);
+  const text = compose(head, ask, [field('Title', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', args.reasons.length ? field('Why', clean(args.reasons.join('; '), 300)) : '']);
+  return { text, mentions: [] as string[], tags: [] as Tag[], ...pic };
+}
+export async function enqueueCrossPodApprovals(db: Knex, now: Date = new Date()): Promise<number> {
+  const start = await settingMs(db, CROSSPOD_SINCE);
+  const nowMs = now.getTime();
+  const held = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
+    .where('t.status', 'pending_approval').whereNotNull('t.crosspod_pods')
+    .select('t.id', 't.title', 't.created_at', 't.due_date', 't.due_time', 't.ticket_type_id', 't.crosspod_pods', 't.crosspod_reasons', 'p.name as project_name');
+  let queued = 0;
+  for (const t of held) {
+    // When approval was asked for: the ticket's "requested" log entry, else when the task was created
+    const log = t.ticket_type_id ? await db('xlr8_ticket_log').where({ task_id: t.id, action: 'crosspod_requested' }).orderBy('id', 'desc').first('created_at').catch(() => null) : null;
+    const since = toMs(log?.created_at ?? t.created_at);
+    if (!Number.isFinite(since) || since < start) continue;
+    const step = crossPodStep(since, nowMs);
+    if (step === null) continue;
+    const pods: string[] = (() => { try { return JSON.parse(t.crosspod_pods) ?? []; } catch { return []; } })();
+    const reasons: { pod: string; text: string }[] = (() => { try { return JSON.parse(t.crosspod_reasons) ?? []; } catch { return []; } })();
+    if (!pods.length) continue;
+    const mgrs = await db('users').where({ role: 'manager' }).whereIn('pod', pods).select('id', 'pod');
+    const ppl = await peopleFor(db, mgrs.map((m: any) => Number(m.id)));
+    const link = await shareLink(db, Number(t.id));
+    for (const m of mgrs) {
+      const who = ppl.get(Number(m.id));
+      if (!who?.mention) continue;   // only managers with a verified WhatsApp link get a private message
+      const payload = buildApprovalRequest({ title: String(t.title), project: t.project_name ? String(t.project_name) : '', name: who.name, step, ticket: !!t.ticket_type_id, link,
+        reasons: reasons.filter((r) => r.pod === m.pod).map((r) => String(r.text)), due: dueLabel(t.due_date, t.due_time) });
+      if (await insertRow(db, { event_key: `xpod:${t.id}:${since}:${step}:${m.id}`, kind: 'approval', task_id: Number(t.id), now,
+        payload: { ...payload, to: who.mention, approvalTaskId: Number(t.id), pod: m.pod } })) queued++;
+    }
+  }
+  return queued;
+}
+
+// ── Your turn: a ticket reaching the next person ──
+// When a ticket moves to a stage whose person already accepted (work starts straight away), to a manager's review, or
+// back to someone for rework, that person gets a private message. A stage still waiting for acceptance is not handled
+// here: the acceptance messages and reminders above cover it. One message per hand-over, only while it is recent.
+const TURN_FRESH_MIN = 60;
+export function buildTurnText(args: { title: string; project: string; name: string; kind: 'work' | 'review' | 'rework'; stage?: string | null; reason?: string | null; link?: string | null; due?: string | null }) {
+  const head = args.kind === 'review' ? heading(ICON.task, 'Ready for your review') : args.kind === 'rework' ? heading(ICON.reassigned, 'Back with you for changes') : heading(ICON.running, "It's your turn");
+  const ask = (args.kind === 'review' ? `Hi ${firstName(args.name)}, this ticket is ready for your review. Please review it in Loop.`
+    : args.kind === 'rework' ? `Hi ${firstName(args.name)}, this ticket has come back to you for changes. Please pick it up in Loop.`
+    : `Hi ${firstName(args.name)}, the previous stage is done and it's your turn on this ticket now. Please start working on it in Loop.`)
+    + (args.link ? `\n\n🔗 ${args.link}` : '');
+  const pic = detailCard(head, clean(args.title, 60), [
+    { label: 'Project', value: args.project ? clean(args.project) : null },
+    { label: 'Your stage', value: args.stage ? clean(args.stage, 60) : null },
+    { label: 'Feedback', value: args.reason ? clean(args.reason, 160) : null, tone: 'warn' },
+    { label: 'Deadline', value: args.due ?? null },
+  ], '', ask);
+  const text = compose(head, ask, [field('Title', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', args.stage ? field('Your stage', clean(args.stage, 60)) : '', args.reason ? field('Feedback', clean(args.reason, 300)) : '']);
+  return { text, mentions: [] as string[], tags: [] as Tag[], ...pic };
+}
+export async function enqueueTurnMessages(db: Knex, now: Date = new Date()): Promise<number> {
+  const start = await settingMs(db, TURN_SINCE);
+  const since = new Date(Math.max(start, now.getTime() - TURN_FRESH_MIN * 60_000));
+  // Moves forward (next_stage) and sends back for changes (a manager's or admin's decline, with its reason)
+  const moves = await db('xlr8_ticket_log').whereIn('action', ['next_stage', 'manager_declined', 'admin_declined']).whereIn('to_state', ['in_progress', 'pending_manager']).where('created_at', '>=', since)
+    .select('id', 'task_id', 'action', 'to_state', 'comment', 'created_at').catch(() => [] as any[]);
+  let queued = 0;
+  for (const mv of moves) {
+    if (toMs(mv.created_at) < start) continue;
+    const t = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id').where('t.id', mv.task_id)
+      .first('t.id', 't.title', 't.xlr8_status', 't.xlr8_assignee_id', 't.due_date', 't.due_time', 'p.name as project_name');
+    // Still where this move put it, with a person named for it (a review nobody is assigned to stays in Loop's notifications)
+    if (!t || t.xlr8_status !== mv.to_state || !t.xlr8_assignee_id) continue;
+    const sentBack = mv.action !== 'next_stage';
+    const kind: 'work' | 'review' | 'rework' = sentBack ? 'rework' : mv.to_state === 'pending_manager' ? 'review' : 'work';
+    const who = (await peopleFor(db, [Number(t.xlr8_assignee_id)])).get(Number(t.xlr8_assignee_id));
+    if (!who?.mention) continue;
+    const stage = sentBack ? null : String(mv.comment ?? '').replace(/^Stage \d+:\s*/, '') || null;
+    const payload = buildTurnText({ title: String(t.title), project: t.project_name ? String(t.project_name) : '', name: who.name, kind, stage, reason: sentBack ? mv.comment ?? null : null,
+      link: await shareLink(db, Number(t.id)), due: dueLabel(t.due_date, t.due_time) });
+    if (await insertRow(db, { event_key: `turn:${mv.id}`, kind: 'turn', task_id: Number(t.id), now,
+      payload: { ...payload, to: who.mention, turnTaskId: Number(t.id), turnState: mv.to_state, turnUser: Number(t.xlr8_assignee_id) } })) queued++;
   }
   return queued;
 }
@@ -770,7 +915,7 @@ export async function queueSamples(db: Knex, adminUserId: number, now: Date = ne
   const who = ppl.get(Number(t.assigned_to)) ?? { name: '', mention: null };
   const me = ppl.get(adminUserId);
   const { managers } = await leadsFor(db, Number(t.id), [Number(t.assigned_to)]);
-  const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id, createdBy: t.created_by_name ?? null };
+  const common = { kind: 'assigned' as const, title: String(t.title), project: t.project_name ? String(t.project_name) : '', priority: t.priority ?? null, due: dueLabel(t.due_date, t.due_time), ticket: !!t.ticket_type_id, createdBy: t.created_by_name ?? null, link: await shareLink(db, Number(t.id)) };
   const label = (b: any) => ({ ...b, caption: `🧪 _Sample preview_\n\n${b.caption}`, text: `🧪 _Sample preview_\n\n${b.text}` });
   const group: object[] = [];
   for (const pod of await employeePods(db)) group.push(label(await withPodManagers(db, pod, await morningReport(db, now, pod))));

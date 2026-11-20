@@ -11,8 +11,8 @@ import {
 
 const db = () => getDB();
 const U: Record<string, number> = {};
-const DUE = '2026-11-20';
-const DEADLINE_MS = Date.UTC(2026, 10, 20, 4, 30); // 10:00 Asia/Kolkata
+const DUE = '2030-11-20';   // fixed and in the future: a date that passes makes old rows look unexpired
+const DEADLINE_MS = Date.UTC(2030, 10, 20, 4, 30); // 10:00 Asia/Kolkata
 const MIN = 60_000;
 const sender = () => {
   const sent: { jid: string; text: string; mentions: string[] }[] = [];
@@ -31,7 +31,7 @@ before(async () => {
 });
 after(async () => { await db().destroy(); });
 
-// A regular task due 2026-11-20 10:00 IST with one employee assignee unless told otherwise
+// A regular task due 2030-11-20 10:00 IST with one employee assignee unless told otherwise
 async function task(opts: { title: string; hours?: number; due_time?: string | null; status?: string; assignees?: { key: string; acceptance?: string }[] }) {
   const d = db();
   const [id] = await d('tasks').insert({
@@ -78,8 +78,8 @@ test('threshold calculation scales with the allotted duration', () => {
 });
 
 test('timezone: the stored date and time are read as Asia/Kolkata, and a missing time means end of day', () => {
-  assert.equal(deadlineInstant('2026-11-20', '10:00'), DEADLINE_MS);
-  assert.equal(deadlineInstant('2026-11-20', null), Date.parse('2026-11-20T23:59:00+05:30'));
+  assert.equal(deadlineInstant('2030-11-20', '10:00'), DEADLINE_MS);
+  assert.equal(deadlineInstant('2030-11-20', null), Date.parse('2030-11-20T23:59:00+05:30'));
   assert.equal(deadlineInstant('not-a-date', '10:00'), null);
 });
 
@@ -157,7 +157,7 @@ test('a changed deadline is a new deadline and may be alerted again', async () =
   const id = await task({ title: 'Moved deadline' });
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS - 5 * MIN), 12);
   await db()('tasks').where({ id }).update({ due_time: '12:00' });
-  const newDeadline = Date.UTC(2026, 10, 20, 6, 30);
+  const newDeadline = Date.UTC(2030, 10, 20, 6, 30);
   await enqueueDeadlineAlerts(db(), new Date(newDeadline - 5 * MIN), 12);
   assert.deepEqual((await alertsFor(id)).map((r: any) => r.event_key.split(':').slice(0, 3).join(':')), [`deadline:${id}:${DEADLINE_MS}`, `deadline:${id}:${newDeadline}`], 'an alert for the new deadline; the old one is not "crossed" because it was moved');
 });
