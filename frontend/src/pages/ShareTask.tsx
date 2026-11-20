@@ -272,6 +272,51 @@ function StageFlow({ task, log }: { task: any; log: any[] }) {
   );
 }
 
+// For a Loop user opening the shared link: their own Accept / Decline when this ticket is still waiting for them,
+// checked with their own login (the server decides; this page only asks). Others see no buttons. Always a way to Loop.
+function AcceptBar({ taskId }: { taskId: number }) {
+  const token = (() => { try { return localStorage.getItem('token'); } catch { return null; } })();
+  const [me, setMe] = useState<any>(null); const [full, setFull] = useState<any>(null);
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
+  // A plain client: no redirect to the login page on a 401 (this page is public)
+  const call = (method: 'get' | 'post', url: string, data?: any) => axios({ method, url: `/api${url}`, data, headers: { Authorization: `Bearer ${token}` } });
+  const load = () => { if (!token) return; call('get', '/auth/me').then((r) => setMe(r.data)).catch(() => setMe(false)); call('get', `/tasks/${taskId}`).then((r) => setFull(r.data)).catch(() => setFull(false)); };
+  useEffect(load, [taskId]);
+  const here = `${window.location.pathname}`;
+  const link = (to: string, label: string) => <a href={to} style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a', textDecoration: 'underline' }}>{label}</a>;
+  const box = (children: any) => <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'rgba(245,158,11,0.08)', border: '1.5px solid rgba(245,158,11,0.35)', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>{children}</div>;
+  if (!token || me === false) return box(<><span style={{ fontSize: 13, color: '#44403c' }}>On this ticket? Log in to Loop to accept or decline it.</span>{link(`/login?next=${encodeURIComponent(here)}`, 'Log in')}</>);
+  if (!me || full === null) return null;
+  const dash = link('/dashboard', 'Open my dashboard');
+  if (!full) return box(<><span style={{ fontSize: 13, color: '#44403c' }}>Signed in as {me.name}.</span>{dash}</>);   // not theirs to see
+  const mine = (full.stage_assignees ?? full.assignees ?? []).filter((a: any) => a.user_id === me.id && !Number(a.skipped) && (a.acceptance_status === 'pending' || a.acceptance_status == null));
+  const open = ['employee', 'manager'].includes(me.role) && !['pending_approval', 'draft', 'completed', 'cancelled'].includes(full.status) && mine.length > 0;
+  if (!open) return box(<><span style={{ fontSize: 13, color: '#44403c' }}>{msg || `Signed in as ${me.name}. Nothing for you to accept here.`}</span>{dash}</>);
+  const ticket = !!full.ticket_type_id;
+  const holder = ticket && full.xlr8_status === 'pending_assignee' && full.xlr8_assignee_id === me.id;
+  const act = async (accept: boolean) => {
+    let comment: string | undefined;
+    if (!accept) { comment = prompt('Reason for declining (optional)') ?? undefined; if (comment === undefined) return; }
+    setBusy(true); setMsg('');
+    try {
+      if (!ticket) await call('post', `/tasks/${taskId}/accept`, { action: accept ? 'accept' : 'decline' });
+      else if (accept) await call('post', full.xlr8_status === 'pending_assignee' ? `/xlr8/tickets/${taskId}/employee-accept` : `/xlr8/tickets/${taskId}/stage-pre-accept`, {});
+      else await call('post', holder ? `/xlr8/tickets/${taskId}/employee-decline` : `/xlr8/tickets/${taskId}/stage-pre-decline`, { comment });
+      setMsg(accept ? 'Accepted. You can start from your dashboard.' : 'Declined.');
+      load();
+    } catch (e: any) { setMsg(e?.response?.data?.error || 'Something went wrong. Please try again in Loop.'); }
+    finally { setBusy(false); }
+  };
+  return box(<>
+    <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>{msg || `${me.name}, this ${ticket ? 'ticket' : 'task'} is waiting for your acceptance.`}</span>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <button disabled={busy} onClick={() => act(true)} style={{ padding: '7px 18px', borderRadius: 99, border: 'none', background: '#16a34a', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Accept</button>
+      <button disabled={busy} onClick={() => act(false)} style={{ padding: '7px 18px', borderRadius: 99, border: '1.5px solid rgba(220,38,38,0.4)', background: 'rgba(220,38,38,0.06)', color: '#b91c1c', fontWeight: 700, cursor: 'pointer' }}>Decline</button>
+      {dash}
+    </div>
+  </>);
+}
+
 export default function ShareTask() {
   const { token } = useParams<{ token: string }>();
   const [task, setTask] = useState<any>(null);
@@ -326,6 +371,7 @@ export default function ShareTask() {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f8f5f0 0%, #ede8e0 100%)', fontFamily: 'system-ui, -apple-system, sans-serif', padding: '40px 20px 80px' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto' }}>
 
+        <AcceptBar taskId={task.id} />
         {/* Header card */}
         <div style={{ borderRadius: 20, border: '1px solid rgba(255,255,255,0.7)', background: 'linear-gradient(135deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.6) 100%)', backdropFilter: 'blur(24px)', boxShadow: '0 10px 40px rgba(0,0,0,0.06)', padding: '28px 28px 0', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>

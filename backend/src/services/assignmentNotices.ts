@@ -71,6 +71,9 @@ const names = (people: { name: string; mention: string | null }[]) => people.map
 const plain = (v: string) => v.replace(/[*_~]/g, '').replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim();   // no emoji: the card font has none
 const tone = (p: string | null): 'bad' | 'warn' | undefined => (/urgent|high|critical/i.test(String(p)) ? 'bad' : /medium/i.test(String(p)) ? 'warn' : undefined);
 function detailCard(head: string, title: string, fields: { label: string; value: string | null; tone?: 'good' | 'warn' | 'bad' }[], tags: string, action: string) {
+  // The project is the card's heading; the task or ticket name sits first in the rows, where the project was
+  const project = fields.find((f) => f.label === 'Project' && f.value);
+  if (project) { fields = fields.map((f) => (f === project ? { label: 'Title', value: title } : f)); title = clean(String(project.value), 60); }
   const card: Card = { title, subtitle: plain(head), columns: [], rows: [], fields: fields.filter((f) => f.value).map((f) => ({ ...f, value: plain(String(f.value)) })) };
   // Heading, then who, then what to do: each on its own line with a gap, so it reads cleanly under the picture
   return { card, caption: [head, tags.includes('@') ? `👥 ${tags}` : '', action].filter(Boolean).join('\n\n') };
@@ -419,6 +422,16 @@ async function leadsFor(db: Knex, taskId: number, userIds: number[]) {
   if (!mgrIds.length) {
     const pods = (await db('users').whereIn('id', userIds).whereNotNull('pod').select('pod')).map((r: any) => r.pod);
     if (pods.length) mgrIds = (await db('users').where({ role: 'manager' }).whereIn('pod', pods).select('id')).map((r: any) => Number(r.id));
+  }
+  // Nobody follows up on themselves: a manager who hasn't accepted is followed up by the admins of their pod
+  // (all admins when their pod has none)
+  mgrIds = mgrIds.filter((id) => !userIds.includes(id));
+  const selfMgrs = await db('users').whereIn('id', userIds).where({ role: 'manager' }).select('pod');
+  if (selfMgrs.length) {
+    const pods = selfMgrs.map((m: any) => m.pod).filter(Boolean);
+    let podAdmins = pods.length ? (await db('users').where({ role: 'admin' }).whereIn('pod', pods).select('id')).map((r: any) => Number(r.id)) : [];
+    if (!podAdmins.length) podAdmins = (await db('users').where({ role: 'admin' }).select('id')).map((r: any) => Number(r.id));
+    mgrIds = [...new Set([...mgrIds, ...podAdmins])];
   }
   const adminIds = (await db('users').where({ role: 'admin' }).select('id')).map((r: any) => Number(r.id));
   const ppl = await peopleFor(db, [...mgrIds, ...adminIds]);

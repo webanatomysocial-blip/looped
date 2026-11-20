@@ -29,9 +29,10 @@ router.get('/media/:kind/:id/:seg', (req: Request, res: Response) => {
       if (!a) { res.status(404).end(); return; }
       file = path.join(R.resumeDir(), a.resume_file); mime = a.resume_mime || 'application/octet-stream'; name = a.resume_name;
     } else if (kind === 'final') {
-      const iv = await db('rec_interviews').where({ id }).first('final_file', 'recording_deleted_at');
+      const iv = await db('rec_interviews as i').join('rec_applications as a', 'a.id', 'i.application_id').where('i.id', id).first('i.final_file', 'i.recording_deleted_at', 'a.ref', 'a.name');
       if (!iv?.final_file || iv.recording_deleted_at) { res.status(404).end(); return; }
       file = path.join(R.recordingDir(id), iv.final_file); mime = iv.final_file.endsWith('.mp4') ? 'video/mp4' : 'video/webm';
+      name = `${iv.ref} ${iv.name} interview${path.extname(iv.final_file)}`;   // the name it downloads with
     } else {
       const iv = await db('rec_interviews').where({ id }).first('segments', 'recording_deleted_at');
       const s = iv && !iv.recording_deleted_at ? JSON.parse(iv.segments || '[]')[seg] : null;
@@ -59,15 +60,16 @@ router.get('/media/:kind/:id/:seg', (req: Request, res: Response) => {
 router.use(authenticate, requireRoles('admin', 'manager'));
 
 // ── Departments (Loop's employee categories) ──
-router.get('/departments', run(async () => getDB()('employee_categories').orderBy('name').select('id', 'name')));
+// Careers roles (recruitment's own list; not Loop's employee departments)
+router.get('/departments', run(async () => getDB()('rec_roles').orderBy('name').select('id', 'name')));
 // Departments are Loop-wide (employee categories), so only an admin adds one
 router.post('/departments', requireRoles('admin'), run(async (req) => {
   const name = R.clip(req.body?.name, 100);
   if (!name) throw new ServiceError(400, 'Please enter a department name');
   const db = getDB();
-  const same = await db('employee_categories').whereRaw('LOWER(name) = ?', [name.toLowerCase()]).first('id', 'name');
+  const same = await db('rec_roles').whereRaw('LOWER(name) = ?', [name.toLowerCase()]).first('id', 'name');
   if (same) return same;                                         // already there: reuse it, no duplicate
-  const [id] = await db('employee_categories').insert({ name });
+  const [id] = await db('rec_roles').insert({ name });
   return { id: Number(id), name };
 }, 201));
 
@@ -80,23 +82,34 @@ function jobRow(b: any) {
   if (row.status !== undefined && !['draft', 'published', 'closed'].includes(row.status)) throw new ServiceError(400, 'Invalid status');
   if (row.vacancies !== undefined) { row.vacancies = Number(row.vacancies); if (!Number.isInteger(row.vacancies) || row.vacancies < 1 || row.vacancies > 999) throw new ServiceError(400, 'Vacancies must be at least 1'); }
   if (row.deadline !== undefined) row.deadline = row.deadline ? String(row.deadline).slice(0, 10) : null;
-  if (row.category_id !== undefined) row.category_id = row.category_id ? Number(row.category_id) : null;
+  // The form's "role" (category_id) is stored as the careers role, never as a Loop department
+  if (row.category_id !== undefined) { row.role_id = row.category_id ? Number(row.category_id) : null; delete row.category_id; }
   for (const k of ['description', 'responsibilities', 'qualifications', 'skills']) if (row[k] !== undefined) row[k] = String(row[k] ?? '').slice(0, 10000);
   for (const k of ['experience', 'employment_type', 'location']) if (row[k] !== undefined) row[k] = R.clip(row[k], k === 'location' ? 200 : 100);
   return row;
 }
-const jobsQuery = () => getDB()('rec_jobs as j').leftJoin('employee_categories as c', 'c.id', 'j.category_id').leftJoin('users as u', 'u.id', 'j.created_by')
-  .select('j.*', 'c.name as department', 'u.name as created_by_name',
-    getDB().raw('(SELECT COUNT(*) FROM rec_applications a WHERE a.job_id = j.id) as applications'));
+const jobsQuery = () => getDB()('rec_jobs as j').leftJoin('rec_roles as c', 'c.id', 'j.role_id').leftJoin('users as u', 'u.id', 'j.created_by')
+  .select('j.*', 'j.role_id as category_id', 'c.name as department', 'u.name as created_by_name',
+    getDB().raw('(SELECT COUNT(*) FROM rec_applications a WHERE a.job_id = j.id) as applications'),
+    getDB().raw('(SELECT COUNT(*) FROM rec_questions q WHERE q.active = ? AND (q.department_id IS NULL OR q.department_id = j.role_id)) as question_count', [true]));
+// Applicants go straight into the video interview, so a role can only be published once it has questions
+async function canPublish(status: unknown, categoryId: unknown) {
+  if (status !== 'published') return;
+  if (!(await R.roleQuestions(getDB(), categoryId ? Number(categoryId) : null)).length) throw new ServiceError(400, 'Add interview questions for this role (Question Bank) before publishing');
+}
 router.get('/jobs', run(async () => jobsQuery().orderBy('j.id', 'desc')));
 router.post('/jobs', run(async (req) => {
   const row = jobRow({ status: 'draft', ...req.body });
   if (!row.title) throw new ServiceError(400, 'Please enter a job title');
+  await canPublish(row.status, row.role_id);
   const [id] = await getDB()('rec_jobs').insert({ ...row, public_id: require('crypto').randomUUID(), created_by: req.user!.id });
   return jobsQuery().where('j.id', id).first();
 }, 201));
 router.put('/jobs/:id', run(async (req) => {
-  const n = await getDB()('rec_jobs').where({ id: num(req.params.id) }).update({ ...jobRow(req.body ?? {}), updated_at: new Date() });
+  const row = jobRow(req.body ?? {});
+  const cur = await getDB()('rec_jobs').where({ id: num(req.params.id) }).first('status', 'role_id');
+  if (cur) await canPublish(row.status ?? cur.status, row.role_id !== undefined ? row.role_id : cur.role_id);
+  const n = await getDB()('rec_jobs').where({ id: num(req.params.id) }).update({ ...row, updated_at: new Date() });
   if (!n) throw new ServiceError(404, 'Job not found');
   return jobsQuery().where('j.id', num(req.params.id)).first();
 }));
@@ -108,11 +121,11 @@ router.delete('/jobs/:id', run(async (req) => {
 
 // ── Applications ──
 router.get('/applications', run(async (req) => {
-  const q = getDB()('rec_applications as a').join('rec_jobs as j', 'j.id', 'a.job_id').leftJoin('employee_categories as c', 'c.id', 'j.category_id')
+  const q = getDB()('rec_applications as a').join('rec_jobs as j', 'j.id', 'a.job_id').leftJoin('rec_roles as c', 'c.id', 'j.role_id')
     .select('a.id', 'a.ref', 'a.name', 'a.email', 'a.phone', 'a.experience_years', 'a.status', 'a.created_at', 'a.updated_at', 'j.id as job_id', 'j.title as job_title', 'c.name as department');
   const { job_id, department_id, status, from, to, search } = req.query as any;
   if (job_id) q.where('a.job_id', Number(job_id));
-  if (department_id) q.where('j.category_id', Number(department_id));
+  if (department_id) q.where('j.role_id', Number(department_id));
   if (status) q.whereIn('a.status', String(status).split(','));
   if (from) q.where('a.created_at', '>=', `${String(from).slice(0, 10)} 00:00:00`);
   if (to) q.where('a.created_at', '<=', `${String(to).slice(0, 10)} 23:59:59`);
@@ -130,7 +143,7 @@ router.get('/applications/:id', run(async (req) => {
   if (!a) throw new ServiceError(404, 'Application not found');
   await R.markViewed(db, actor(req), a);
   a = await db('rec_applications').where({ id }).first();
-  const job = await db('rec_jobs as j').leftJoin('employee_categories as c', 'c.id', 'j.category_id').where('j.id', a.job_id).first('j.id', 'j.title', 'c.name as department');
+  const job = await db('rec_jobs as j').leftJoin('rec_roles as c', 'c.id', 'j.role_id').where('j.id', a.job_id).first('j.id', 'j.title', 'c.name as department');
   const history = await db('rec_history').where({ application_id: id }).orderBy('id');
   const evaluations = await db('rec_evaluations').where({ application_id: id }).orderBy('id', 'desc');
   const schedules = (await db('rec_schedules').where({ application_id: id }).orderBy('id', 'desc')).map((s: any) => ({ ...s, date: String(s.date).slice(0, 10), interviewers: JSON.parse(s.interviewers || '[]') }));
@@ -179,6 +192,7 @@ router.get('/interviews/:id/recording-links', run(async (req) => {
   return { status: iv.processing_status ?? null, final: iv.final_file ? `/api/recruitment/media/${R.signMedia('final', iv.id, 0)}` : null, parts };
 }));
 
+router.post('/interviews/:id/delete-recording', requireRoles('admin'), run(async (req) => R.deleteRecording(getDB(), actor(req), num(req.params.id))));
 router.post('/applications/:id/evaluations', run(async (req) => {
   const db = getDB(); const id = num(req.params.id);
   if (!(await db('rec_applications').where({ id }).first('id'))) throw new ServiceError(404, 'Application not found');
@@ -208,7 +222,9 @@ router.get('/questions', run(async () => {
 }));
 const questionRow = (b: any) => {
   const row: any = {};
-  if (b.category !== undefined) { if (!R.QUESTION_CATEGORIES.includes(b.category)) throw new ServiceError(400, 'Choose a category'); row.category = b.category; }
+  // The role it is asked for (a department); empty = every role
+  if (b.department_id !== undefined) row.department_id = b.department_id ? Number(b.department_id) : null;
+  if (b.category !== undefined) { if (b.category && !R.QUESTION_CATEGORIES.includes(b.category)) throw new ServiceError(400, 'Choose a category'); row.category = b.category || 'General'; }
   if (b.text !== undefined) { row.text = R.clip(b.text, 1000); if (row.text.length < 5) throw new ServiceError(400, 'Please write the question'); }
   if (b.difficulty !== undefined) row.difficulty = ['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : null;
   if (b.active !== undefined) row.active = !!b.active;
@@ -217,8 +233,9 @@ const questionRow = (b: any) => {
 router.get('/question-categories', run(async () => R.QUESTION_CATEGORIES));
 router.post('/questions', run(async (req) => {
   const row = questionRow(req.body ?? {});
-  if (!row.category || !row.text) throw new ServiceError(400, 'Choose a category and write the question');
-  const [id] = await getDB()('rec_questions').insert({ ...row, active: row.active ?? true, created_by: req.user!.id });
+  if (!row.text) throw new ServiceError(400, 'Please write the question');
+  if (row.department_id && !(await getDB()('rec_roles').where({ id: row.department_id }).first('id'))) throw new ServiceError(400, 'Choose a role');
+  const [id] = await getDB()('rec_questions').insert({ category: 'General', ...row, active: row.active ?? true, created_by: req.user!.id });
   return getDB()('rec_questions').where({ id }).first();
 }, 201));
 router.put('/questions/:id', run(async (req) => {
@@ -243,22 +260,23 @@ router.get('/overview', run(async (req) => {
   const q = db('rec_applications as a').join('rec_jobs as j', 'j.id', 'a.job_id');
   const { job_id, department_id, from, to } = req.query as any;
   if (job_id) q.where('a.job_id', Number(job_id));
-  if (department_id) q.where('j.category_id', Number(department_id));
+  if (department_id) q.where('j.role_id', Number(department_id));
   if (from) q.where('a.created_at', '>=', `${String(from).slice(0, 10)} 00:00:00`);
   if (to) q.where('a.created_at', '<=', `${String(to).slice(0, 10)} 23:59:59`);
   const byStatus = Object.fromEntries((await q.clone().groupBy('a.status').select('a.status').count({ n: '*' })).map((r: any) => [r.status, Number(r.n)]));
   const c = (...s: string[]) => s.reduce((n, k) => n + (byStatus[k] ?? 0), 0);
   const jobs = await db('rec_jobs').groupBy('status').select('status').count({ n: '*' });
   const jc = Object.fromEntries(jobs.map((r: any) => [r.status, Number(r.n)]));
-  const perJob = await db('rec_jobs as j').leftJoin('rec_applications as a', 'a.job_id', 'j.id').leftJoin('employee_categories as c', 'c.id', 'j.category_id')
+  const perJob = await db('rec_jobs as j').leftJoin('rec_applications as a', 'a.job_id', 'j.id').leftJoin('rec_roles as c', 'c.id', 'j.role_id')
     .groupBy('j.id', 'j.title', 'j.status', 'c.name').select('j.id', 'j.title', 'j.status', 'c.name as department')
     .count({ applications: 'a.id' })
     .select(db.raw("SUM(CASE WHEN a.status = 'selected' THEN 1 ELSE 0 END) as selected"), db.raw("SUM(CASE WHEN a.status = 'rejected' THEN 1 ELSE 0 END) as rejected"));
   return {
     jobs_total: Object.values(jc).reduce((n: number, v: any) => n + v, 0), jobs_active: jc.published ?? 0,
     applications_total: Object.values(byStatus).reduce((n: number, v: any) => n + v, 0),
-    awaiting_manager: c('applied', 'under_review'), awaiting_admin: c('admin_review'),
-    prelim_pending: c('prelim_pending'), awaiting_evaluation: c('interview_review', 'interview_admin_review'),
+    // Apply → video interview → manager review → admin decision (applied/under_review/admin_review: older applications)
+    awaiting_manager: c('interview_review', 'applied', 'under_review'), awaiting_admin: c('interview_admin_review', 'admin_review'),
+    prelim_pending: c('prelim_pending'), awaiting_evaluation: c('interview_review', 'interview_admin_review'), to_schedule: c('prelim_approved'),
     final_scheduled: c('final_scheduled'), selected: c('selected'), rejected: c('rejected'), withdrawn: c('withdrawn'),
     by_status: byStatus, per_job: perJob.map((r: any) => ({ ...r, applications: Number(r.applications), selected: Number(r.selected ?? 0), rejected: Number(r.rejected ?? 0) })),
   };

@@ -180,3 +180,21 @@ test('storage per applicant is measured from disk; only an admin can delete seve
   assert.ok(!fs.existsSync(path.join(R.storageDir(), 'recordings', String(iv.id))), 'recording files gone');
   assert.ok(await app(keep.ref), 'others untouched');
 });
+
+test('once: openings and questions that pointed at Loop departments move to careers roles; Loop departments untouched', async () => {
+  const d = getDB();
+  const [cat] = await d('employee_categories').insert({ name: 'Legacy Role' });
+  const loop = Number((await d('employee_categories').count({ n: '*' }).first() as any).n);
+  const [job] = await d('rec_jobs').insert({ public_id: 'legacy-job', title: 'Legacy', status: 'draft', category_id: cat });
+  const [q] = await d('rec_questions').insert({ category: 'General', text: 'Legacy question?', active: true, department_id: cat });
+  await d('rec_settings').where({ name: 'roles_separated' }).del();
+  await R.ensureRecruitmentSchema(d);
+  const role = await d('rec_roles').where({ name: 'Legacy Role' }).first();
+  assert.ok(role, 'a careers role of the same name');
+  const j = await d('rec_jobs').where({ id: job }).first();
+  assert.equal(Number(j.role_id), Number(role.id)); assert.equal(j.category_id, null, 'no link to the Loop department any more');
+  assert.equal(Number((await d('rec_questions').where({ id: q }).first()).department_id), Number(role.id));
+  assert.equal(Number((await d('employee_categories').count({ n: '*' }).first() as any).n), loop, 'Loop departments unchanged');
+  await R.ensureRecruitmentSchema(d);
+  assert.equal((await d('rec_roles').where({ name: 'Legacy Role' })).length, 1, 'runs once');
+});

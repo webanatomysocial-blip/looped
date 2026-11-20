@@ -202,8 +202,10 @@ test('picture details match the saved task exactly: title, project, person, prio
   const row = await d('whatsapp_outbox').where({ task_id: id, kind: 'assigned' }).orderBy('id', 'desc').first();
   const p = JSON.parse(row.payload);
   const f = Object.fromEntries(p.card.fields.map((x: any) => [x.label, x.value]));
-  assert.equal(p.card.title, 'Card accuracy check');
-  assert.equal(f.Project, 'WebAnatomy Website');
+  // The project is the heading; the task name is the first row
+  assert.equal(p.card.title, 'WebAnatomy Website');
+  assert.equal(f.Title, 'Card accuracy check');
+  assert.equal(p.card.fields[0].label, 'Title');
   assert.equal(f['Assigned to'], 'Pardu, Mia Manager', 'the task manager is listed too');
   assert.match(f.Priority, /^High$/);
   assert.equal(f.Status, 'Waiting for Pardu to accept');

@@ -24,7 +24,7 @@ const REC_STATUS: Record<string, [string, string]> = {
   incomplete: ['Incomplete: see the problems below', 'warn'], failed: ['Processing failed: the uploaded recording is kept', 'bad'],
 };
 function RecordingStatus({ iv }: { iv: any }) {
-  if (iv.recording_deleted_at) return <>Deleted after retention ({dt(iv.recording_deleted_at)})</>;
+  if (iv.recording_deleted_at) return <>Video deleted ({dt(iv.recording_deleted_at)})</>;
   if (iv.status === 'in_progress') return <span className="rec-pill rec-pill--info">{iv.recording_complete ? 'Uploading' : 'Recording in progress'}</span>;
   const st = iv.processing_status ? REC_STATUS[iv.processing_status] : null;
   if (!st) return <span className="rec-pill rec-pill--warn">Not verified (recorded before checks existed)</span>;
@@ -77,10 +77,10 @@ function Recording({ parts }: { parts: { segment: number; url: string; audio_url
 const dt = (v: any) => (v ? new Date(typeof v === 'number' || /^\d+$/.test(String(v)) ? Number(v) : String(v).includes('T') || String(v).includes('Z') ? v : String(v).replace(' ', 'T') + 'Z').toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const tone = (s: string) => (s === 'selected' || s === 'prelim_approved' ? 'good' : s === 'rejected' || s === 'withdrawn' ? 'bad' : ['admin_review', 'interview_admin_review'].includes(s) ? 'warn' : 'info');
 const QUEUES: [string, string, string][] = [
-  ['Awaiting manager', 'applied,under_review', 'awaiting_manager'], ['Awaiting admin', 'admin_review', 'awaiting_admin'],
-  ['Interview pending', 'prelim_pending', 'prelim_pending'], ['To evaluate', 'interview_review,interview_admin_review', 'awaiting_evaluation'],
-  ['Ready to schedule', 'prelim_approved', ''], ['Final scheduled', 'final_scheduled', 'final_scheduled'], ['Final completed', 'final_completed', ''],
-  ['Selected', 'selected', 'selected'], ['Rejected', 'rejected', 'rejected'],
+  ['Video interview pending', 'prelim_pending', 'prelim_pending'], ['Manager review', 'interview_review,applied,under_review', 'awaiting_evaluation'],
+  ['Admin review', 'interview_admin_review,admin_review', 'awaiting_admin'],
+  ['Final interview to schedule', 'prelim_approved', ''], ['Final scheduled', 'final_scheduled', 'final_scheduled'], ['Final done · decide', 'final_completed', ''],
+  ['Shortlisted', 'selected', 'selected'], ['Rejected', 'rejected', 'rejected'],
 ];
 
 export default function Recruitment() {
@@ -104,7 +104,7 @@ export default function Recruitment() {
         {tab === 'overview' && <Overview jobs={jobs} departments={departments} open={(q) => { setQueue(q); setTab('applications'); }} />}
         {tab === 'openings' && <Openings jobs={jobs} departments={departments} reload={loadRefs} />}
         {tab === 'applications' && <Applications jobs={jobs} departments={departments} queue={queue} setQueue={setQueue} />}
-        {tab === 'questions' && <Questions />}
+        {tab === 'questions' && <Questions departments={departments} />}
         {tab === 'settings' && <Settings />}
       </div>
     </Layout>
@@ -129,9 +129,9 @@ function Overview({ jobs, departments, open }: { jobs: any[]; departments: any[]
   if (!o) return <div className="rec-empty">Loading…</div>;
   const m: [string, number, string?][] = [
     ['Job openings', o.jobs_total], ['Active openings', o.jobs_active], ['Applications', o.applications_total],
-    ['Awaiting manager review', o.awaiting_manager, 'applied,under_review'], ['Awaiting admin review', o.awaiting_admin, 'admin_review'],
-    ['Preliminary interviews pending', o.prelim_pending, 'prelim_pending'], ['Interviews to evaluate', o.awaiting_evaluation, 'interview_review,interview_admin_review'],
-    ['Final interviews scheduled', o.final_scheduled, 'final_scheduled'], ['Selected', o.selected, 'selected'], ['Rejected', o.rejected, 'rejected'],
+    ['Video interviews pending', o.prelim_pending, 'prelim_pending'], ['Awaiting manager review', o.awaiting_manager, 'interview_review,applied,under_review'],
+    ['Awaiting admin decision', o.awaiting_admin, 'interview_admin_review,admin_review'], ['Final interview to schedule', o.to_schedule, 'prelim_approved'],
+    ['Final interviews scheduled', o.final_scheduled, 'final_scheduled'], ['Shortlisted', o.selected, 'selected'], ['Rejected', o.rejected, 'rejected'],
   ];
   return (<>
     <Filters jobs={jobs} departments={departments} f={f} setF={setF} />
@@ -162,11 +162,13 @@ function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any
     <div className="rec-actions" style={{ marginBottom: 14 }}><button className="btn-primary" onClick={() => setEdit({ ...EMPTY_JOB })}>+ New job opening</button></div>
     <div className="rec-card rec-table-wrap">
       <table className="rec-table">
-        <thead><tr><th>Title</th><th>Department</th><th>Location</th><th>Vacancies</th><th>Deadline</th><th>Applications</th><th>Status</th><th /></tr></thead>
+        <thead><tr><th>Title</th><th>Role</th><th>Questions</th><th>Location</th><th>Vacancies</th><th>Deadline</th><th>Applications</th><th>Status</th><th /></tr></thead>
         <tbody>{jobs.length ? jobs.map((j) => (
           <tr key={j.id}>
             <td><b>{j.title}</b><div className="rec-sub">{j.employment_type} · {j.experience || 'Any experience'} · by {j.created_by_name ?? '—'}</div></td>
-            <td>{j.department ?? '—'}</td><td>{j.location || '—'}</td><td>{j.vacancies}</td><td>{j.deadline ? String(j.deadline).slice(0, 10) : '—'}</td><td>{Number(j.applications)}</td>
+            <td>{j.department ?? '—'}</td>
+            <td>{Number(j.question_count) ? Number(j.question_count) : <span className="rec-pill rec-pill--warn" title="Add questions for this role in the Question Bank before publishing">None yet</span>}</td>
+            <td>{j.location || '—'}</td><td>{j.vacancies}</td><td>{j.deadline ? String(j.deadline).slice(0, 10) : '—'}</td><td>{Number(j.applications)}</td>
             <td><span className={`rec-pill ${j.status === 'published' ? 'rec-pill--good' : j.status === 'closed' ? 'rec-pill--bad' : ''}`}>{j.status}</span></td>
             <td><div className="rec-actions">
               <button className="btn-secondary" onClick={() => setEdit({ ...EMPTY_JOB, ...j, category_id: j.category_id ?? '', deadline: j.deadline ? String(j.deadline).slice(0, 10) : '' })}>Edit</button>
@@ -308,6 +310,14 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     try { await api.decide(id, action, comment || undefined); setComment(''); await refresh(); } catch (e) { alert(err(e)); } finally { setBusy(false); }
   };
   const [newLink, setNewLink] = useState('');
+  // Deletes the recording's files for good; the application, answers' timings and history stay
+  const deleteVideo = async () => {
+    if (!a?.interview) return;
+    if (prompt('Delete this interview video permanently? It cannot be recovered.\n\nType DELETE to confirm.') !== 'DELETE') return;
+    setBusy(true);
+    try { const r = await api.deleteRecording(a.interview.id); alert(`Video deleted${r.data.freed_bytes ? `, ${(r.data.freed_bytes / 1048576).toFixed(1)} MB freed` : ''}.`); setMedia(null); await refresh(); }
+    catch (e) { alert(err(e)); } finally { setBusy(false); }
+  };
   const linkAction = async (mode: 'new' | 'extend') => {
     setBusy(true);
     try { const r = await api.interviewLink(id, mode); setNewLink(r.data.link ?? ''); await refresh(); } catch (e) { alert(err(e)); } finally { setBusy(false); }
@@ -369,7 +379,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         )}
 
         {iv && (
-          <div className="rec-section"><h3>Preliminary interview</h3>
+          <div className="rec-section"><h3>Video interview</h3>
             <dl className="rec-kv">
               <dt>Started</dt><dd>{dt(iv.started_at)}</dd><dt>Submitted</dt><dd>{iv.submitted_at ? dt(iv.submitted_at) : 'Not yet'}</dd>
               <dt>Duration</dt><dd>{iv.duration_sec ? `${Math.floor(iv.duration_sec / 60)}m ${iv.duration_sec % 60}s` : '—'}</dd>
@@ -377,6 +387,12 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               <dt>Recording</dt><dd><RecordingStatus iv={iv} /></dd>
             </dl>
             {iv.verification && <Verification v={iv.verification} />}
+            {media && !iv.recording_deleted_at && (media.final || media.parts.length > 0) && (
+              <div className="rec-actions" style={{ margin: '4px 0 8px' }}>
+                {media.final && <a className="btn-secondary" href={`${media.final}&download=1`} download style={{ textDecoration: 'none' }}>⬇ Download video</a>}
+                {user?.role === 'admin' && <button className="rec-btn-danger" disabled={busy} onClick={deleteVideo}>Delete video</button>}
+              </div>
+            )}
             {media && !iv.recording_deleted_at && (media.final
               ? <FinalVideo url={media.final} refresh={() => loadMedia(iv.id)} />
               : media.parts.length > 0 && iv.processing_status !== 'processing' && <><p className="rec-muted">Not a verified recording: the uploaded parts as received.</p><Recording parts={media.parts} /></>)}
@@ -483,48 +499,70 @@ function ScheduleForm({ appId, initial, onClose, onSaved }: { appId: number; ini
 }
 
 // ── Question bank ──
-function Questions() {
-  const [qs, setQs] = useState<any[]>([]); const [cats, setCats] = useState<string[]>([]);
-  const [edit, setEdit] = useState<any>(null); const [preview, setPreview] = useState<any>(null); const [cat, setCat] = useState('');
+// One tab per role (department) plus "All roles": every active question in a role's tab is asked in that role's
+// video interview, after the "All roles" ones, in the order shown
+function Questions({ departments }: { departments: any[] }) {
+  const [qs, setQs] = useState<any[]>([]);
+  const [edit, setEdit] = useState<any>(null); const [preview, setPreview] = useState<any>(null);
+  const [role, setRole] = useState<string>('all');
   const load = () => { api.questions().then((r) => setQs(r.data)).catch(() => {}); };
-  useEffect(() => { load(); api.questionCategories().then((r) => setCats(r.data)).catch(() => {}); }, []);
+  useEffect(() => { load(); }, []);
+  const roleId = role === 'all' ? null : Number(role);
+  const inTab = (q: any) => (roleId == null ? q.department_id == null : Number(q.department_id) === roleId);
+  const shown = qs.filter(inTab);
+  const general = qs.filter((q) => q.department_id == null && q.active).length;
+  const count = (id: number | null) => qs.filter((q) => (id == null ? q.department_id == null : Number(q.department_id) === id) && q.active).length;
   const save = async () => { try { if (edit.id) await api.updateQuestion(edit.id, edit); else await api.addQuestion(edit); setEdit(null); load(); } catch (e) { alert(err(e)); } };
   const toggle = async (q: any) => { try { await api.updateQuestion(q.id, { active: !q.active }); load(); } catch (e) { alert(err(e)); } };
   const remove = async (q: any) => { if (!confirm('Delete this question?')) return; try { await api.deleteQuestion(q.id); load(); } catch (e) { alert(err(e)); } };
-  const shown = qs.filter((q) => !cat || q.category === cat);
+  const roleName = roleId == null ? 'All roles' : departments.find((d) => d.id === roleId)?.name ?? 'Role';
   return (<>
-    <div className="rec-filters">
-      <button className="btn-primary" onClick={() => setEdit({ category: cats[0] ?? '', text: '', difficulty: '', active: true })}>+ Add question</button>
-      <select className="form-input" value={cat} onChange={(e) => setCat(e.target.value)}><option value="">All categories</option>{cats.map((c) => <option key={c}>{c}</option>)}</select>
-      <span className="rec-muted">{qs.filter((q) => q.active).length} active · one common bank for every job</span>
+    <div className="rec-tabs">
+      <button className={`rec-tab ${role === 'all' ? 'rec-tab--on' : ''}`} onClick={() => setRole('all')}>All roles <span className="rec-count">{count(null)}</span></button>
+      {departments.map((d) => <button key={d.id} className={`rec-tab ${role === String(d.id) ? 'rec-tab--on' : ''}`} onClick={() => setRole(String(d.id))}>{d.name} <span className="rec-count">{count(d.id)}</span></button>)}
+    </div>
+    <div className="rec-filters" style={{ justifyContent: 'space-between' }}>
+      <span className="rec-muted">{roleId == null
+        ? 'Asked in every role\'s video interview, first.'
+        : `A ${roleName} interview asks ${general + count(roleId)} question${general + count(roleId) === 1 ? '' : 's'}: the ${general} for all roles, then these ${count(roleId)}.`}</span>
+      <button className="btn-primary" onClick={() => setEdit({ department_id: roleId, text: '', difficulty: '', active: true })}>+ Add question to {roleName}</button>
     </div>
     <div className="rec-card rec-table-wrap">
       <table className="rec-table">
-        <thead><tr><th>Question</th><th>Category</th><th>Difficulty</th><th>Status</th><th /></tr></thead>
-        <tbody>{shown.map((q) => (
+        <thead><tr><th style={{ width: 36 }}>#</th><th>Question</th><th>Difficulty</th><th>Status</th><th /></tr></thead>
+        <tbody>{shown.length ? shown.map((q, n) => (
           <tr key={q.id}>
-            <td style={{ maxWidth: 480 }}>{q.text}{q.used && <div className="rec-sub">Used in interviews</div>}</td>
-            <td>{q.category}</td><td>{q.difficulty || '—'}</td>
-            <td><span className={`rec-pill ${q.active ? 'rec-pill--good' : ''}`}>{q.active ? 'Active' : 'Inactive'}</span></td>
+            <td className="rec-muted">{n + 1}</td>
+            <td style={{ maxWidth: 520 }}>{q.text}{q.used && <div className="rec-sub">Used in interviews</div>}</td>
+            <td>{q.difficulty || '—'}</td>
+            <td><span className={`rec-pill ${q.active ? 'rec-pill--good' : ''}`}>{q.active ? 'Asked' : 'Off'}</span></td>
             <td><div className="rec-actions">
               <button className="btn-secondary" onClick={() => setPreview(q)}>Preview</button>
               <button className="btn-secondary" onClick={() => setEdit({ ...q, difficulty: q.difficulty ?? '' })}>Edit</button>
-              <button className="btn-secondary" onClick={() => toggle(q)}>{q.active ? 'Deactivate' : 'Activate'}</button>
+              <button className="btn-secondary" onClick={() => toggle(q)}>{q.active ? 'Turn off' : 'Turn on'}</button>
               {!q.used && <button className="rec-btn-danger" onClick={() => remove(q)}>Delete</button>}
             </div></td>
-          </tr>))}</tbody>
+          </tr>)) : <tr><td colSpan={5} className="rec-empty">No questions for {roleName} yet.</td></tr>}</tbody>
       </table>
     </div>
     {edit && (
-      <Modal title={edit.id ? 'Edit question' : 'Add question'} onClose={() => setEdit(null)}>
-        <div className="rec-field"><label>Category</label><select className="form-input" value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })}>{cats.map((c) => <option key={c}>{c}</option>)}</select></div>
-        <div className="rec-field" style={{ marginTop: 10 }}><label>Question</label><textarea className="form-input" rows={3} value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} maxLength={1000} /></div>
+      <Modal title={edit.id ? 'Edit question' : `Add question · ${roleName}`} onClose={() => setEdit(null)}>
+        <div className="rec-field"><label>Role</label>
+          <select className="form-input" value={edit.department_id ?? ''} onChange={(e) => setEdit({ ...edit, department_id: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">All roles (asked in every interview)</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select></div>
+        <div className="rec-field" style={{ marginTop: 10 }}><label>Question</label><textarea className="form-input" rows={3} value={edit.text} onChange={(e) => setEdit({ ...edit, text: e.target.value })} maxLength={1000} autoFocus /></div>
         <div className="rec-field" style={{ marginTop: 10 }}><label>Difficulty (optional)</label><select className="form-input" value={edit.difficulty} onChange={(e) => setEdit({ ...edit, difficulty: e.target.value })}><option value="">—</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></div>
         {edit.used && <p className="rec-muted">This question was used in interviews; past interviews keep the wording they were asked.</p>}
         <div className="rec-actions" style={{ marginTop: 12 }}><button className="btn-primary" onClick={save}>Save</button><button className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button></div>
       </Modal>
     )}
-    {preview && <Modal title="Preview" onClose={() => setPreview(null)}><span className="rec-muted">{preview.category}</span><p className="iv-question">{preview.text}</p></Modal>}
+    {preview && (
+      <Modal title="Question preview" onClose={() => setPreview(null)}>
+        <p className="rec-muted" style={{ marginTop: 0 }}>How the candidate sees it</p>
+        <p className="iv-question">{preview.text}</p>
+      </Modal>
+    )}
   </>);
 }
 
@@ -539,7 +577,7 @@ function Settings() {
   return (
     <div className="rec-card rec-card--pad" style={{ maxWidth: 640 }}>
       <div className="rec-grid2">
-        {field('question_count', 'Questions per interview', 'Picked at random from the active questions', 1, 30)}
+
         {field('seconds_per_question', 'Seconds per question', '20 to 900', 20, 900)}
         {field('interview_link_days', 'Interview link valid for (days)', 'After admin approval', 1, 60)}
         {field('recording_retention_days', 'Keep recordings for (days)', 'Recordings are deleted after this', 7, 3650)}

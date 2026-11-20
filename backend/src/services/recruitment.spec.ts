@@ -55,6 +55,9 @@ before(async () => {
     const [id] = await db('users').insert({ name: k, email: `${k}@rec.test`, password_hash: 'x', role, pod: role === 'manager' ? 'pod2' : null });
     U[k] = { id, role, name: k, email: `${k}@rec.test` };
   }
+  // Three general questions keep the interviews in these tests short (every active question is asked)
+  const keep = (await db('rec_questions').orderBy('id').limit(3).pluck('id'));
+  await db('rec_questions').whereNotIn('id', keep).update({ active: false });
   for (const m of ['interviewInvite', 'scheduled', 'cancelled', 'selected'] as const) (R.defaultMailer as any)[m] = async (a: any) => { sent.push(`${m}:${a.email}`); };
   const app = express();
   app.use(express.json());
@@ -66,12 +69,13 @@ before(async () => {
 after(async () => { server?.close(); await getDB().destroy(); fs.rmSync(process.env.RECRUITMENT_STORAGE_DIR!, { recursive: true, force: true }); });
 
 // ── Departments and job openings ──
-test('departments: the existing list is offered; "create new" adds to it once (no duplicates); employees cannot', async () => {
+test('careers roles: recruitment\'s own list, never Loop\'s departments; "create new" adds once; only admins add', async () => {
+  const loopBefore = Number((await getDB()('employee_categories').count({ n: '*' }).first() as any).n);
   const list = await ok('mgr', 'GET', '/api/recruitment/departments', 200);
-  assert.ok(list.some((d: any) => d.name === 'Web Developer'), 'Loop\'s existing departments');
-  // Departments are Loop-wide: a manager can't add one, an admin can
+  assert.ok(!list.some((d: any) => d.name === 'Web Developer'), 'Loop\'s employee departments are not offered');
   await ok('mgr', 'POST', '/api/recruitment/departments', 403, { name: 'Video Editing' });
   const made = await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'Video Editing' });
+  assert.equal(Number((await getDB()('employee_categories').count({ n: '*' }).first() as any).n), loopBefore, 'Loop\'s department list is untouched');
   const again = await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'video editing' });
   assert.equal(again.id, made.id, 'same name: reused, not duplicated');
   assert.ok((await ok('admin', 'GET', '/api/recruitment/departments', 200)).some((d: any) => d.name === 'Video Editing'), 'available for future openings');
@@ -79,7 +83,7 @@ test('departments: the existing list is offered; "create new" adds to it once (n
 });
 
 test('job openings: a manager creates a draft (hidden publicly), publishes it (listed), closes it (hidden again)', async () => {
-  const dept = (await ok('admin', 'GET', '/api/recruitment/departments', 200)).find((d: any) => d.name === 'Web Developer');
+  const dept = await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'Web Developer' });   // a careers role
   const job = await ok('mgr', 'POST', '/api/recruitment/jobs', 201, { title: 'Frontend Developer', category_id: dept.id, description: 'Build UIs', experience: '1-3 years', employment_type: 'Full-time', location: 'Hyderabad', vacancies: 2, deadline: '2099-12-31' });
   assert.equal(job.status, 'draft'); assert.equal(job.department, 'Web Developer');
   assert.ok(!(await ok(null, 'GET', '/api/public/careers/jobs', 200)).some((j: any) => j.title === 'Frontend Developer'), 'a draft is not public');
@@ -101,11 +105,12 @@ let TOKEN = ''; let APP_ID = 0;
 test('applying: valid application gets a reference and a private tracking link; duplicates for the same job are refused', async () => {
   const out = await ok(null, 'POST', `/api/public/careers/jobs/${JOB}/apply`, 201, undefined, applyForm(candidate('asha@x.test')));
   assert.match(out.ref, /^LP-[0-9A-F]{10}$/); assert.ok(out.token.length >= 40);
-  TOKEN = out.token;
+  TOKEN = out.token; assert.ok(out.interview_token.length >= 40, 'the video interview link comes straight back');
   APP_ID = (await getDB()('rec_applications').where({ ref: out.ref }).first('id')).id;
   await ok(null, 'POST', `/api/public/careers/jobs/${JOB}/apply`, 409, undefined, applyForm(candidate('ASHA@x.test')));
   const view = await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200);
-  assert.equal(view.status, 'Applied'); assert.equal(view.job, 'Frontend Developer');
+  assert.equal(view.status, 'Video Interview Pending'); assert.equal(view.job, 'Frontend Developer');
+  assert.equal(view.interview.open, true);
   assert.ok(!('history' in view) && !('email' in view) && !('resume_file' in view), 'no internal data');
   await ok(null, 'GET', `/api/public/careers/applications/${'x'.repeat(43)}`, 404);
   const inbox = await getDB()('notifications').where({ type: 'recruitment' }).whereRaw("message LIKE '%Asha Rao%'");
@@ -132,48 +137,43 @@ test('a candidate can apply to a different job with the same email', async () =>
   await ok('admin', 'PUT', `/api/recruitment/jobs/${j2.id}`, 200, { status: 'closed' });
 });
 
-// ── Approval hierarchy ──
-test('hierarchy: manager approves → admin review; a manager cannot make the admin decision; admin approves → interview link', async () => {
+// ── The flow: straight to the video interview ──
+test('a new application goes straight to the video interview: no screening step; nobody approves before it; an admin can still reject', async () => {
   const detail = await ok('mgr', 'GET', `/api/recruitment/applications/${APP_ID}`, 200);
-  assert.equal(detail.status, 'under_review', 'opening it marks it as under review');
+  assert.equal(detail.status, 'prelim_pending'); assert.equal(detail.status_label, 'Video Interview Pending');
   assert.ok(!('access_hash' in detail) && !('resume_file' in detail));
-  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Under Review');
-  await ok('mgr', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 200, { action: 'approve', comment: 'Good portfolio' });
-  assert.equal((await getDB()('rec_applications').where({ id: APP_ID }).first()).status, 'admin_review');
-  const r = await call('mgr2', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, { action: 'approve' });
-  assert.equal(r.status, 403); assert.match(r.body.error, /admin/);
-  await ok('admin', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 200, { action: 'approve' });
-  const a = await getDB()('rec_applications').where({ id: APP_ID }).first();
-  assert.equal(a.status, 'prelim_pending'); assert.ok(a.interview_hash && new Date(a.interview_expires_at).getTime() > Date.now());
-  assert.ok(sent.includes('interviewInvite:asha@x.test'), 'shortlisted: the candidate is emailed the interview link');
-  const hist = await getDB()('rec_history').where({ application_id: APP_ID }).orderBy('id');
-  assert.deepEqual(hist.map((h: any) => h.action), ['applied', 'review_started', 'approve', 'approve']);
-  assert.deepEqual(hist.slice(2).map((h: any) => [h.actor_role, h.from_status, h.to_status, !!h.override]), [['manager', 'under_review', 'admin_review', false], ['admin', 'admin_review', 'prelim_pending', false]]);
+  assert.deepEqual(detail.can, [], 'a manager has nothing to decide before the interview');
+  assert.ok(sent.includes('interviewInvite:asha@x.test'), 'the interview link is also emailed');
+  await ok('mgr', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 403, { action: 'reject', comment: 'x' });
+  await ok('admin', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 409, { action: 'approve' });
+  assert.deepEqual((await ok('admin', 'GET', `/api/recruitment/applications/${APP_ID}`, 200)).can, ['reject']);
+  assert.deepEqual((await getDB()('rec_history').where({ application_id: APP_ID }).orderBy('id')).map((h: any) => [h.action, h.to_status]), [['applied', 'prelim_pending']]);
 });
 
-test('rejection: manager rejects with a reason; the candidate sees it only on the page (no email); admin can reopen', async () => {
+test('rejection: an admin rejects with a reason; the candidate sees it only on the page (no email); an admin can reopen', async () => {
   const { ref, token } = await ok(null, 'POST', `/api/public/careers/jobs/${JOB}/apply`, 201, undefined, applyForm(candidate('rej@x.test')));
   const id = (await getDB()('rec_applications').where({ ref }).first('id')).id;
-  await ok('mgr', 'POST', `/api/recruitment/applications/${id}/decision`, 400, { action: 'reject' });
+  await ok('admin', 'POST', `/api/recruitment/applications/${id}/decision`, 400, { action: 'reject' });
   const before = sent.length;
-  await ok('mgr', 'POST', `/api/recruitment/applications/${id}/decision`, 200, { action: 'reject', comment: 'Not enough experience' });
+  await ok('admin', 'POST', `/api/recruitment/applications/${id}/decision`, 200, { action: 'reject', comment: 'Not enough experience' });
   assert.equal(sent.length, before, 'no rejection email');
   const view = await ok(null, 'GET', `/api/public/careers/applications/${token}`, 200);
   assert.equal(view.status, 'Not Selected'); assert.ok(!JSON.stringify(view).includes('Not enough experience'), 'the reason stays internal');
   await ok('mgr', 'POST', `/api/recruitment/applications/${id}/decision`, 403, { action: 'reopen' });
   const re = await ok('admin', 'POST', `/api/recruitment/applications/${id}/decision`, 200, { action: 'reopen', comment: 'Reconsidering' });
-  assert.equal(re.status, 'applied', 'back to where it was before the rejection');
+  assert.equal(re.status, 'prelim_pending', 'back to where it was before the rejection');
   const h = await getDB()('rec_history').where({ application_id: id, action: 'reopen' }).first();
   assert.ok(h.override && h.actor_role === 'admin' && h.from_status === 'rejected' && h.comment === 'Reconsidering');
 });
 
-test('admin override: approving directly at the manager step is allowed and recorded as an override', async () => {
+test('admin override: approving a video interview directly at the manager step is allowed and recorded as an override', async () => {
   const { ref } = await ok(null, 'POST', `/api/public/careers/jobs/${JOB}/apply`, 201, undefined, applyForm(candidate('direct@x.test')));
   const id = (await getDB()('rec_applications').where({ ref }).first('id')).id;
-  const out = await ok('admin2', 'POST', `/api/recruitment/applications/${id}/decision`, 200, { action: 'approve', comment: 'Strong referral' });
-  assert.deepEqual(out, { status: 'prelim_pending', override: true });
+  await getDB()('rec_applications').where({ id }).update({ status: 'interview_review' });   // interview done
+  const out = await ok('admin2', 'POST', `/api/recruitment/applications/${id}/decision`, 200, { action: 'approve', comment: 'Strong answers' });
+  assert.deepEqual(out, { status: 'prelim_approved', override: true });
   const h = await getDB()('rec_history').where({ application_id: id, action: 'approve' }).first();
-  assert.ok(h.override && h.actor_name === 'admin2' && h.from_status === 'applied' && h.to_status === 'prelim_pending' && h.comment === 'Strong referral' && h.created_at);
+  assert.ok(h.override && h.actor_name === 'admin2' && h.from_status === 'interview_review' && h.to_status === 'prelim_approved' && h.comment === 'Strong answers' && h.created_at);
 });
 
 test('the rules live in one place: decide()', () => {
@@ -204,21 +204,28 @@ test('settings: question count and time per question are configurable within lim
   assert.equal(s.question_count, 3); assert.equal(s.seconds_per_question, 60);
 });
 
-test('random selection: shuffled from active questions only, never from inactive ones', async () => {
+test('role questions: every active question for the role is asked (all roles first, then the role\'s own); never inactive or another role\'s', async () => {
   const db = getDB();
-  const inactive = (await db('rec_questions').insert({ category: 'Achievements', text: 'INACTIVE QUESTION', active: false }))[0];
-  const seen = new Set<string>();
-  for (let i = 0; i < 6; i++) {
-    const { ref } = await ok(null, 'POST', `/api/public/careers/jobs/${JOB}/apply`, 201, undefined, applyForm(candidate(`rand${i}@x.test`)));
-    const a = await db('rec_applications').where({ ref }).first();
-    await db('rec_applications').where({ id: a.id }).update({ status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86400000) });
-    const iv = await R.startInterview(db, { ...a, status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86400000) }, { accepted: true, version: 'v1' });
-    const qs = await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position');
-    assert.equal(qs.length, 3, 'the configured count');
-    assert.ok(!qs.some((q: any) => q.question_id === inactive));
-    seen.add(qs.map((q: any) => q.question_id).join(','));
-  }
-  assert.ok(seen.size > 1, 'different candidates get different combinations');
+  const dev = (await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'Development' })).id;
+  const seo = (await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'SEO' })).id;
+  const roleQ = await ok('mgr', 'POST', '/api/recruitment/questions', 201, { department_id: dev, text: 'Walk us through a bug you fixed recently.' });
+  await ok('mgr', 'POST', '/api/recruitment/questions', 201, { department_id: seo, text: 'How do you research keywords?' });
+  const off = await ok('mgr', 'POST', '/api/recruitment/questions', 201, { department_id: dev, text: 'INACTIVE ROLE QUESTION' });
+  await ok('mgr', 'PUT', `/api/recruitment/questions/${off.id}`, 200, { active: false });
+  const job = await ok('admin', 'POST', '/api/recruitment/jobs', 201, { title: 'Backend Developer', category_id: dev, status: 'published' });
+  const { ref } = await ok(null, 'POST', `/api/public/careers/jobs/${job.public_id}/apply`, 201, undefined, applyForm(candidate('roleq@x.test')));
+  const a = await db('rec_applications').where({ ref }).first();
+  const iv = await R.startInterview(db, a, { accepted: true, version: 'v1' });
+  const asked = (await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position')).map((q: any) => q.text);
+  assert.equal(asked.length, 4, 'the 3 general questions and the role\'s 1');
+  assert.equal(asked[3], roleQ.text, 'role questions after the general ones');
+  assert.ok(!asked.includes('INACTIVE ROLE QUESTION') && !asked.includes('How do you research keywords?'));
+  // A role with no questions at all can't be published (applicants go straight into the interview)
+  await db('rec_questions').update({ active: false });
+  await ok('admin', 'POST', '/api/recruitment/jobs', 400, { title: 'No questions yet', category_id: seo, status: 'published' });
+  await db('rec_questions').whereIn('id', (await db('rec_questions').whereNull('department_id').orderBy('id').limit(3).pluck('id'))).update({ active: true });
+  await db('rec_questions').where({ department_id: dev }).whereNot({ id: off.id }).update({ active: true });
+  await db('rec_questions').where({ department_id: seo }).update({ active: true });
 });
 
 // ── Preliminary interview ──
@@ -289,7 +296,7 @@ test('interview: recording uploads in order; repeats are ignored; gaps are refus
   assert.deepEqual(fs.readdirSync(path.join(R.recordingDir(iv.id), 'segment-0')).sort(), chunkFiles, 'originals kept after a failure');
   assert.equal((await getDB()('rec_applications').where({ id: APP_ID }).first()).status, 'interview_review');
   await ok(null, 'GET', `/api/public/careers/interview/${IV_TOKEN}`, 404);
-  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Preliminary Interview Completed');
+  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Video Interview Completed · Under Review');
 });
 
 test('recording access: only through a signed, expiring link issued to admins and managers; ranges work for playback', async () => {
@@ -357,7 +364,7 @@ test('final decision: after the final interview, only an admin selects; the cand
   await ok('mgr', 'POST', `/api/recruitment/applications/${APP_ID}/final-completed`, 200, {});
   await ok('mgr', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 403, { action: 'approve' });
   await ok('admin', 'POST', `/api/recruitment/applications/${APP_ID}/decision`, 200, { action: 'approve', comment: 'Offer' });
-  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Selected');
+  assert.equal((await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 200)).status, 'Shortlisted');
   assert.ok(sent.includes('selected:asha@x.test'));
   await ok(null, 'POST', `/api/public/careers/applications/${TOKEN}/withdraw`, 409);
 });
@@ -380,7 +387,7 @@ test('overview: every figure comes from the records', async () => {
   const db = getDB();
   const n = async (...s: string[]) => Number((await db('rec_applications').whereIn('status', s).count({ n: '*' }).first() as any).n);
   assert.equal(o.applications_total, Number((await db('rec_applications').count({ n: '*' }).first() as any).n));
-  assert.equal(o.selected, await n('selected')); assert.equal(o.awaiting_manager, await n('applied', 'under_review')); assert.equal(o.prelim_pending, await n('prelim_pending'));
+  assert.equal(o.selected, await n('selected')); assert.equal(o.awaiting_manager, await n('interview_review', 'applied', 'under_review')); assert.equal(o.awaiting_admin, await n('interview_admin_review', 'admin_review')); assert.equal(o.prelim_pending, await n('prelim_pending'));
   assert.equal(o.jobs_active, Number((await db('rec_jobs').where({ status: 'published' }).count({ n: '*' }).first() as any).n));
   const fe = o.per_job.find((j: any) => j.id === JOB_ID);
   assert.equal(fe.applications, Number((await db('rec_applications').where({ job_id: JOB_ID }).count({ n: '*' }).first() as any).n));

@@ -28,7 +28,10 @@ export default function Login() {
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
-  if (user) return <Navigate to={user.role === 'client' ? '/projects' : '/dashboard'} replace />;
+  // Back to where they came from (e.g. a shared ticket), same site only: "/x" but never "//other.site"
+  const next = new URLSearchParams(window.location.search).get('next');
+  const safeNext = next && /^\/(?!\/)/.test(next) && !next.includes('\\') ? next : null;
+  if (user) return <Navigate to={safeNext ?? (user.role === 'client' ? '/projects' : '/dashboard')} replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

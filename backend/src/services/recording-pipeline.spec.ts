@@ -41,7 +41,8 @@ async function candidate() {
   const [id] = await db('rec_applications').insert({ ref: `LP-T${n}`, access_hash: `h${n}`.padEnd(64, '0'), job_id: job, name: 'T', email: `t${n}@x.t`, phone: '+919000000000', resume_file: 'r.pdf', resume_name: 'r.pdf', status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86_400_000) });
   let a = await db('rec_applications').where({ id }).first();
   const iv = await R.startInterview(db, a, { accepted: true, version: 'v1' });
-  for (let p = 0; p < 5; p++) await R.nextQuestion(db, a, p);
+  const total = (await R.interviewState(db, a)).question_count;   // every active question for the role
+  for (let p = 0; p < total; p++) await R.nextQuestion(db, a, p);
   a = await db('rec_applications').where({ id }).first();
   return { a, iv };
 }
@@ -140,4 +141,22 @@ test('a reload mid-interview keeps every chunk already uploaded and continues in
   assert.ok(fs.existsSync(path.join(R.recordingDir(iv.id), 'segment-0', '000000.part')));
   await assert.rejects(R.saveChunk(db, a, 0, 2, false, c1, 'video/webm'), /Expected chunk 1/, 'a gap is refused');
   void c1;
+});
+
+test('an admin can delete an interview video for good; the application and its history stay', async () => {
+  const { a, iv } = await candidate(); const db = getDB();
+  await R.saveChunk(db, a, 0, 0, false, webm, 'video/webm', SECS * 1000);
+  await R.saveChunk(db, a, 0, 1, true, END, 'video/webm');
+  await R.submitInterview(db, a);
+  assert.equal(await R.processRecording(db, iv.id), 'verified');
+  const dir = R.recordingDir(iv.id);
+  await assert.rejects(R.deleteRecording(db, { id: 2, role: 'manager', name: 'M' }, iv.id), /Only an admin/);
+  const r: any = await R.deleteRecording(db, { id: 1, role: 'admin', name: 'Admin' }, iv.id);
+  assert.ok(r.freed_bytes > webm.length, 'chunks and the built file');
+  assert.ok(!fs.existsSync(dir), 'files gone');
+  const after = await db('rec_interviews').where({ id: iv.id }).first();
+  assert.ok(after.recording_deleted_at); assert.equal(after.final_file, null);
+  assert.ok(await db('rec_applications').where({ id: a.id }).first(), 'the application stays');
+  assert.ok(await db('rec_history').where({ application_id: a.id, action: 'recording_deleted', actor_name: 'Admin' }).first());
+  assert.deepEqual(await R.deleteRecording(db, { id: 1, role: 'admin', name: 'Admin' }, iv.id), { already: true });
 });

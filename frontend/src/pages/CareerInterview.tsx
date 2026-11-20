@@ -2,7 +2,7 @@
 // chunks uploaded in order (retried until they arrive). One question at a time with a timer. Activity such as leaving
 // the tab or exiting fullscreen is logged for the reviewers: it is an indicator, never an automatic decision.
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { careersApi } from '../services/api';
 import { CareersShell } from './Careers';
 import '../css/pages/Recruitment.css';
@@ -19,6 +19,15 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).
 
 export default function CareerInterview() {
   const { token } = useParams();
+  // Coming straight from the application form: the private tracking link, so it isn't lost
+  const came = (useLocation().state ?? null) as { track?: string; ref?: string } | null;
+  const trackUrl = came?.track ? `${window.location.origin}/careers/track/${came.track}` : '';
+  const trackBox = trackUrl ? (
+    <div className="careers-track-link">
+      <b>Your private status link</b> (save it; don't share it):
+      <a href={trackUrl}>{trackUrl}</a>
+    </div>
+  ) : null;
   const [st, setSt] = useState<any>(null); const [error, setError] = useState('');
   const [consent, setConsent] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null); const [deviceError, setDeviceError] = useState('');
@@ -243,13 +252,15 @@ export default function CareerInterview() {
 
   if (error && !st) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
   if (!st) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
-  if (phase === 'done') return <CareersShell><div className="rec-card rec-card--pad"><h1 style={{ marginTop: 0, fontSize: 22 }}>Interview submitted</h1><p className="careers-text">Thank you, {st.name}. Your interview for {st.job} has been received and will be reviewed by our team. You can check your status with the tracking link from your application.</p></div></CareersShell>;
+  if (phase === 'done') return <CareersShell><div className="rec-card careers-detail"><h1>Interview submitted ✓</h1><p className="careers-text">Thank you, {st.name}. Your video interview for {st.job} has been received and will be reviewed by our team.</p>{trackBox}</div></CareersShell>;
   if (st.state === 'closed') return <CareersShell><div className="rec-empty">This interview is no longer available.</div></CareersShell>;
 
   if (phase === 'intro') return (
     <CareersShell>
-      <div className="rec-card rec-card--pad">
-        <h1 style={{ marginTop: 0, fontSize: 22 }}>Preliminary interview · {st.job}</h1>
+      <div className="rec-card careers-detail">
+        {came?.ref && <div className="careers-ok">Application received · reference <b>{came.ref}</b>. Next: your video interview.</div>}
+        <h1>Video interview · {st.job}</h1>
+        {trackBox}
         <ul className="careers-text" style={{ paddingLeft: 18 }}>
           <li>{st.question_count} questions, shown one at a time. You have {fmt(st.seconds_per_question)} for each; it moves on automatically when time is up, or click <b>Next</b> when you're done.</li>
           <li>About {st.estimated_minutes} minutes in total. Use a quiet, well-lit place and a stable internet connection.</li>

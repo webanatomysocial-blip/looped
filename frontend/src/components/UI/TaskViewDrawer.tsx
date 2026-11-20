@@ -39,6 +39,46 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 
+// Whose turn it is at a review stage: the stage's own reviewer (manager or designated employee), another manager or
+// an admin at a manager review; an admin at an admin review. The server checks the same rules on every action.
+function ReviewPanel({ task, me, onDone }: { task: any; me: any; onDone: () => void }) {
+  const [busy, setBusy] = useState(false); const [back, setBack] = useState<{ idx: number; name: string; assignee: string | null }[] | null>(null);
+  const [comment, setComment] = useState(''); const [target, setTarget] = useState<number | null>(null);
+  const stageIdx = task.xlr8_stage_idx ?? 0;
+  const mgrReview = task.xlr8_status === 'pending_manager' && (task.xlr8_assignee_id ? task.xlr8_assignee_id === me.id || me.role === 'admin' : ['admin', 'manager'].includes(me.role));
+  const adminReview = task.xlr8_status === 'pending_admin' && me.role === 'admin';
+  if (!mgrReview && !adminReview) return null;
+  const running = (task.stage_assignees ?? []).some((a: any) => a.user_id === me.id && a.stage_idx === stageIdx && Number(a.is_active));
+  const run = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); onDone(); } catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); } finally { setBusy(false); } };
+  const openBack = async () => { try { const r = await xlr8Api.returnStages(task.id); setBack(r.data); setTarget(r.data.length ? r.data[r.data.length - 1].idx : null); } catch { setBack([]); } };
+  const sendBack = () => {
+    if (!comment.trim()) { alert('Please say what needs to change'); return; }
+    run(async () => { if (adminReview) await xlr8Api.adminDecline(task.id, comment, target); else await xlr8Api.reviewTicket(task.id, 'decline', comment, undefined, target); setBack(null); setComment(''); });
+  };
+  const btn = { padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' } as const;
+  return (
+    <div style={{ background: 'rgba(74,144,226,0.07)', border: '1.5px solid rgba(74,144,226,0.35)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{adminReview ? 'Admin review' : 'Your review'}: check the work, then approve or send it back</span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button disabled={busy} style={{ ...btn, border: '1px solid rgba(0,0,0,0.15)', background: '#fff' }} onClick={() => run(() => tasksApi.timer(task.id, running ? 'pause' : 'start'))}>{running ? '⏸ Pause timer' : '▶ Start review timer'}</button>
+          <button disabled={busy} style={{ ...btn, border: 'none', background: '#16a34a', color: '#fff' }} onClick={() => run(() => (adminReview ? xlr8Api.adminApprove(task.id) : xlr8Api.reviewTicket(task.id, 'approve')))}>Approve</button>
+          <button disabled={busy} style={{ ...btn, border: '1.5px solid rgba(220,38,38,0.4)', background: 'rgba(220,38,38,0.06)', color: '#b91c1c' }} onClick={() => (back ? setBack(null) : openBack())}>Send back</button>
+        </div>
+      </div>
+      {back && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {back.length > 0 && <select className="form-input" value={target ?? ''} onChange={(e) => setTarget(e.target.value === '' ? null : Number(e.target.value))}>
+            {back.map((b) => <option key={b.idx} value={b.idx}>Back to stage {b.idx + 1}: {b.name}{b.assignee ? ` (${b.assignee})` : ''}</option>)}
+          </select>}
+          <textarea className="form-input" rows={2} placeholder="What needs to change? (required)" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <div><button disabled={busy} style={{ ...btn, border: 'none', background: '#b91c1c', color: '#fff' }} onClick={sendBack}>Send back with this note</button></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TaskViewDrawer({ taskId, onClose, showApproval = false, onChanged }: Props) {
   const { user } = useAuth();
   const [task, setTask] = useState<any>(null);
@@ -223,6 +263,8 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                   </div>
                 );
               })()}
+              {/* Review stage: the reviewer's timer, approve and send back, right here (they were only on other pages) */}
+              {user && task.ticket_type_id && <ReviewPanel task={task} me={user} onDone={() => { setReloadKey(k => k + 1); onChanged?.(); }} />}
               {/* Meta */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[

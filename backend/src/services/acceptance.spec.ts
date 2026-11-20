@@ -128,7 +128,7 @@ test('reminders: the reminder goes to the person\'s private chat, never the grou
   await processOutbox(db(), s, new Date(), 1000);
   const row = await db()('whatsapp_outbox').where({ kind: 'reminder', task_id: id }).first();
   assert.equal(row.status, 'sent');
-  assert.equal(JSON.parse(row.payload).card.title, 'Reminder: verify send', 'task details are in the picture');
+  assert.equal(JSON.parse(row.payload).card.fields.find((x: any) => x.label === 'Title').value, 'Reminder: verify send', 'task details are in the picture');
   const mine = s.sent.find((m) => /Reminder: acceptance pending/.test(m.text));
   assert.ok(mine);
   assert.equal(mine.jid, '919391283396@s.whatsapp.net', 'private chat');

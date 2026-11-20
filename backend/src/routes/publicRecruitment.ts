@@ -51,7 +51,7 @@ function checkedResume(file?: Express.Multer.File) {
 }
 
 // ── Jobs ──
-const openJobs = () => getDB()('rec_jobs as j').leftJoin('employee_categories as c', 'c.id', 'j.category_id')
+const openJobs = () => getDB()('rec_jobs as j').leftJoin('rec_roles as c', 'c.id', 'j.role_id')
   .where('j.status', 'published').where((q: any) => q.whereNull('j.deadline').orWhere('j.deadline', '>=', R.todayIST()))
   .select('j.public_id as id', 'j.title', 'c.name as department', 'j.location', 'j.experience', 'j.employment_type', 'j.vacancies', 'j.deadline', 'j.description', 'j.responsibilities', 'j.qualifications', 'j.skills', 'j.created_at');
 router.get('/jobs', run(async () => (await openJobs().orderBy('j.id', 'desc')).map((j: any) => ({ ...j, deadline: j.deadline ? String(j.deadline).slice(0, 10) : null }))));

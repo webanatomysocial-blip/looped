@@ -27,7 +27,7 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     t.increments('id').primary();
     t.string('public_id', 36).notNullable().unique();          // used in public URLs instead of the number
     t.string('title', 200).notNullable();
-    t.integer('category_id').unsigned().nullable().references('id').inTable('employee_categories').onDelete('SET NULL');
+    t.integer('category_id').unsigned().nullable().references('id').inTable('employee_categories').onDelete('SET NULL');   // unused: roles are role_id (rec_roles)
     t.text('description'); t.text('responsibilities'); t.text('qualifications'); t.text('skills');
     t.string('experience', 100); t.string('employment_type', 40); t.string('location', 200);
     t.integer('vacancies').notNullable().defaultTo(1);
@@ -124,6 +124,12 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     ['verified_at', (t: Knex.AlterTableBuilder) => t.timestamp('verified_at').nullable()],
     ['final_file', (t: Knex.AlterTableBuilder) => t.string('final_file', 200).nullable()],
   ] as const) if (!(await db.schema.hasColumn('rec_interviews', col))) await db.schema.alterTable('rec_interviews', add);
+  // Careers roles: recruitment's own list, with no link to Loop's employee departments
+  await make('rec_roles', (t) => { t.increments('id').primary(); t.string('name', 100).notNullable(); t.timestamp('created_at').defaultTo(db.fn.now()); });
+  if (!(await db.schema.hasColumn('rec_jobs', 'role_id'))) await db.schema.alterTable('rec_jobs', (t) => t.integer('role_id').nullable());
+  // A question's role (rec_roles.id; the column keeps its first name); none = asked in every role's interview
+  if (!(await db.schema.hasColumn('rec_questions', 'department_id'))) await db.schema.alterTable('rec_questions', (t) => t.integer('department_id').nullable());
+  await separateRoles(db);
   // An admin may let a rejected candidate apply again for the same role before the three months are up
   for (const [col, add] of [
     ['reapply_override_at', (t: Knex.AlterTableBuilder) => t.timestamp('reapply_override_at').nullable()],
@@ -138,6 +144,29 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     await db.schema.alterTable('rec_applications', (t) => t.dropUnique(['job_id', 'email'])).catch(() => undefined);
   }
   if (!(await db('rec_questions').first('id'))) await db('rec_questions').insert(STARTER_QUESTIONS.map(([category, text]) => ({ category, text, active: true })));
+}
+
+// Once: openings and questions that pointed at Loop's departments move to careers roles of the same name, and the
+// openings' link to Loop's departments is cleared. Loop's department list itself is never changed.
+async function separateRoles(db: Knex) {
+  if (await db('rec_settings').where({ name: 'roles_separated' }).first('name')) return;
+  await db.transaction(async (trx) => {
+    const roleFor = new Map<number, number>();
+    const role = async (catId: number): Promise<number | null> => {
+      if (roleFor.has(catId)) return roleFor.get(catId)!;
+      const cat = await trx('employee_categories').where({ id: catId }).first('name');
+      if (!cat?.name) return null;
+      let r = await trx('rec_roles').whereRaw('LOWER(name) = ?', [String(cat.name).toLowerCase()]).first('id');
+      if (!r) { const [id] = await trx('rec_roles').insert({ name: cat.name }); r = { id }; }
+      roleFor.set(catId, Number(r.id)); return Number(r.id);
+    };
+    // Read everything first, then write by row id: old and new ids are both small numbers and must not be confused
+    const jobs = await trx('rec_jobs').whereNotNull('category_id').select('id', 'category_id');
+    const qs = await trx('rec_questions').whereNotNull('department_id').select('id', 'department_id');
+    for (const j of jobs) await trx('rec_jobs').where({ id: j.id }).update({ role_id: await role(Number(j.category_id)), category_id: null });
+    for (const q of qs) await trx('rec_questions').where({ id: q.id }).update({ department_id: await role(Number(q.department_id)) });
+    await trx('rec_settings').insert({ name: 'roles_separated', value: String(Date.now()) });
+  });
 }
 
 export const QUESTION_CATEGORIES = ['Self Introduction', 'Hobbies and Interests', 'Educational Background', 'Previous Experience', 'Achievements',
@@ -181,18 +210,20 @@ export const todayIST = (now = new Date()) => now.toLocaleDateString('en-CA', { 
 
 // ── Statuses ──
 // What staff see, and the simpler wording a candidate sees (internal review steps are not shown to them)
+// The flow: apply → video interview straight away → manager review → admin decision → final interview (one-on-one,
+// walk-in or online) → shortlisted or rejected. "applied/under_review/admin_review" remain only for older applications.
 export const STATUS_LABEL: Record<string, string> = {
   applied: 'Applied', under_review: 'Under Review', admin_review: 'Manager Approved · Admin Review Pending',
-  prelim_pending: 'Preliminary Interview Pending', interview_review: 'Preliminary Interview Completed · Under Review',
-  interview_admin_review: 'Interview: Manager Approved · Admin Review Pending', prelim_approved: 'Preliminary Interview Approved',
-  final_scheduled: 'Final Interview Scheduled', final_completed: 'Final Interview Completed',
-  selected: 'Selected', rejected: 'Rejected', withdrawn: 'Withdrawn',
+  prelim_pending: 'Video Interview Pending', interview_review: 'Video Interview Done · Manager Review',
+  interview_admin_review: 'Manager Approved · Admin Review Pending', prelim_approved: 'Approved · Final Interview to Schedule',
+  final_scheduled: 'Final Interview Scheduled', final_completed: 'Final Interview Done · Decision Pending',
+  selected: 'Shortlisted', rejected: 'Rejected', withdrawn: 'Withdrawn',
 };
 export const CANDIDATE_LABEL: Record<string, string> = {
   applied: 'Applied', under_review: 'Under Review', admin_review: 'Under Review',
-  prelim_pending: 'Preliminary Interview Pending', interview_review: 'Preliminary Interview Completed', interview_admin_review: 'Preliminary Interview Completed',
-  prelim_approved: 'Preliminary Interview Approved', final_scheduled: 'Final Interview Scheduled', final_completed: 'Final Interview Completed',
-  selected: 'Selected', rejected: 'Not Selected', withdrawn: 'Withdrawn',
+  prelim_pending: 'Video Interview Pending', interview_review: 'Video Interview Completed · Under Review', interview_admin_review: 'Video Interview Completed · Under Review',
+  prelim_approved: 'Moved to Final Interview', final_scheduled: 'Final Interview Scheduled', final_completed: 'Final Interview Completed',
+  selected: 'Shortlisted', rejected: 'Not Selected', withdrawn: 'Withdrawn',
 };
 const CLOSED = ['selected', 'rejected', 'withdrawn'];
 
@@ -252,7 +283,7 @@ export const clip = (v: unknown, n: number) => String(v ?? '').replace(/[\u0000-
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,}$/i;
 const PHONE = /^\+?[0-9 ()-]{7,20}$/;
 
-export async function submitApplication(db: Knex, jobPublicId: string, body: any, resume: { file: string; name: string; mime: string } | null): Promise<{ ref: string; token: string }> {
+export async function submitApplication(db: Knex, jobPublicId: string, body: any, resume: { file: string; name: string; mime: string } | null, mail: Mailer = defaultMailer): Promise<{ ref: string; token: string; interview_token: string }> {
   const job = await db('rec_jobs').where({ public_id: String(jobPublicId) }).first();
   if (!job || job.status !== 'published' || (job.deadline && String(job.deadline).slice(0, 10) < todayIST())) throw new ServiceError(404, 'This job is not open for applications');
   const name = clip(body.name, 120), email = clip(body.email, 190).toLowerCase(), phone = clip(body.phone, 30);
@@ -262,19 +293,27 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your total experience in years');
   return withApplyLock(`${email}|${phoneKey(phone)}`, async () => {
   if (await db('rec_applications').where({ job_id: job.id, email }).whereNotIn('status', CLOSED).first('id')) throw new ServiceError(409, 'You have already applied for this job with this email. Use your tracking link to check its status.');
+  // The video interview starts right after applying: the role must have questions
+  if (!(await roleQuestions(db, job.role_id)).length) throw new ServiceError(503, 'Applications for this role open shortly. Please try again later.');
   const until = await reapplyBlockedUntil(db, job, email, phone);
   if (until) throw new ServiceError(409, `You applied for this role recently and were not selected. You can apply for it again from ${until.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' })}. You are welcome to apply for other roles now.`);
   const token = newToken();
   const ref = newRef();
+  const interviewToken = newToken();
+  const s = await getSettings(db);
+  const expires = new Date(Date.now() + s.interview_link_days * 86_400_000);
   const [id] = await db('rec_applications').insert({
     ref, access_hash: sha(token), job_id: job.id, name, email, phone,
     location: clip(body.location, 120), education: clip(body.education, 200), experience_years: years,
     company: clip(body.company, 160), skills: clip(body.skills, 2000),
-    resume_file: resume.file, resume_name: clip(resume.name, 200), resume_mime: resume.mime, status: 'applied',
+    resume_file: resume.file, resume_name: clip(resume.name, 200), resume_mime: resume.mime,
+    status: 'prelim_pending', interview_hash: sha(interviewToken), interview_expires_at: expires,
   });
-  await log(db, { application_id: Number(id), action: 'applied', to: 'applied', actor: null });
-  await notifyStaff(db, `New application from ${name} for "${job.title}" — awaiting manager review`);
-  return { ref, token };
+  await log(db, { application_id: Number(id), action: 'applied', to: 'prelim_pending', actor: null });
+  // The interview link also goes by email (when email is on), in case they close the page
+  await mail.interviewInvite({ name, email, ref }, job.title, interviewToken, expires);
+  await notifyStaff(db, `New application from ${name} for "${job.title}" — video interview pending`);
+  return { ref, token, interview_token: interviewToken };
   });
 }
 
@@ -432,7 +471,8 @@ export async function interviewState(db: Knex, a: any) {
   const s = await getSettings(db);
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   const iv = await db('rec_interviews').where({ application_id: a.id }).first();
-  const total = iv ? Number((await db('rec_interview_questions').where({ interview_id: iv.id }).count({ n: '*' }).first() as any).n) : s.question_count;
+  const total = iv ? Number((await db('rec_interview_questions').where({ interview_id: iv.id }).count({ n: '*' }).first() as any).n)
+    : (await roleQuestions(db, (await db('rec_jobs').where({ id: a.job_id }).first('role_id'))?.role_id ?? null)).length;
   let current: any = null;
   if (iv && iv.status === 'in_progress' && iv.current_position < total) {
     const q = await db('rec_interview_questions').where({ interview_id: iv.id, position: iv.current_position }).first();
@@ -450,6 +490,13 @@ export async function interviewState(db: Knex, a: any) {
   };
 }
 
+/** The questions asked for a role: active ones for every role, then the role's own. */
+export async function roleQuestions(db: Knex, departmentId: number | null | undefined) {
+  return db('rec_questions').where({ active: true })
+    .where((q) => { q.whereNull('department_id'); if (departmentId) q.orWhere('department_id', departmentId); })
+    .orderByRaw('CASE WHEN department_id IS NULL THEN 0 ELSE 1 END').orderBy('id').select('id', 'category', 'text');
+}
+
 // Picks the questions once, at the start, and stores them: a refresh or a second visit resumes the same interview
 export async function startInterview(db: Knex, a: any, consent: { accepted: boolean; version: string }, rand: () => number = Math.random) {
   const existing = await db('rec_interviews').where({ application_id: a.id }).first();
@@ -457,10 +504,11 @@ export async function startInterview(db: Knex, a: any, consent: { accepted: bool
   if (!linkOpen(a)) throw new ServiceError(410, 'This interview link has expired or is no longer available.');
   const s = await getSettings(db);
   if (!consent.accepted || consent.version !== s.consent_version) throw new ServiceError(400, 'Please read and accept the recording consent to start');
-  const pool = await db('rec_questions').where({ active: true }).select('id', 'category', 'text');
-  if (!pool.length) throw new ServiceError(503, 'The interview is not ready yet. Please try again later.');
-  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  const picked = pool.slice(0, Math.min(s.question_count, pool.length));
+  // Every active question for this role: the ones for all roles first, then the role's own, in the order they were added
+  const job = await db('rec_jobs').where({ id: a.job_id }).first('role_id');
+  const picked = await roleQuestions(db, job?.role_id ?? null);
+  if (!picked.length) throw new ServiceError(503, 'The interview is not ready yet. Please try again later.');
+  void rand;
   const now = new Date();
   try {
     const [id] = await db('rec_interviews').insert({ application_id: a.id, status: 'in_progress', consent_at: now, consent_version: s.consent_version, seconds_per_question: s.seconds_per_question, current_position: 0, started_at: now, segments: '[]' });
@@ -753,14 +801,14 @@ async function sendMail(to: { email: string; name: string }, subject: string, bo
   catch { console.error('[recruitment] candidate email could not be sent'); }
 }
 export const defaultMailer: Mailer = {
-  interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `You're shortlisted: preliminary interview for ${job}`,
-    `Hi ${a.name},\n\nGood news! Your application (${a.ref}) for ${job} has been shortlisted.\n\nPlease complete your online preliminary interview here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${expires.toDateString()}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
+  interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `Your video interview for ${job}`,
+    `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${expires.toDateString()}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
   scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Updated: ' : ''}Final interview for ${job}`,
     `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${s.date}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).`),
   cancelled: (a, job, reason) => sendMail({ email: a.email, name: a.name }, `Final interview for ${job} has been cancelled`,
     `Hi ${a.name},\n\nYour final interview for ${job} has been cancelled${reason ? ` (${reason})` : ''}. We will share a new time with you soon.\n\nReference: ${a.ref}`),
-  selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been selected for ${job}`,
-    `Hi ${a.name},\n\nWe're delighted to let you know that you have been selected for ${job}. Our team will contact you shortly about the next steps.\n\nReference: ${a.ref}`),
+  selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been shortlisted for ${job}`,
+    `Hi ${a.name},\n\nWe're delighted to let you know that you have been shortlisted for ${job}. Our team will contact you shortly about the next steps.\n\nReference: ${a.ref}`),
 };
 
 // ── Retention: recordings older than the configured number of days are deleted (files only; the record stays) ──
@@ -794,6 +842,20 @@ export async function deleteCandidate(db: Knex, appId: number) {
     catch { console.error(`[recruitment] file clean-up failed after deleting ${a.ref}; remove it by hand from the recruitment storage`); }
   }
   console.log(`[recruitment] candidate data deleted for ${a.ref}`);
+}
+
+/** Admin only: deletes an interview's recording for good (files on disk); the application and its history stay. */
+export async function deleteRecording(db: Knex, actor: Actor, interviewId: number) {
+  if (actor.role !== 'admin') throw new ServiceError(403, 'Only an admin can delete a recording');
+  const iv = await db('rec_interviews').where({ id: interviewId }).first('id', 'application_id', 'recording_deleted_at');
+  if (!iv) throw new ServiceError(404, 'Interview not found');
+  if (iv.recording_deleted_at) return { already: true };
+  const dir = path.join(storageDir(), 'recordings', String(iv.id));
+  const freed = sizeOf(dir);
+  await db('rec_interviews').where({ id: iv.id }).update({ recording_deleted_at: new Date(), final_file: null, processing_status: null });
+  await log(db, { application_id: iv.application_id, action: 'recording_deleted', actor, comment: `${Math.round(freed / 1024)} KB` });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { freed_bytes: freed };
 }
 
 // ── Storage: what each applicant's files take on disk (resume, recording chunks and the built recording) ──

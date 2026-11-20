@@ -173,7 +173,7 @@ test('the alert is sent to the person\'s private chat; a task completed before s
   await db()('whatsapp_outbox').whereIn('task_id', [live, done]).update({ created_at: new Date(DEADLINE_MS - 5 * MIN) });
   const s = sender();
   await processOutbox(db(), s, new Date(DEADLINE_MS - 4 * MIN), 1000);
-  assert.equal(JSON.parse((await alertsFor(live))[0].payload).card.title, 'Sent task', 'task details are in the picture');
+  assert.equal(JSON.parse((await alertsFor(live))[0].payload).card.fields.find((x: any) => x.label === 'Title').value, 'Sent task', 'task details are in the picture');
   const mine = s.sent.find((m) => /Deadline approaching/.test(m.text));
   assert.ok(mine, 'the live task alert was sent');
   assert.equal(mine.jid, '919391283396@s.whatsapp.net', 'private chat of the linked assignee');

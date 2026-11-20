@@ -1,19 +1,34 @@
 // Public careers pages: open jobs, a job with its application form, and the candidate's tracking page.
 // No Loop login: candidates reach their own application only through the private link they get when applying.
+// The flow: apply → the short video interview straight away → our review → final interview → shortlisted.
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { careersApi } from '../services/api';
 import '../css/pages/Recruitment.css';
 
-export function CareersShell({ children }: { children: React.ReactNode }) {
+export function CareersShell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div className="careers">
-      <header className="careers-top"><img src="/fav.png" alt="" /><b>Loooped Careers</b></header>
-      <main className="careers-main">{children}</main>
+      <header className="careers-bar">
+        <div className="careers-bar__in">
+          <Link to="/careers" className="careers-brand"><img src="/fav.png" alt="" /><span>Loooped <b>Careers</b></span></Link>
+        </div>
+      </header>
+      <main className={`careers-main ${wide ? 'careers-main--wide' : ''}`}>{children}</main>
+      <footer className="careers-foot">© Loooped · Your details are used only for this recruitment process.</footer>
     </div>
   );
 }
 const err = (e: any, fallback = 'Something went wrong. Please try again.') => e?.response?.data?.error || fallback;
+const Pills = ({ j }: { j: any }) => (
+  <div className="careers-meta">
+    {j.department && <span className="rec-pill rec-pill--info">{j.department}</span>}
+    {j.location && <span className="rec-pill">📍 {j.location}</span>}
+    {j.employment_type && <span className="rec-pill">{j.employment_type}</span>}
+    {j.experience && <span className="rec-pill">{j.experience}</span>}
+  </div>
+);
+const HOW = [['1', 'Apply', 'A short form and your resume.'], ['2', 'Video interview', 'A few questions, recorded right after you apply.'], ['3', 'Final interview', 'One-to-one, walk-in or online.']];
 
 export default function Careers() {
   const [jobs, setJobs] = useState<any[] | null>(null);
@@ -24,30 +39,30 @@ export default function Careers() {
   const shown = (jobs ?? []).filter((j) => (!dept || j.department === dept) && (!type || j.employment_type === type)
     && (!q || `${j.title} ${j.department ?? ''} ${j.location ?? ''} ${j.skills ?? ''}`.toLowerCase().includes(q.toLowerCase())));
   return (
-    <CareersShell>
-      <div className="careers-hero"><h1>Join our team</h1><p>Explore open positions and apply in a few minutes.</p></div>
-      <div className="rec-filters">
-        <input className="form-input" placeholder="Search jobs, skills, location" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="form-input" value={dept} onChange={(e) => setDept(e.target.value)}><option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}</select>
-        {types.length > 0 && <select className="form-input" value={type} onChange={(e) => setType(e.target.value)}><option value="">All types</option>{types.map((d) => <option key={d}>{d}</option>)}</select>}
+    <CareersShell wide>
+      <section className="careers-hero">
+        <h1>Join our team</h1>
+        <p>Find a role that fits you and apply in a few minutes.</p>
+        <div className="careers-how">{HOW.map(([n, t, d]) => <div key={n}><i>{n}</i><b>{t}</b><span>{d}</span></div>)}</div>
+      </section>
+      <div className="careers-search">
+        <input className="form-input" placeholder="Search by role, skill or location" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" />
+        <select className="form-input" value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Department"><option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}</select>
+        {types.length > 0 && <select className="form-input" value={type} onChange={(e) => setType(e.target.value)} aria-label="Job type"><option value="">All types</option>{types.map((d) => <option key={d}>{d}</option>)}</select>}
       </div>
-      {jobs === null ? <div className="rec-empty">Loading…</div> : shown.length === 0 ? <div className="rec-empty">{jobs.length ? 'No jobs match your search.' : 'There are no open positions right now. Please check back soon.'}</div> : (
+      {jobs === null ? <div className="rec-empty">Loading…</div> : shown.length === 0 ? <div className="rec-empty">{jobs.length ? 'No jobs match your search.' : 'There are no open positions right now. Please check back soon.'}</div> : (<>
+        <p className="careers-count">{shown.length} open position{shown.length === 1 ? '' : 's'}</p>
         <div className="careers-list">
           {shown.map((j) => (
-            <div key={j.id} className="rec-card careers-job">
+            <Link key={j.id} to={`/careers/${j.id}`} className="rec-card careers-job">
               <h2>{j.title}</h2>
-              <div className="careers-meta">
-                {j.department && <span className="rec-pill rec-pill--info">{j.department}</span>}
-                {j.location && <span className="rec-pill">{j.location}</span>}
-                {j.employment_type && <span className="rec-pill">{j.employment_type}</span>}
-                {j.experience && <span className="rec-pill">{j.experience}</span>}
-              </div>
-              <p className="rec-muted" style={{ margin: 0, fontSize: 13 }}>{String(j.description ?? '').slice(0, 160)}{String(j.description ?? '').length > 160 ? '…' : ''}</p>
-              <div><Link to={`/careers/${j.id}`} className="btn-primary" style={{ textDecoration: 'none', display: 'inline-flex' }}>View &amp; apply</Link></div>
-            </div>
+              <Pills j={j} />
+              {j.description && <p className="careers-job__desc">{String(j.description).slice(0, 170)}{String(j.description).length > 170 ? '…' : ''}</p>}
+              <span className="careers-job__go">View &amp; apply →</span>
+            </Link>
           ))}
         </div>
-      )}
+      </>)}
     </CareersShell>
   );
 }
@@ -73,63 +88,73 @@ export function CareerJob() {
     setBusy(true);
     try {
       const r = await careersApi.apply(id!, form);
-      nav(`/careers/track/${r.data.token}`, { state: { justApplied: r.data.ref } });
+      // Straight into the video interview; the private tracking link travels with it
+      nav(`/careers/interview/${r.data.interview_token}`, { state: { track: r.data.token, ref: r.data.ref } });
     } catch (e2) { setError(err(e2)); } finally { setBusy(false); }
   };
   if (missing) return <CareersShell><div className="rec-empty">This job is no longer open. <Link to="/careers">See all open jobs</Link></div></CareersShell>;
   if (!job) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
-  const block = (title: string, text?: string) => text ? <div className="rec-section"><h3>{title}</h3><p className="careers-text">{text}</p></div> : null;
+  const block = (title: string, text?: string) => text ? <section className="careers-block"><h3>{title}</h3><p className="careers-text">{text}</p></section> : null;
   return (
-    <CareersShell>
-      <p><Link to="/careers" className="rec-muted">← All jobs</Link></p>
-      <div className="rec-card rec-card--pad" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: '0 0 8px', fontSize: 24, color: 'var(--ink)' }}>{job.title}</h1>
-        <div className="careers-meta">
-          {job.department && <span className="rec-pill rec-pill--info">{job.department}</span>}
-          {job.location && <span className="rec-pill">{job.location}</span>}
-          {job.employment_type && <span className="rec-pill">{job.employment_type}</span>}
-          {job.experience && <span className="rec-pill">{job.experience}</span>}
-          <span className="rec-pill">{job.vacancies} opening{job.vacancies > 1 ? 's' : ''}</span>
-          {job.deadline && <span className="rec-pill rec-pill--warn">Apply by {job.deadline}</span>}
-        </div>
-        {block('About the role', job.description)}{block('Responsibilities', job.responsibilities)}{block('Qualifications', job.qualifications)}{block('Skills', job.skills)}
+    <CareersShell wide>
+      <Link to="/careers" className="careers-back">← All jobs</Link>
+      <div className="careers-job-page">
+        <article className="rec-card careers-detail">
+          <h1>{job.title}</h1>
+          <Pills j={job} />
+          <div className="careers-meta" style={{ marginTop: 8 }}>
+            <span className="rec-pill">{job.vacancies} opening{job.vacancies > 1 ? 's' : ''}</span>
+            {job.deadline && <span className="rec-pill rec-pill--warn">Apply by {job.deadline}</span>}
+          </div>
+          {block('About the role', job.description)}{block('Responsibilities', job.responsibilities)}{block('Qualifications', job.qualifications)}{block('Skills', job.skills)}
+        </article>
+        <form className="rec-card careers-form" onSubmit={submit}>
+          <h2>Apply for this job</h2>
+          <p className="careers-note">After you submit, a short <b>video interview</b> starts right away. Keep your camera and microphone ready; each question has a short time limit.</p>
+          <div className="careers-fields">
+            <div className="rec-field"><label>Full name *</label><input className="form-input" required maxLength={120} value={f.name} onChange={set('name')} autoComplete="name" /></div>
+            <div className="rec-field"><label>Email *</label><input className="form-input" type="email" required maxLength={190} value={f.email} onChange={set('email')} autoComplete="email" /></div>
+            <div className="rec-field"><label>Phone *</label><input className="form-input" type="tel" required maxLength={20} value={f.phone} onChange={set('phone')} autoComplete="tel" /></div>
+            <div className="rec-field"><label>Total experience (years) *</label><input className="form-input" type="number" min="0" max="60" step="0.5" required value={f.experience_years} onChange={set('experience_years')} /></div>
+            <div className="rec-field"><label>Current location</label><input className="form-input" maxLength={120} value={f.location} onChange={set('location')} /></div>
+            <div className="rec-field"><label>Highest qualification</label><input className="form-input" maxLength={200} value={f.education} onChange={set('education')} /></div>
+            <div className="rec-field rec-field--full"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>
+            <div className="rec-field rec-field--full"><label>Relevant skills</label><textarea className="form-input" rows={3} maxLength={2000} value={f.skills} onChange={set('skills')} /></div>
+            <div className="rec-field rec-field--full">
+              <label>Resume * <span className="rec-muted">PDF, DOC or DOCX · up to 5 MB</span></label>
+              <label className={`careers-file ${file ? 'careers-file--on' : ''}`}>
+                <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                <span>{file ? `📎 ${file.name}` : 'Choose a file…'}</span>
+              </label>
+            </div>
+            {/* left empty by people; filled by bots */}
+            <input id="rec-hp" name="website" tabIndex={-1} autoComplete="off" style={{ position: 'absolute', left: -9999, width: 1, height: 1 }} aria-hidden="true" />
+          </div>
+          {error && <p className="rec-error" role="alert">{error}</p>}
+          <button className="btn-primary careers-submit" disabled={busy}>{busy ? 'Submitting…' : 'Submit & start the video interview'}</button>
+          <p className="rec-muted" style={{ margin: 0, fontSize: 12 }}>Your details are used only for this recruitment process.</p>
+        </form>
       </div>
-      <form className="rec-card rec-card--pad" onSubmit={submit}>
-        <h2 style={{ margin: '0 0 14px', fontSize: 18, color: 'var(--ink)' }}>Apply for this job</h2>
-        <div className="rec-grid2">
-          <div className="rec-field"><label>Full name *</label><input className="form-input" required maxLength={120} value={f.name} onChange={set('name')} /></div>
-          <div className="rec-field"><label>Email *</label><input className="form-input" type="email" required maxLength={190} value={f.email} onChange={set('email')} /></div>
-          <div className="rec-field"><label>Phone *</label><input className="form-input" type="tel" required maxLength={20} value={f.phone} onChange={set('phone')} /></div>
-          <div className="rec-field"><label>Current location</label><input className="form-input" maxLength={120} value={f.location} onChange={set('location')} /></div>
-          <div className="rec-field"><label>Highest qualification</label><input className="form-input" maxLength={200} value={f.education} onChange={set('education')} /></div>
-          <div className="rec-field"><label>Total experience (years) *</label><input className="form-input" type="number" min="0" max="60" step="0.5" required value={f.experience_years} onChange={set('experience_years')} /></div>
-          <div className="rec-field"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>
-          <div className="rec-field"><label>Resume * (PDF, DOC, DOCX · max 5 MB)</label><input className="form-input" type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></div>
-          <div className="rec-field rec-field--full"><label>Relevant skills</label><textarea className="form-input" rows={3} maxLength={2000} value={f.skills} onChange={set('skills')} /></div>
-          {/* left empty by people; filled by bots */}
-          <input id="rec-hp" name="website" tabIndex={-1} autoComplete="off" style={{ position: 'absolute', left: -9999, width: 1, height: 1 }} aria-hidden="true" />
-        </div>
-        {error && <p className="rec-error" role="alert">{error}</p>}
-        <p className="rec-muted">Your details are used only for this recruitment process.</p>
-        <button className="btn-primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit application'}</button>
-      </form>
     </CareersShell>
   );
 }
 
-const STEPS = [
-  ['applied', 'Applied'], ['under_review', 'Under review'], ['prelim_pending', 'Preliminary interview'], ['interview_review', 'Interview review'],
-  ['prelim_approved', 'Interview approved'], ['final_scheduled', 'Final interview scheduled'], ['final_completed', 'Final interview completed'], ['selected', 'Selected'],
+// What the candidate sees: apply → video interview → our review → final interview → shortlisted
+const STEPS: [string, string, string[]][] = [
+  ['applied', 'Applied', ['applied', 'under_review', 'admin_review']],
+  ['video', 'Video interview', ['prelim_pending']],
+  ['review', 'Under review', ['interview_review']],
+  ['final', 'Final interview', ['prelim_approved', 'final_scheduled', 'final_completed']],
+  ['selected', 'Shortlisted', ['selected']],
 ];
 export function CareerTrack() {
   const { token } = useParams();
   const nav = useNavigate();
-  const justApplied = (window.history.state?.usr as any)?.justApplied as string | undefined;
   const [a, setA] = useState<any>(null); const [error, setError] = useState('');
   const load = () => careersApi.track(token!).then((r) => setA(r.data)).catch((e) => setError(err(e)));
   useEffect(() => { load(); }, [token]);
   const startInterview = async () => {
-    try { const r = await careersApi.interviewLink(token!); nav(`/careers/interview/${r.data.token}`); } catch (e) { alert(err(e)); }
+    try { const r = await careersApi.interviewLink(token!); nav(`/careers/interview/${r.data.token}`, { state: { track: token, ref: a?.ref } }); } catch (e) { alert(err(e)); }
   };
   const withdraw = async () => {
     if (!confirm('Withdraw your application? This cannot be undone.')) return;
@@ -137,38 +162,32 @@ export function CareerTrack() {
   };
   if (error) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
   if (!a) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
-  const idx = STEPS.findIndex(([k]) => k === a.status_key);
   const closed = ['rejected', 'withdrawn'].includes(a.status_key);
+  const idx = STEPS.findIndex(([, , keys]) => keys.includes(a.status_key));
   return (
     <CareersShell>
-      {justApplied && (
-        <div className="rec-card rec-card--pad" style={{ marginBottom: 14, borderColor: 'rgba(76,175,125,0.4)' }}>
-          <b>Application submitted.</b> Your reference is <b>{justApplied}</b>.
-          <p className="rec-muted" style={{ margin: '6px 0 0' }}>Bookmark this page: it is your private link to check your status. Don't share it.</p>
-        </div>
-      )}
-      <div className="rec-card rec-card--pad">
+      <div className="rec-card careers-detail">
         <p className="rec-muted" style={{ margin: 0 }}>Reference {a.ref}</p>
-        <h1 style={{ margin: '4px 0 2px', fontSize: 22, color: 'var(--ink)' }}>{a.job}</h1>
+        <h1>{a.job}</h1>
         <p className="rec-muted" style={{ marginTop: 0 }}>{a.name}{a.job_location ? ` · ${a.job_location}` : ''}</p>
-        <p style={{ fontSize: 15 }}>Status: <span className={`rec-pill ${a.status_key === 'selected' ? 'rec-pill--good' : closed ? 'rec-pill--bad' : 'rec-pill--info'}`}>{a.status}</span></p>
-        {a.status_key === 'rejected' && <p className="careers-text">Thank you for your interest. After careful consideration, we will not be moving forward with your application at this time. We encourage you to apply for future openings.</p>}
+        <p style={{ fontSize: 15, margin: '6px 0 0' }}>Status: <span className={`rec-pill ${a.status_key === 'selected' ? 'rec-pill--good' : closed ? 'rec-pill--bad' : 'rec-pill--info'}`}>{a.status}</span></p>
+        {a.status_key === 'rejected' && <p className="careers-text" style={{ marginTop: 12 }}>Thank you for your interest. After careful consideration, we will not be moving forward with your application at this time. We encourage you to apply for future openings.</p>}
         {!closed && (
-          <ul className="careers-steps" style={{ margin: '14px 0' }}>
-            {STEPS.map(([k, label], i) => <li key={k} className={i <= idx ? 'on' : ''}><i />{label}</li>)}
-          </ul>
+          <ol className="careers-track">
+            {STEPS.map(([k, label], i) => <li key={k} className={i < idx ? 'done' : i === idx ? 'now' : ''}><i>{i < idx ? '✓' : i + 1}</i><span>{label}</span></li>)}
+          </ol>
         )}
         {a.interview && (
-          <div className="rec-section">
-            <h3>Preliminary interview</h3>
+          <section className="careers-block">
+            <h3>Video interview</h3>
             {a.interview.open ? (<>
-              <p className="careers-text">You have been shortlisted. Complete a short recorded video interview (camera and microphone needed). Available until {new Date(a.interview.expires_at).toLocaleDateString()}.</p>
-              <div><button className="btn-primary" onClick={startInterview}>Start interview</button></div>
+              <p className="careers-text">Please complete your short recorded video interview (camera and microphone needed). Available until {new Date(a.interview.expires_at).toLocaleDateString()}.</p>
+              <button className="btn-primary" onClick={startInterview}>Take the video interview</button>
             </>) : <p className="careers-text">The interview link has expired. Please contact us if you still wish to continue.</p>}
-          </div>
+          </section>
         )}
         {a.schedule && (
-          <div className="rec-section">
+          <section className="careers-block">
             <h3>Final interview</h3>
             <dl className="rec-kv">
               <dt>Type</dt><dd>{a.schedule.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}</dd>
@@ -178,9 +197,9 @@ export function CareerTrack() {
                 : <><dt>Location</dt><dd>{a.schedule.location}</dd><dt>Address</dt><dd className="careers-text">{a.schedule.address}</dd></>}
               {a.schedule.instructions && <><dt>Instructions</dt><dd className="careers-text">{a.schedule.instructions}</dd></>}
             </dl>
-          </div>
+          </section>
         )}
-        {a.can_withdraw && <div className="rec-section"><div><button className="rec-btn-danger" onClick={withdraw}>Withdraw application</button></div></div>}
+        {a.can_withdraw && <section className="careers-block"><button className="rec-btn-danger" onClick={withdraw}>Withdraw application</button></section>}
       </div>
     </CareersShell>
   );

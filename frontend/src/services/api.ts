@@ -394,6 +394,7 @@ export const recruitmentApi = {
   finalCompleted: (id: number) => api.post(`/recruitment/applications/${id}/final-completed`, {}),
   deleteCandidate: (id: number) => api.delete(`/recruitment/applications/${id}`),
   deleteCandidates: (ids: number[]) => api.post('/recruitment/applications/bulk-delete', { ids }),
+  deleteRecording: (interviewId: number) => api.post(`/recruitment/interviews/${interviewId}/delete-recording`),
   staff: () => api.get('/recruitment/staff'),
   questions: () => api.get('/recruitment/questions'),
   questionCategories: () => api.get('/recruitment/question-categories'),

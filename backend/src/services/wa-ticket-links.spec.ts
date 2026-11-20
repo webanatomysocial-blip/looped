@@ -111,3 +111,31 @@ test('the next person is told privately: their turn, a review, or changes with t
   assert.equal((await d('whatsapp_outbox').where({ kind: 'turn', task_id: work }).first()).status, 'cancelled');
   assert.ok(sentTo.includes('1111111111@lid') && sentTo.includes('3333333333@lid'));
 });
+
+// ── Follow-up when a manager hasn't accepted; project as the card heading ──
+import { buildEscalationText, enqueueAcceptanceReminders } from './assignmentNotices';
+test('the card heading is the project; the ticket name moves into the rows', () => {
+  const b = buildEscalationText({ title: 'website speed issue and Zapier subscription', project: 'Fullscan', minutes: 12, ticket: true, people: [{ name: 'Udaya', mention: null }], managers: [] });
+  assert.equal(b.card.title, 'Fullscan');
+  assert.deepEqual(b.card.fields![0], { label: 'Title', value: 'website speed issue and Zapier subscription' });
+  assert.ok(!b.card.fields!.some((f: any) => f.label === 'Project'));
+});
+
+test('a manager who has not accepted is never asked to follow up on themselves: the admins of their pod are', async () => {
+  const d = db();
+  const [podAdmin] = await d('users').insert({ name: 'Pod1Admin', email: 'pa@wa.test', password_hash: 'x', role: 'admin', pod: 'pod1' });
+  await d('assistant_identities').insert({ user_id: podAdmin, channel: 'whatsapp', external_sender_id: 'lid:5555555555', status: 'active', active_sender_key: 'whatsapp:lid:5555555555', active_user_key: `${podAdmin}:whatsapp`, linked_via: 'manual_lid', verified_at: new Date() });
+  const [other] = await d('users').insert({ name: 'OtherAdmin', email: 'oa@wa.test', password_hash: 'x', role: 'admin', pod: 'pod2' });
+  void other;
+  const t0 = new Date(Date.now() - 13 * 60_000);
+  const [id] = await d('tasks').insert({ title: 'Manager must accept', project_id: U.P, created_by: U.abhi, status: 'todo', created_at: t0 });
+  await d('task_assignees').insert({ task_id: id, user_id: U.udaya, assignee_role: 'manager', acceptance_status: 'pending', assigned_at: t0 });
+  await enqueueAcceptanceReminders(d, new Date());
+  const esc = await d('whatsapp_outbox').where({ kind: 'escalation', task_id: id }).first();
+  assert.ok(esc, 'escalated at 12 minutes');
+  const p = JSON.parse(esc.payload);
+  assert.match(p.caption, /Please follow up:\* @/);
+  assert.ok(!/follow up:\*[^\n]*Udaya/.test(p.caption), 'Udaya is not asked to follow up on herself');
+  assert.ok(p.mentions.includes('5555555555@lid'), 'the pod admin is tagged');
+  assert.ok(!p.text.includes('OtherAdmin'), 'not the other pod\'s admin');
+});
