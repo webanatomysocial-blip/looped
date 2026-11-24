@@ -118,7 +118,10 @@
 .sidebar__more-panel {
   position: fixed;
   left: 92px;
-  top: 30%;
+  /* Always inside the window: admins have the most apps, and the bottom rows were cut off on shorter screens */
+  top: min(30%, 120px);
+  max-height: calc(100vh - min(30%, 120px) - 16px);
+  overflow-y: auto;
   background-image: linear-gradient(to bottom right, #ffffffdd, #ffffffbb);
   background-color: rgba(255,255,255,0.88);
   -webkit-backdrop-filter: blur(24px);
