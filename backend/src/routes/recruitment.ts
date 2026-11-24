@@ -206,8 +206,8 @@ router.get('/interviews/:id/recording-links', run(async (req) => {
   return { status: iv.processing_status ?? null, final: iv.final_file ? `/api/recruitment/media/${R.signMedia('final', iv.id, 0)}` : null, parts };
 }));
 
-// Interview integrity: managers recommend, admins decide (checked again in the service)
-router.post('/interviews/:id/integrity', run(async (req) => R.reviewIntegrity(getDB(), actor(req), num(req.params.id), req.body ?? {})));
+// Interview integrity: admins decide (checked again in the service)
+router.post('/interviews/:id/integrity', requireRoles('admin'), run(async (req) => R.reviewIntegrity(getDB(), actor(req), num(req.params.id), req.body ?? {})));
 router.post('/interviews/:id/resume', requireRoles('admin'), run(async (req) => R.resumeInterview(getDB(), actor(req), num(req.params.id), req.body?.reason)));
 router.post('/interviews/:id/terminate', requireRoles('admin'), run(async (req) => R.terminateInterview(getDB(), actor(req), num(req.params.id), req.body?.reason)));
 router.post('/interviews/:id/delete-recording', requireRoles('admin'), run(async (req) => R.deleteRecording(getDB(), actor(req), num(req.params.id))));

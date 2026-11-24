@@ -29,6 +29,8 @@ const REC_STATUS: Record<string, [string, string]> = {
 function RecordingStatus({ iv }: { iv: any }) {
   if (iv.recording_deleted_at) return <>Video deleted ({dt(iv.recording_deleted_at)})</>;
   if (iv.status === 'in_progress') return <span className="rec-pill rec-pill--info">{iv.recording_complete ? 'Uploading' : 'Recording in progress'}</span>;
+  if (iv.status === 'paused') return <span className="rec-pill rec-pill--warn">Interview paused: not submitted, so not checked yet</span>;
+  if (['withdrawn', 'terminated'].includes(iv.status) && !iv.processing_status) return <span className="rec-pill rec-pill--warn">Interview not completed: recording not checked</span>;
   const st = iv.processing_status ? REC_STATUS[iv.processing_status] : null;
   if (!st) return <span className="rec-pill rec-pill--warn">Not verified (recorded before checks existed)</span>;
   const secs = iv.verification?.final?.video?.seconds;
@@ -290,47 +292,47 @@ const INTEGRITY: Record<string, string> = {
   monitoring: 'Final warning given', integrity_review_required: 'Integrity review needed', cleared: 'No violation', technical: 'Technical issue',
   suspicious: 'Suspicious, under review', insufficient: 'Insufficient evidence', confirmed: 'Violation confirmed',
 };
-const INCIDENT: Record<string, string> = { tab_away: 'Away from the interview page', fullscreen_exit: 'Left required fullscreen', multiple_tabs: 'Second tab opened', session_conflict: 'Another device or browser at the same time' };
-const OUTCOME_OPTS: [string, string][] = [['no_violation', 'No violation confirmed'], ['technical', 'Technical issue (not misconduct)'], ['suspicious', 'Suspicious: keep flagged'], ['insufficient', 'Insufficient evidence'], ['confirmed', 'Integrity violation confirmed']];
-// Integrity review: warnings and incidents; managers recommend, admins decide, resume or close. Nothing here is a verdict
-// until an admin records one.
+const INCIDENT: Record<string, string> = { tab_away: 'Left the interview page', fullscreen_exit: 'Left fullscreen', multiple_tabs: 'Opened in a second tab', session_conflict: 'Opened on another device' };
+// Integrity review: what happened and, for admins, the decision. Each action asks for a reason (kept in the history).
 function IntegrityReview({ iv, admin, done }: { iv: any; admin: boolean; done: () => Promise<void> }) {
-  const [f, setF] = useState({ outcome: '', reason: '', evidence: '', reject: false }); const [busy, setBusy] = useState(false);
-  const go = async (fn: () => Promise<any>, ok: string) => { setBusy(true); try { await fn(); notify(ok, 'good'); setF({ outcome: '', reason: '', evidence: '', reject: false }); await done(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); } };
-  const submit = () => {
-    if (!f.outcome || !f.reason.trim()) { notify('Choose an outcome and give a reason', 'bad'); return; }
-    void go(() => api.integrityReview(iv.id, { ...f, reject: admin && f.outcome === 'confirmed' && f.reject }), admin ? 'Review recorded' : 'Recommendation sent to the admins');
+  const [busy, setBusy] = useState(false);
+  const act = async (title: string, text: string, fn: (reason: string) => Promise<any>, ok: string, danger = false) => {
+    const reason = await ask({ title, text, input: { placeholder: 'Reason (saved in the history)', required: true, multiline: true }, confirm: title, danger });
+    if (!reason?.trim()) return;
+    setBusy(true);
+    try { await fn(reason.trim()); notify(ok, 'good'); await done(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
-  const withReason = async (title: string, fn: (r: string) => Promise<any>, ok: string, danger = false) => {
-    const r = await ask({ title, text: 'Give a reason. It is recorded in the history.', input: { placeholder: 'Reason', required: true, multiline: true }, confirm: title, danger });
-    if (r?.trim()) void go(() => fn(r.trim()), ok);
-  };
+  const decide = (outcome: string, reject = false) => (reason: string) => api.integrityReview(iv.id, { outcome, reason, reject });
+  const serious = iv.incidents?.some((x: any) => x.serious);
+  const open = ['in_progress', 'paused'].includes(iv.status);
+  const decided = ['cleared', 'technical', 'insufficient', 'confirmed'].includes(iv.integrity_status);
+  const tone = iv.integrity_status === 'confirmed' || iv.status === 'paused' ? 'bad' : decided ? 'good' : 'warn';
   return (
-    <div className="rec-integrity">
-      <h3 style={{ marginTop: 12 }}>Integrity review</h3>
-      <dl className="rec-kv">
-        <dt>Warnings</dt><dd><b>{iv.warnings}</b> of {iv.max_warnings} allowed before a pause</dd>
-        <dt>Review status</dt><dd>{iv.integrity_status ? INTEGRITY[iv.integrity_status] ?? iv.integrity_status : 'None'}</dd>
-        {iv.status === 'paused' && <><dt>Paused</dt><dd>{dt(iv.paused_at)} · {iv.paused_by === 'auto' ? 'automatically (warning limit or serious incident)' : 'by an admin'}</dd></>}
-        {iv.status === 'terminated' && <><dt>Interview</dt><dd>Closed by an admin</dd></>}
-      </dl>
-      {iv.incidents?.length > 0 && <ul className="rec-timeline">{iv.incidents.map((x: any, i: number) => (
-        <li key={x.id} className={`rec-mon-ev rec-mon-ev--${x.serious ? 'warning' : 'notice'}`}>
-          #{i + 1} {INCIDENT[x.kind] ?? x.kind}{x.serious ? ' · serious' : ''}{x.position != null ? ` · Q${x.position + 1}` : ''}{x.detail ? ` · ${x.detail}` : ''}
-          <div className="rec-sub">{dt(x.at)} · {x.status === 'open' ? 'not reviewed' : x.status}</div>
-        </li>))}</ul>}
-      <p className="rec-muted">Check these against the recording and the answers below. A browser event alone does not show misconduct.{admin ? '' : ' Managers record a recommendation; an admin makes the decision.'}</p>
-      <div className="rec-grid2">
-        <div className="rec-field"><label>{admin ? 'Outcome' : 'Recommended outcome'}</label><select className="form-input" value={f.outcome} onChange={(e) => setF({ ...f, outcome: e.target.value })}><option value="">Choose…</option>{OUTCOME_OPTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
-        <div className="rec-field"><label>Evidence considered</label><input className="form-input" value={f.evidence} maxLength={1000} placeholder="e.g. recording 02:10–03:40, incidents #2–#4" onChange={(e) => setF({ ...f, evidence: e.target.value })} /></div>
-        <div className="rec-field rec-field--full"><label>Reason *</label><textarea className="form-input" rows={2} maxLength={1000} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></div>
+    <div className="rec-int">
+      <div className="rec-int__head">
+        <h3>Integrity</h3>
+        <span className={`rec-pill rec-pill--${tone}`}>{iv.status === 'paused' ? 'Paused · needs review' : INTEGRITY[iv.integrity_status] ?? 'No issues'}</span>
       </div>
-      {admin && f.outcome === 'confirmed' && <label style={{ display: 'flex', gap: 8, fontSize: 14, margin: '6px 0' }}><input type="checkbox" checked={f.reject} onChange={(e) => setF({ ...f, reject: e.target.checked })} /> Also reject the application (the candidate cannot apply for this role again for 3 months)</label>}
-      <div className="rec-actions">
-        <button className={admin && f.outcome === 'confirmed' ? 'rec-btn-danger' : 'btn-primary'} disabled={busy} onClick={submit}>{admin ? 'Record decision' : 'Send recommendation'}</button>
-        {admin && iv.status === 'paused' && <button className="btn-secondary" disabled={busy} onClick={() => withReason('Resume interview', (r) => api.resumeInterview(iv.id, r), 'Interview resumed: the candidate can continue')}>Resume interview</button>}
-        {admin && ['paused', 'in_progress'].includes(iv.status) && <button className="rec-btn-danger" disabled={busy} onClick={() => withReason('Close interview', (r) => api.terminateInterview(iv.id, r), 'Interview closed', true)}>Close interview</button>}
-      </div>
+      <p className="rec-int__sum">
+        <b>{iv.warnings}</b> of {iv.max_warnings} warnings
+        {iv.status === 'paused' && <> · paused {dt(iv.paused_at)} {iv.paused_by === 'auto' ? (serious ? 'after a serious incident' : 'after too many warnings') : 'by an admin'}</>}
+        {iv.status === 'terminated' && <> · interview closed</>}
+      </p>
+      {iv.incidents?.length > 0 && <ol className="rec-int__list">{iv.incidents.map((x: any) => (
+        <li key={x.id} className={x.serious ? 'is-serious' : ''}>
+          <span>{INCIDENT[x.kind] ?? x.kind}{x.position != null ? ` · Q${x.position + 1}` : ''}</span>
+          <small>{dt(x.at)}{x.status !== 'open' ? ` · ${x.status}` : ''}</small>
+        </li>))}</ol>}
+      {admin && !decided && (
+        <div className="rec-int__actions">
+          <button className="btn-secondary" disabled={busy} onClick={() => act('Not cheating', 'The warnings are cleared and stop counting.', decide('no_violation'), 'Marked as not cheating')}>Not cheating</button>
+          <button className="btn-secondary" disabled={busy} onClick={() => act('Technical issue', 'Recorded as a technical problem, not misconduct.', decide('technical'), 'Marked as a technical issue')}>Technical issue</button>
+          {iv.status === 'paused' && <button className="btn-secondary" disabled={busy} onClick={() => act('Resume interview', 'The candidate can continue from the current question.', (r) => api.resumeInterview(iv.id, r), 'Interview resumed')}>Resume interview</button>}
+          <button className="rec-btn-danger" disabled={busy} onClick={() => act('Confirm cheating & reject', 'The interview is closed and the application rejected. The candidate cannot apply for this role again for 3 months.', decide('confirmed', true), 'Cheating confirmed, application rejected', true)}>Confirm cheating &amp; reject</button>
+          {open && iv.status !== 'paused' && <button className="btn-secondary" disabled={busy} onClick={() => act('Close interview', 'The interview stops; the application stays as it is.', (r) => api.terminateInterview(iv.id, r), 'Interview closed', true)}>Close interview</button>}
+        </div>
+      )}
+      {!admin && !decided && <p className="rec-muted rec-int__note">An admin will review this.</p>}
     </div>
   );
 }

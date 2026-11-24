@@ -210,3 +210,15 @@
 .rec-q-was { margin-left: 6px; font-size: 11px; color: #6366f1; }
 .rec-q--shuffled .rec-grip, .rec-q--shuffled .rec-q-num { opacity: .35; }
 .rec-arrow:not(:disabled):hover { background: #f5f5f4; border-color: #d6d3d1; }
+
+/* Integrity */
+.rec-int { margin: 16px 0; padding: 14px 16px; border: 1px solid #e7e5e4; border-radius: 12px; background: #fff; }
+.rec-int__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rec-int__head h3 { margin: 0; font-size: 15px; }
+.rec-int__sum { margin: 6px 0 0; font-size: 14px; color: var(--ink-muted, #57534e); }
+.rec-int__list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.rec-int__list li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 8px; background: #fafaf9; font-size: 13px; }
+.rec-int__list li.is-serious { background: #fef2f2; }
+.rec-int__list small { color: #a8a29e; white-space: nowrap; }
+.rec-int__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rec-int__note { margin: 10px 0 0; }

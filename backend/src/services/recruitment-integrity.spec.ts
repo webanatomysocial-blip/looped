@@ -118,12 +118,11 @@ test('admin resumes (with a reason) or closes; a manager cannot; the question ti
   assert.ok(acts.includes('interview_resumed') && acts.includes('interview_terminated'));
 });
 
-test('a manager only recommends; an admin decides; a reason is required; dismissed or technical incidents stop counting', async () => {
+test('only an admin decides (a manager is refused); a reason is required; dismissed or technical incidents stop counting', async () => {
   const { a, iv } = await live();
   for (let i = 0; i < 2; i++) await R.recordEvents(db(), a, [away(30)]);
-  assert.deepEqual(await R.reviewIntegrity(db(), mgr, iv.id, { outcome: 'confirmed', reason: 'Looks like reading notes' }), { recommended: true });
-  assert.equal((await ivOf(iv.id)).integrity_status, null, 'a recommendation changes nothing');
-  assert.ok(await db()('rec_history').where({ application_id: a.id, action: 'integrity_recommendation', actor_role: 'manager' }).first());
+  await assert.rejects(R.reviewIntegrity(db(), mgr, iv.id, { outcome: 'confirmed', reason: 'Looks like reading notes' }), /Only an admin/);
+  assert.equal((await ivOf(iv.id)).integrity_status, null, 'a manager changes nothing');
   await assert.rejects(R.reviewIntegrity(db(), admin, iv.id, { outcome: 'confirmed', reason: '' }), /reason/);
   await R.reviewIntegrity(db(), admin, iv.id, { outcome: 'technical', reason: 'Laptop battery died' });
   const x = await ivOf(iv.id);

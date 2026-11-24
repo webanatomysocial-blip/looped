@@ -38,7 +38,7 @@ after(() => { getDB().destroy(); fs.rmSync(SAMPLES, { recursive: true, force: tr
 // A candidate at the interview stage, through every question, ready to record
 async function candidate() {
   const db = getDB(); n++;
-  const [id] = await db('rec_applications').insert({ ref: `LP-T${n}`, access_hash: `h${n}`.padEnd(64, '0'), job_id: job, name: 'T', email: `t${n}@x.t`, phone: '+919000000000', resume_file: 'r.pdf', resume_name: 'r.pdf', status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86_400_000) });
+  const [id] = await db('rec_applications').insert({ ref: `LP-T${n}`, access_hash: `h${n}`.padStart(64, '0'), job_id: job, name: 'T', email: `t${n}@x.t`, phone: '+919000000000', resume_file: 'r.pdf', resume_name: 'r.pdf', status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86_400_000) });
   let a = await db('rec_applications').where({ id }).first();
   const iv = await R.startInterview(db, a, { accepted: true, version: 'v1' });
   const total = (await R.interviewState(db, a)).question_count;   // every active question for the role
@@ -159,4 +159,30 @@ test('an admin can delete an interview video for good; the application and its h
   assert.ok(await db('rec_applications').where({ id: a.id }).first(), 'the application stays');
   assert.ok(await db('rec_history').where({ application_id: a.id, action: 'recording_deleted', actor_name: 'Admin' }).first());
   assert.deepEqual(await R.deleteRecording(db, { id: 1, role: 'admin', name: 'Admin' }, iv.id), { already: true });
+});
+
+test('a part cut off by a reload or another device is closed when the next part starts: the interview can be submitted', async () => {
+  const { a, iv } = await candidate(); const db = getDB();
+  const [c0, c1] = split(webm, 2);
+  await R.saveChunk(db, a, 0, 0, false, c0, 'video/webm', 3000);
+  await R.saveChunk(db, a, 0, 1, false, c1, 'video/webm', 6000);   // the page goes away here: no end marker for part 1
+  await R.saveChunk(db, a, 1, 0, false, webm, 'video/webm', SECS * 1000);   // the reopened page records part 2
+  await R.saveChunk(db, a, 1, 1, true, END, 'video/webm');
+  await R.submitInterview(db, a);   // used to be refused for ever: "has not finished uploading"
+  await R.processRecording(db, iv.id);
+  const { v } = await verification(iv.id);
+  assert.ok(!v.problems.some((p: string) => /never finished|lost/.test(p)), JSON.stringify(v.problems));
+  const fp = await probe(finalFile((await verification(iv.id)).iv));
+  assert.ok(fp.video && fp.audio, 'both parts kept, with picture and sound');
+});
+
+test('an iPhone part whose video never arrived (page closed first) is reported, not hidden, and does not block submitting', async () => {
+  const { a, iv } = await candidate(); const db = getDB();
+  await R.saveAudio(db, a, 0, m4a, 0);   // the sound of part 1 arrived; its video was lost with the page
+  await R.saveChunk(db, a, 1, 0, false, mp4Video, 'video/mp4', SECS * 1000);   // the reopened page records part 2
+  await R.saveAudio(db, a, 1, m4a, 0);
+  await R.saveChunk(db, a, 1, 1, true, END, 'video/mp4');
+  await R.submitInterview(db, a);
+  assert.equal(await R.processRecording(db, iv.id), 'incomplete');
+  assert.ok((await verification(iv.id)).v.problems.some((p: string) => /part 1: lost/.test(p)));
 });

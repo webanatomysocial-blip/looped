@@ -674,13 +674,19 @@ async function saveManifest(db: Knex, iv: any, segments: any[], addBytes: number
   return n === 1;
 }
 
+// A new part starts when the page was reloaded, closed or opened elsewhere: the part that page was recording never
+// got its end marker. It is closed with what arrived, so the interview can still be submitted (it used to be refused
+// forever with "has not finished uploading").
+function closeCutParts(segments: any[]) {
+  for (const s of segments) if (!s.done) { s.done = true; s.cut = true; s.expected = s.chunks; s.mime = s.mime || 'video/webm'; }
+}
 export async function saveChunk(db: Knex, a: any, seg: number, seq: number, last: boolean, data: Buffer, mime: string, ms?: number) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const iv = await inProgress(db, a, true);   // a pause keeps what was already recorded
     const segments: any[] = JSON.parse(iv.segments || '[]');
     if (!Number.isInteger(seg) || seg < 0 || seg > segments.length || seg > 200) throw new ServiceError(400, 'Invalid recording segment');
     if (!Number.isInteger(seq) || seq < 0 || seq > 100_000) throw new ServiceError(400, 'Invalid recording chunk');
-    if (seg === segments.length) segments.push({ n: seg, chunks: 0, bytes: 0, done: false, mime: null, parts: [] });
+    if (seg === segments.length) { closeCutParts(segments); segments.push({ n: seg, chunks: 0, bytes: 0, done: false, mime: null, parts: [] }); }
     const s = segments[seg]; s.parts = s.parts ?? [];
     if (seq < s.chunks) return { segment: seg, next: s.chunks, duplicate: true };   // a retry of a chunk already kept
     if (seq > s.chunks || s.done) throw new ServiceError(409, `Expected chunk ${s.chunks}`);
@@ -708,7 +714,7 @@ export async function saveAudio(db: Knex, a: any, seg: number, data: Buffer, off
     const iv = await inProgress(db, a, true);   // a pause keeps what was already recorded
     const segments: any[] = JSON.parse(iv.segments || '[]');
     if (!Number.isInteger(seg) || seg < 0 || seg > segments.length || seg > 200) throw new ServiceError(400, 'Invalid recording segment');
-    if (seg === segments.length) segments.push({ n: seg, chunks: 0, bytes: 0, done: false, mime: null, parts: [] });
+    if (seg === segments.length) { closeCutParts(segments); segments.push({ n: seg, chunks: 0, bytes: 0, done: false, mime: null, parts: [] }); }
     const s = segments[seg];
     if (s.audio) return { segment: seg, duplicate: true };
     if (Number(iv.recording_bytes) + data.length > MAX_RECORDING_BYTES) throw new ServiceError(413, 'The recording is too large');
@@ -767,6 +773,7 @@ async function buildAndVerify(db: Knex, ivId: number): Promise<string> {
     const missing: number[] = []; for (let q = 0; q < expected; q++) if (!seqs.includes(q)) missing.push(q);
     const dupes = seqs.length - new Set(seqs).size;
     if (!s.done) problems.push(`part ${s.n + 1}: upload never finished`);
+    if (s.cut && !s.bytes) problems.push(`part ${s.n + 1}: lost (the page was closed, reloaded or opened elsewhere before this part was uploaded)`);
     if (missing.length) problems.push(`part ${s.n + 1}: chunks missing (${missing.slice(0, 10).join(', ')})`);
     if (dupes) problems.push(`part ${s.n + 1}: ${dupes} chunk(s) listed twice`);
     return { n: s.n, expected, received: seqs.length, missing, bytes: s.bytes, has_audio_file: !!s.audio };
@@ -1148,7 +1155,7 @@ const OUTCOMES: Record<string, [string, string]> = {   // outcome → [incident 
   no_violation: ['dismissed', 'cleared'], technical: ['technical', 'technical'], suspicious: ['suspicious', 'suspicious'],
   insufficient: ['insufficient', 'insufficient'], confirmed: ['confirmed', 'confirmed'],
 };
-/** A manager records a recommendation; only an admin decides. Confirming can reject through the normal workflow. */
+/** Only an admin decides. Confirming can reject through the normal workflow. */
 export async function reviewIntegrity(db: Knex, actor: Actor, ivId: number, body: { outcome?: string; reason?: string; evidence?: string; reject?: boolean }, mail: Mailer = defaultMailer) {
   const outcome = String(body.outcome ?? ''); const reason = clip(body.reason, 1000); const evidence = clip(body.evidence, 1000);
   if (!OUTCOMES[outcome]) throw new ServiceError(400, 'Choose an outcome');
@@ -1156,11 +1163,7 @@ export async function reviewIntegrity(db: Knex, actor: Actor, ivId: number, body
   const iv = await db('rec_interviews').where({ id: ivId }).first();
   if (!iv) throw new ServiceError(404, 'Interview not found');
   const comment = `${outcome.replace(/_/g, ' ')}: ${reason}${evidence ? ` · Evidence: ${evidence}` : ''}`;
-  if (actor.role !== 'admin') {
-    if (actor.role !== 'manager') throw new ServiceError(403, 'Not allowed');
-    await log(db, { application_id: iv.application_id, action: 'integrity_recommendation', actor, comment });
-    return { recommended: true };
-  }
+  if (actor.role !== 'admin') throw new ServiceError(403, 'Only an admin can decide an integrity review');
   const [incident, status] = OUTCOMES[outcome];
   await db.transaction(async (trx) => {
     await trx('rec_incidents').where({ interview_id: ivId }).whereNot('status', 'confirmed').update({ status: incident });
