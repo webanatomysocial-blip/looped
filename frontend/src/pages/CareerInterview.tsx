@@ -14,7 +14,16 @@ const APPLE = typeof navigator !== 'undefined' && /Apple/.test(navigator.vendor 
 const PART_MS = 30_000;
 const pickMime = () => (APPLE ? ['video/mp4', 'video/webm'] : ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']).find((m) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) ?? '';
 const END = () => new Blob([new Uint8Array(1)]);   // one empty byte: "this part ended" (the server does not store it)
-const msg = (e: any) => e?.response?.data?.error || 'Something went wrong. Please try again.';
+// Says what actually went wrong (the old catch-all hid it): our server's own message, else the kind of failure
+export const msg = (e: any) => {
+  if (e?.response?.data?.error) return e.response.data.error;
+  if (!e?.response) return "We couldn't reach our server. Please check your internet connection and try again.";
+  if (e.response.status === 413) return 'This upload was too large for our server. Please email us below so we can help.';
+  if (e.response.status >= 500) return 'Our server had a problem. Please wait a minute and try again.';
+  return `Something went wrong (error ${e.response.status}). Please try again.`;
+};
+// Pieces under 1 MB: web servers in front of the app often refuse bigger uploads (the server joins them back in order)
+const PIECE = 900 * 1024;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
 
 // After the interview: the candidate confirms their WhatsApp number (prefilled from the application). Confirming
@@ -84,12 +93,14 @@ export default function CareerInterview() {
   const [phase, setPhase] = useState<'intro' | 'live' | 'finishing' | 'done'>('intro');
   const [left, setLeft] = useState(0); const [pending, setPending] = useState(0); const [offline, setOffline] = useState(!navigator.onLine);
   const [submitError, setSubmitError] = useState('');
+  const [warning, setWarning] = useState<{ message: string; level: string } | null>(null); const [paused, setPaused] = useState(false);
   const video = useRef<HTMLVideoElement>(null);
   const rec = useRef<{ recorder: MediaRecorder | null; seg: number; seq: number; queue: { seg: number; seq: number; blob: Blob; last: boolean; ms?: number; audio?: boolean; offset?: number }[]; running: boolean; stopped: Promise<void> | null }>({ recorder: null, seg: 0, seq: 0, queue: [], running: false, stopped: null });
   const events = useRef<any[]>([]);
   const position = useRef(0);
   const failed = useRef(false);
   const finishing = useRef(false);
+  const pausedRef = useRef(false);
   const startedAt = useRef(0);   // when recording started on this page (for the camera-pause log)   // no new recording part once the interview is ending
 
   useEffect(() => { careersApi.interview(token!).then((r) => { setSt(r.data); if (r.data.state === 'submitted') setPhase('done'); }).catch((e) => setError(msg(e))); }, [token]);
@@ -97,10 +108,21 @@ export default function CareerInterview() {
   useEffect(() => () => { stream?.getTracks().forEach((t) => t.stop()); }, [stream]);
 
   const note = (type: string, detail?: string) => { events.current.push({ type, detail, position: position.current, at: new Date().toISOString() }); };
+  // Paused for review: no more questions; the recording is closed and what was recorded still uploads
+  const onPaused = () => {
+    if (pausedRef.current) return; pausedRef.current = true; setPaused(true);
+    const r = rec.current; finishing.current = true;
+    (r as any).stopNow?.();
+    void (r.stopped ?? Promise.resolve()).then(() => pump()).finally(() => stream?.getTracks().forEach((t) => t.stop()));
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined);
+  };
   const flushEvents = async () => {
     if (!events.current.length) return;
     const batch = events.current.splice(0, 50);
-    try { await careersApi.events(token!, batch); } catch { events.current.unshift(...batch); }
+    try {
+      const w = (await careersApi.events(token!, batch)).data?.warning;
+      if (w?.paused) onPaused(); else if (w) setWarning({ message: w.message, level: w.level });
+    } catch (e: any) { if (e?.response?.status === 423) onPaused(); else events.current.unshift(...batch); }
   };
 
   // Uploads chunks one by one, in order, retrying with a growing pause; nothing is skipped
@@ -119,7 +141,11 @@ export default function CareerInterview() {
       try { await (c.audio ? careersApi.audio(token!, form) : careersApi.chunk(token!, form)); r.queue.shift(); wait = 1000; setPending(r.queue.length); }
       catch (e: any) {
         if (e?.response?.status === 409 && /Expected chunk (\d+)/.test(e.response.data?.error ?? '') && Number(RegExp.$1) > c.seq) { r.queue.shift(); continue; }   // already stored
-        if (e?.response && e.response.status !== 429 && e.response.status < 500) { failed.current = true; setSubmitError(msg(e)); break; }
+        if (e?.response && e.response.status !== 429 && e.response.status < 500) {
+          // Recorded for the reviewers, with the error code, so a failed upload can be explained
+          note('recording_interrupted', `upload refused (error ${e.response.status}${c.audio ? ', sound' : ''}, part ${c.seg + 1})`); void flushEvents();
+          failed.current = true; setSubmitError(msg(e)); break;
+        }
         await new Promise((res) => setTimeout(res, wait)); wait = Math.min(wait * 2, 15000);
       }
     }
@@ -163,7 +189,11 @@ export default function CareerInterview() {
     r.stopped = new Promise((res) => { resolveStop = res; });
     const startedAt = Date.now();
     // How long the camera really ran for this piece: the server uses it to fix Safari's frame timing
-    const push = (blob: Blob, last: boolean) => { r.queue.push({ seg: segment, seq: r.seq++, blob, last, ms: last ? undefined : Date.now() - startedAt }); setPending(r.queue.length); void pump(); };
+    const push = (blob: Blob, last: boolean) => {
+      const ms = last ? undefined : Date.now() - startedAt;
+      for (let at = 0; at < blob.size || (at === 0 && !blob.size); at += PIECE) r.queue.push({ seg: segment, seq: r.seq++, blob: blob.size > PIECE ? blob.slice(at, at + PIECE, blob.type) : blob, last, ms });
+      setPending(r.queue.length); void pump();
+    };
     // Every part closes with the end marker, once, whether or not the browser sent anything
     // The part closes after its sound file (if any) is queued, so finishing waits for both; never more than 5 s
     const end = () => { if (ended) return; ended = true; if (!gotData) note('recording_interrupted', 'no video from the camera in this part');
@@ -223,6 +253,7 @@ export default function CareerInterview() {
       note('device_info', `${pickMime() || 'browser default'} · ${navigator.userAgent}`.slice(0, 300));
       startedAt.current = performance.now();
       startRecorder(await recordable(stream), r.data.segments);
+      note('recording_started', `part ${r.data.segments + 1}`);
       setPhase('live');
       try { await document.documentElement.requestFullscreen?.(); } catch { /* optional */ }
       if (r.data.position >= r.data.question_count) void finish();
@@ -236,7 +267,7 @@ export default function CareerInterview() {
     let hiddenAt = 0;
     const offs = [
       // How long the candidate was away, when they come back
-      on(document, 'visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); note('tab_hidden'); } else { note('tab_visible', hiddenAt ? `away ${Math.round((Date.now() - hiddenAt) / 1000)} s` : undefined); hiddenAt = 0; } }),
+      on(document, 'visibilitychange', () => { if (document.hidden) { hiddenAt = Date.now(); note('tab_hidden'); } else { note('tab_visible', hiddenAt ? `away ${Math.round((Date.now() - hiddenAt) / 1000)} s` : undefined); hiddenAt = 0; void flushEvents(); } }),
       on(window, 'blur', () => note('window_blur')), on(window, 'focus', () => note('window_focus')),
       on(document, 'fullscreenchange', () => note(document.fullscreenElement ? 'fullscreen_enter' : 'fullscreen_exit')),
       on(document, 'copy', (e: Event) => { e.preventDefault(); note('copy_attempt'); }),
@@ -248,6 +279,21 @@ export default function CareerInterview() {
     ];
     const perms = ['camera', 'microphone'].map((n) => (navigator.permissions?.query({ name: n as PermissionName }) ?? Promise.reject()).then((p) => { p.onchange = () => note('permission_changed', `${n}: ${p.state}`); }).catch(() => undefined));
     const flush = setInterval(flushEvents, 5000);
+    // A regular sign of life, so the server can tell a lost connection from a quiet candidate. Refused with 409
+    // when the interview was opened in another tab or device: this page stops.
+    const beat = () => careersApi.heartbeat(token!).catch((e) => {
+      if (e?.response?.status === 423) { clearInterval(beats); onPaused(); return; }
+      if (e?.response?.status !== 409) return;
+      clearInterval(beats); rec.current.recorder?.state === 'recording' && rec.current.recorder.stop();
+      stream?.getTracks().forEach((t) => t.stop()); setError(msg(e));
+    });
+    void beat(); const beats = setInterval(beat, 15000);
+    // The same interview in two tabs of this browser
+    const bc = 'BroadcastChannel' in window ? new BroadcastChannel(`iv-${token}`) : null;
+    if (bc) { bc.onmessage = () => { note('multiple_tabs', 'the interview is also open in another tab of this browser'); void flushEvents(); }; bc.postMessage('open'); }
+    // Closing or leaving the page: sent even as the page goes away
+    const exit = () => navigator.sendBeacon?.(`/api/public/careers/interview/${token}/events`, new Blob([JSON.stringify({ events: [...events.current.splice(0), { type: 'page_exit', position: position.current, at: new Date().toISOString() }] })], { type: 'application/json' }));
+    window.addEventListener('pagehide', exit);
     // The camera pausing (no new picture for over a second): logged with when and how long, since the recording's
     // picture then runs short of its sound (seen on iPhone: 9 s missing from the first part)
     const live = startedAt.current;
@@ -261,7 +307,7 @@ export default function CareerInterview() {
     cam?.requestVideoFrameCallback?.(onFrame);
     // The first picture after recording started: a late one means the start of the recording has no picture
     const firstCheck = setTimeout(() => { if (!lastFrame) note('camera_lost', 'no picture in the first 3 s of the recording'); }, 3000);
-    return () => { offs.forEach((f) => f()); clearInterval(flush); clearTimeout(firstCheck); watching = false; void perms; };
+    return () => { offs.forEach((f) => f()); clearInterval(flush); clearInterval(beats); bc?.close(); window.removeEventListener('pagehide', exit); clearTimeout(firstCheck); watching = false; void perms; };
   }, [phase]);
 
   // Question timer: counts down from what the server says is left, so a refresh does not reset it
@@ -281,7 +327,7 @@ export default function CareerInterview() {
       const r = await careersApi.next(token!, st.current.position);
       setSt(r.data); position.current = r.data.position;
       if (r.data.position >= r.data.question_count) await finish();
-    } catch (e) { setError(msg(e)); } finally { advancing.current = false; }
+    } catch (e: any) { if (e?.response?.status === 423) onPaused(); else setError(msg(e)); } finally { advancing.current = false; }
   };
 
   // Stop recording, wait for every chunk to arrive, then submit. Never reported as done if anything failed.
@@ -303,6 +349,7 @@ export default function CareerInterview() {
   if (error && !st) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
   if (!st) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
   if (phase === 'done') return <CareersShell><div className="rec-card careers-detail"><h1>Interview submitted ✓</h1><p className="careers-text">Thank you, {st.name}. Your video interview for {st.job} has been received and will be reviewed by our team.</p><WhatsAppConfirm token={token!} phone={st.phone} done={st.whatsapp_confirmed} /></div></CareersShell>;
+  if (paused || st.state === 'paused') return <CareersShell><div className="rec-card careers-detail"><h1>Interview paused</h1><p className="careers-text" role="alert">{st.paused_message ?? 'Your interview has been paused because repeated interview-rule violations were detected. Your application is under review. The recruitment team will contact you regarding the next step.'}</p>{pending > 0 && <p className="rec-muted">Please keep this page open a moment while your recording finishes uploading.</p>}</div></CareersShell>;
   if (st.state === 'closed') return <CareersShell><div className="rec-empty">This interview is no longer available.</div></CareersShell>;
 
   if (phase === 'intro') return (
@@ -314,7 +361,8 @@ export default function CareerInterview() {
         <ul className="careers-text" style={{ paddingLeft: 18 }}>
           <li>{st.question_count} questions, shown one at a time. You have {fmt(st.seconds_per_question)} for each; it moves on automatically when time is up, or click <b>Next</b> when you're done.</li>
           <li>About {st.estimated_minutes} minutes in total. Use a quiet, well-lit place and a stable internet connection.</li>
-          <li>Answer out loud to the camera. Stay on this page and in fullscreen; leaving the page is noted for the reviewers.</li>
+          <li>Answer out loud to the camera. Stay on this page and in fullscreen until you finish.</li>
+          <li><b>Interview rules:</b> leaving this page, or opening the interview in another tab or on another device, gives a warning. After {st.warnings?.max ?? 3} warnings, one more pauses the interview for review by our team. Connection or camera problems are not counted as warnings.</li>
           <li>If your connection drops, keep this page open: the recording resumes uploading by itself.</li>
         </ul>
         {st.state === 'in_progress' && <div className="iv-warn">You started this interview earlier. It will continue from question {st.position + 1}; the recording continues from here.</div>}
@@ -345,6 +393,7 @@ export default function CareerInterview() {
     <CareersShell wide>
       <div className="rec-card rec-card--pad iv-live">
         <div className="iv-progress" style={{ marginBottom: 14 }}><i style={{ width: `${(pos / total) * 100}%` }} /></div>
+        {warning && <div className={`iv-warn ${warning.level === 'final' ? 'iv-warn--final' : ''}`} role="alert" style={{ marginBottom: 12, display: 'flex', gap: 10, alignItems: 'flex-start' }}><span style={{ flex: 1 }}>{warning.message}</span><button type="button" className="btn-secondary" onClick={() => setWarning(null)}>I understand</button></div>}
         {offline && <div className="iv-warn" style={{ marginBottom: 12 }}>You're offline. Keep this page open; the recording will upload when the connection returns.</div>}
         <div className="iv-stage">
           <div className="iv-cam"><video ref={video} autoPlay muted playsInline /><span className="iv-rec"><i />REC</span></div>

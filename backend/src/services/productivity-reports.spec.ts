@@ -251,6 +251,8 @@ test('no flood on reconnect: a report waiting more than 30 minutes is dropped, n
   const at = ist('2026-11-23T09:00:00');   // a Monday
   assert.deepEqual(await enqueueScheduledReports(db(), at), ['report_morning:pod1:2026-11-23']);
   await db()('whatsapp_outbox').where({ event_key: 'report_morning:pod1:2026-11-23' }).update({ created_at: at });
+  // Only this report: rows queued by earlier tests carry today's real time, which is after this test's fixed clock
+  await db()('whatsapp_outbox').whereNot({ event_key: 'report_morning:pod1:2026-11-23' }).where({ status: 'pending' }).update({ status: 'cancelled' });
   const sent: string[] = [];
   const sender = { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } };
   await processOutbox(db(), sender, ist('2026-11-23T15:30:00'), 1000);   // WhatsApp only connects in the afternoon

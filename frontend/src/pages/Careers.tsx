@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { careersApi } from '../services/api';
 import '../css/pages/Recruitment.css';
+import { msg } from './CareerInterview';
 
 export function CareersShell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
@@ -19,7 +20,7 @@ export function CareersShell({ children, wide }: { children: React.ReactNode; wi
     </div>
   );
 }
-const err = (e: any, fallback = 'Something went wrong. Please try again.') => e?.response?.data?.error || fallback;
+const err = (e: any, fallback?: string) => (e?.response?.data?.error || fallback || msg(e));
 // Tags without repeats: no role tag when it is the job title, no "Internship" twice
 const Pills = ({ j }: { j: any }) => {
   const seen = new Set<string>([String(j.title ?? '').toLowerCase()]);

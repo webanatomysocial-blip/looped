@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit';
 import { getDB } from '../db';
 import { sendServiceError, ServiceError } from '../services/access';
 import * as R from '../services/recruitment';
+import { io } from '../socket';
 
 const router = Router();
 const run = (fn: (req: Request, res: Response) => Promise<unknown>, status = 200) => async (req: Request, res: Response) => {
@@ -89,22 +90,44 @@ router.post('/applications/:token/interview-link', run(async (req) => {
 }));
 
 // ── Preliminary interview ──
-const iv = (req: Request) => R.byInterviewToken(getDB(), String(req.params.token));
+const sid = (req: Request) => req.header('x-interview-session');
+// Writes come only from the page that owns the interview (the latest one opened)
+const iv = async (req: Request) => { const a = await R.byInterviewToken(getDB(), String(req.params.token)); await R.checkSession(getDB(), a, sid(req)); return a; };
+// Reviewers with the application open see new activity at once (their page also re-checks regularly)
+const lastPing = new Map<number, number>();
+async function pingStaff(appId: number) {
+  if (Date.now() - (lastPing.get(appId) ?? 0) < 3000) return;
+  lastPing.set(appId, Date.now());
+  const ids = await getDB()('users').whereIn('role', ['admin', 'manager']).pluck('id');
+  for (const id of ids) io.to(`user:${id}`).emit('rec:activity', { application_id: appId });
+}
 router.get('/interview/:token', run(async (req) => {
-  const db = getDB(); const a = await iv(req);
-  // Coming back to an interview already under way (refresh, another tab, reopened browser): the same session
-  // continues on the server; the return is recorded for reviewers
+  const db = getDB(); const a = await R.byInterviewToken(db, String(req.params.token));
+  // Coming back to an interview already under way (refresh, another tab or device, reopened browser): the same
+  // interview continues; this page takes it over and the switch is recorded for reviewers
   const live = await db('rec_interviews').where({ application_id: a.id, status: 'in_progress' }).first('id', 'current_position');
-  if (live) await db('rec_events').insert({ interview_id: live.id, type: 'session_resumed', position: live.current_position, at: new Date() });
+  if (live && sid(req)) { await R.claimSession(db, a, sid(req)); void pingStaff(a.id); }
+  else if (live) await db('rec_events').insert({ interview_id: live.id, type: 'session_resumed', position: live.current_position, at: new Date(), received_at: new Date(), source: 'server' });
   return R.interviewState(db, a);
 }));
 router.post('/interview/:token/start', run(async (req) => {
-  const db = getDB(); const a = await iv(req);
+  const db = getDB(); const a = await R.byInterviewToken(db, String(req.params.token));
   await R.startInterview(db, a, { accepted: req.body?.consent === true, version: String(req.body?.consent_version ?? '') });
+  await R.claimSession(db, a, sid(req));
+  void pingStaff(a.id);
   return R.interviewState(db, a);
 }));
+router.post('/interview/:token/heartbeat', run(async (req) => {
+  const a = await iv(req); const r = await R.heartbeat(getDB(), a, sid(req));
+  if (r.gap_seconds) void pingStaff(a.id);
+  return r;
+}));
 router.post('/interview/:token/next', run(async (req) => R.nextQuestion(getDB(), await iv(req), Number(req.body?.position))));
-router.post('/interview/:token/events', run(async (req) => ({ saved: await R.recordEvents(getDB(), await iv(req), req.body?.events) })));
+router.post('/interview/:token/events', run(async (req) => {
+  const a = await iv(req); const r = await R.recordEvents(getDB(), a, req.body?.events);
+  if (r.saved) void pingStaff(a.id);
+  return r;   // { saved, warning }: the warning (or the pause) the candidate is shown
+}));
 const chunkUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 40 * 1024 * 1024, files: 1 } }).single('chunk');   // 40 MB: a whole 30-second Safari part
 router.post('/interview/:token/chunk', (req, res, next) => chunkUpload(req, res, (err: any) => (err ? res.status(413).json({ error: 'Chunk too large' }) : next())), run(async (req) => {
   if (!req.file?.buffer?.length) throw new ServiceError(400, 'Empty recording chunk');

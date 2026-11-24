@@ -1,13 +1,15 @@
 // Recruitment dashboard for admins and managers: overview, job openings, applications (review, interview, evaluation,
 // scheduling), the common HR question bank and settings. What each person may approve is decided by the server;
 // the buttons shown follow its answer ("can").
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import Modal from '../components/UI/Modal';
 import Drawer from '../components/UI/Drawer';
 import { recruitmentApi as api } from '../services/api';
 import { slugify } from './Careers';
+import { notify, ask, DialogHost } from '../components/UI/dialogs';
 import { useAuth } from '../contexts/AuthContext';
+import { useSocket } from '../contexts/SocketContext';
 import '../css/pages/Recruitment.css';
 
 type Tab = 'overview' | 'openings' | 'applications' | 'questions' | 'settings';
@@ -96,6 +98,7 @@ export default function Recruitment() {
   const tabs: [Tab, string][] = [['overview', 'Overview'], ['openings', 'Job Openings'], ['applications', 'Applications'], ['questions', 'Question Bank'], ...(user?.role === 'admin' ? [['settings', 'Settings'] as [Tab, string]] : [])];
   return (
     <Layout>
+      <DialogHost />
       <div className="rec-page">
         <div className="rec-head">
           <div><h1>Recruitment</h1><p>Openings, applications, interviews and hiring decisions</p></div>
@@ -157,8 +160,8 @@ function Overview({ jobs, departments, open }: { jobs: any[]; departments: any[]
 const EMPTY_JOB = { title: '', category_id: '', description: '', responsibilities: '', qualifications: '', skills: '', experience: '', employment_type: 'Full-time', location: '', vacancies: 1, deadline: '', status: 'draft' };
 function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any[]; reload: () => void }) {
   const [edit, setEdit] = useState<any>(null);
-  const setStatus = async (j: any, status: string) => { try { await api.updateJob(j.id, { status }); reload(); } catch (e) { alert(err(e)); } };
-  const remove = async (j: any) => { if (!confirm(`Delete "${j.title}"?`)) return; try { await api.deleteJob(j.id); reload(); } catch (e) { alert(err(e)); } };
+  const setStatus = async (j: any, status: string) => { try { await api.updateJob(j.id, { status }); reload(); } catch (e) { notify(err(e), 'bad'); } };
+  const remove = async (j: any) => { if ((await ask({ title: `Delete "${j.title}"?`, text: 'The opening is removed. This cannot be undone.', confirm: 'Delete', danger: true })) === null) return; try { await api.deleteJob(j.id); reload(); } catch (e) { notify(err(e), 'bad'); } };
   return (<>
     <div className="rec-actions" style={{ marginBottom: 14 }}><button className="btn-primary" onClick={() => setEdit({ ...EMPTY_JOB })}>+ New job opening</button></div>
     <div className="rec-card rec-table-wrap">
@@ -174,7 +177,7 @@ function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any
             <td><div className="rec-actions">
               <button className="btn-secondary" onClick={() => setEdit({ ...EMPTY_JOB, ...j, category_id: j.category_id ?? '', deadline: j.deadline ? String(j.deadline).slice(0, 10) : '' })}>Edit</button>
               {j.status !== 'published' && <button className="btn-secondary" onClick={() => setStatus(j, 'published')}>Publish</button>}
-              {j.status === 'published' && <button className="btn-secondary" title="The role's own page, for LinkedIn and Instagram posts" onClick={() => { const url = `${window.location.origin}/careers/${slugify(j.title)}`; navigator.clipboard?.writeText(url).then(() => alert(`Copied: ${url}`)).catch(() => prompt('Copy this link', url)); }}>Copy link</button>}
+              {j.status === 'published' && <button className="btn-secondary" title="The role's own page, for LinkedIn and Instagram posts" onClick={() => { const url = `${window.location.origin}/careers/${slugify(j.title)}`; navigator.clipboard?.writeText(url).then(() => notify(`Link copied: ${url}`, 'good')).catch(() => notify(`Copy this link: ${url}`)); }}>Copy link</button>}
               {j.status === 'published' && <button className="btn-secondary" onClick={() => setStatus(j, 'closed')}>Close</button>}
               {!Number(j.applications) && <button className="rec-btn-danger" onClick={() => remove(j)}>Delete</button>}
             </div></td>
@@ -244,12 +247,12 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
   // Removes the applicants completely: application, history, scores, interview, resume and recording. Not undoable.
   const removePicked = async () => {
     const n = picked.size;
-    if (prompt(`Delete ${n} applicant${n > 1 ? 's' : ''} completely (application, interview, resume and recording, ${mb(pickedBytes)})? This cannot be undone.\n\nType DELETE to confirm.`) !== 'DELETE') return;
+    if ((await ask({ title: `Delete ${n} applicant${n > 1 ? 's' : ''}?`, text: `Their application, interview, resume and recording (${mb(pickedBytes)}) are deleted for good. Type DELETE to confirm.`, input: { placeholder: 'DELETE', match: 'DELETE' }, confirm: 'Delete', danger: true })) === null) return;
     setDeleting(true);
     try {
       const r = await api.deleteCandidates([...picked]);
-      alert(`Deleted ${r.data.deleted} applicant${r.data.deleted === 1 ? '' : 's'}, freed ${mb(r.data.freed_bytes)}.${r.data.failed.length ? ` ${r.data.failed.length} could not be deleted.` : ''}`);
-    } catch (e) { alert(err(e)); } finally { setDeleting(false); load(); }
+      notify(`Deleted ${r.data.deleted} applicant${r.data.deleted === 1 ? '' : 's'}, freed ${mb(r.data.freed_bytes)}.${r.data.failed.length ? ` ${r.data.failed.length} could not be deleted.` : ''}`, r.data.failed.length ? 'bad' : 'good');
+    } catch (e) { notify(err(e), 'bad'); } finally { setDeleting(false); load(); }
   };
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [JSON.stringify(f), queue, search]);
   return (<>
@@ -264,8 +267,8 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
     </div>
     <div className="rec-card rec-table-wrap">
       <table className="rec-table">
-        <thead><tr>{isAdmin && <th style={{ width: 32 }}><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set((rows ?? []).map((r) => r.id)))} /></th>}<th>Candidate</th><th>Opening</th><th>Experience</th><th>Status</th><th>Applied</th><th>Storage</th></tr></thead>
-        <tbody>{rows === null ? <tr><td colSpan={7} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => (
+        <thead><tr>{isAdmin && <th style={{ width: 32 }}><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set((rows ?? []).map((r) => r.id)))} /></th>}<th>Candidate</th><th>Opening</th><th>Experience</th><th>Status</th><th>Applied</th><th title="Times the candidate left the interview tab, and how long in total">Tab switches</th><th>Storage</th></tr></thead>
+        <tbody>{rows === null ? <tr><td colSpan={8} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => (
           <tr key={r.id} className="rec-row" onClick={() => setOpen(r.id)}>
             {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} /></td>}
             <td><b>{r.name}</b><div className="rec-sub">{r.ref} · {r.email}</div></td>
@@ -273,22 +276,114 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
             <td>{Number(r.experience_years)} yrs</td>
             <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span></td>
             <td>{dt(r.created_at)}</td>
+            <td style={{ whiteSpace: 'nowrap' }}>{(r.interview_paused || ['integrity_review_required', 'suspicious', 'confirmed', 'monitoring'].includes(r.integrity_status)) && <span className={`rec-pill ${r.interview_paused || r.integrity_status === 'confirmed' ? 'rec-pill--bad' : 'rec-pill--warn'}`} style={{ marginRight: 4 }}>{r.interview_paused ? 'Paused' : INTEGRITY[r.integrity_status]}{r.warnings ? ` · ${r.warnings} warning${r.warnings > 1 ? 's' : ''}` : ''}</span>}{Number(r.tab_switches) ? <span className={`rec-pill ${Number(r.tab_switches) >= 3 ? 'rec-pill--warn' : ''}`}>{r.tab_switches}× · {Number(r.away_seconds)} s away</span> : <span className="rec-muted">—</span>}</td>
             <td style={{ whiteSpace: 'nowrap' }}>{mb(Number(r.storage_bytes || 0))}</td>
-          </tr>)) : <tr><td colSpan={7} className="rec-muted">No applications here.</td></tr>}</tbody>
+          </tr>)) : <tr><td colSpan={8} className="rec-muted">No applications here.</td></tr>}</tbody>
       </table>
     </div>
     {open && <ApplicationDrawer id={open} onClose={() => setOpen(null)} onChanged={load} />}
   </>);
 }
 
-const EVENT_LABEL: Record<string, string> = {
-  interview_started: 'Interview started', interview_submitted: 'Interview submitted', tab_hidden: 'Left the interview tab', tab_visible: 'Returned to the tab',
-  window_blur: 'Window lost focus', window_focus: 'Window focused', fullscreen_exit: 'Exited fullscreen', fullscreen_enter: 'Entered fullscreen',
-  camera_lost: 'Camera disconnected', microphone_lost: 'Microphone disconnected', recording_interrupted: 'Recording interrupted', device_info: 'Device', session_resumed: 'Came back to the interview (refresh, new tab or reopened browser)', recording_resumed: 'Recording resumed',
-  permission_changed: 'Permission changed', copy_attempt: 'Tried to copy', paste_attempt: 'Tried to paste', navigation_attempt: 'Tried to leave the page',
-  network_offline: 'Went offline', network_online: 'Back online', page_reload: 'Reloaded / resumed the interview',
+
+const INTEGRITY: Record<string, string> = {
+  monitoring: 'Final warning given', integrity_review_required: 'Integrity review needed', cleared: 'No violation', technical: 'Technical issue',
+  suspicious: 'Suspicious, under review', insufficient: 'Insufficient evidence', confirmed: 'Violation confirmed',
 };
-const NOTABLE = ['tab_hidden', 'window_blur', 'fullscreen_exit', 'camera_lost', 'microphone_lost', 'recording_interrupted', 'copy_attempt', 'paste_attempt', 'navigation_attempt', 'page_reload', 'session_resumed'];
+const INCIDENT: Record<string, string> = { tab_away: 'Away from the interview page', fullscreen_exit: 'Left required fullscreen', multiple_tabs: 'Second tab opened', session_conflict: 'Another device or browser at the same time' };
+const OUTCOME_OPTS: [string, string][] = [['no_violation', 'No violation confirmed'], ['technical', 'Technical issue (not misconduct)'], ['suspicious', 'Suspicious: keep flagged'], ['insufficient', 'Insufficient evidence'], ['confirmed', 'Integrity violation confirmed']];
+// Integrity review: warnings and incidents; managers recommend, admins decide, resume or close. Nothing here is a verdict
+// until an admin records one.
+function IntegrityReview({ iv, admin, done }: { iv: any; admin: boolean; done: () => Promise<void> }) {
+  const [f, setF] = useState({ outcome: '', reason: '', evidence: '', reject: false }); const [busy, setBusy] = useState(false);
+  const go = async (fn: () => Promise<any>, ok: string) => { setBusy(true); try { await fn(); notify(ok, 'good'); setF({ outcome: '', reason: '', evidence: '', reject: false }); await done(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); } };
+  const submit = () => {
+    if (!f.outcome || !f.reason.trim()) { notify('Choose an outcome and give a reason', 'bad'); return; }
+    void go(() => api.integrityReview(iv.id, { ...f, reject: admin && f.outcome === 'confirmed' && f.reject }), admin ? 'Review recorded' : 'Recommendation sent to the admins');
+  };
+  const withReason = async (title: string, fn: (r: string) => Promise<any>, ok: string, danger = false) => {
+    const r = await ask({ title, text: 'Give a reason. It is recorded in the history.', input: { placeholder: 'Reason', required: true, multiline: true }, confirm: title, danger });
+    if (r?.trim()) void go(() => fn(r.trim()), ok);
+  };
+  return (
+    <div className="rec-integrity">
+      <h3 style={{ marginTop: 12 }}>Integrity review</h3>
+      <dl className="rec-kv">
+        <dt>Warnings</dt><dd><b>{iv.warnings}</b> of {iv.max_warnings} allowed before a pause</dd>
+        <dt>Review status</dt><dd>{iv.integrity_status ? INTEGRITY[iv.integrity_status] ?? iv.integrity_status : 'None'}</dd>
+        {iv.status === 'paused' && <><dt>Paused</dt><dd>{dt(iv.paused_at)} · {iv.paused_by === 'auto' ? 'automatically (warning limit or serious incident)' : 'by an admin'}</dd></>}
+        {iv.status === 'terminated' && <><dt>Interview</dt><dd>Closed by an admin</dd></>}
+      </dl>
+      {iv.incidents?.length > 0 && <ul className="rec-timeline">{iv.incidents.map((x: any, i: number) => (
+        <li key={x.id} className={`rec-mon-ev rec-mon-ev--${x.serious ? 'warning' : 'notice'}`}>
+          #{i + 1} {INCIDENT[x.kind] ?? x.kind}{x.serious ? ' · serious' : ''}{x.position != null ? ` · Q${x.position + 1}` : ''}{x.detail ? ` · ${x.detail}` : ''}
+          <div className="rec-sub">{dt(x.at)} · {x.status === 'open' ? 'not reviewed' : x.status}</div>
+        </li>))}</ul>}
+      <p className="rec-muted">Check these against the recording and the answers below. A browser event alone does not show misconduct.{admin ? '' : ' Managers record a recommendation; an admin makes the decision.'}</p>
+      <div className="rec-grid2">
+        <div className="rec-field"><label>{admin ? 'Outcome' : 'Recommended outcome'}</label><select className="form-input" value={f.outcome} onChange={(e) => setF({ ...f, outcome: e.target.value })}><option value="">Choose…</option>{OUTCOME_OPTS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+        <div className="rec-field"><label>Evidence considered</label><input className="form-input" value={f.evidence} maxLength={1000} placeholder="e.g. recording 02:10–03:40, incidents #2–#4" onChange={(e) => setF({ ...f, evidence: e.target.value })} /></div>
+        <div className="rec-field rec-field--full"><label>Reason *</label><textarea className="form-input" rows={2} maxLength={1000} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></div>
+      </div>
+      {admin && f.outcome === 'confirmed' && <label style={{ display: 'flex', gap: 8, fontSize: 14, margin: '6px 0' }}><input type="checkbox" checked={f.reject} onChange={(e) => setF({ ...f, reject: e.target.checked })} /> Also reject the application (the candidate cannot apply for this role again for 3 months)</label>}
+      <div className="rec-actions">
+        <button className={admin && f.outcome === 'confirmed' ? 'rec-btn-danger' : 'btn-primary'} disabled={busy} onClick={submit}>{admin ? 'Record decision' : 'Send recommendation'}</button>
+        {admin && iv.status === 'paused' && <button className="btn-secondary" disabled={busy} onClick={() => withReason('Resume interview', (r) => api.resumeInterview(iv.id, r), 'Interview resumed: the candidate can continue')}>Resume interview</button>}
+        {admin && ['paused', 'in_progress'].includes(iv.status) && <button className="rec-btn-danger" disabled={busy} onClick={() => withReason('Close interview', (r) => api.terminateInterview(iv.id, r), 'Interview closed', true)}>Close interview</button>}
+      </div>
+    </div>
+  );
+}
+
+const SEV_ORDER: Record<string, number> = { warning: 2, notice: 1, info: 0 };
+// Interview activity for reviewers: summary, live status and the full timeline. Indicators to check against the
+// recording; nothing here rejects anyone.
+function Monitoring({ m, who, verification }: { m: any; who: string; verification: string | null }) {
+  const [min, setMin] = useState<'info' | 'notice' | 'warning'>('notice');
+  const rows = m.timeline.filter((e: any) => SEV_ORDER[e.severity] >= SEV_ORDER[min]);
+  const csv = () => {
+    const q = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [['Time (page)', 'Received by server', 'Event', 'Severity', 'Source', 'Question', 'Duration (s)', 'Detail', 'Grouped with'].map(q).join(',')]
+      .concat(m.timeline.map((e: any) => [e.at, e.received_at, e.label, e.severity, e.source, e.position != null ? e.position + 1 : '', e.duration_seconds ?? '', e.detail, e.grouped.join(' ')].map(q).join(',')));
+    const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+    const l = document.createElement('a'); l.href = url; l.download = `interview-activity-${who.split(' ')[0]}.csv`; l.click(); URL.revokeObjectURL(url);
+  };
+  const stat = (label: string, v: any, warn = false) => <div className={`rec-mon-stat ${warn ? 'rec-mon-stat--warn' : ''}`}><b>{v}</b><span>{label}</span></div>;
+  return (<>
+    <h3 style={{ marginTop: 12 }}>Interview Activity &amp; Monitoring</h3>
+    <p className="rec-muted" style={{ marginTop: 0 }}>Browser and connection indicators. They cannot show what the candidate did or why: review them with the recording. Nothing here rejects anyone automatically.</p>
+    <dl className="rec-kv">
+      <dt>Interview</dt><dd>{m.live}</dd>
+      <dt>Recording check</dt><dd>{verification ?? 'Not yet'}</dd>
+    </dl>
+    <div className="rec-mon-grid">
+      {stat('tab switches', m.tab_switches, m.tab_switches >= 3)}
+      {stat('away in total', `${m.away_seconds} s`, m.away_seconds >= 60)}
+      {stat('longest absence', `${m.longest_away_seconds} s`, m.longest_away_seconds >= 30)}
+      {stat('other window / app', m.focus_losses)}
+      {stat('fullscreen exits', m.fullscreen_exits)}
+      {stat('connection interruptions', m.connection, m.connection > 0)}
+      {stat('camera / mic interruptions', m.devices, m.devices > 0)}
+      {stat('recording interruptions', m.recording, m.recording > 0)}
+      {stat('other tab / device', m.conflicts, m.conflicts > 0)}
+      {stat('reloads / reopened', m.reloads)}
+    </div>
+    <div className="rec-mon-bar">
+      <select className="form-input" value={min} onChange={(e) => setMin(e.target.value as any)} aria-label="Show events">
+        <option value="warning">Warnings only</option><option value="notice">Notices and warnings</option><option value="info">Everything</option>
+      </select>
+      <button type="button" className="btn-secondary" onClick={csv}>Download report (CSV)</button>
+    </div>
+    {rows.length === 0 ? <p className="rec-muted">Nothing at this level.</p> : (
+      <ul className="rec-timeline">{rows.map((e: any) => (
+        <li key={e.id} className={`rec-mon-ev rec-mon-ev--${e.severity}`}>
+          {e.label}{e.position != null ? ` · Q${e.position + 1}` : ''}{e.duration_seconds ? ` · ${e.duration_seconds} s` : ''}{e.detail && !/^away \d+ s$/.test(e.detail) ? ` · ${e.detail}` : ''}
+          <div className="rec-sub">{dt(e.at)}{e.received_at && Math.abs(new Date(e.received_at).getTime() - new Date(e.at).getTime()) > 5000 ? ` · received ${dt(e.received_at)}` : ''} · {e.source === 'server' ? 'recorded by the server' : 'reported by the page'}{e.grouped.length ? ' · includes the window focus change' : ''}</div>
+        </li>))}
+      </ul>
+    )}
+  </>);
+}
 
 function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
   const { user } = useAuth();
@@ -301,45 +396,60 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     if (r.data.interview && !r.data.interview.recording_deleted_at) await loadMedia(r.data.interview.id);
   };
   const loadMedia = (ivId: number) => api.recordingLinks(ivId).then((x) => setMedia(x.data)).catch(() => setMedia(null));
-  useEffect(() => { load().catch((e) => alert(err(e))); }, [id]);
+  useEffect(() => { load().catch((e) => notify(err(e), 'bad')); }, [id]);
   // While the recording is being built, check again every few seconds: no manual refresh needed
   const processing = a?.interview?.processing_status === 'processing';
   useEffect(() => { if (!processing) return; const t = setInterval(() => load().catch(() => undefined), 4000); return () => clearInterval(t); }, [processing, id]);
+  // A live interview: new activity arrives over the socket; a regular re-check covers a dropped socket
+  const { socket } = useSocket();
+  const liveIv = ['in_progress', 'paused'].includes(a?.interview?.status);
+  useEffect(() => {
+    if (!liveIv) return;
+    const on = (m: any) => { if (Number(m?.application_id) === id) load().catch(() => undefined); };
+    socket?.on('rec:activity', on);
+    const t = setInterval(() => load().catch(() => undefined), 15000);
+    return () => { socket?.off('rec:activity', on); clearInterval(t); };
+  }, [liveIv, id, socket]);
   const refresh = async () => { await load(); onChanged(); };
   const decide = async (action: 'approve' | 'reject' | 'reopen') => {
-    if (action === 'reject' && !comment.trim()) { alert('Please add a reason for rejecting'); return; }
+    if (action === 'reject' && !comment.trim()) { notify('Please add a reason for rejecting', 'bad'); return; }
     setBusy(true);
-    try { await api.decide(id, action, comment || undefined); setComment(''); await refresh(); } catch (e) { alert(err(e)); } finally { setBusy(false); }
+    try { await api.decide(id, action, comment || undefined); setComment(''); await refresh(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
   const [newLink, setNewLink] = useState('');
   // Deletes the recording's files for good; the application, answers' timings and history stay
   const deleteVideo = async () => {
     if (!a?.interview) return;
-    if (prompt('Delete this interview video permanently? It cannot be recovered.\n\nType DELETE to confirm.') !== 'DELETE') return;
+    if ((await ask({ title: 'Delete this interview video?', text: 'It is deleted for good and cannot be recovered. The application and its history stay. Type DELETE to confirm.', input: { placeholder: 'DELETE', match: 'DELETE' }, confirm: 'Delete video', danger: true })) === null) return;
     setBusy(true);
-    try { const r = await api.deleteRecording(a.interview.id); alert(`Video deleted${r.data.freed_bytes ? `, ${(r.data.freed_bytes / 1048576).toFixed(1)} MB freed` : ''}.`); setMedia(null); await refresh(); }
-    catch (e) { alert(err(e)); } finally { setBusy(false); }
+    try { const r = await api.deleteRecording(a.interview.id); notify(`Video deleted${r.data.freed_bytes ? `, ${(r.data.freed_bytes / 1048576).toFixed(1)} MB freed` : ''}.`, 'good'); setMedia(null); await refresh(); }
+    catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
   const linkAction = async (mode: 'new' | 'extend') => {
     setBusy(true);
-    try { const r = await api.interviewLink(id, mode); setNewLink(r.data.link ?? ''); await refresh(); } catch (e) { alert(err(e)); } finally { setBusy(false); }
+    try { const r = await api.interviewLink(id, mode); setNewLink(r.data.link ?? ''); await refresh(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
   const allowReapply = async () => {
-    const reason = prompt('Why may this candidate reapply for this role now? (recorded)');
+    const reason = await ask({ title: 'Allow reapplying now?', text: 'Why may this candidate apply for this role again before the 3 months are up? This is recorded.', input: { placeholder: 'Reason', required: true, multiline: true }, confirm: 'Allow' });
     if (!reason?.trim()) return;
     setBusy(true);
-    try { await api.allowReapply(id, reason.trim()); await refresh(); } catch (e) { alert(err(e)); } finally { setBusy(false); }
+    try { await api.allowReapply(id, reason.trim()); await refresh(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
-  const resume = async (download = false) => { try { const r = await api.resumeLink(id); window.open(r.data.url + (download ? '&download=1' : ''), '_blank', 'noopener'); } catch (e) { alert(err(e)); } };
-  const saveEval = async () => { try { await api.evaluate(id, ev); setEv({ overall: '', communication: '', confidence: '', observations: '', comments: '' }); await load(); } catch (e) { alert(err(e)); } };
+  const resume = async (download = false) => { try { const r = await api.resumeLink(id); window.open(r.data.url + (download ? '&download=1' : ''), '_blank', 'noopener'); } catch (e) { notify(err(e), 'bad'); } };
+  const saveEval = async () => { try { await api.evaluate(id, ev); setEv({ overall: '', communication: '', confidence: '', observations: '', comments: '' }); await load(); } catch (e) { notify(err(e), 'bad'); } };
   const current = useMemo(() => a?.schedules?.find((s: any) => s.status === 'scheduled'), [a]);
   if (!a) return <Drawer title="Application" onClose={onClose}><div className="drawer-body rec-muted">Loading…</div></Drawer>;
   const iv = a.interview;
-  const flagged = iv ? iv.events.filter((e: any) => NOTABLE.includes(e.type)).length : 0;
   const nextLabel = a.status === 'final_completed' ? 'Select candidate' : user?.role === 'admin' ? (['applied', 'under_review', 'interview_review'].includes(a.status) ? 'Approve (admin decision)' : 'Approve') : 'Approve (recommend)';
   return (
     <Drawer title={a.name} label={`${a.ref} · ${a.job?.title ?? ''}`} onClose={onClose}>
       <div className="drawer-body" style={{ overflowY: 'auto' }}>
+        {a.identity?.related?.length > 0 && (
+          <div className={a.identity.conflict ? 'iv-warn' : 'rec-muted'} style={{ marginBottom: 12 }}>
+            {a.identity.conflict ? <b>Possible identity conflict: check before deciding. Nothing is merged automatically. </b> : <b>Other applications from this person: </b>}
+            {a.identity.related.map((r: any) => `${r.ref} (${r.job ?? 'job'}, ${r.status_label}, same ${r.match})`).join(' · ')}
+          </div>
+        )}
         <p><span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span></p>
 
         <div className="rec-section"><h3>Candidate</h3>
@@ -398,9 +508,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {media && !iv.recording_deleted_at && (media.final
               ? <FinalVideo url={media.final} refresh={() => loadMedia(iv.id)} />
               : media.parts.length > 0 && iv.processing_status !== 'processing' && <><p className="rec-muted">Not a verified recording: the uploaded parts as received.</p><Recording parts={media.parts} /></>)}
-            <h3 style={{ marginTop: 8 }}>Activity {flagged > 0 && <span className="rec-pill rec-pill--warn">{flagged} to review</span>}</h3>
-            <p className="rec-muted">Browser indicators only: they cannot prove or rule out cheating. Review them with the recording; they never reject anyone automatically.</p>
-            <ul className="rec-timeline">{iv.events.map((e: any, i: number) => <li key={i} style={NOTABLE.includes(e.type) ? { borderColor: '#f59e0b' } : undefined}>{EVENT_LABEL[e.type] ?? e.type}{e.position !== null && e.position !== undefined ? ` · Q${e.position + 1}` : ''}{e.detail ? ` · ${e.detail}` : ''}<div className="rec-sub">{dt(e.at)}</div></li>)}</ul>
+            {(iv.incidents?.length > 0 || iv.status === 'paused' || iv.integrity_status) && <IntegrityReview iv={iv} admin={user?.role === 'admin'} done={refresh} />}
+            {iv.monitoring && <Monitoring m={iv.monitoring} who={`${a.ref} ${a.name}`} verification={iv.processing_status} />}
           </div>
         )}
 
@@ -437,8 +546,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               {a.status === 'prelim_approved' && <button className="btn-primary" onClick={() => setSched({ type: 'walkin' })}>Schedule final interview</button>}
               {current && <>
                 <button className="btn-secondary" onClick={() => setSched({ ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id })}>Reschedule</button>
-                <button className="rec-btn-danger" onClick={async () => { const reason = prompt('Reason for cancelling?'); if (!reason) return; try { await api.cancelSchedule(id, current.id, reason); await refresh(); } catch (e) { alert(err(e)); } }}>Cancel</button>
-                <button className="btn-secondary" onClick={async () => { try { await api.finalCompleted(id); await refresh(); } catch (e) { alert(err(e)); } }}>Mark interview completed</button>
+                <button className="rec-btn-danger" onClick={async () => { const reason = await ask({ title: 'Cancel the final interview?', text: 'The candidate is told it is cancelled.', input: { placeholder: 'Reason for cancelling', required: true }, confirm: 'Cancel interview', danger: true }); if (!reason) return; try { await api.cancelSchedule(id, current.id, reason); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Cancel</button>
+                <button className="btn-secondary" onClick={async () => { try { await api.finalCompleted(id); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Mark interview completed</button>
               </>}
             </div>
           </div>
@@ -455,7 +564,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
 
         {user?.role === 'admin' && (
           <div className="rec-section"><h3>Data</h3>
-            <div><button className="rec-btn-danger" onClick={async () => { if (!confirm(`Permanently delete all data for ${a.name}, including the resume and recording?`)) return; try { await api.deleteCandidate(id); onChanged(); onClose(); } catch (e) { alert(err(e)); } }}>Delete candidate data</button></div>
+            <div><button className="rec-btn-danger" onClick={async () => { if ((await ask({ title: `Delete all data for ${a.name}?`, text: 'Their application, history, scores, interview, resume and recording are deleted for good.', confirm: 'Delete', danger: true })) === null) return; try { await api.deleteCandidate(id); onChanged(); onClose(); } catch (e) { notify(err(e), 'bad'); } }}>Delete candidate data</button></div>
           </div>
         )}
       </div>
@@ -507,16 +616,49 @@ function Questions({ departments }: { departments: any[] }) {
   const [qs, setQs] = useState<any[]>([]);
   const [edit, setEdit] = useState<any>(null); const [preview, setPreview] = useState<any>(null);
   const [role, setRole] = useState<string>('all');
-  const load = () => { api.questions().then((r) => setQs(r.data)).catch(() => {}); };
+  const [order, setOrder] = useState<number[] | null>(null);   // a changed order not saved yet (ids, this tab)
+  const [shuffle, setShuffle] = useState<{ general: boolean; roles: Record<string, boolean> }>({ general: false, roles: {} });
+  const load = () => { api.questions().then((r) => { setQs(r.data); setOrder(null); }).catch(() => {}); api.questionShuffle().then((r) => setShuffle(r.data)).catch(() => {}); };
   useEffect(() => { load(); }, []);
+  useEffect(() => setOrder(null), [role]);
   const roleId = role === 'all' ? null : Number(role);
   const inTab = (q: any) => (roleId == null ? q.department_id == null : Number(q.department_id) === roleId);
-  const shown = qs.filter(inTab);
+  const inOrder = qs.filter(inTab);
+  const shown = order ? order.map((id) => inOrder.find((q) => q.id === id)).filter(Boolean) as any[] : inOrder;
+  // Moving a question: rows slide to their new place and the moved one flashes, so it's clear what changed
+  const rowEls = useRef(new Map<number, HTMLTableRowElement>());
+  const before = useRef(new Map<number, number>()); const movedId = useRef<number | null>(null);
+  const [dragId, setDragId] = useState<number | null>(null);
+  const was = useMemo(() => new Map(inOrder.map((q: any, i: number) => [q.id, i])), [inOrder]);
+  const place = (id: number, to: number) => {
+    const ids = shown.map((q) => q.id).filter((x) => x !== id);
+    if (to < 0 || to > ids.length) return;
+    ids.splice(to, 0, id);
+    if (ids.join() === shown.map((q) => q.id).join()) return;
+    before.current = new Map([...rowEls.current].map(([k, el]) => [k, el.getBoundingClientRect().top]));
+    movedId.current = id;
+    setOrder(ids.join() === inOrder.map((q: any) => q.id).join() ? null : ids);   // back to the saved order: nothing to save
+  };
+  const move = (i: number, d: number) => place(shown[i].id, i + d);
+  const orderKey = shown.map((q) => q.id).join();
+  useLayoutEffect(() => {
+    if (!before.current.size) return;
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    for (const [id, el] of rowEls.current) {
+      const dy = (before.current.get(id) ?? 0) - el.getBoundingClientRect().top;
+      if (dy && !still) el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      if (id === movedId.current) el.animate([{ backgroundColor: 'rgba(99,102,241,.18)' }, { backgroundColor: 'transparent' }], { duration: still ? 600 : 1200, easing: 'ease-out' });
+    }
+    before.current = new Map();
+  }, [orderKey]);
+  const saveOrder = async () => { try { await api.saveQuestionOrder(order!); notify('Order saved', 'good'); load(); } catch (e) { notify(err(e), 'bad'); } };
+  const shuffleOn = roleId == null ? shuffle.general : !!shuffle.roles[String(roleId)];
+  const toggleShuffle = async () => { try { await api.setQuestionShuffle(roleId, !shuffleOn); notify(!shuffleOn ? 'Questions will be shuffled for each candidate' : 'Questions will be asked in this order', 'good'); load(); } catch (e) { notify(err(e), 'bad'); } };
   const general = qs.filter((q) => q.department_id == null && q.active).length;
   const count = (id: number | null) => qs.filter((q) => (id == null ? q.department_id == null : Number(q.department_id) === id) && q.active).length;
-  const save = async () => { try { if (edit.id) await api.updateQuestion(edit.id, edit); else await api.addQuestion(edit); setEdit(null); load(); } catch (e) { alert(err(e)); } };
-  const toggle = async (q: any) => { try { await api.updateQuestion(q.id, { active: !q.active }); load(); } catch (e) { alert(err(e)); } };
-  const remove = async (q: any) => { if (!confirm('Delete this question?')) return; try { await api.deleteQuestion(q.id); load(); } catch (e) { alert(err(e)); } };
+  const save = async () => { try { if (edit.id) await api.updateQuestion(edit.id, edit); else await api.addQuestion(edit); notify(edit.id ? 'Question saved' : 'Question added', 'good'); setEdit(null); load(); } catch (e) { notify(err(e), 'bad'); } };
+  const toggle = async (q: any) => { try { await api.updateQuestion(q.id, { active: !q.active }); load(); } catch (e) { notify(err(e), 'bad'); } };
+  const remove = async (q: any) => { if ((await ask({ title: 'Delete this question?', text: q.text, confirm: 'Delete', danger: true })) === null) return; try { await api.deleteQuestion(q.id); load(); } catch (e) { notify(err(e), 'bad'); } };
   const roleName = roleId == null ? 'All roles' : departments.find((d) => d.id === roleId)?.name ?? 'Role';
   return (<>
     <div className="rec-tabs">
@@ -527,14 +669,36 @@ function Questions({ departments }: { departments: any[] }) {
       <span className="rec-muted">{roleId == null
         ? 'Asked in every role\'s video interview, first.'
         : `A ${roleName} interview asks ${general + count(roleId)} question${general + count(roleId) === 1 ? '' : 's'}: the ${general} for all roles, then these ${count(roleId)}.`}</span>
-      <button className="btn-primary" onClick={() => setEdit({ department_id: roleId, text: '', difficulty: '', active: true })}>+ Add question to {roleName}</button>
+      <div className="rec-actions">
+        <label className="rec-switch" title="Each candidate gets these questions in a random order">
+          <input type="checkbox" checked={shuffleOn} onChange={toggleShuffle} /><span /> Shuffle questions
+        </label>
+        <button className="btn-primary" onClick={() => setEdit({ department_id: roleId, text: '', difficulty: '', active: true })}>+ Add question to {roleName}</button>
+      </div>
     </div>
+    {shuffleOn && <p className="rec-muted" style={{ margin: '-6px 0 12px' }}>Shuffle is on: each candidate gets this tab's questions in a random order, so the order below isn't used.</p>}
+    {order && (
+      <div className="rec-order-bar" role="status">
+        <span><b>Order changed, not saved yet.</b> {shown.filter((q, i) => was.get(q.id) !== i).length} question{shown.filter((q, i) => was.get(q.id) !== i).length === 1 ? '' : 's'} moved. Candidates still get the saved order until you save.</span>
+        <div className="rec-actions"><button className="btn-secondary" onClick={() => { before.current = new Map([...rowEls.current].map(([k, el]) => [k, el.getBoundingClientRect().top])); movedId.current = null; setOrder(null); }}>Undo changes</button><button className="btn-primary" onClick={saveOrder}>Save order</button></div>
+      </div>
+    )}
     <div className="rec-card rec-table-wrap">
-      <table className="rec-table">
-        <thead><tr><th style={{ width: 36 }}>#</th><th>Question</th><th>Difficulty</th><th>Status</th><th /></tr></thead>
+      <table className={`rec-table ${shuffleOn ? 'rec-q--shuffled' : ''}`}>
+        <thead><tr><th style={{ width: 150 }}>Order</th><th>Question</th><th>Difficulty</th><th>Status</th><th /></tr></thead>
         <tbody>{shown.length ? shown.map((q, n) => (
-          <tr key={q.id}>
-            <td className="rec-muted">{n + 1}</td>
+          <tr key={q.id} ref={(el) => { if (el) rowEls.current.set(q.id, el); else rowEls.current.delete(q.id); }}
+            className={`${dragId === q.id ? 'rec-q--drag' : ''} ${order && was.get(q.id) !== n ? 'rec-q--changed' : ''}`}
+            draggable={!shuffleOn} onDragStart={(e) => { setDragId(q.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(q.id)); }}
+            onDragOver={(e) => { if (dragId == null) return; e.preventDefault(); if (dragId !== q.id) place(dragId, n); }}
+            onDragEnd={() => setDragId(null)} onDrop={(e) => { e.preventDefault(); setDragId(null); }}>
+            <td style={{ whiteSpace: 'nowrap' }}>
+              <span className="rec-grip" title="Drag to reorder" aria-hidden="true">⋮⋮</span>
+              <button className="rec-arrow" aria-label={`Move question ${n + 1} up`} disabled={n === 0 || shuffleOn} onClick={() => move(n, -1)}>↑</button>
+              <button className="rec-arrow" aria-label={`Move question ${n + 1} down`} disabled={n === shown.length - 1 || shuffleOn} onClick={() => move(n, 1)}>↓</button>
+              <span className="rec-q-num">{n + 1}</span>
+              {order && was.get(q.id) !== n && <span className="rec-q-was">was {(was.get(q.id) ?? 0) + 1}</span>}
+            </td>
             <td style={{ maxWidth: 520 }}>{q.text}{q.used && <div className="rec-sub">Used in interviews</div>}</td>
             <td>{q.difficulty || '—'}</td>
             <td><span className={`rec-pill ${q.active ? 'rec-pill--good' : ''}`}>{q.active ? 'Asked' : 'Off'}</span></td>
@@ -571,7 +735,7 @@ function Questions({ departments }: { departments: any[] }) {
 function Settings() {
   const [s, setS] = useState<any>(null); const [saved, setSaved] = useState(false);
   useEffect(() => { api.settings().then((r) => setS(r.data)).catch(() => {}); }, []);
-  const save = async () => { try { setS((await api.saveSettings(s)).data); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { alert(err(e)); } };
+  const save = async () => { try { setS((await api.saveSettings(s)).data); setSaved(true); setTimeout(() => setSaved(false), 2000); } catch (e) { notify(err(e), 'bad'); } };
   if (!s) return <div className="rec-empty">Loading…</div>;
   const field = (k: string, label: string, hint: string, min: number, max: number) => (
     <div className="rec-field"><label>{label}</label><input className="form-input" type="number" min={min} max={max} value={s[k]} onChange={(e) => setS({ ...s, [k]: e.target.value })} /><span className="rec-muted">{hint}</span></div>
@@ -583,6 +747,10 @@ function Settings() {
         {field('seconds_per_question', 'Seconds per question', '20 to 900', 20, 900)}
         {field('interview_link_days', 'Interview link valid for (days)', 'After admin approval', 1, 60)}
         {field('recording_retention_days', 'Keep recordings for (days)', 'Recordings are deleted after this', 7, 3650)}
+        {field('max_warnings', 'Interview warnings before a pause', 'One more after this pauses the interview for review (1 to 10)', 1, 10)}
+        {field('warning_away_seconds', 'Time away from the page that counts (s)', 'Shorter absences are logged, not warned (3 to 600)', 3, 600)}
+        <div className="rec-field"><label>Fullscreen required</label><select className="form-input" value={String(s.fullscreen_required)} onChange={(e) => setS({ ...s, fullscreen_required: Number(e.target.value) })}><option value="0">No (leaving it is only logged)</option><option value="1">Yes (leaving it gives a warning)</option></select></div>
+        <div className="rec-field"><label>Serious incidents</label><select className="form-input" value={String(s.pause_on_serious)} onChange={(e) => setS({ ...s, pause_on_serious: Number(e.target.value) })}><option value="1">Pause the interview at once for review</option><option value="0">Warn only, flag for review</option></select><span className="rec-muted">E.g. the interview open on two devices at the same time</span></div>
       </div>
       <div className="rec-actions" style={{ marginTop: 14 }}><button className="btn-primary" onClick={save}>Save settings</button>{saved && <span className="rec-muted">Saved</span>}</div>
     </div>

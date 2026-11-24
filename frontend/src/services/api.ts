@@ -394,7 +394,13 @@ export const recruitmentApi = {
   finalCompleted: (id: number) => api.post(`/recruitment/applications/${id}/final-completed`, {}),
   deleteCandidate: (id: number) => api.delete(`/recruitment/applications/${id}`),
   deleteCandidates: (ids: number[]) => api.post('/recruitment/applications/bulk-delete', { ids }),
+  saveQuestionOrder: (ids: number[]) => api.put('/recruitment/questions/order', { ids }),
+  questionShuffle: () => api.get('/recruitment/questions/shuffle'),
+  setQuestionShuffle: (roleId: number | null, on: boolean) => api.put('/recruitment/questions/shuffle', { role_id: roleId, on }),
   deleteRecording: (interviewId: number) => api.post(`/recruitment/interviews/${interviewId}/delete-recording`),
+  integrityReview: (interviewId: number, data: { outcome: string; reason: string; evidence?: string; reject?: boolean }) => api.post(`/recruitment/interviews/${interviewId}/integrity`, data),
+  resumeInterview: (interviewId: number, reason: string) => api.post(`/recruitment/interviews/${interviewId}/resume`, { reason }),
+  terminateInterview: (interviewId: number, reason: string) => api.post(`/recruitment/interviews/${interviewId}/terminate`, { reason }),
   staff: () => api.get('/recruitment/staff'),
   questions: () => api.get('/recruitment/questions'),
   questionCategories: () => api.get('/recruitment/question-categories'),
@@ -407,6 +413,12 @@ export const recruitmentApi = {
 
 // Public careers pages: no Loop login, so a plain client (no token, no redirect to the login page)
 const pub = axios.create({ baseURL: '/api/public/careers' });
+// One id per browser tab (kept across reloads): the server lets only the latest page that opened an interview write to it
+export const interviewSession = (() => {
+  try { let v = sessionStorage.getItem('iv-session'); if (!v) { v = crypto.randomUUID().replace(/-/g, ''); sessionStorage.setItem('iv-session', v); } return v; }
+  catch { return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`; }
+})();
+pub.interceptors.request.use((c) => { c.headers.set('x-interview-session', interviewSession); return c; });
 export const careersApi = {
   jobs: () => pub.get('/jobs'),
   job: (id: string) => pub.get(`/jobs/${id}`),
@@ -422,4 +434,5 @@ export const careersApi = {
   chunk: (token: string, form: FormData) => pub.post(`/interview/${token}/chunk`, form),
   audio: (token: string, form: FormData) => pub.post(`/interview/${token}/audio`, form),
   submit: (token: string) => pub.post(`/interview/${token}/submit`),
+  heartbeat: (token: string) => pub.post(`/interview/${token}/heartbeat`),
 };

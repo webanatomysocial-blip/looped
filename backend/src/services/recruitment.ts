@@ -132,6 +132,35 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
   // Careers roles: recruitment's own list, with no link to Loop's employee departments
   await make('rec_roles', (t) => { t.increments('id').primary(); t.string('name', 100).notNullable(); t.timestamp('created_at').defaultTo(db.fn.now()); });
   if (!(await db.schema.hasColumn('rec_jobs', 'role_id'))) await db.schema.alterTable('rec_jobs', (t) => t.integer('role_id').nullable());
+  // The order questions are asked in (set in the Question Bank), and per role whether they are shuffled per candidate
+  // Monitoring: when the server received each event and whether the page or the server recorded it; the interview's
+  // owning page (one tab or device at a time) and its last heartbeat
+  for (const [col, add] of [
+    ['received_at', (t: Knex.AlterTableBuilder) => t.timestamp('received_at').nullable()],
+    ['source', (t: Knex.AlterTableBuilder) => t.string('source', 10).nullable()],
+  ] as const) if (!(await db.schema.hasColumn('rec_events', col))) await db.schema.alterTable('rec_events', add);
+  for (const [col, add] of [
+    ['session_id', (t: Knex.AlterTableBuilder) => t.string('session_id', 40).nullable()],
+    ['last_seen_at', (t: Knex.AlterTableBuilder) => t.timestamp('last_seen_at').nullable()],
+  ] as const) if (!(await db.schema.hasColumn('rec_interviews', col))) await db.schema.alterTable('rec_interviews', add);
+  // Interview integrity: warnings, an automatic or manual pause, and the review outcome. One incident per real
+  // violation (dedupe stops a resent event from counting twice).
+  for (const [col, add] of [
+    ['warnings', (t: Knex.AlterTableBuilder) => t.integer('warnings').notNullable().defaultTo(0)],
+    ['integrity_status', (t: Knex.AlterTableBuilder) => t.string('integrity_status', 30).nullable()],   // monitoring | integrity_review_required | cleared | technical | suspicious | insufficient | confirmed
+    ['paused_at', (t: Knex.AlterTableBuilder) => t.timestamp('paused_at').nullable()],
+    ['paused_by', (t: Knex.AlterTableBuilder) => t.string('paused_by', 20).nullable()],                 // auto | admin
+  ] as const) if (!(await db.schema.hasColumn('rec_interviews', col))) await db.schema.alterTable('rec_interviews', add);
+  await make('rec_incidents', (t) => {
+    t.increments('id').primary();
+    t.integer('interview_id').unsigned().notNullable().references('id').inTable('rec_interviews').onDelete('CASCADE');
+    t.string('kind', 30).notNullable(); t.boolean('serious').notNullable().defaultTo(false);
+    t.string('dedupe', 80).notNullable(); t.string('detail', 300); t.integer('position').nullable();
+    t.timestamp('at').notNullable(); t.string('status', 20).notNullable().defaultTo('open');   // open | suspicious | confirmed | dismissed | technical | insufficient
+    t.unique(['interview_id', 'dedupe']);
+  });
+  if (!(await db.schema.hasColumn('rec_questions', 'sort_order'))) await db.schema.alterTable('rec_questions', (t) => t.integer('sort_order').nullable());
+  if (!(await db.schema.hasColumn('rec_roles', 'shuffle'))) await db.schema.alterTable('rec_roles', (t) => t.boolean('shuffle').notNullable().defaultTo(false));
   // A question's role (rec_roles.id; the column keeps its first name); none = asked in every role's interview
   if (!(await db.schema.hasColumn('rec_questions', 'department_id'))) await db.schema.alterTable('rec_questions', (t) => t.integer('department_id').nullable());
   await separateRoles(db);
@@ -190,7 +219,10 @@ const STARTER_QUESTIONS: [string, string][] = [
 ];
 
 // ── Settings ──
-export const DEFAULT_SETTINGS = { question_count: 5, seconds_per_question: 120, interview_link_days: 7, recording_retention_days: 180, consent_version: 'v1' };
+export const DEFAULT_SETTINGS = { question_count: 5, seconds_per_question: 120, interview_link_days: 7, recording_retention_days: 180, consent_version: 'v1',
+  // Interview rules: warnings before the interview pauses; how long away from the tab counts; fullscreen required (0/1);
+  // pause at once on a serious incident (0/1)
+  max_warnings: 3, warning_away_seconds: 10, fullscreen_required: 0, pause_on_serious: 1 };
 export type Settings = typeof DEFAULT_SETTINGS;
 export async function getSettings(db: Knex): Promise<Settings> {
   const rows = await db('rec_settings').select('name', 'value');
@@ -199,7 +231,7 @@ export async function getSettings(db: Knex): Promise<Settings> {
   return out;
 }
 export async function saveSettings(db: Knex, patch: Partial<Settings>): Promise<Settings> {
-  const limits: Record<string, [number, number]> = { question_count: [1, 30], seconds_per_question: [20, 900], interview_link_days: [1, 60], recording_retention_days: [7, 3650] };
+  const limits: Record<string, [number, number]> = { question_count: [1, 30], seconds_per_question: [20, 900], interview_link_days: [1, 60], recording_retention_days: [7, 3650], max_warnings: [1, 10], warning_away_seconds: [3, 600], fullscreen_required: [0, 1], pause_on_serious: [0, 1] };
   for (const [k, [lo, hi]] of Object.entries(limits)) {
     if ((patch as any)[k] === undefined) continue;
     const n = Number((patch as any)[k]);
@@ -297,7 +329,8 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   const years = Number(body.experience_years ?? 0);
   if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your total experience in years');
   return withApplyLock(`${email}|${phoneKey(phone)}`, async () => {
-  if (await db('rec_applications').where({ job_id: job.id, email }).whereNotIn('status', CLOSED).first('id')) throw new ServiceError(409, 'You have already applied for this job with this email. Use your tracking link to check its status.');
+  // By email only: a shared phone is not proof of the same person (it is shown to reviewers as a possible conflict)
+  if (await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).whereRaw('LOWER(email) = ?', [email]).whereNotIn('status', CLOSED).first('id')) throw new ServiceError(409, 'You already have an open application for this role. Use your tracking link to check its status.');
   // The video interview starts right after applying: the role must have questions
   if (!(await roleQuestions(db, job.role_id)).length) throw new ServiceError(503, 'Applications for this role open shortly. Please try again later.');
   const until = await reapplyBlockedUntil(db, job, email, phone);
@@ -323,8 +356,8 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
 }
 
 // ── Reapplying after a rejection: not for the same role for three calendar months ──
-// The same person: same email (any case) or same phone number (digits only, last 10). The same role: the same job
-// opening, or any opening with the same title (a role is often reposted as a new opening).
+// The same person: same email (any case) or same phone number (digits only, last 10). The same role: every opening
+// with the same careers role, or (for openings without one) the same title, so a reposted or renamed opening counts.
 export const phoneKey = (p: string) => String(p ?? '').replace(/\D/g, '').slice(-10);
 /** Calendar months, not days: 30 Nov + 3 months is 28 (or 29) Feb, at the same time of day. */
 export function addCalendarMonths(d: Date, months: number): Date {
@@ -335,10 +368,14 @@ export function addCalendarMonths(d: Date, months: number): Date {
   out.setUTCDate(Math.min(day, last));
   return out;
 }
-export async function reapplyBlockedUntil(db: Knex, job: { id: number; title: string }, email: string, phone: string, now = new Date()): Promise<Date | null> {
-  const sameRole = (await db('rec_jobs').whereRaw('LOWER(TRIM(title)) = ?', [String(job.title).trim().toLowerCase()]).pluck('id')).map(Number);
-  if (!sameRole.includes(Number(job.id))) sameRole.push(Number(job.id));
-  const rejected = await db('rec_applications').whereIn('job_id', sameRole).where({ status: 'rejected' }).whereNull('reapply_override_at').select('id', 'email', 'phone');
+export async function sameRoleJobIds(db: Knex, job: { id: number; title: string; role_id?: number | null }): Promise<number[]> {
+  const q = db('rec_jobs').whereRaw('LOWER(TRIM(title)) = ?', [String(job.title).trim().toLowerCase()]);
+  if (job.role_id) q.orWhere('role_id', job.role_id);
+  return [...new Set([Number(job.id), ...(await q.pluck('id')).map(Number)])];
+}
+export async function reapplyBlockedUntil(db: Knex, job: { id: number; title: string; role_id?: number | null }, email: string, phone: string, now = new Date()): Promise<Date | null> {
+  email = String(email).trim().toLowerCase();
+  const rejected = await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).where({ status: 'rejected' }).whereNull('reapply_override_at').select('id', 'email', 'phone');
   const pk = phoneKey(phone);
   let latest: Date | null = null;
   for (const r of rejected) {
@@ -418,7 +455,15 @@ export async function candidateView(db: Knex, a: any) {
 
 export async function withdraw(db: Knex, a: any) {
   if (CLOSED.includes(a.status)) throw new ServiceError(409, 'This application is already closed');
-  await db('rec_applications').where({ id: a.id }).update({ status: 'withdrawn', interview_hash: null, updated_at: new Date() });
+  // Guarded by the status read above: a rejection or decision made at the same moment is never overwritten
+  const n = await db('rec_applications').where({ id: a.id, status: a.status }).update({ status: 'withdrawn', interview_hash: null, updated_at: new Date() });
+  if (!n) throw new ServiceError(409, 'This application was just updated. Please refresh the page.');
+  // An interview under way stops: no more questions or uploads (the link above no longer works either)
+  const live = await db('rec_interviews').where({ application_id: a.id }).whereIn('status', ['in_progress', 'paused']).first('id');
+  if (live) {
+    await db('rec_interviews').where({ id: live.id }).whereIn('status', ['in_progress', 'paused']).update({ status: 'withdrawn' });
+    await serverEvent(db, live.id, 'interview_withdrawn', 'the candidate withdrew during the interview');
+  }
   await log(db, { application_id: a.id, action: 'withdrawn', from: a.status, to: 'withdrawn', actor: null });
 }
 
@@ -525,7 +570,8 @@ export async function interviewState(db: Knex, a: any) {
   }
   return {
     name: a.name, job: job?.title ?? '',
-    state: a.status === 'withdrawn' ? 'closed' : iv?.status === 'submitted' ? 'submitted' : iv ? 'in_progress' : linkOpen(a) ? 'not_started' : 'closed',
+    state: a.status === 'withdrawn' || iv?.status === 'terminated' || iv?.status === 'withdrawn' ? 'closed' : iv?.status === 'paused' ? 'paused' : iv?.status === 'submitted' ? 'submitted' : iv ? 'in_progress' : linkOpen(a) ? 'not_started' : 'closed',
+    paused_message: iv?.status === 'paused' ? PAUSED_MESSAGE : null, warnings: { count: Number(iv?.warnings ?? 0), max: s.max_warnings },
     question_count: total, seconds_per_question: iv?.seconds_per_question ?? s.seconds_per_question,
     estimated_minutes: Math.ceil((total * (iv?.seconds_per_question ?? s.seconds_per_question)) / 60) + 2,
     consent_text: CONSENT_TEXT, consent_version: s.consent_version, expires_at: a.interview_expires_at,
@@ -539,8 +585,14 @@ export async function interviewState(db: Knex, a: any) {
 export async function roleQuestions(db: Knex, departmentId: number | null | undefined) {
   return db('rec_questions').where({ active: true })
     .where((q) => { q.whereNull('department_id'); if (departmentId) q.orWhere('department_id', departmentId); })
-    .orderByRaw('CASE WHEN department_id IS NULL THEN 0 ELSE 1 END').orderBy('id').select('id', 'category', 'text');
+    .orderByRaw('CASE WHEN department_id IS NULL THEN 0 ELSE 1 END').orderByRaw('COALESCE(sort_order, 1000000 + id)').select('id', 'category', 'text', 'department_id');
 }
+/** Whether a role's questions (or, for null, the "All roles" ones) are shuffled for each candidate. */
+export async function shuffleOn(db: Knex, roleId: number | null): Promise<boolean> {
+  if (roleId == null) return (await db('rec_settings').where({ name: 'shuffle_general' }).first('value'))?.value === '1';
+  return !!(await db('rec_roles').where({ id: roleId }).first('shuffle'))?.shuffle;
+}
+const shuffled = <T,>(xs: T[], rand: () => number) => { const a = [...xs]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 // Picks the questions once, at the start, and stores them: a refresh or a second visit resumes the same interview
 export async function startInterview(db: Knex, a: any, consent: { accepted: boolean; version: string }, rand: () => number = Math.random) {
@@ -551,9 +603,14 @@ export async function startInterview(db: Knex, a: any, consent: { accepted: bool
   if (!consent.accepted || consent.version !== s.consent_version) throw new ServiceError(400, 'Please read and accept the recording consent to start');
   // Every active question for this role: the ones for all roles first, then the role's own, in the order they were added
   const job = await db('rec_jobs').where({ id: a.job_id }).first('role_id');
-  const picked = await roleQuestions(db, job?.role_id ?? null);
-  if (!picked.length) throw new ServiceError(503, 'The interview is not ready yet. Please try again later.');
-  void rand;
+  const all = await roleQuestions(db, job?.role_id ?? null);
+  if (!all.length) throw new ServiceError(503, 'The interview is not ready yet. Please try again later.');
+  // All-roles questions first, then the role's; each group in the saved order, or shuffled if that group's toggle is on
+  const general = all.filter((q: any) => q.department_id == null); const own = all.filter((q: any) => q.department_id != null);
+  const picked = [
+    ...((await shuffleOn(db, null)) ? shuffled(general, rand) : general),
+    ...(job?.role_id && (await shuffleOn(db, Number(job.role_id))) ? shuffled(own, rand) : own),
+  ];
   const now = new Date();
   try {
     const [id] = await db('rec_interviews').insert({ application_id: a.id, status: 'in_progress', consent_at: now, consent_version: s.consent_version, seconds_per_question: s.seconds_per_question, current_position: 0, started_at: now, segments: '[]' });
@@ -568,10 +625,13 @@ export async function startInterview(db: Knex, a: any, consent: { accepted: bool
   }
 }
 
-const inProgress = async (db: Knex, a: any) => {
+export const PAUSED_MESSAGE = 'Your interview has been paused because repeated interview-rule violations were detected. Your application is under review. The recruitment team will contact you regarding the next step.';
+const inProgress = async (db: Knex, a: any, allowPaused = false) => {
   const iv = await db('rec_interviews').where({ application_id: a.id }).first();
   if (!iv) throw new ServiceError(409, 'The interview has not started');
-  if (iv.status !== 'in_progress') throw new ServiceError(409, 'This interview has already been submitted');
+  if (iv.status === 'paused' && !allowPaused) throw new ServiceError(423, PAUSED_MESSAGE);
+  if (iv.status === 'terminated') throw new ServiceError(409, 'This interview has been closed by the recruitment team.');
+  if (iv.status !== 'in_progress' && !(allowPaused && iv.status === 'paused')) throw new ServiceError(409, 'This interview has already been submitted');
   return iv;
 };
 
@@ -584,16 +644,18 @@ export async function nextQuestion(db: Knex, a: any, position: number) {
 }
 
 export const EVENT_TYPES = ['tab_hidden', 'tab_visible', 'window_blur', 'window_focus', 'fullscreen_exit', 'fullscreen_enter', 'camera_lost', 'microphone_lost',
-  'recording_interrupted', 'recording_resumed', 'permission_changed', 'copy_attempt', 'paste_attempt', 'navigation_attempt', 'network_offline', 'network_online', 'page_reload', 'device_info', 'session_resumed'];
+  'recording_interrupted', 'recording_resumed', 'permission_changed', 'copy_attempt', 'paste_attempt', 'navigation_attempt', 'network_offline', 'network_online', 'page_reload', 'device_info', 'session_resumed',
+  'page_exit', 'multiple_tabs', 'recording_started', 'recording_stopped'];
 export async function recordEvents(db: Knex, a: any, events: any[]) {
   const iv = await inProgress(db, a);
   const rows = (Array.isArray(events) ? events : []).slice(0, 50).filter((e) => EVENT_TYPES.includes(e?.type)).map((e) => ({
     interview_id: iv.id, type: e.type, detail: e.detail ? clip(e.detail, 300) : null,
     position: Number.isInteger(e.position) ? e.position : iv.current_position,
     at: Number.isFinite(Date.parse(e.at)) && Math.abs(Date.parse(e.at) - Date.now()) < 3_600_000 ? new Date(e.at) : new Date(),
+    received_at: new Date(), source: 'client',
   }));
   if (rows.length) await db('rec_events').insert(rows);
-  return rows.length;
+  return { saved: rows.length, warning: await checkIntegrity(db, iv, rows) };
 }
 
 // Recording: the browser sends short chunks in order. Each restart of the recorder (a reload, a lost camera, a new
@@ -607,14 +669,14 @@ const isEndMarker = (last: boolean, data: Buffer) => last && data.length === 1 &
 
 // Saves the manifest only if nobody changed it meanwhile; two uploads at once can't both write their version
 async function saveManifest(db: Knex, iv: any, segments: any[], addBytes: number): Promise<boolean> {
-  const n = await db('rec_interviews').where({ id: iv.id, segments: iv.segments ?? '[]', status: 'in_progress' })
+  const n = await db('rec_interviews').where({ id: iv.id, segments: iv.segments ?? '[]' }).whereIn('status', ['in_progress', 'paused'])
     .update({ segments: JSON.stringify(segments), recording_bytes: Number(iv.recording_bytes) + addBytes });
   return n === 1;
 }
 
 export async function saveChunk(db: Knex, a: any, seg: number, seq: number, last: boolean, data: Buffer, mime: string, ms?: number) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const iv = await inProgress(db, a);
+    const iv = await inProgress(db, a, true);   // a pause keeps what was already recorded
     const segments: any[] = JSON.parse(iv.segments || '[]');
     if (!Number.isInteger(seg) || seg < 0 || seg > segments.length || seg > 200) throw new ServiceError(400, 'Invalid recording segment');
     if (!Number.isInteger(seq) || seq < 0 || seq > 100_000) throw new ServiceError(400, 'Invalid recording chunk');
@@ -643,7 +705,7 @@ export async function saveChunk(db: Knex, a: any, seg: number, seq: number, last
 // about half a second). Sent whole when the part ends; offsetMs is when it started relative to the part's video.
 export async function saveAudio(db: Knex, a: any, seg: number, data: Buffer, offsetMs?: number) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const iv = await inProgress(db, a);
+    const iv = await inProgress(db, a, true);   // a pause keeps what was already recorded
     const segments: any[] = JSON.parse(iv.segments || '[]');
     if (!Number.isInteger(seg) || seg < 0 || seg > segments.length || seg > 200) throw new ServiceError(400, 'Invalid recording segment');
     if (seg === segments.length) segments.push({ n: seg, chunks: 0, bytes: 0, done: false, mime: null, parts: [] });
@@ -905,6 +967,253 @@ export async function deleteRecording(db: Knex, actor: Actor, interviewId: numbe
   await log(db, { application_id: iv.application_id, action: 'recording_deleted', actor, comment: `${Math.round(freed / 1024)} KB` });
   fs.rmSync(dir, { recursive: true, force: true });
   return { freed_bytes: freed };
+}
+
+/** How often each applicant left the interview tab, and for how long in total (from the "away N s" the page records). */
+export async function tabSwitches(db: Knex, appIds: number[]): Promise<Map<number, { tab_switches: number; away_seconds: number }>> {
+  const out = new Map<number, { tab_switches: number; away_seconds: number }>();
+  if (!appIds.length) return out;
+  const rows = await db('rec_events as e').join('rec_interviews as i', 'i.id', 'e.interview_id').whereIn('i.application_id', appIds)
+    .whereIn('e.type', ['tab_hidden', 'tab_visible']).select('i.application_id', 'e.type', 'e.detail');
+  for (const r of rows) {
+    const o = out.get(Number(r.application_id)) ?? { tab_switches: 0, away_seconds: 0 };
+    if (r.type === 'tab_hidden') o.tab_switches++;
+    else o.away_seconds += Number(/away (\d+) s/.exec(String(r.detail ?? ''))?.[1] ?? 0);
+    out.set(Number(r.application_id), o);
+  }
+  return out;
+}
+
+// ── Interview monitoring ──
+// Events the server itself records (never accepted from the page): who owns the interview, missed heartbeats, ends.
+async function serverEvent(db: Knex, ivId: number, type: string, detail: string | null, position: number | null = null) {
+  const now = new Date();
+  await db('rec_events').insert({ interview_id: ivId, type, detail: detail ? clip(detail, 300) : null, position, at: now, received_at: now, source: 'server' });
+}
+export const audit = log;
+const SESSION = /^[A-Za-z0-9_-]{8,40}$/;
+const LIVE_MS = 45_000;          // a page that sent a heartbeat this recently is connected
+const GAP_MS = 60_000;           // longer without one is recorded as an interruption (browsers slow timers in hidden tabs)
+const ABANDONED_MS = 30 * 60_000;
+
+/** The page opening an interview under way becomes its owner; the previous page is stopped and the switch recorded. */
+export async function claimSession(db: Knex, a: any, sid: unknown) {
+  if (typeof sid !== 'string' || !SESSION.test(sid)) return;
+  const iv = await db('rec_interviews').where({ application_id: a.id, status: 'in_progress' }).first('id', 'session_id', 'last_seen_at', 'current_position');
+  if (!iv || iv.session_id === sid) return;
+  const now = new Date();
+  if (iv.session_id) {
+    const live = iv.last_seen_at && now.getTime() - toDate(iv.last_seen_at).getTime() < LIVE_MS;
+    await serverEvent(db, iv.id, live ? 'session_conflict' : 'session_resumed', live
+      ? 'opened in another tab, browser or device while the previous page was still connected; the previous page was stopped'
+      : 'opened again (reload, reopened browser or another device); the previous page had stopped', iv.current_position);
+    if (live) await checkIntegrity(db, { ...iv, application_id: a.id }, [{ type: 'session_conflict', at: now, detail: 'another tab, browser or device while the first was connected', position: iv.current_position }]);
+  }
+  await db('rec_interviews').where({ id: iv.id }).update({ session_id: sid, last_seen_at: now });
+}
+/** Writes come only from the owning page. Without a session id (an older page) the write is allowed. */
+export async function checkSession(db: Knex, a: any, sid: unknown) {
+  if (typeof sid !== 'string' || !sid) return;   // shortcut: pages without a session id pass; require it once every page sends one
+  const iv = await db('rec_interviews').where({ application_id: a.id }).whereIn('status', ['in_progress', 'paused']).first('session_id');
+  if (iv?.session_id && iv.session_id !== sid) throw new ServiceError(409, 'This interview is now open in another tab or device. Please continue there, or reload this page to continue here.');
+}
+/** The page's regular sign of life; a long silence before it is recorded as an interruption (inferred, not observed). */
+export async function heartbeat(db: Knex, a: any, sid: unknown) {
+  const iv = await inProgress(db, a);
+  await checkSession(db, a, sid);
+  const now = new Date();
+  const gap = iv.last_seen_at ? now.getTime() - toDate(iv.last_seen_at).getTime() : 0;
+  if (gap > GAP_MS) await serverEvent(db, iv.id, 'connection_gap', `no contact from the interview page for ${Math.round(gap / 1000)} s (network, a sleeping device or a closed page; the cause is not known)`, iv.current_position);
+  await db('rec_interviews').where({ id: iv.id }).update({ last_seen_at: now });
+  return { ok: true, gap_seconds: gap > GAP_MS ? Math.round(gap / 1000) : 0 };
+}
+
+const LABEL: Record<string, [string, 'info' | 'notice' | 'warning']> = {
+  interview_started: ['Interview started (consent given)', 'info'], interview_submitted: ['Interview submitted', 'info'], interview_withdrawn: ['Withdrawn during the interview', 'notice'],
+  tab_hidden: ['Left the interview tab', 'notice'], tab_visible: ['Came back to the tab', 'info'],
+  window_blur: ['Window lost focus (another window or app was used)', 'notice'], window_focus: ['Window focused again', 'info'],
+  fullscreen_exit: ['Left fullscreen', 'notice'], fullscreen_enter: ['Entered fullscreen', 'info'],
+  network_offline: ['Internet disconnected', 'warning'], network_online: ['Internet back', 'info'], connection_gap: ['No contact from the page', 'warning'],
+  camera_lost: ['Camera interrupted', 'warning'], microphone_lost: ['Microphone interrupted', 'warning'], permission_changed: ['Camera/microphone permission changed', 'warning'],
+  recording_interrupted: ['Recording interrupted / upload failed', 'warning'], recording_resumed: ['Recording resumed', 'info'], recording_started: ['Recording started', 'info'], recording_stopped: ['Recording stopped', 'info'],
+  session_conflict: ['Opened in another tab or device at the same time', 'warning'], session_resumed: ['Interview reopened', 'notice'], multiple_tabs: ['Interview open in two tabs of this browser', 'warning'],
+  page_reload: ['Page reloaded', 'notice'], page_exit: ['Page closed or navigated away', 'notice'], navigation_attempt: ['Tried to leave the page', 'notice'],
+  interview_paused: ['Interview paused for review', 'warning'], interview_resumed: ['Interview resumed by an admin', 'notice'], interview_terminated: ['Interview closed by an admin', 'warning'],
+  copy_attempt: ['Copy attempted (blocked)', 'notice'], paste_attempt: ['Paste attempted (blocked)', 'notice'], device_info: ['Device', 'info'],
+};
+const ms = (v: any) => (v ? toDate(v).getTime() : 0);
+/** What reviewers see about an interview's activity: one incident per real event (a tab switch also fires a window
+ *  blur: shown once, both kept), with counts, the longest absence and a live status. Evidence for people to review,
+ *  never a verdict. */
+export async function monitoring(db: Knex, iv: any, now = new Date()) {
+  const rows = await db('rec_events').where({ interview_id: iv.id }).orderBy('at').orderBy('id').select('id', 'type', 'detail', 'position', 'at', 'received_at', 'source');
+  const hidden = rows.filter((r: any) => r.type === 'tab_hidden' || r.type === 'tab_visible').map((r: any) => ms(r.at));
+  const near = (t: number) => hidden.some((h: number) => Math.abs(h - t) <= 2000);
+  const counts = { tab_switches: 0, away_seconds: 0, longest_away_seconds: 0, focus_losses: 0, fullscreen_exits: 0, connection: 0, devices: 0, recording: 0, conflicts: 0, reloads: 0 };
+  const timeline: any[] = []; let hiddenAt = 0;
+  for (const r of rows) {
+    const t = ms(r.at);
+    // The blur/focus that comes with a tab switch is the same incident: folded into it, not counted twice
+    if ((r.type === 'window_blur' || r.type === 'window_focus') && near(t)) { timeline[timeline.length - 1]?.grouped.push(r.type); continue; }
+    let duration: number | null = null;
+    if (r.type === 'tab_hidden') { counts.tab_switches++; hiddenAt = t; }
+    if (r.type === 'tab_visible') {
+      duration = Number(/away (\d+) s/.exec(String(r.detail ?? ''))?.[1] ?? (hiddenAt ? Math.round((t - hiddenAt) / 1000) : 0));
+      counts.away_seconds += duration; counts.longest_away_seconds = Math.max(counts.longest_away_seconds, duration); hiddenAt = 0;
+    }
+    if (r.type === 'connection_gap') duration = Number(/for (\d+) s/.exec(String(r.detail ?? ''))?.[1] ?? 0) || null;
+    if (r.type === 'window_blur') counts.focus_losses++;
+    if (r.type === 'fullscreen_exit') counts.fullscreen_exits++;
+    if (r.type === 'network_offline' || r.type === 'connection_gap') counts.connection++;
+    if (r.type === 'camera_lost' || r.type === 'microphone_lost' || r.type === 'permission_changed') counts.devices++;
+    if (r.type === 'recording_interrupted') counts.recording++;
+    if (r.type === 'session_conflict' || r.type === 'multiple_tabs') counts.conflicts++;
+    if (r.type === 'page_reload' || r.type === 'session_resumed') counts.reloads++;
+    const [label, severity] = LABEL[r.type] ?? [r.type, 'info'];
+    timeline.push({ id: r.id, type: r.type, label, severity, detail: r.detail, position: r.position, at: r.at, received_at: r.received_at ?? null,
+      source: r.source ?? (['interview_started', 'interview_submitted', 'session_resumed'].includes(r.type) ? 'server' : 'page'), duration_seconds: duration, grouped: [] as string[] });
+  }
+  const seen = ms(iv.last_seen_at);
+  const live = iv.status !== 'in_progress' ? (iv.status === 'submitted' ? 'Completed' : iv.status === 'withdrawn' ? 'Withdrawn' : iv.status)
+    : seen && now.getTime() - seen < LIVE_MS ? 'Connected now'
+    : seen && now.getTime() - seen > ABANDONED_MS ? `Not connected for ${Math.round((now.getTime() - seen) / 60_000)} min (possibly abandoned)`
+    : seen ? `Not connected since ${toDate(iv.last_seen_at).toISOString()}` : 'No heartbeat received';
+  return { status: iv.status, live, last_seen_at: iv.last_seen_at ?? null, ...counts, timeline };
+}
+
+// ── Interview integrity: warnings, pause, review ──
+// Only rule breaks count, once each: a long absence from the tab, leaving fullscreen when it is required, a second
+// tab, another device at the same time. Network, camera, microphone and other technical problems never count.
+const RULE: Record<string, string> = {
+  tab_away: 'You left the interview page for too long.',
+  fullscreen_exit: 'You left fullscreen mode, which this interview requires.',
+  multiple_tabs: 'The interview was opened in more than one tab.',
+  session_conflict: 'The interview was opened on another device or browser at the same time.',
+};
+const SERIOUS = ['session_conflict'];
+const COUNTED = ['open', 'suspicious', 'confirmed'];   // dismissed, technical and insufficient-evidence incidents never count
+export type Warning = { count: number; max: number; level: 'first' | 'strong' | 'final'; rule: string; message: string } | { paused: true; message: string } | null;
+export function warningFor(count: number, max: number, kind: string): Warning {
+  const rule = RULE[kind] ?? 'An interview rule was not followed.';
+  if (count >= max) return { count, max, level: 'final', rule, message: `Final warning (${count} of ${max}). ${rule} One more violation will pause your interview for review by the recruitment team.` };
+  if (count === max - 1) return { count, max, level: 'strong', rule, message: `Warning ${count} of ${max}. ${rule} If this happens again your interview may be paused for review.` };
+  return { count, max, level: 'first', rule, message: `Warning ${count} of ${max}. ${rule} Please stay on this page in fullscreen until you finish. Repeated warnings can pause your interview.` };
+}
+const ivAppName = async (db: Knex, ivId: number) => db('rec_interviews as i').join('rec_applications as a', 'a.id', 'i.application_id').join('rec_jobs as j', 'j.id', 'a.job_id').where('i.id', ivId).first('a.id', 'a.name', 'a.ref', 'j.title');
+async function countWarnings(db: Knex, ivId: number) {
+  const n = Number((await db('rec_incidents').where({ interview_id: ivId }).whereIn('status', COUNTED).count({ n: '*' }).first() as any).n);
+  await db('rec_interviews').where({ id: ivId }).update({ warnings: n });
+  return n;
+}
+async function pauseInterview(db: Knex, ivId: number, by: 'auto' | 'admin', reason: string, actor: Actor | null = null) {
+  const n = await db('rec_interviews').where({ id: ivId, status: 'in_progress' }).update({ status: 'paused', paused_at: new Date(), paused_by: by, integrity_status: 'integrity_review_required' });
+  if (!n) return false;
+  await serverEvent(db, ivId, 'interview_paused', reason);
+  const x = await ivAppName(db, ivId);
+  await log(db, { application_id: x.id, action: 'interview_paused', actor, comment: reason });
+  await notifyStaff(db, `Interview paused for integrity review: ${x.name} (${x.ref}, ${x.title}). ${reason}`);
+  return true;
+}
+/** Turns new events into incidents (each once), updates the warning count and pauses past the limit. Never rejects. */
+export async function checkIntegrity(db: Knex, iv: any, rows: { type: string; detail?: string | null; at: Date | string; position?: number | null }[]): Promise<Warning> {
+  const s = await getSettings(db);
+  let last: string | null = null; let serious = false;
+  for (const r of rows) {
+    let kind: string | null = null;
+    if (r.type === 'tab_visible' && Number(/away (\d+) s/.exec(String(r.detail ?? ''))?.[1] ?? 0) >= s.warning_away_seconds) kind = 'tab_away';
+    else if (r.type === 'fullscreen_exit' && s.fullscreen_required) kind = 'fullscreen_exit';
+    else if (r.type === 'multiple_tabs' || r.type === 'session_conflict') kind = r.type;
+    if (!kind) continue;
+    try {
+      await db('rec_incidents').insert({ interview_id: iv.id, kind, serious: SERIOUS.includes(kind), dedupe: `${r.type}:${new Date(r.at).getTime()}`, detail: r.detail ? clip(r.detail, 300) : null, position: r.position ?? null, at: new Date(r.at), status: 'open' });
+      last = kind; serious ||= SERIOUS.includes(kind);
+    } catch (e: any) { if (!/unique|duplicate/i.test(String(e?.message))) throw e; }   // the same event delivered again
+  }
+  if (!last) return null;
+  const count = await countWarnings(db, iv.id);
+  const x = await ivAppName(db, iv.id);
+  if (count > s.max_warnings || (serious && s.pause_on_serious)) {
+    await pauseInterview(db, iv.id, 'auto', serious && count <= s.max_warnings ? `Serious incident: ${RULE[last]}` : `${count} warnings, more than the limit of ${s.max_warnings}`);
+    return { paused: true, message: PAUSED_MESSAGE };
+  }
+  if (serious) { await db('rec_interviews').where({ id: iv.id }).update({ integrity_status: 'integrity_review_required' }); await notifyStaff(db, `Serious interview incident for ${x.name} (${x.ref}): ${RULE[last]}`); }
+  else if (count === s.max_warnings) {
+    await db('rec_interviews').where({ id: iv.id }).whereNull('integrity_status').update({ integrity_status: 'monitoring' });
+    await notifyStaff(db, `Final interview warning for ${x.name} (${x.ref}, ${x.title}): closer review recommended`);
+  }
+  return warningFor(count, s.max_warnings, last);
+}
+
+const OUTCOMES: Record<string, [string, string]> = {   // outcome → [incident status, interview integrity status]
+  no_violation: ['dismissed', 'cleared'], technical: ['technical', 'technical'], suspicious: ['suspicious', 'suspicious'],
+  insufficient: ['insufficient', 'insufficient'], confirmed: ['confirmed', 'confirmed'],
+};
+/** A manager records a recommendation; only an admin decides. Confirming can reject through the normal workflow. */
+export async function reviewIntegrity(db: Knex, actor: Actor, ivId: number, body: { outcome?: string; reason?: string; evidence?: string; reject?: boolean }, mail: Mailer = defaultMailer) {
+  const outcome = String(body.outcome ?? ''); const reason = clip(body.reason, 1000); const evidence = clip(body.evidence, 1000);
+  if (!OUTCOMES[outcome]) throw new ServiceError(400, 'Choose an outcome');
+  if (!reason) throw new ServiceError(400, 'Please give a reason');
+  const iv = await db('rec_interviews').where({ id: ivId }).first();
+  if (!iv) throw new ServiceError(404, 'Interview not found');
+  const comment = `${outcome.replace(/_/g, ' ')}: ${reason}${evidence ? ` · Evidence: ${evidence}` : ''}`;
+  if (actor.role !== 'admin') {
+    if (actor.role !== 'manager') throw new ServiceError(403, 'Not allowed');
+    await log(db, { application_id: iv.application_id, action: 'integrity_recommendation', actor, comment });
+    return { recommended: true };
+  }
+  const [incident, status] = OUTCOMES[outcome];
+  await db.transaction(async (trx) => {
+    await trx('rec_incidents').where({ interview_id: ivId }).whereNot('status', 'confirmed').update({ status: incident });
+    const patch: any = { integrity_status: status };
+    // Confirmed: the interview cannot continue or be submitted; its link stops working
+    if (outcome === 'confirmed' && ['in_progress', 'paused'].includes(iv.status)) patch.status = 'terminated';
+    await trx('rec_interviews').where({ id: ivId }).update(patch);
+    if (outcome === 'confirmed') await trx('rec_applications').where({ id: iv.application_id }).update({ interview_hash: null });
+  });
+  await countWarnings(db, ivId);
+  await log(db, { application_id: iv.application_id, action: 'integrity_review', from: iv.integrity_status ?? null, to: status, actor, comment });
+  // Only an admin's rejection, through the usual workflow, starts the three-month rule
+  if (outcome === 'confirmed' && body.reject) await act(db, actor, iv.application_id, 'reject', `Interview integrity violation confirmed: ${reason}`, mail);
+  return { integrity_status: status };
+}
+export async function resumeInterview(db: Knex, actor: Actor, ivId: number, reason: string) {
+  if (actor.role !== 'admin') throw new ServiceError(403, 'Only an admin can resume an interview');
+  if (!clip(reason, 1000)) throw new ServiceError(400, 'Please give a reason');
+  const iv = await db('rec_interviews').where({ id: ivId }).first();
+  if (!iv || iv.status !== 'paused') throw new ServiceError(409, 'This interview is not paused');
+  await db('rec_interviews').where({ id: ivId, status: 'paused' }).update({ status: 'in_progress', paused_at: null, session_id: null });
+  // The current question's time starts again, so the pause does not use up the candidate's time
+  await db('rec_interview_questions').where({ interview_id: ivId, position: iv.current_position }).update({ shown_at: null });
+  await serverEvent(db, ivId, 'interview_resumed', clip(reason, 300));
+  await log(db, { application_id: iv.application_id, action: 'interview_resumed', from: 'paused', to: 'in_progress', actor, comment: reason });
+  return { status: 'in_progress' };
+}
+export async function terminateInterview(db: Knex, actor: Actor, ivId: number, reason: string) {
+  if (actor.role !== 'admin') throw new ServiceError(403, 'Only an admin can close an interview');
+  if (!clip(reason, 1000)) throw new ServiceError(400, 'Please give a reason');
+  const iv = await db('rec_interviews').where({ id: ivId }).first();
+  if (!iv || !['in_progress', 'paused'].includes(iv.status)) throw new ServiceError(409, 'This interview is not under way');
+  await db('rec_interviews').where({ id: ivId }).update({ status: 'terminated' });
+  await db('rec_applications').where({ id: iv.application_id }).update({ interview_hash: null });
+  await serverEvent(db, ivId, 'interview_terminated', clip(reason, 300));
+  await log(db, { application_id: iv.application_id, action: 'interview_terminated', from: iv.status, to: 'terminated', actor, comment: reason });
+  return { status: 'terminated' };
+}
+
+/** Other applications from the same person (by email or phone). Never merged automatically: a phone shared with a
+ *  different email is shown as a possible conflict for an admin to check. */
+export async function identityMatches(db: Knex, a: any) {
+  const email = String(a.email).toLowerCase(); const pk = phoneKey(a.phone);
+  const rows = await db('rec_applications as r').leftJoin('rec_jobs as j', 'j.id', 'r.job_id').whereNot('r.id', a.id)
+    .where((q) => { q.whereRaw('LOWER(r.email) = ?', [email]); if (pk.length >= 7) q.orWhereRaw("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(r.phone, ' ', ''), '-', ''), '(', ''), ')', ''), '+', '') LIKE ?", [`%${pk}`]); })
+    .select('r.id', 'r.ref', 'r.email', 'r.phone', 'r.status', 'r.created_at', 'j.title as job');
+  const out = rows.flatMap((r: any) => {
+    const byEmail = String(r.email).toLowerCase() === email; const byPhone = pk.length >= 7 && phoneKey(r.phone) === pk;
+    if (!byEmail && !byPhone) return [];   // the phone prefilter matched only its last digits
+    return [{ id: r.id, ref: r.ref, job: r.job, status: r.status, status_label: STATUS_LABEL[r.status] ?? r.status, created_at: r.created_at,
+      match: byEmail && byPhone ? 'email and phone' : byEmail ? 'email' : 'phone', conflict: byEmail !== byPhone }];
+  });
+  return { related: out, conflict: out.some((r: any) => r.conflict) };
 }
 
 // ── Storage: what each applicant's files take on disk (resume, recording chunks and the built recording) ──

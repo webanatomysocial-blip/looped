@@ -134,7 +134,9 @@ router.get('/applications', run(async (req) => {
   // How much storage each applicant's files use (shown so test or old applicants can be cleared)
   const files = await getDB()('rec_applications').whereIn('id', rows.map((r: any) => r.id)).select('id', 'resume_file');
   const sizes = await R.storageBytes(getDB(), files);
-  return rows.map((r: any) => ({ ...r, status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0 }));
+  const away = await R.tabSwitches(getDB(), rows.map((r: any) => Number(r.id)));
+  const integrity = new Map((await getDB()('rec_interviews').whereIn('application_id', rows.map((r: any) => r.id)).select('application_id', 'warnings', 'integrity_status', 'status')).map((i: any) => [Number(i.application_id), i]));
+  return rows.map((r: any) => ({ ...r, warnings: Number(integrity.get(Number(r.id))?.warnings ?? 0), integrity_status: integrity.get(Number(r.id))?.integrity_status ?? null, interview_paused: integrity.get(Number(r.id))?.status === 'paused', status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0, ...(away.get(Number(r.id)) ?? { tab_switches: 0, away_seconds: 0 }) }));
 }));
 
 router.get('/applications/:id', run(async (req) => {
@@ -163,11 +165,17 @@ router.get('/applications/:id', run(async (req) => {
       segments: segments.map((s: any) => ({ n: s.n, bytes: s.bytes, done: s.done })),
       questions: await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position').select('position', 'category', 'text', 'shown_at', 'answered_at'),
       events: await db('rec_events').where({ interview_id: iv.id }).orderBy('at').select('type', 'detail', 'position', 'at'),
+      ...((await R.tabSwitches(db, [id])).get(id) ?? { tab_switches: 0, away_seconds: 0 }),
+      monitoring: await R.monitoring(db, iv),
+      warnings: Number(iv.warnings ?? 0), integrity_status: iv.integrity_status ?? null, paused_at: iv.paused_at ?? null, paused_by: iv.paused_by ?? null,
+      incidents: await db('rec_incidents').where({ interview_id: iv.id }).orderBy('at').select('id', 'kind', 'serious', 'detail', 'position', 'at', 'status'),
+      max_warnings: (await R.getSettings(db)).max_warnings,
     };
   }
+  const identity = await R.identityMatches(db, a);
   const { access_hash, interview_hash, resume_file, ...safe } = a;
   return {
-    ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, job, history, evaluations, schedules, interview,
+    ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, job, history, evaluations, schedules, interview, identity,
     // What this person may do now: the same rules the server applies
     can: ['approve', 'reject', 'reopen'].filter((x) => { try { R.decide(a.status, req.user!.role, x as R.Decision, 'applied'); return x !== 'reopen' || a.status === 'rejected'; } catch { return false; } }),
   };
@@ -181,10 +189,16 @@ router.post('/applications/:id/decision', run(async (req) => {
 
 router.post('/applications/:id/interview-link', requireRoles('admin'), run(async (req) => R.renewInterviewLink(getDB(), actor(req), num(req.params.id), req.body?.mode === 'extend' ? 'extend' : 'new')));
 router.post('/applications/:id/allow-reapply', requireRoles('admin'), run(async (req) => R.allowReapply(getDB(), actor(req), num(req.params.id), req.body?.reason)));
-router.get('/applications/:id/resume-link', run(async (req) => ({ url: `/api/recruitment/media/${R.signMedia('resume', num(req.params.id), 0)}` })));
+router.get('/applications/:id/resume-link', run(async (req) => {
+  const id = num(req.params.id);
+  if (!(await getDB()('rec_applications').where({ id }).first('id'))) throw new ServiceError(404, 'Application not found');
+  await R.audit(getDB(), { application_id: id, action: 'resume_opened', actor: actor(req) });   // who looked, never the link
+  return { url: `/api/recruitment/media/${R.signMedia('resume', id, 0)}` };
+}));
 router.get('/interviews/:id/recording-links', run(async (req) => {
-  const iv = await getDB()('rec_interviews').where({ id: num(req.params.id) }).first('id', 'segments', 'recording_deleted_at', 'final_file', 'processing_status');
+  const iv = await getDB()('rec_interviews').where({ id: num(req.params.id) }).first('id', 'application_id', 'segments', 'recording_deleted_at', 'final_file', 'processing_status');
   if (!iv) throw new ServiceError(404, 'Interview not found');
+  if (!iv.recording_deleted_at) await R.audit(getDB(), { application_id: iv.application_id, action: 'recording_opened', actor: actor(req) });
   if (iv.recording_deleted_at) return { status: 'deleted', final: null, parts: [] };
   const parts = JSON.parse(iv.segments || '[]').filter((s: any) => s.bytes > 0).map((s: any) => ({ segment: s.n, done: s.done, url: `/api/recruitment/media/${R.signMedia('recording', iv.id, s.n)}`,
     audio_url: s.audio ? `/api/recruitment/media/${R.signMedia('audio', iv.id, s.n)}` : null }));
@@ -192,6 +206,10 @@ router.get('/interviews/:id/recording-links', run(async (req) => {
   return { status: iv.processing_status ?? null, final: iv.final_file ? `/api/recruitment/media/${R.signMedia('final', iv.id, 0)}` : null, parts };
 }));
 
+// Interview integrity: managers recommend, admins decide (checked again in the service)
+router.post('/interviews/:id/integrity', run(async (req) => R.reviewIntegrity(getDB(), actor(req), num(req.params.id), req.body ?? {})));
+router.post('/interviews/:id/resume', requireRoles('admin'), run(async (req) => R.resumeInterview(getDB(), actor(req), num(req.params.id), req.body?.reason)));
+router.post('/interviews/:id/terminate', requireRoles('admin'), run(async (req) => R.terminateInterview(getDB(), actor(req), num(req.params.id), req.body?.reason)));
 router.post('/interviews/:id/delete-recording', requireRoles('admin'), run(async (req) => R.deleteRecording(getDB(), actor(req), num(req.params.id))));
 router.post('/applications/:id/evaluations', run(async (req) => {
   const db = getDB(); const id = num(req.params.id);
@@ -218,18 +236,32 @@ router.get('/staff', run(async () => getDB()('users').whereIn('role', ['admin', 
 router.get('/questions', run(async () => {
   const db = getDB();
   const used = new Set((await db('rec_interview_questions').whereNotNull('question_id').distinct('question_id')).map((r: any) => Number(r.question_id)));
-  return (await db('rec_questions').orderBy('category').orderBy('id')).map((q: any) => ({ ...q, active: !!q.active, used: used.has(Number(q.id)) }));
+  return (await db('rec_questions').orderByRaw('COALESCE(sort_order, 1000000 + id)')).map((q: any) => ({ ...q, active: !!q.active, used: used.has(Number(q.id)) }));
 }));
 const questionRow = (b: any) => {
   const row: any = {};
   // The role it is asked for (a department); empty = every role
   if (b.department_id !== undefined) row.department_id = b.department_id ? Number(b.department_id) : null;
-  if (b.category !== undefined) { if (b.category && !R.QUESTION_CATEGORIES.includes(b.category)) throw new ServiceError(400, 'Choose a category'); row.category = b.category || 'General'; }
+  // A topic label only (questions are grouped by role): any short text is fine
+  if (b.category !== undefined) row.category = R.clip(b.category, 60) || 'General';
   if (b.text !== undefined) { row.text = R.clip(b.text, 1000); if (row.text.length < 5) throw new ServiceError(400, 'Please write the question'); }
   if (b.difficulty !== undefined) row.difficulty = ['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : null;
   if (b.active !== undefined) row.active = !!b.active;
   return row;
 };
+// Order (the list of ids as they should be asked) and shuffle, per role tab; role null = "All roles"
+router.put('/questions/order', run(async (req) => {
+  const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0).slice(0, 500);
+  if (!ids.length) throw new ServiceError(400, 'Nothing to reorder');
+  await getDB().transaction(async (trx) => { for (let i = 0; i < ids.length; i++) await trx('rec_questions').where({ id: ids[i] }).update({ sort_order: i + 1 }); });
+}));
+router.get('/questions/shuffle', run(async () => ({ general: await R.shuffleOn(getDB(), null), roles: Object.fromEntries((await getDB()('rec_roles').select('id', 'shuffle')).map((r: any) => [r.id, !!r.shuffle])) })));
+router.put('/questions/shuffle', run(async (req) => {
+  const on = !!req.body?.on; const role = req.body?.role_id ? Number(req.body.role_id) : null;
+  if (role == null) { await getDB()('rec_settings').where({ name: 'shuffle_general' }).del(); await getDB()('rec_settings').insert({ name: 'shuffle_general', value: on ? '1' : '0' }); }
+  else if (!(await getDB()('rec_roles').where({ id: role }).update({ shuffle: on }))) throw new ServiceError(404, 'Role not found');
+  return { on };
+}));
 router.get('/question-categories', run(async () => R.QUESTION_CATEGORIES));
 router.post('/questions', run(async (req) => {
   const row = questionRow(req.body ?? {});

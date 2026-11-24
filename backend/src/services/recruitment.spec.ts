@@ -188,7 +188,7 @@ test('the rules live in one place: decide()', () => {
 test('question bank: add, edit, deactivate; a used question cannot be deleted, an unused one can', async () => {
   const q = await ok('mgr', 'POST', '/api/recruitment/questions', 201, { category: 'Career Goals', text: 'What would you like to learn here?', difficulty: 'easy' });
   await ok('admin', 'PUT', `/api/recruitment/questions/${q.id}`, 200, { text: 'What would you most like to learn here?' });
-  await ok('mgr', 'POST', '/api/recruitment/questions', 400, { category: 'Not a category', text: 'Hello there?' });
+  await ok('mgr', 'POST', '/api/recruitment/questions', 400, { text: 'Hi' });   // too short; any topic label is fine (no fixed list)
   const all = await ok('mgr', 'GET', '/api/recruitment/questions', 200);
   assert.ok(all.length >= 11 && all.every((x: any) => typeof x.active === 'boolean'));
   await ok('mgr', 'DELETE', `/api/recruitment/questions/${q.id}`, 200);
@@ -421,4 +421,43 @@ test('retention and deletion: old recordings are removed after the retention per
   await ok('admin', 'DELETE', `/api/recruitment/applications/${APP_ID}`, 200);
   assert.equal(await db('rec_applications').where({ id: APP_ID }).first(), undefined);
   await ok(null, 'GET', `/api/public/careers/applications/${TOKEN}`, 404);
+});
+
+test('question bank: editing a question with any topic saves (was "Choose a category"); saved order is asked; shuffle per tab', async () => {
+  const db = getDB();
+  const role = await ok('admin', 'POST', '/api/recruitment/departments', 201, { name: 'Order Role' });
+  const q = await Promise.all(['First?', 'Second?', 'Third?'].map((text) => ok('admin', 'POST', '/api/recruitment/questions', 201, { department_id: role.id, text, category: 'Domain basics' })));
+  await ok('admin', 'PUT', `/api/recruitment/questions/${q[0].id}`, 200, { text: 'First, edited?', category: 'Domain basics', department_id: role.id });
+  // Reorder: third, first, second
+  await ok('mgr', 'PUT', '/api/recruitment/questions/order', 200, { ids: [q[2].id, q[0].id, q[1].id] });
+  const mine = (await R.roleQuestions(db, role.id)).filter((x: any) => x.department_id === role.id).map((x: any) => x.text);
+  assert.deepEqual(mine, ['Third?', 'First, edited?', 'Second?'], 'asked in the saved order');
+  // Shuffle on for this role only
+  assert.equal((await ok('mgr', 'GET', '/api/recruitment/questions/shuffle', 200)).roles[role.id], false);
+  await ok('admin', 'PUT', '/api/recruitment/questions/shuffle', 200, { role_id: role.id, on: true });
+  assert.equal(await R.shuffleOn(db, role.id), true); assert.equal(await R.shuffleOn(db, null), false, 'the All roles tab is separate');
+  const job = await ok('admin', 'POST', '/api/recruitment/jobs', 201, { title: 'Order Role Job', category_id: role.id, status: 'published' });
+  const orders = new Set<string>();
+  for (let i = 0; i < 8; i++) {
+    const { ref } = await ok(null, 'POST', `/api/public/careers/jobs/${job.public_id}/apply`, 201, undefined, applyForm(candidate(`shuffle${i}@x.test`)));
+    const a = await db('rec_applications').where({ ref }).first();
+    const iv = await R.startInterview(db, a, { accepted: true, version: 'v1' });
+    const asked = (await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position')).map((x: any) => x.text);
+    assert.deepEqual(asked.slice(0, 3), (await R.roleQuestions(db, null)).filter((x: any) => x.department_id == null).map((x: any) => x.text), 'All-roles questions first, unshuffled');
+    orders.add(asked.slice(3).join('|'));
+  }
+  assert.ok(orders.size > 1, 'the role\'s questions come in different orders');
+  await ok('admin', 'PUT', '/api/recruitment/questions/shuffle', 200, { role_id: role.id, on: false });
+});
+
+test('tab switches are counted per applicant with the total time away', async () => {
+  const iv = await getDB()('rec_interviews').first('id', 'application_id');
+  await getDB()('rec_events').insert([
+    { interview_id: iv.id, type: 'tab_hidden', at: new Date() }, { interview_id: iv.id, type: 'tab_visible', detail: 'away 12 s', at: new Date() },
+    { interview_id: iv.id, type: 'tab_hidden', at: new Date() }, { interview_id: iv.id, type: 'tab_visible', detail: 'away 30 s', at: new Date() },
+  ]);
+  const t = (await R.tabSwitches(getDB(), [Number(iv.application_id)])).get(Number(iv.application_id))!;
+  assert.ok(t.tab_switches >= 2 && t.away_seconds >= 42, JSON.stringify(t));
+  const list = await ok('admin', 'GET', '/api/recruitment/applications', 200);
+  assert.ok(list.find((r: any) => r.id === Number(iv.application_id)).tab_switches >= 2);
 });
