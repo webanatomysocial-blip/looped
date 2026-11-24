@@ -842,6 +842,19 @@ async function buildAndVerify(db: Knex, ivId: number): Promise<string> {
 }
 
 /** After a restart: interviews left in "processing" are built again (their chunks are all kept). */
+/** An interview that stopped without being submitted (paused, closed, withdrawn): its recording is joined and checked
+ *  from what arrived, so reviewers can watch it. A paused one waits a minute for its last uploads. */
+export async function processUnfinished(db: Knex, ivId: number, now = new Date()) {
+  const iv = await db('rec_interviews').where({ id: ivId }).first();
+  if (!iv || iv.processing_status || iv.recording_deleted_at || !['paused', 'terminated', 'withdrawn'].includes(iv.status)) return false;
+  if (iv.status === 'paused' && (!iv.paused_at || now.getTime() - toDate(iv.paused_at).getTime() < 60_000)) return false;
+  const segments = JSON.parse(iv.segments || '[]');
+  if (!segments.length) return false;
+  closeCutParts(segments);
+  const n = await db('rec_interviews').where({ id: ivId }).whereNull('processing_status').update({ segments: JSON.stringify(segments), processing_status: 'processing' });
+  if (n) void processRecording(db, ivId);
+  return n === 1;
+}
 export async function resumeProcessing(db: Knex) {
   for (const r of await db('rec_interviews').where({ processing_status: 'processing' }).select('id')) await processRecording(db, Number(r.id));
 }

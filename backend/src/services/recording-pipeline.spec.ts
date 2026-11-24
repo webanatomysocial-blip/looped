@@ -186,3 +186,17 @@ test('an iPhone part whose video never arrived (page closed first) is reported, 
   assert.equal(await R.processRecording(db, iv.id), 'incomplete');
   assert.ok((await verification(iv.id)).v.problems.some((p: string) => /part 1: lost/.test(p)));
 });
+
+test('a paused interview\'s recording is joined and checked from what arrived, so reviewers can watch it', async () => {
+  const { a, iv } = await candidate(); const db = getDB();
+  const [c0, c1] = split(webm, 2);
+  await R.saveChunk(db, a, 0, 0, false, c0, 'video/webm', 3000);
+  await R.saveChunk(db, a, 0, 1, false, c1, 'video/webm', 6000);   // paused before the part was closed
+  await db('rec_interviews').where({ id: iv.id }).update({ status: 'paused', paused_at: new Date() });
+  assert.equal(await R.processUnfinished(db, iv.id), false, 'waits a minute for the last uploads');
+  assert.equal(await R.processUnfinished(db, iv.id, new Date(Date.now() + 61_000)), true);
+  assert.equal(await R.processUnfinished(db, iv.id, new Date(Date.now() + 61_000)), false, 'once');
+  assert.equal(await R.processRecording(db, iv.id), 'verified');
+  const fp = await probe(finalFile((await verification(iv.id)).iv));
+  assert.ok(fp.video && fp.audio && Math.abs(fp.video.seconds - SECS) < 0.3);
+});

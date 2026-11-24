@@ -199,6 +199,7 @@ router.get('/interviews/:id/recording-links', run(async (req) => {
   const iv = await getDB()('rec_interviews').where({ id: num(req.params.id) }).first('id', 'application_id', 'segments', 'recording_deleted_at', 'final_file', 'processing_status');
   if (!iv) throw new ServiceError(404, 'Interview not found');
   if (!iv.recording_deleted_at) await R.audit(getDB(), { application_id: iv.application_id, action: 'recording_opened', actor: actor(req) });
+  if (await R.processUnfinished(getDB(), iv.id)) return { status: 'processing', final: null, parts: [] };
   if (iv.recording_deleted_at) return { status: 'deleted', final: null, parts: [] };
   const parts = JSON.parse(iv.segments || '[]').filter((s: any) => s.bytes > 0).map((s: any) => ({ segment: s.n, done: s.done, url: `/api/recruitment/media/${R.signMedia('recording', iv.id, s.n)}`,
     audio_url: s.audio ? `/api/recruitment/media/${R.signMedia('audio', iv.id, s.n)}` : null }));

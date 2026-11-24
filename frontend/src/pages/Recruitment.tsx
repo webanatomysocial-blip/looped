@@ -29,7 +29,7 @@ const REC_STATUS: Record<string, [string, string]> = {
 function RecordingStatus({ iv }: { iv: any }) {
   if (iv.recording_deleted_at) return <>Video deleted ({dt(iv.recording_deleted_at)})</>;
   if (iv.status === 'in_progress') return <span className="rec-pill rec-pill--info">{iv.recording_complete ? 'Uploading' : 'Recording in progress'}</span>;
-  if (iv.status === 'paused') return <span className="rec-pill rec-pill--warn">Interview paused: not submitted, so not checked yet</span>;
+  if (iv.status === 'paused' && !iv.processing_status) return <span className="rec-pill rec-pill--warn">Interview paused: the recording is prepared about a minute after the pause</span>;
   if (['withdrawn', 'terminated'].includes(iv.status) && !iv.processing_status) return <span className="rec-pill rec-pill--warn">Interview not completed: recording not checked</span>;
   const st = iv.processing_status ? REC_STATUS[iv.processing_status] : null;
   if (!st) return <span className="rec-pill rec-pill--warn">Not verified (recorded before checks existed)</span>;
