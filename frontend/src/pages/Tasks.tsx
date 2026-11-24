@@ -1014,9 +1014,9 @@ export default function Tasks() {
                         }}>Submitted</span>
                       )}
                       {/* Timer controls — regular accepted tasks OR XLR8 in_progress tickets */}
-                      {(user?.role === 'employee' || (user?.role === 'manager' && !!task.ticket_type_id)) && task.status !== 'completed' &&
+                      {(user?.role === 'employee' || !!task.ticket_type_id) && task.status !== 'completed' &&
                         (task.ticket_type_id
-                          ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id
+                          ? task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user?.id
                           : task.status !== 'in_review' && task.my_acceptance_status === 'accepted') && (
                         <>
                           {task.timer_running ? (

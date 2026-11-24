@@ -265,6 +265,20 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
               })()}
               {/* Review stage: the reviewer's timer, approve and send back, right here (they were only on other pages) */}
               {user && task.ticket_type_id && <ReviewPanel task={task} me={user} onDone={() => { setReloadKey(k => k + 1); onChanged?.(); }} />}
+              {/* Working stage: its assignee finishes it here to send it to the next stage (same rule as the server) */}
+              {user && task.ticket_type_id && task.xlr8_status === 'in_progress' && task.xlr8_assignee_id === user.id && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', background: 'rgba(34,197,94,0.07)', border: '1.5px solid rgba(34,197,94,0.35)', borderRadius: 10, padding: '12px 14px' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Your stage: finish it to send it to the next stage</span>
+                  <button disabled={accepting} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#16a34a', color: '#fff' }}
+                    onClick={async () => {
+                      if (!confirm('Mark your stage as done and send it to the next stage?')) return;
+                      setAccepting(true);
+                      try { await xlr8Api.markDone(task.id); setReloadKey(k => k + 1); onChanged?.(); }
+                      catch (e: any) { alert(e?.response?.data?.error || 'Something went wrong — please try again'); }
+                      finally { setAccepting(false); }
+                    }}>Mark as done</button>
+                </div>
+              )}
               {/* Meta */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
