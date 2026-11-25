@@ -172,10 +172,11 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     t.date('date').notNullable(); t.string('start_time', 5).notNullable(); t.string('type', 10).notNullable();
     t.text('reason').notNullable();
     t.string('status', 10).notNullable().defaultTo('pending');   // pending | approved | rejected
-    t.integer('decided_by').unsigned().nullable(); t.timestamp('decided_at').nullable(); t.text('decision_note');
+    t.integer('decided_by').unsigned().nullable(); t.timestamp('decided_at').nullable(); t.text('decision_note'); t.timestamp('followed_up_at').nullable();
     t.timestamp('created_at').defaultTo(db.fn.now());
     t.index(['status']);
   });
+  if (!(await db.schema.hasColumn('rec_reschedule_requests', 'followed_up_at'))) await db.schema.alterTable('rec_reschedule_requests', (t) => t.timestamp('followed_up_at').nullable());
   if (!(await db.schema.hasColumn('rec_evaluations', 'video_at'))) await db.schema.alterTable('rec_evaluations', (t) => t.integer('video_at').nullable());   // seconds into the recording the note is about
   if (!(await db.schema.hasColumn('rec_questions', 'sort_order'))) await db.schema.alterTable('rec_questions', (t) => t.integer('sort_order').nullable());
   if (!(await db.schema.hasColumn('rec_roles', 'shuffle'))) await db.schema.alterTable('rec_roles', (t) => t.boolean('shuffle').notNullable().defaultTo(false));
@@ -446,7 +447,7 @@ export async function renewInterviewLink(db: Knex, actor: Actor, appId: number, 
   if (mode === 'new' || !a.interview_hash) { token = newToken(); await db('rec_applications').where({ id: appId }).update({ interview_hash: sha(token), interview_expires_at: expires, updated_at: new Date() }); }
   else await db('rec_applications').where({ id: appId }).update({ interview_expires_at: expires, updated_at: new Date() });
   // An interview already started keeps its questions and timer: only the way in changes
-  await log(db, { application_id: appId, action: token ? 'interview_link_renewed' : 'interview_link_extended', from: a.status, to: a.status, actor, comment: `valid until ${expires.toISOString().slice(0, 10)}` });
+  await log(db, { application_id: appId, action: token ? 'interview_link_renewed' : 'interview_link_extended', from: a.status, to: a.status, actor, comment: `valid until ${dmy(expires.toISOString())}` });
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   if (token) await mail.interviewInvite(a, job?.title ?? '', token, expires);
   return { expires_at: expires, link: token ? `${site()}/careers/interview/${token}` : null };
@@ -927,16 +928,19 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
     await db('rec_schedules').insert({ ...row, application_id: a.id, status: 'scheduled', created_by: actor.id });
     await db('rec_applications').where({ id: a.id }).update({ status: 'final_scheduled', updated_at: new Date() });
   }
-  await log(db, { application_id: a.id, action: resched ? 'interview_rescheduled' : 'interview_scheduled', from: a.status, to: 'final_scheduled', actor, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${date} ${body.start_time}–${body.end_time}${body.reason ? ` · ${clip(body.reason, 300)}` : ''}` });
-  for (const p of people) await createNotification(p.id, `You are an interviewer for ${a.name} on ${date} at ${body.start_time}`, 'recruitment');
+  await log(db, { application_id: a.id, action: resched ? 'interview_rescheduled' : 'interview_scheduled', from: a.status, to: 'final_scheduled', actor, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} ${body.start_time}–${body.end_time}${body.reason ? ` · ${clip(body.reason, 300)}` : ''}` });
+  for (const p of people) await createNotification(p.id, `You are an interviewer for ${a.name} on ${dmy(date)} at ${body.start_time}`, 'recruitment');
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   await mailInterviewers(db, a, job?.title ?? 'a role', { ...row, people }, resched, actor);
   const first = people.length ? await db('users').where({ id: people[0].id }).first('email') : null;
   // Saving the schedule settles the candidate's pending request: approved when it was opened from it, otherwise replaced
   const reqId = Number(body.request_id) || 0;
-  const pending = await db('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).select('id');
-  for (const r of pending) await db('rec_reschedule_requests').where({ id: r.id }).update({ status: r.id === reqId ? 'approved' : 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: r.id === reqId ? null : 'a different time was set' });
-  if (pending.some((r: any) => r.id === reqId)) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${date} ${body.start_time}` });
+  // A request rejected a moment ago can still be approved instead (the time was not sent yet)
+  const approved = reqId ? await db('rec_reschedule_requests').where({ id: reqId, application_id: a.id }).whereIn('status', ['pending', 'rejected']).update({ status: 'approved', decided_by: actor.id, decided_at: new Date(), decision_note: null, followed_up_at: new Date() }) : 0;
+  await db('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).update({ status: 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: 'a different time was set' });
+  // A rejected request is settled once a new time is sent
+  await db('rec_reschedule_requests').where({ application_id: a.id, status: 'rejected' }).whereNull('followed_up_at').update({ followed_up_at: new Date() });
+  if (approved) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${dmy(date)} ${body.start_time}` });
   const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, contact: first?.email ?? null, reschedule_link: `${site()}/careers/reschedule/${rtoken}` }, resched);
   if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Interview details email ${sent}` });
 }
@@ -949,7 +953,7 @@ export async function mailInterviewers(db: Knex, a: any, job: string, row: any, 
   const out: string[] = [];
   for (const u of staff.filter((x: any) => x.email)) {
     const res = await sendMail({ email: u.email, name: u.name }, `${resched ? 'Updated: ' : ''}You are interviewing ${a.name} for ${job}`,
-      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${date}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
+      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${dmy(date)}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
     await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name}: ${res}` });
     out.push(`${u.name}: ${res}`);
   }
@@ -992,7 +996,7 @@ export async function requestReschedule(db: Knex, token: string, body: any) {
   // One open request at a time: a new one replaces the previous
   await db('rec_reschedule_requests').where({ schedule_id: s.id, status: 'pending' }).update({ status: 'rejected', decision_note: 'replaced by a newer request', decided_at: new Date() });
   await db('rec_reschedule_requests').insert({ application_id: a.id, schedule_id: s.id, date, start_time: body.start_time, type, reason, status: 'pending' });
-  await log(db, { application_id: a.id, action: 'reschedule_requested', from: a.status, to: a.status, actor: null, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${date} at ${body.start_time} · ${reason}` });
+  await log(db, { application_id: a.id, action: 'reschedule_requested', from: a.status, to: a.status, actor: null, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} at ${body.start_time} · ${reason}` });
   const staff = await db('users').whereIn('role', ['admin', 'manager']).pluck('id');
   for (const id of staff) await createNotification(id, `${a.name} (${a.ref}) asked to reschedule the final interview`, 'recruitment');
   return rescheduleView(db, token);
@@ -1020,6 +1024,8 @@ export interface Mailer {
   selected(a: any, job: string): Promise<string | void>;
   welcome(a: any, job: string, link: string): Promise<string | void>;
 }
+// Day-month-year in every email and history line (yyyy-mm-dd → dd-mm-yyyy)
+export const dmy = (d: any) => String(d ?? '').slice(0, 10).split('-').reverse().join('-');
 const site = () => (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://looped.in').replace(/\/$/, '');
 // Every candidate email is copied to the hiring leads (RECRUITMENT_CC on the server replaces the list, comma-separated)
 export const RECRUITMENT_CC = (process.env.RECRUITMENT_CC ?? 'supraja@mosol9.com,srujan@mosol9.com').split(',').map((x) => x.trim()).filter(Boolean);
@@ -1063,9 +1069,9 @@ export const defaultMailer: Mailer = {
   welcome: (a, job, link) => sendMail({ email: a.email, name: a.name }, `Thank you for applying for ${job}`,
     `Hi ${a.name},\n\nThank you for applying for ${job} and for completing your video interview (reference ${a.ref}).\n\nOur team will review your application and keep you updated here and on WhatsApp.\n\nYou can check your application status any time with this private link (please keep it to yourself):\n${link}\n\nBest wishes,\nThe Loooped team`),
   interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `Your video interview for ${job}`,
-    `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${expires.toDateString()}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
+    `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${dmy(new Date(expires.getTime() + 5.5 * 3600_000).toISOString())}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
   scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Updated: ' : ''}Final interview for ${job}`,
-    `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${s.date}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).${s.reschedule_link ? `\n\nNeed a different date or time? Request a reschedule here:\n${s.reschedule_link}` : ''}`, s.contact),
+    `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${dmy(s.date)}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).${s.reschedule_link ? `\n\nNeed a different date or time? Request a reschedule here:\n${s.reschedule_link}` : ''}`, s.contact),
   cancelled: (a, job, reason) => sendMail({ email: a.email, name: a.name }, `Final interview for ${job} has been cancelled`,
     `Hi ${a.name},\n\nYour final interview for ${job} has been cancelled${reason ? ` (${reason})` : ''}. We will share a new time with you soon.\n\nReference: ${a.ref}`),
   selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been shortlisted for ${job}`,

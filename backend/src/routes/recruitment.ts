@@ -150,7 +150,7 @@ router.get('/applications/:id', run(async (req) => {
   const history = await db('rec_history').where({ application_id: id }).orderBy('id');
   const evaluations = await db('rec_evaluations').where({ application_id: id }).orderBy('id', 'desc');
   const schedules = (await db('rec_schedules').where({ application_id: id }).orderBy('id', 'desc')).map(({ reschedule_hash, ...s }: any) => ({ ...s, date: String(s.date).slice(0, 10), interviewers: JSON.parse(s.interviewers || '[]') }));
-  const reschedule_requests = (await db('rec_reschedule_requests').where({ application_id: id }).orderBy('id', 'desc')).map((r: any) => ({ ...r, date: String(r.date).slice(0, 10) }));
+  const reschedule_requests = (await db('rec_reschedule_requests').where({ application_id: id }).orderBy('id', 'desc')).map((r: any) => ({ ...r, date: String(r.date).slice(0, 10), followed_up: !!r.followed_up_at }));
   const iv = await db('rec_interviews').where({ application_id: id }).first();
   let interview: any = null;
   if (iv) {

@@ -1,6 +1,7 @@
 // Recruitment dashboard for admins and managers: overview, job openings, applications (review, interview, evaluation,
 // scheduling), the common HR question bank and settings. What each person may approve is decided by the server;
 // the buttons shown follow its answer ("can").
+import { fmtDay } from './Careers';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import Modal from '../components/UI/Modal';
@@ -257,7 +258,7 @@ function JobForm({ job, departments, onClose, onSaved }: { job: any; departments
     } catch (e) { setError(err(e)); } finally { setBusy(false); }
   };
   return (
-    <Modal title={job.id ? 'Edit job opening' : 'New job opening'} onClose={onClose} size="lg">
+    <Modal title={job.id ? 'Edit job opening' : 'New job opening'} onClose={onClose} size="lg" dismissible={false}>
       <div className="rec-grid2">
         <div className="rec-field"><label>Job title *</label><input className="form-input" value={f.title} onChange={set('title')} maxLength={200} /></div>
         <div className="rec-field"><label>Department</label>
@@ -520,7 +521,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           <dl className="rec-kv">
             <dt>Email</dt><dd>{a.email}</dd><dt>Phone</dt><dd>{a.phone}</dd><dt>Location</dt><dd>{a.location || '—'}</dd>
             <dt>Qualification</dt><dd>{a.education || '—'}</dd><dt>Experience</dt><dd>{Number(a.experience_years)} years</dd><dt>Company</dt><dd>{a.company || '—'}</dd><dt>Interview preference</dt><dd>{a.interview_mode === 'online' ? 'Online' : a.interview_mode === 'walkin' ? 'Walk-in' : '—'}</dd>
-            {a.current_ctc !== undefined && <><dt>Current CTC 🔒</dt><dd>{a.current_ctc || '—'}</dd><dt>Expected CTC 🔒</dt><dd>{a.expected_ctc || '—'}</dd></>}
+            {a.current_ctc !== undefined && <><dt>Current CTC</dt><dd>{a.current_ctc || '—'}</dd><dt>Expected CTC</dt><dd>{a.expected_ctc || '—'}</dd></>}
             <dt>Skills</dt><dd className="careers-text">{a.skills || '—'}</dd><dt>Department</dt><dd>{a.job?.department ?? '—'}</dd><dt>Applied</dt><dd>{dt(a.created_at)}</dd>
           </dl>
           <div className="rec-actions"><button className="btn-secondary" onClick={() => resume()}>View resume</button><button className="btn-secondary" onClick={() => resume(true)}>Download</button><span className="rec-muted">{a.resume_name}</span></div>
@@ -579,11 +580,11 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {a.schedules.map((s: any) => (
               <div key={s.id} className="rec-muted" style={{ fontSize: 13 }}>
                 <span className={`rec-pill ${s.status === 'scheduled' ? 'rec-pill--info' : s.status === 'cancelled' ? 'rec-pill--bad' : 'rec-pill--good'}`}>{s.status}</span>{' '}
-                {s.type === 'online' ? 'Online' : 'Walk-in'} · {s.date} {s.start_time}–{s.end_time}{s.type === 'online' ? ` · ${s.meeting_url}` : ` · ${s.location ?? ''} ${s.address ?? ''}`}
+                {s.type === 'online' ? 'Online' : 'Walk-in'} · {fmtDay(s.date)} {s.start_time}–{s.end_time}{s.type === 'online' ? ` · ${s.meeting_url}` : ` · ${s.location ?? ''} ${s.address ?? ''}`}
                 {s.interviewers.length > 0 && ` · with ${s.interviewers.map((p: any) => p.name).join(', ')}`}
               </div>
             ))}
-            {current && (a.reschedule_requests ?? []).filter((r: any) => r.status === 'pending').map((r: any) => {
+            {current && (a.reschedule_requests ?? []).filter((r: any) => r.status === 'pending' || (r.status === 'rejected' && r.decided_by && !r.followed_up)).slice(0, 1).map((r: any) => {
               // Same length as the current slot, starting at the requested time
               const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
               const end = Math.min(mins(r.start_time) + mins(current.end_time) - mins(current.start_time), 23 * 60 + 59);
@@ -591,12 +592,13 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               const base = { ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id };
               return (
                 <div key={r.id} className="rec-resched">
-                  <b>The candidate asked to reschedule</b>
-                  <div>{r.type === 'online' ? 'Online' : 'Walk-in'} · {r.date} at {r.start_time} IST</div>
+                  <b>{r.status === 'pending' ? 'The candidate asked to reschedule' : 'You rejected this reschedule request, but no new time has been sent yet'}</b>
+                  <div>{r.type === 'online' ? 'Online' : 'Walk-in'} · {fmtDay(r.date)} at {r.start_time} IST</div>
                   <div className="rec-muted">Reason: {r.reason}</div>
                   <div className="rec-actions">
-                    <button className="btn-primary" onClick={() => setSched({ ...base, type: r.type, date: r.date, start_time: r.start_time, end_time: endTime, request_id: r.id, location: base.location || a.schedule_defaults?.location, address: base.address || a.schedule_defaults?.address })}>Approve (review and send)</button>
-                    <button className="rec-btn-danger" onClick={async () => { const note = await ask({ title: 'Reject this request?', text: 'Next, set the time you want; the candidate gets the usual interview email.', input: { placeholder: 'Note (optional)' }, confirm: 'Reject and set my own time', danger: true }); if (note === null) return; try { await api.rejectReschedule(id, r.id, String(note || '')); await refresh(); setSched(base); } catch (e) { notify(err(e), 'bad'); } }}>Reject</button>
+                    <button className="btn-primary" onClick={() => setSched({ ...base, type: r.type, date: r.date, start_time: r.start_time, end_time: endTime, request_id: r.id, location: base.location || a.schedule_defaults?.location, address: base.address || a.schedule_defaults?.address })}>{r.status === 'pending' ? 'Approve (review and send)' : 'Approve it instead'}</button>
+                    {r.status === 'rejected' && <button className="btn-secondary" onClick={() => setSched(base)}>Set my own time</button>}
+                    {r.status === 'pending' && <button className="rec-btn-danger" onClick={async () => { const note = await ask({ title: 'Reject this request?', text: 'Next, set the time you want; the candidate gets the usual interview email.', input: { placeholder: 'Note (optional)' }, confirm: 'Reject and set my own time', danger: true }); if (note === null) return; try { await api.rejectReschedule(id, r.id, String(note || '')); await refresh(); setSched(base); } catch (e) { notify(err(e), 'bad'); } }}>Reject</button>}
                   </div>
                 </div>
               );
@@ -655,7 +657,7 @@ function ScheduleForm({ appId, prefers, initial, onClose, onSaved }: { appId: nu
     try { if (f.sid) await api.reschedule(appId, f.sid, f); else await api.schedule(appId, f); onSaved(); } catch (e) { setError(err(e)); } finally { setBusy(false); }
   };
   return (
-    <Modal title={f.sid ? 'Reschedule final interview' : 'Schedule final interview'} onClose={onClose} size="lg">
+    <Modal title={f.sid ? 'Reschedule final interview' : 'Schedule final interview'} onClose={onClose} size="lg" dismissible={false}>
       <div className="rec-grid2">
         <div className="rec-field rec-field--full"><label>Interview mode</label>
           <select className="form-input" value={f.type} onChange={set('type')}><option value="walkin">Walk-in (at the office)</option><option value="online">Online (video call)</option></select>
@@ -791,7 +793,7 @@ function Questions({ departments }: { departments: any[] }) {
       </table>
     </div>
     {edit && (
-      <Modal title={edit.id ? 'Edit question' : `Add question · ${roleName}`} onClose={() => setEdit(null)}>
+      <Modal title={edit.id ? 'Edit question' : `Add question · ${roleName}`} onClose={() => setEdit(null)} dismissible={false}>
         <div className="rec-field"><label>Role</label>
           <select className="form-input" value={edit.department_id ?? ''} onChange={(e) => setEdit({ ...edit, department_id: e.target.value ? Number(e.target.value) : null })}>
             <option value="">All roles (asked in every interview)</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}

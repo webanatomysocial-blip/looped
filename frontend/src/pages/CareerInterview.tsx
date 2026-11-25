@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { careersApi } from '../services/api';
-import { CareersShell } from './Careers';
+import { CareersShell, CareersProblem } from './Careers';
 import '../css/pages/Recruitment.css';
 
 const CHUNK_MS = 5000;
@@ -376,17 +376,18 @@ export default function CareerInterview() {
     } catch (e) { setSubmitError(msg(e)); }
   };
 
-  if (error && !st) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
+  if (error && !st) return <CareersProblem text={error} />;
   if (!st) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
   if (phase === 'done') return <CareersShell><div className="rec-card careers-detail"><h1>Interview submitted ✓</h1><p className="careers-text">Thank you, {st.name}. Your video interview for {st.job} has been received and will be reviewed by our team.</p><WhatsAppConfirm token={token!} phone={st.phone} done={st.whatsapp_confirmed} /></div></CareersShell>;
   if (paused || st.state === 'paused') return <CareersShell><div className="rec-card careers-detail"><h1>Interview paused</h1><p className="careers-text" role="alert">{st.paused_message ?? 'Your interview has been paused because repeated interview-rule violations were detected. Your application is under review. The recruitment team will contact you regarding the next step.'}</p>{pending > 0 && <p className="rec-muted">Please keep this page open a moment while your recording finishes uploading.</p>}</div></CareersShell>;
-  if (st.state === 'closed') return <CareersShell><div className="rec-empty">This interview is no longer available.</div></CareersShell>;
+  if (st.state === 'closed') return <CareersProblem text="This interview is no longer available. If you think this is a mistake, email us with your reference number." />;
 
   if (phase === 'intro') return (
     <CareersShell>
       <div className="rec-card careers-detail">
         {came?.ref && <div className="careers-ok">Application received · reference <b>{came.ref}</b>. Next: your video interview.</div>}
-        <h1>Video interview · {st.job}</h1>
+        <p className="rec-muted" style={{ margin: 0, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>Video interview</p>
+        <h1>{st.job}</h1>
         {trackBox}
         <ul className="careers-text" style={{ paddingLeft: 18 }}>
           <li>{st.question_count} questions, shown one at a time. You have {fmt(st.seconds_per_question)} for each; it moves on automatically when time is up, or click <b>Next</b> when you're done.</li>

@@ -210,3 +210,19 @@ test('lost interview link: re-sent only to the applicant, the old link stops, th
   assert.notEqual((await db()('rec_applications').where({ id: a.id }).first()).interview_hash, before);
   assert.equal(r1.message.replace(a.email, 'E'), r2.message.replace('nobody@x.test', 'E'));
 });
+
+test('a rejected reschedule request stays open for a decision until a new time is sent, and can be approved instead', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  let link = '';
+  const mail = { ...noMail, scheduled: async (_a: any, _j: string, s: any) => { link = s.reschedule_link; return 'ok'; } };
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-02-05', start_time: '10:00', end_time: '10:30', address: 'Office' }, mail);
+  await R.requestReschedule(db(), link.split('/').pop()!, { date: '2027-02-09', start_time: '12:00', type: 'walkin', reason: 'travel' });
+  const req = await db()('rec_reschedule_requests').where({ application_id: a.id }).first();
+  await R.rejectRescheduleRequest(db(), admin, a.id, req.id, 'busy');
+  assert.equal((await db()('rec_reschedule_requests').where({ id: req.id }).first()).followed_up_at, null, 'still waiting for a new time');
+  const s = await db()('rec_schedules').where({ application_id: a.id }).first();
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-02-09', start_time: '12:00', end_time: '12:30', address: 'Office', request_id: req.id }, mail, s.id);
+  const after = await db()('rec_reschedule_requests').where({ id: req.id }).first();
+  assert.equal(after.status, 'approved'); assert.ok(after.followed_up_at);
+});

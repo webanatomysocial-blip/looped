@@ -255,9 +255,62 @@
 .rec-check input { margin: 0; }
 
 /* Application window: tabs, and the decision bar fixed at the bottom */
-.rec-dtabs { position: sticky; top: -1px; z-index: 2; background: var(--bg-white, #fff); padding: 6px 0; margin: 4px 0 8px; }
-.rec-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid rgba(0,0,0,0.08); background: var(--bg-white, #fff); box-shadow: 0 -4px 16px rgba(0,0,0,0.05); flex-shrink: 0; }
+.rec-dtabs { flex-shrink: 0; position: sticky; top: -20px; z-index: 5; background: #fff; padding: 10px 24px; margin: 4px -24px 8px; border-bottom: 1px solid rgba(0,0,0,0.08); }
+.rec-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid rgba(0,0,0,0.08); background: var(--bg-white, #fff); box-shadow: 0 -4px 16px rgba(0,0,0,0.05); flex-shrink: 0; background: #fff; }
 .rec-footer .form-input { flex: 1; min-width: 180px; }
 .rec-footer-note { flex-basis: 100%; font-size: 12px; }
 .rec-resched { background: #fff4e5; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 13px; color: #1a1a1a; }
 .rec-resched .rec-actions { margin-top: 8px; }
+
+/* ── Spacing pass: consistent filters/table on desktop; compact, scrollable layout on phones ── */
+.rec-filters .form-input { height: 40px; }
+.rec-filters input[type=search], .rec-filters input:not([type]), .rec-filters input[type=text] { flex: 1 1 220px; }
+.rec-table td:nth-last-child(-n+3) { white-space: nowrap; }
+.rec-section:first-child { border-top: none; padding-top: 4px; }
+.rec-actions .btn-primary, .rec-actions .btn-secondary, .rec-actions .rec-btn-danger { min-height: 38px; }
+@media (max-width: 760px) {
+  .rec-page { padding: 14px 12px 24px; }
+  .rec-head { margin-bottom: 14px; gap: 10px; }
+  .rec-head h1 { font-size: 20px; }
+  /* Tabs scroll sideways instead of stacking into several rows */
+  .rec-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; padding-bottom: 2px; }
+  .rec-tabs::-webkit-scrollbar { display: none; }
+  .rec-tab { flex-shrink: 0; padding: 6px 12px; }
+  .rec-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rec-filters .form-input { width: 100%; min-width: 0; }
+  .rec-filters > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .rec-metrics { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .rec-metric { padding: 12px 14px; }
+  .rec-metric b { font-size: 22px; }
+  .rec-card { border-radius: 14px; }
+  .rec-card--pad { padding: 14px; }
+  .rec-table th, .rec-table td { padding: 10px 10px; }
+  .drawer-body { padding: 14px 14px; gap: 12px; }
+  .rec-dtabs { top: -14px; margin: 0 -14px 6px; padding: 8px 14px; }
+  .rec-kv { grid-template-columns: 105px 1fr; gap: 6px 10px; }
+  .rec-footer { padding: 10px 12px; }
+  .rec-footer .form-input { flex-basis: 100%; }
+  .rec-footer > button { flex: 1; }
+  .modal-body .rec-grid2 { gap: 10px; }
+}
+
+/* ── Careers (public) consistency: one card rhythm, readable states, spacing between form fields ── */
+.careers-problem { max-width: 520px; margin: 24px auto; padding: 28px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
+.careers-problem h1 { margin: 0; font-size: 22px; color: var(--ink); }
+.careers-problem .btn-primary { text-decoration: none; }
+.careers a:not([class]) { color: #1a5fa0; text-decoration: underline; text-underline-offset: 2px; }
+.careers .rec-empty { padding: 48px 20px; }
+.careers-block > .btn-primary, .careers-block > .rec-btn-danger { margin-top: 12px; }
+.careers-block .careers-text + .careers-text { margin-top: 8px; }
+.careers form.careers-block { display: flex; flex-direction: column; gap: 14px; }
+.careers form.careers-block .btn-primary { align-self: flex-start; }
+.careers-detail .rec-kv { margin-top: 4px; }
+.careers .btn-primary, .careers .btn-secondary, .careers .rec-btn-danger { min-height: 42px; }
+.careers .form-input { min-height: 44px; }
+.careers-track { margin: 18px 0 4px; }
+@media (max-width: 760px) {
+  .careers-problem { padding: 20px; margin: 8px auto; }
+  .careers-detail h1 { font-size: 24px; }
+  .careers form.careers-block .btn-primary, .careers-block > .btn-primary, .careers-problem .btn-primary { align-self: stretch; width: 100%; text-align: center; }
+  .careers .form-input { font-size: 16px; }   /* below 16px iPhones zoom into the field */
+}

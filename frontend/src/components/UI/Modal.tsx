@@ -7,12 +7,14 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg';
+  /** false: a click outside does not close it (forms, so typed work is not lost) */
+  dismissible?: boolean;
 }
 
-export default function Modal({ title, onClose, children, size = 'md' }: ModalProps) {
+export default function Modal({ title, onClose, children, size = 'md', dismissible = true }: ModalProps) {
   return (
     <div className="modal-overlay">
-      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-backdrop" onClick={dismissible ? onClose : undefined} />
       <div className={`modal-box modal-box--${size}`}>
         <div className="modal-header">
           <h2>{title}</h2>

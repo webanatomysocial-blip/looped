@@ -221,3 +221,8 @@
   flex-shrink: 0;
 }
 .sidebar__avatar:hover { transform: scale(1.06); }
+
+/* The app's icon sidebar takes a quarter of a phone screen: slimmer there */
+@media (max-width: 600px) {
+  .sidebar { width: 52px; margin: 8px 0 8px 8px; padding: 12px 6px; height: calc(100vh - 16px); top: 8px; }
+}

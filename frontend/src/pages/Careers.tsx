@@ -20,11 +20,31 @@ export function CareersShell({ children, wide }: { children: React.ReactNode; wi
     </div>
   );
 }
+// A page a candidate can't use (bad or old link, closed job): say so plainly and give a way forward
+export function CareersProblem({ text }: { text: string }) {
+  return (
+    <CareersShell>
+      <div className="rec-card careers-problem">
+        <h1>Something needs attention</h1>
+        <p className="careers-text">{text}</p>
+        <Link className="btn-primary" to="/careers">See open jobs</Link>
+        <p className="rec-muted">Need help? Email <a href="mailto:webanatomysocial@gmail.com">webanatomysocial@gmail.com</a></p>
+      </div>
+    </CareersShell>
+  );
+}
+// Day-month-year everywhere (e.g. 09-01-2027); a plain yyyy-mm-dd date is rearranged, not shifted by time zone
+export const fmtDay = (d: string | Date) => {
+  const m = typeof d === 'string' && /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const x = new Date(d); const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(x.getDate())}-${p(x.getMonth() + 1)}-${x.getFullYear()}`;
+};
 const err = (e: any, fallback?: string) => (e?.response?.data?.error || fallback || msg(e));
 // Tags without repeats: no role tag when it is the job title, no "Internship" twice
 const Pills = ({ j }: { j: any }) => {
   const seen = new Set<string>([String(j.title ?? '').toLowerCase()]);
-  const tags = [[j.department, 'info'], [j.location && `📍 ${j.location}`, ''], [j.employment_type, ''], [j.experience, '']]
+  const tags = [[j.department, 'info'], [j.location && j.location, ''], [j.employment_type, ''], [j.experience, '']]
     .filter(([v]) => { const k = String(v ?? '').toLowerCase(); if (!v || seen.has(k)) return false; seen.add(k); return true; });
   return <div className="careers-meta">{tags.map(([v, t]) => <span key={v} className={`rec-pill ${t ? `rec-pill--${t}` : ''}`}>{v}</span>)}</div>;
 };
@@ -94,7 +114,7 @@ export function CareerJob() {
       nav(`/careers/interview/${r.data.interview_token}`, { state: { track: r.data.token, ref: r.data.ref } });
     } catch (e2) { setError(err(e2)); } finally { setBusy(false); }
   };
-  if (missing) return <CareersShell><div className="rec-empty">This job is no longer open. <Link to="/careers">See all open jobs</Link></div></CareersShell>;
+  if (missing) return <CareersProblem text="This job is no longer open." />;
   if (!job) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
   const block = (title: string, text?: string) => text ? <section className="careers-block"><h3>{title}</h3><p className="careers-text">{text}</p></section> : null;
   return (
@@ -126,7 +146,7 @@ export function CareerJob() {
             <div className="rec-field"><label>Preferred interview mode *</label><select className="form-input" required value={f.interview_mode} onChange={set('interview_mode')}><option value="">Choose…</option><option value="walkin">Walk-in (at our office)</option><option value="online">Online (video call)</option></select></div>
             <div className="rec-field"><label>Current location</label><input className="form-input" maxLength={120} value={f.location} onChange={set('location')} /></div>
             <div className="rec-field"><label>Highest qualification</label><input className="form-input" maxLength={200} value={f.education} onChange={set('education')} /></div>
-            <div className="rec-field rec-field--full"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>
+            <div className="rec-field"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>
             <div className="rec-field rec-field--full"><label>Relevant skills</label><textarea className="form-input" rows={3} maxLength={2000} value={f.skills} onChange={set('skills')} /></div>
             <div className="rec-field rec-field--full">
               <label>Resume * <span className="rec-muted">PDF, DOC or DOCX · up to 5 MB</span></label>
@@ -168,7 +188,7 @@ export function CareerTrack() {
     if (!confirm('Withdraw your application?\n\nPlease note: after withdrawing, you cannot apply for this role again for the next 3 months. This cannot be undone.\n\nFor any issue, contact webanatomysocial@gmail.com.')) return;
     try { setA((await careersApi.withdraw(token!)).data); } catch (e) { alert(err(e)); }
   };
-  if (error) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
+  if (error) return <CareersProblem text={error} />;
   if (!a) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
   const closed = ['rejected', 'withdrawn'].includes(a.status_key);
   const idx = STEPS.findIndex(([, , keys]) => keys.includes(a.status_key));
@@ -189,7 +209,7 @@ export function CareerTrack() {
           <section className="careers-block">
             <h3>Video interview</h3>
             {a.interview.open ? (<>
-              <p className="careers-text">Please complete your short recorded video interview (camera and microphone needed). Available until {new Date(a.interview.expires_at).toLocaleDateString()}.</p>
+              <p className="careers-text">Please complete your short recorded video interview (camera and microphone needed). Available until {fmtDay(a.interview.expires_at)}.</p>
               <button className="btn-primary" onClick={startInterview}>Take the video interview</button>
             </>) : <p className="careers-text">The interview link has expired. Please contact us if you still wish to continue.</p>}
           </section>
@@ -199,7 +219,7 @@ export function CareerTrack() {
             <h3>Final interview</h3>
             <dl className="rec-kv">
               <dt>Type</dt><dd>{a.schedule.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}</dd>
-              <dt>Date</dt><dd>{a.schedule.date}</dd>
+              <dt>Date</dt><dd>{fmtDay(a.schedule.date)}</dd>
               <dt>Time</dt><dd>{a.schedule.start_time} – {a.schedule.end_time} IST</dd>
               {a.schedule.type === 'online' ? <><dt>Meeting link</dt><dd><a href={a.schedule.meeting_url} target="_blank" rel="noopener noreferrer">{a.schedule.meeting_url}</a></dd></>
                 : <><dt>Location</dt><dd>{a.schedule.location}</dd><dt>Address</dt><dd className="careers-text">{a.schedule.address}</dd></>}
@@ -225,18 +245,18 @@ export function CareerReschedule() {
     e.preventDefault(); setBusy(true);
     try { setV((await careersApi.requestReschedule(token!, f)).data); } catch (x) { alert(err(x)); } finally { setBusy(false); }
   };
-  if (error) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
+  if (error) return <CareersProblem text={error} />;
   if (!v) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
   return (
     <CareersShell>
       <div className="rec-card careers-detail">
         <p className="rec-muted" style={{ margin: 0 }}>Reference {v.ref}</p>
         <h1>Reschedule your final interview</h1>
-        <p className="careers-text">{v.name}, your interview for <b>{v.job}</b> is now {v.current.type === 'online' ? 'online' : 'a walk-in'} on <b>{v.current.date}</b>, {v.current.start_time} – {v.current.end_time} IST.</p>
+        <p className="careers-text">{v.name}, your interview for <b>{v.job}</b> is now {v.current.type === 'online' ? 'online' : 'a walk-in'} on <b>{fmtDay(v.current.date)}</b>, {v.current.start_time} – {v.current.end_time} IST.</p>
         {v.pending ? (
           <section className="careers-block">
             <h3>Request sent</h3>
-            <p className="careers-text">You asked for {v.pending.type === 'online' ? 'online' : 'walk-in'} on {v.pending.date} at {v.pending.start_time} IST. Our team will review it and email you the confirmed time. Until then, your current time stays.</p>
+            <p className="careers-text">You asked for {v.pending.type === 'online' ? 'online' : 'walk-in'} on {fmtDay(v.pending.date)} at {v.pending.start_time} IST. Our team will review it and email you the confirmed time. Until then, your current time stays.</p>
           </section>
         ) : (
           <form className="careers-block" onSubmit={submit}>
