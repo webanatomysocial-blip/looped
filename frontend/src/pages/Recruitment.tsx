@@ -127,11 +127,13 @@ function Recording({ parts }: { parts: { segment: number; url: string; audio_url
 }
 const dt = (v: any) => (v ? new Date(typeof v === 'number' || /^\d+$/.test(String(v)) ? Number(v) : String(v).includes('T') || String(v).includes('Z') ? v : String(v).replace(' ', 'T') + 'Z').toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const tone = (s: string) => (s === 'selected' || s === 'prelim_approved' ? 'good' : s === 'rejected' || s === 'withdrawn' ? 'bad' : ['admin_review', 'interview_admin_review'].includes(s) ? 'warn' : 'info');
-const QUEUES: [string, string, string][] = [
-  ['Video interview pending', 'prelim_pending', 'prelim_pending'], ['Manager review', 'interview_review,applied,under_review', 'awaiting_evaluation'],
-  ['Admin review', 'interview_admin_review,admin_review', 'awaiting_admin'],
-  ['Final interview to schedule', 'prelim_approved', ''], ['Final scheduled', 'final_scheduled', 'final_scheduled'], ['Final done · decide', 'final_completed', ''],
-  ['Shortlisted', 'selected', 'selected'], ['Rejected', 'rejected', 'rejected'],
+// The application pipeline in five plain steps (statuses grouped)
+const QUEUES: [string, string][] = [
+  ['Interview pending', 'prelim_pending'],
+  ['To review', 'interview_review,applied,under_review,interview_admin_review,admin_review'],
+  ['Final interview', 'prelim_approved,final_scheduled,final_completed'],
+  ['Shortlisted', 'selected'],
+  ['Rejected', 'rejected'],
 ];
 
 export default function Recruitment() {
@@ -322,7 +324,7 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
             <td><b>{r.name}</b><div className="rec-sub">{r.ref} · {r.email}</div></td>
             <td>{r.job_title}<div className="rec-sub">{r.department ?? ''}</div></td>
             <td>{Number(r.experience_years)} yrs</td>
-            <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span></td>
+            <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span>{r.reschedule_pending && <span className="rec-pill rec-pill--warn" style={{ marginLeft: 4 }}>Reschedule asked</span>}</td>
             <td>{dt(r.created_at)}</td>
             <td style={{ whiteSpace: 'nowrap' }}>{(r.interview_paused || ['integrity_review_required', 'suspicious', 'confirmed', 'monitoring'].includes(r.integrity_status)) && <span className={`rec-pill ${r.interview_paused || r.integrity_status === 'confirmed' ? 'rec-pill--bad' : 'rec-pill--warn'}`} style={{ marginRight: 4 }}>{r.interview_paused ? 'Paused' : INTEGRITY[r.integrity_status]}{r.warnings ? ` · ${r.warnings} warning${r.warnings > 1 ? 's' : ''}` : ''}</span>}{Number(r.tab_switches) ? <span className={`rec-pill ${Number(r.tab_switches) >= 3 ? 'rec-pill--warn' : ''}`}>{r.tab_switches}× · {Number(r.away_seconds)} s away</span> : <span className="rec-muted">—</span>}</td>
             <td style={{ whiteSpace: 'nowrap' }}>{mb(Number(r.storage_bytes || 0))}</td>
@@ -438,6 +440,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const [a, setA] = useState<any>(null); const [media, setMedia] = useState<{ status: string | null; final: string | null; parts: any[] } | null>(null);
   const [comment, setComment] = useState(''); const [busy, setBusy] = useState(false);
   const video = useRef<HTMLVideoElement>(null); const [now, setNow] = useState(0);
+  const [tab, setTab] = useState<'' | 'profile' | 'interview' | 'final' | 'history'>('');
   const seek = (t: number) => { const v = video.current; if (!v) return; v.currentTime = t; v.scrollIntoView({ behavior: 'smooth', block: 'center' }); void v.play().catch(() => undefined); };
   const [sched, setSched] = useState<any>(null);
   const load = async () => {
@@ -489,6 +492,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const current = useMemo(() => a?.schedules?.find((s: any) => s.status === 'scheduled'), [a]);
   if (!a) return <Drawer title="Application" onClose={onClose}><div className="drawer-body rec-muted">Loading…</div></Drawer>;
   const iv = a.interview;
+  // Opens where the work is: the video while it is reviewed, the final interview once it is approved
+  const view = tab || (['prelim_approved', 'final_scheduled', 'final_completed'].includes(a.status) ? 'final' : a.interview?.status === 'submitted' && !['selected', 'rejected', 'withdrawn'].includes(a.status) ? 'interview' : 'profile');
   const nextLabel = a.status === 'final_completed' ? 'Select candidate' : user?.role === 'admin' ? (['applied', 'under_review', 'interview_review'].includes(a.status) ? 'Approve (admin decision)' : 'Approve') : 'Approve (recommend)';
   return (
     <Drawer title={a.name} label={`${a.ref} · ${a.job?.title ?? ''}`} onClose={onClose}>
@@ -506,29 +511,30 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           </details>
         )}
         <p><span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span></p>
+        <div className="rec-tabs rec-dtabs">
+          {([['profile', 'Profile'], ['interview', 'Video interview'], ['final', 'Final interview'], ['history', 'History']] as const).map(([k, l]) => <button key={k} className={`rec-tab ${view === k ? 'rec-tab--on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
+        </div>
+        {view === 'profile' && <>
 
         <div className="rec-section"><h3>Candidate</h3>
           <dl className="rec-kv">
             <dt>Email</dt><dd>{a.email}</dd><dt>Phone</dt><dd>{a.phone}</dd><dt>Location</dt><dd>{a.location || '—'}</dd>
-            <dt>Qualification</dt><dd>{a.education || '—'}</dd><dt>Experience</dt><dd>{Number(a.experience_years)} years</dd><dt>Company</dt><dd>{a.company || '—'}</dd>
+            <dt>Qualification</dt><dd>{a.education || '—'}</dd><dt>Experience</dt><dd>{Number(a.experience_years)} years</dd><dt>Company</dt><dd>{a.company || '—'}</dd><dt>Interview preference</dt><dd>{a.interview_mode === 'online' ? 'Online' : a.interview_mode === 'walkin' ? 'Walk-in' : '—'}</dd>
             {a.current_ctc !== undefined && <><dt>Current CTC 🔒</dt><dd>{a.current_ctc || '—'}</dd><dt>Expected CTC 🔒</dt><dd>{a.expected_ctc || '—'}</dd></>}
             <dt>Skills</dt><dd className="careers-text">{a.skills || '—'}</dd><dt>Department</dt><dd>{a.job?.department ?? '—'}</dd><dt>Applied</dt><dd>{dt(a.created_at)}</dd>
           </dl>
           <div className="rec-actions"><button className="btn-secondary" onClick={() => resume()}>View resume</button><button className="btn-secondary" onClick={() => resume(true)}>Download</button><span className="rec-muted">{a.resume_name}</span></div>
         </div>
 
-        {(a.can.length > 0) && (
-          <div className="rec-section"><h3>Decision</h3>
-            <textarea className="form-input" rows={2} placeholder="Comment (required to reject)" value={comment} onChange={(e) => setComment(e.target.value)} />
-            <div className="rec-actions">
-              {a.can.includes('approve') && <button className="btn-primary" disabled={busy} onClick={() => decide('approve')}>{nextLabel}</button>}
-              {a.can.includes('reject') && <button className="rec-btn-danger" disabled={busy} onClick={() => decide('reject')}>Reject</button>}
-              {a.can.includes('reopen') && <button className="btn-secondary" disabled={busy} onClick={() => decide('reopen')}>Reopen</button>}
-            </div>
-            {user?.role === 'manager' && <p className="rec-muted">Your approval goes to an admin for the final decision.</p>}
+        {user?.role === 'admin' && a.status === 'rejected' && !a.reapply_override_at && (
+          <div className="rec-section"><h3>Reapplying</h3>
+            <p className="rec-muted">This candidate can apply for this role again 3 months after the rejection. An admin can allow it sooner.</p>
+            <div className="rec-actions"><button className="btn-secondary" disabled={busy} onClick={allowReapply}>Allow reapplying now…</button></div>
           </div>
         )}
-        {!a.can.length && ['admin_review', 'interview_admin_review', 'final_completed'].includes(a.status) && <p className="rec-muted">Waiting for an admin decision.</p>}
+
+        </>}
+        {view === 'interview' && <>
         {user?.role === 'admin' && a.status === 'prelim_pending' && iv?.status !== 'submitted' && (
           <div className="rec-section"><h3>Interview link</h3>
             <p className="rec-muted">Valid until {a.interview_expires_at ? dt(a.interview_expires_at) : '—'}. A new link stops the old one working; an interview already started keeps its questions and timer.</p>
@@ -539,13 +545,6 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             {newLink && <p className="rec-muted" style={{ wordBreak: 'break-all' }}>New link (also emailed when email is on): {newLink}</p>}
           </div>
         )}
-        {user?.role === 'admin' && a.status === 'rejected' && !a.reapply_override_at && (
-          <div className="rec-section"><h3>Reapplying</h3>
-            <p className="rec-muted">This candidate can apply for this role again 3 months after the rejection. An admin can allow it sooner.</p>
-            <div className="rec-actions"><button className="btn-secondary" disabled={busy} onClick={allowReapply}>Allow reapplying now…</button></div>
-          </div>
-        )}
-
         {iv && (
           <div className="rec-section"><h3>Video interview</h3>
             <dl className="rec-kv">
@@ -572,7 +571,10 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
 
         {!iv && a.evaluations.length > 0 && <div className="rec-section"><EvaluationNotes list={a.evaluations} videoNow={null} seek={seek} save={saveEval} /></div>}
 
-        {(a.status === 'prelim_approved' || a.schedules.length > 0) && (
+        {!iv && <p className="rec-muted">The candidate has not started the video interview yet.</p>}
+        </>}
+        {view === 'final' && !(a.status === 'prelim_approved' || a.schedules.length > 0) && <p className="rec-muted">The final interview can be scheduled once the video interview is approved.</p>}
+        {view === 'final' && (a.status === 'prelim_approved' || a.schedules.length > 0) && (
           <div className="rec-section"><h3>Final interview</h3>
             {a.schedules.map((s: any) => (
               <div key={s.id} className="rec-muted" style={{ fontSize: 13 }}>
@@ -581,8 +583,26 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 {s.interviewers.length > 0 && ` · with ${s.interviewers.map((p: any) => p.name).join(', ')}`}
               </div>
             ))}
+            {current && (a.reschedule_requests ?? []).filter((r: any) => r.status === 'pending').map((r: any) => {
+              // Same length as the current slot, starting at the requested time
+              const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+              const end = Math.min(mins(r.start_time) + mins(current.end_time) - mins(current.start_time), 23 * 60 + 59);
+              const endTime = `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
+              const base = { ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id };
+              return (
+                <div key={r.id} className="rec-resched">
+                  <b>The candidate asked to reschedule</b>
+                  <div>{r.type === 'online' ? 'Online' : 'Walk-in'} · {r.date} at {r.start_time} IST</div>
+                  <div className="rec-muted">Reason: {r.reason}</div>
+                  <div className="rec-actions">
+                    <button className="btn-primary" onClick={() => setSched({ ...base, type: r.type, date: r.date, start_time: r.start_time, end_time: endTime, request_id: r.id, location: base.location || a.schedule_defaults?.location, address: base.address || a.schedule_defaults?.address })}>Approve (review and send)</button>
+                    <button className="rec-btn-danger" onClick={async () => { const note = await ask({ title: 'Reject this request?', text: 'Next, set the time you want; the candidate gets the usual interview email.', input: { placeholder: 'Note (optional)' }, confirm: 'Reject and set my own time', danger: true }); if (note === null) return; try { await api.rejectReschedule(id, r.id, String(note || '')); await refresh(); setSched(base); } catch (e) { notify(err(e), 'bad'); } }}>Reject</button>
+                  </div>
+                </div>
+              );
+            })}
             <div className="rec-actions">
-              {a.status === 'prelim_approved' && <button className="btn-primary" onClick={() => setSched({ type: 'walkin' })}>Schedule final interview</button>}
+              {a.status === 'prelim_approved' && <button className="btn-primary" onClick={() => setSched({ type: a.interview_mode || 'walkin', location: a.schedule_defaults?.location ?? '', address: a.schedule_defaults?.address ?? '' })}>Schedule final interview</button>}
               {current && <>
                 <button className="btn-secondary" onClick={() => setSched({ ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id })}>Reschedule</button>
                 <button className="rec-btn-danger" onClick={async () => { const reason = await ask({ title: 'Cancel the final interview?', text: 'The candidate is told it is cancelled.', input: { placeholder: 'Reason for cancelling', required: true }, confirm: 'Cancel interview', danger: true }); if (!reason) return; try { await api.cancelSchedule(id, current.id, reason); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Cancel</button>
@@ -592,6 +612,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           </div>
         )}
 
+        {view === 'history' && <>
         <div className="rec-section"><h3>History</h3>
           <ul className="rec-timeline">{a.history.map((h: any) => (
             <li key={h.id}>
@@ -606,13 +627,25 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             <div><button className="rec-btn-danger" onClick={async () => { if ((await ask({ title: `Delete all data for ${a.name}?`, text: 'Their application, history, scores, interview, resume and recording are deleted for good.', confirm: 'Delete', danger: true })) === null) return; try { await api.deleteCandidate(id); onChanged(); onClose(); } catch (e) { notify(err(e), 'bad'); } }}>Delete candidate data</button></div>
           </div>
         )}
+        </>}
       </div>
-      {sched && <ScheduleForm appId={id} initial={sched} onClose={() => setSched(null)} onSaved={async () => { setSched(null); await refresh(); }} />}
+      {(a.can.length > 0 || ['admin_review', 'interview_admin_review', 'final_completed'].includes(a.status)) && (
+        <div className="rec-footer">
+          {a.can.length > 0 ? <>
+            <input className="form-input" placeholder={a.can.includes('reject') ? 'Comment (required to reject)' : 'Comment (optional)'} value={comment} onChange={(e) => setComment(e.target.value)} />
+            {a.can.includes('reject') && <button className="rec-btn-danger" disabled={busy} onClick={() => decide('reject')}>Reject</button>}
+            {a.can.includes('reopen') && <button className="btn-secondary" disabled={busy} onClick={() => decide('reopen')}>Reopen</button>}
+            {a.can.includes('approve') && <button className="btn-primary" disabled={busy} onClick={() => decide('approve')}>{nextLabel}</button>}
+          </> : <span className="rec-muted">Waiting for an admin decision.</span>}
+          {a.can.length > 0 && user?.role === 'manager' && <span className="rec-muted rec-footer-note">Your approval goes to an admin for the final decision.</span>}
+        </div>
+      )}
+      {sched && <ScheduleForm appId={id} prefers={a.interview_mode} initial={{ location: a.schedule_defaults?.location ?? '', address: a.schedule_defaults?.address ?? '', ...sched }} onClose={() => setSched(null)} onSaved={async () => { setSched(null); await refresh(); }} />}
     </Drawer>
   );
 }
 
-function ScheduleForm({ appId, initial, onClose, onSaved }: { appId: number; initial: any; onClose: () => void; onSaved: () => void }) {
+function ScheduleForm({ appId, prefers, initial, onClose, onSaved }: { appId: number; prefers?: string | null; initial: any; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({ type: 'walkin', date: '', start_time: '10:00', end_time: '11:00', location: '', address: '', meeting_url: '', instructions: '', interviewer_ids: [], ...initial });
   const [staff, setStaff] = useState<any[]>([]); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { api.staff().then((r) => setStaff(r.data)).catch(() => {}); }, []);
@@ -624,19 +657,26 @@ function ScheduleForm({ appId, initial, onClose, onSaved }: { appId: number; ini
   return (
     <Modal title={f.sid ? 'Reschedule final interview' : 'Schedule final interview'} onClose={onClose} size="lg">
       <div className="rec-grid2">
-        <div className="rec-field rec-field--full"><label>Interview type</label>
-          <div className="rec-actions">{[['walkin', 'Walk-in'], ['online', 'Online one-to-one']].map(([k, l]) => <button key={k} type="button" className={`rec-tab ${f.type === k ? 'rec-tab--on' : ''}`} onClick={() => setF({ ...f, type: k })}>{l}</button>)}</div>
+        <div className="rec-field rec-field--full"><label>Interview mode</label>
+          <select className="form-input" value={f.type} onChange={set('type')}><option value="walkin">Walk-in (at the office)</option><option value="online">Online (video call)</option></select>
+          {prefers && <span className="rec-muted">Candidate's preference: <b>{prefers === 'online' ? 'Online' : 'Walk-in'}</b>{prefers !== f.type ? ' (changed by you)' : ''}</span>}
         </div>
         <div className="rec-field"><label>Date *</label><input className="form-input" type="date" value={f.date} onChange={set('date')} /></div>
         <div className="rec-grid2"><div className="rec-field"><label>Start *</label><input className="form-input" type="time" value={f.start_time} onChange={set('start_time')} /></div><div className="rec-field"><label>End *</label><input className="form-input" type="time" value={f.end_time} onChange={set('end_time')} /></div></div>
         {f.type === 'walkin' ? (<>
-          <div className="rec-field"><label>Office location</label><input className="form-input" value={f.location ?? ''} onChange={set('location')} /></div>
+          <div className="rec-field"><label>Location (Google Maps link)</label><input className="form-input" value={f.location ?? ''} onChange={set('location')} /></div>
           <div className="rec-field rec-field--full"><label>Address *</label><textarea className="form-input" rows={2} value={f.address ?? ''} onChange={set('address')} /></div>
         </>) : <div className="rec-field rec-field--full"><label>Meeting link * (https://…)</label><input className="form-input" value={f.meeting_url ?? ''} onChange={set('meeting_url')} placeholder="https://meet.google.com/…" /></div>}
-        <div className="rec-field rec-field--full"><label>Interviewers</label>
-          <select className="form-input" multiple size={5} value={(f.interviewer_ids ?? []).map(String)} onChange={(e) => setF({ ...f, interviewer_ids: [...e.target.selectedOptions].map((o) => Number(o.value)) })}>
-            {staff.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.role})</option>)}
-          </select><span className="rec-muted">Hold Ctrl / ⌘ to pick several.</span>
+        <div className="rec-field rec-field--full"><label>Interviewers <span className="rec-muted">· {(f.interviewer_ids ?? []).length} selected · the first one ticked is the candidate's contact</span></label>
+          <div className="rec-checklist">
+            {staff.map((p) => {
+              const ids: number[] = f.interviewer_ids ?? []; const on = ids.includes(p.id);
+              return <label key={p.id} className={`rec-check ${on ? 'rec-check--on' : ''}`}>
+                <input type="checkbox" checked={on} onChange={() => setF({ ...f, interviewer_ids: on ? ids.filter((x) => x !== p.id) : [...ids, p.id] })} />
+                <span>{p.name}</span><span className="rec-muted">{p.role}</span>{on && ids[0] === p.id && <span className="rec-pill rec-pill--info">contact</span>}
+              </label>;
+            })}
+          </div>
         </div>
         <div className="rec-field rec-field--full"><label>Instructions for the candidate</label><textarea className="form-input" rows={2} value={f.instructions ?? ''} onChange={set('instructions')} /></div>
         {f.sid && <div className="rec-field rec-field--full"><label>Reason for the change</label><input className="form-input" value={f.reason ?? ''} onChange={set('reason')} /></div>}

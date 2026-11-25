@@ -19,7 +19,7 @@ const job = async (title: string, role_id: number | null) => {
   const d = getDB(); const [id] = await d('rec_jobs').insert({ public_id: `mon-${++n}`, title, role_id, status: 'published' });
   return d('rec_jobs').where({ id }).first();
 };
-const apply = (j: any, email: string, phone: string) => R.submitApplication(getDB(), j.public_id, { name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' }, RESUME);
+const apply = (j: any, email: string, phone: string) => R.submitApplication(getDB(), j.public_id, { name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA', interview_mode: 'walkin' }, RESUME);
 const app = (ref: string) => getDB()('rec_applications').where({ ref }).first();
 
 before(async () => {
@@ -39,7 +39,7 @@ test('one open application per person per role: another opening or a renamed one
   assert.ok(await apply(other, 'one@x.test', '+91 91111 11111'), 'a different role is open');
 });
 
-test('a rejection blocks the role by its id for three months, even through a renamed opening; withdrawing never blocks', async () => {
+test('a rejection blocks the role by its id for three months, even through a renamed opening; withdrawing blocks too', async () => {
   const a = await job('Motion Designer', role); const renamed = await job('Senior Motion Designer', role);
   const { ref } = await apply(a, 'rej@x.test', '9222200000');
   const x = await app(ref);
@@ -47,12 +47,8 @@ test('a rejection blocks the role by its id for three months, even through a ren
   await assert.rejects(apply(renamed, 'rej@x.test', '9222200000'), /apply for it again from/);
   const { ref: w } = await apply(a, 'wd@x.test', '9333300000');
   await R.withdraw(getDB(), await app(w));
-  assert.ok(await apply(renamed, 'wd@x.test', '9333300000'), 'withdrawn → may apply again');
-  // Withdraw again and apply again: every application is kept
-  const all = await getDB()('rec_applications').where({ email: 'wd@x.test' });
-  await R.withdraw(getDB(), all.find((r: any) => r.status !== 'withdrawn'));
-  assert.ok(await apply(a, 'wd@x.test', '9333300000'));
-  assert.equal((await getDB()('rec_applications').where({ email: 'wd@x.test' })).length, 3, 'history kept, nothing overwritten');
+  await assert.rejects(apply(renamed, 'wd@x.test', '9333300000'), /withdrawn[\s\S]*apply for it again from/, 'withdrawn → blocked for three months as well');
+  assert.equal((await getDB()('rec_applications').where({ email: 'wd@x.test' })).length, 1, 'history kept, nothing overwritten');
 });
 
 test('withdrawal never overwrites a decision made a moment earlier', async () => {
@@ -156,4 +152,11 @@ test('current and expected CTC are required and stored', async () => {
   const { ref } = await apply(j, 'ctc@x.test', '9123400000');
   const a = await app(ref);
   assert.equal(a.current_ctc, '4 LPA'); assert.equal(a.expected_ctc, '6 LPA');
+});
+
+test('the preferred interview mode is required and stored', async () => {
+  const j = await job('Mode role', roleB);
+  await assert.rejects(R.submitApplication(getDB(), j.public_id, { name: 'Asha', email: 'mode@x.test', phone: '9123500000', experience_years: 1, current_ctc: '1', expected_ctc: '2' }, RESUME), /preferred interview mode/);
+  const { ref } = await apply(j, 'mode@x.test', '9123500000');
+  assert.equal((await app(ref)).interview_mode, 'walkin');
 });

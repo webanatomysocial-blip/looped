@@ -246,3 +246,18 @@
 .rec-ident summary { cursor: pointer; }
 .rec-ident p { margin: 8px 0 4px; }
 .rec-ident ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+/* Interviewers: a tick list, several allowed */
+.rec-checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; max-height: 220px; overflow-y: auto; padding: 2px; }
+.rec-check { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; cursor: pointer; font-size: 13px; }
+.rec-check:hover { background: var(--bg-sand); }
+.rec-check--on { border-color: #6366f1; background: rgba(99,102,241,0.06); }
+.rec-check input { margin: 0; }
+
+/* Application window: tabs, and the decision bar fixed at the bottom */
+.rec-dtabs { position: sticky; top: -1px; z-index: 2; background: var(--bg-white, #fff); padding: 6px 0; margin: 4px 0 8px; }
+.rec-footer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid rgba(0,0,0,0.08); background: var(--bg-white, #fff); box-shadow: 0 -4px 16px rgba(0,0,0,0.05); flex-shrink: 0; }
+.rec-footer .form-input { flex: 1; min-width: 180px; }
+.rec-footer-note { flex-basis: 100%; font-size: 12px; }
+.rec-resched { background: #fff4e5; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin: 10px 0; font-size: 13px; color: #1a1a1a; }
+.rec-resched .rec-actions { margin-top: 8px; }

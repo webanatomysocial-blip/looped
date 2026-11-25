@@ -89,6 +89,12 @@ router.post('/applications/:token/interview-link', run(async (req) => {
   return { token };
 }));
 
+router.post('/resend-interview-link', run(async (req) => R.resendInterviewLinks(getDB(), String(req.body?.email ?? ''))));
+
+// ── Reschedule request (link in the final interview email) ──
+router.get('/reschedule/:token', run(async (req) => R.rescheduleView(getDB(), String(req.params.token))));
+router.post('/reschedule/:token', run(async (req) => R.requestReschedule(getDB(), String(req.params.token), req.body ?? {})));
+
 // ── Preliminary interview ──
 const sid = (req: Request) => req.header('x-interview-session');
 // Writes come only from the page that owns the interview (the latest one opened)

@@ -28,7 +28,7 @@ after(() => { getDB().destroy(); });
 async function live() {
   const [jid] = await db()('rec_jobs').insert({ public_id: `int-${++n}`, title: `Integrity ${n}`, role_id: role, status: 'published' });
   const job = await db()('rec_jobs').where({ id: jid }).first();
-  const { ref } = await R.submitApplication(db(), job.public_id, { name: 'C', email: `c${n}@x.test`, phone: `98000000${String(n).padStart(2, '0')}`, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' }, { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' }, noMail);
+  const { ref } = await R.submitApplication(db(), job.public_id, { name: 'C', email: `c${n}@x.test`, phone: `98000000${String(n).padStart(2, '0')}`, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA', interview_mode: 'walkin' }, { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' }, noMail);
   const a = await db()('rec_applications').where({ ref }).first();
   await R.startInterview(db(), a, { accepted: true, version: 'v1' });
   const iv = await db()('rec_interviews').where({ application_id: a.id }).first();
@@ -173,4 +173,40 @@ test('scheduling records in the history whether the candidate email went out', a
   await R.schedule(db(), admin, a.id, { type: 'online', date: '2027-01-05', start_time: '10:00', end_time: '10:30', meeting_url: 'https://meet.example/abc' }, mail);
   const h = await db()('rec_history').where({ application_id: a.id, action: 'email' }).first();
   assert.match(h.comment, /Interview details email FAILED/);
+});
+
+test('reschedule request: the link in the email files a request; approving it through the form moves the interview', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  let link = '';
+  const mail = { ...noMail, scheduled: async (_a: any, _j: string, s: any) => { link = s.reschedule_link; return 'ok'; } };
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-01-05', start_time: '10:00', end_time: '10:30', address: 'Office' }, mail);
+  const token = link.split('/').pop()!;
+  await assert.rejects(R.requestReschedule(db(), token, { date: '2027-01-09', start_time: '11:00', type: 'walkin' }), /reason/);
+  const v = await R.requestReschedule(db(), token, { date: '2027-01-09', start_time: '11:00', type: 'walkin', reason: 'exam' });
+  assert.equal(v.pending?.date, '2027-01-09');
+  const req = await db()('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).first();
+  const s = await db()('rec_schedules').where({ application_id: a.id }).first();
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: req.date, start_time: '11:00', end_time: '11:30', address: 'Office', request_id: req.id }, mail, s.id);
+  assert.equal((await db()('rec_reschedule_requests').where({ id: req.id }).first()).status, 'approved');
+  await assert.rejects(R.rescheduleView(db(), token), /no longer valid/, 'the old link stops after a new email');
+});
+
+test('a withdrawn application blocks reapplying for the same role for three months', async () => {
+  const { a, job } = await live();
+  await R.withdraw(db(), a);
+  await assert.rejects(R.submitApplication(db(), job.public_id, { name: 'C', email: a.email, phone: a.phone, experience_years: 1, current_ctc: '4', expected_ctc: '6', interview_mode: 'walkin' }, { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' }, noMail), /withdrawn[\s\S]*webanatomysocial@gmail\.com/);
+});
+
+test('lost interview link: re-sent only to the applicant, the old link stops, the reply is the same for unknown emails', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_pending', interview_expires_at: new Date(Date.now() + 86_400_000) });
+  const sent: string[] = [];
+  const mail = { ...noMail, interviewInvite: async (x: any) => { sent.push(x.email); return 'ok'; } };
+  const before = (await db()('rec_applications').where({ id: a.id }).first()).interview_hash;
+  const r1 = await R.resendInterviewLinks(db(), a.email.toUpperCase(), mail);
+  const r2 = await R.resendInterviewLinks(db(), 'nobody@x.test', mail);
+  assert.deepEqual(sent, [a.email]);
+  assert.notEqual((await db()('rec_applications').where({ id: a.id }).first()).interview_hash, before);
+  assert.equal(r1.message.replace(a.email, 'E'), r2.message.replace('nobody@x.test', 'E'));
 });

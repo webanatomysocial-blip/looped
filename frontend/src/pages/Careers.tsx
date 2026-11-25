@@ -46,6 +46,7 @@ export default function Careers() {
         <p>Find a role that fits you and apply in a few minutes.</p>
         <div className="careers-how">{HOW.map(([n, t, d]) => <div key={n}><i>{n}</i><b>{t}</b><span>{d}</span></div>)}</div>
       </section>
+      <LostLink />
       <div className="careers-search">
         <input className="form-input" placeholder="Search by role, skill or location" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" />
         <select className="form-input" value={dept} onChange={(e) => setDept(e.target.value)} aria-label="Department"><option value="">All departments</option>{depts.map((d) => <option key={d}>{d}</option>)}</select>
@@ -72,7 +73,7 @@ export function CareerJob() {
   const { id } = useParams();
   const nav = useNavigate();
   const [job, setJob] = useState<any>(null); const [missing, setMissing] = useState(false);
-  const [f, setF] = useState<Record<string, string>>({ name: '', email: '', phone: '', location: '', education: '', experience_years: '', current_ctc: '', expected_ctc: '', company: '', skills: '' });
+  const [f, setF] = useState<Record<string, string>>({ name: '', email: '', phone: '', location: '', education: '', experience_years: '', current_ctc: '', expected_ctc: '', interview_mode: '', company: '', skills: '' });
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   useEffect(() => { careersApi.job(id!).then((r) => setJob(r.data)).catch(() => setMissing(true)); }, [id]);
@@ -122,6 +123,7 @@ export function CareerJob() {
             <div className="rec-field"><label>Total experience (years) *</label><input className="form-input" type="number" min="0" max="60" step="0.5" required value={f.experience_years} onChange={set('experience_years')} /></div>
             <div className="rec-field"><label>Current CTC *</label><input className="form-input" required maxLength={60} placeholder="e.g. 4.5 LPA" value={f.current_ctc} onChange={set('current_ctc')} /></div>
             <div className="rec-field"><label>Expected CTC *</label><input className="form-input" required maxLength={60} placeholder="e.g. 6 LPA" value={f.expected_ctc} onChange={set('expected_ctc')} /></div>
+            <div className="rec-field"><label>Preferred interview mode *</label><select className="form-input" required value={f.interview_mode} onChange={set('interview_mode')}><option value="">Choose…</option><option value="walkin">Walk-in (at our office)</option><option value="online">Online (video call)</option></select></div>
             <div className="rec-field"><label>Current location</label><input className="form-input" maxLength={120} value={f.location} onChange={set('location')} /></div>
             <div className="rec-field"><label>Highest qualification</label><input className="form-input" maxLength={200} value={f.education} onChange={set('education')} /></div>
             <div className="rec-field rec-field--full"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>
@@ -163,7 +165,7 @@ export function CareerTrack() {
     try { const r = await careersApi.interviewLink(token!); nav(`/careers/interview/${r.data.token}`, { state: { track: token, ref: a?.ref } }); } catch (e) { alert(err(e)); }
   };
   const withdraw = async () => {
-    if (!confirm('Withdraw your application? This cannot be undone.')) return;
+    if (!confirm('Withdraw your application?\n\nPlease note: after withdrawing, you cannot apply for this role again for the next 3 months. This cannot be undone.\n\nFor any issue, contact webanatomysocial@gmail.com.')) return;
     try { setA((await careersApi.withdraw(token!)).data); } catch (e) { alert(err(e)); }
   };
   if (error) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
@@ -208,5 +210,65 @@ export function CareerTrack() {
         {a.can_withdraw && <section className="careers-block"><button className="rec-btn-danger" onClick={withdraw}>Withdraw application</button></section>}
       </div>
     </CareersShell>
+  );
+}
+
+// The candidate's own request to move the final interview (link in the interview email). The team approves or sets another time.
+export function CareerReschedule() {
+  const { token } = useParams();
+  const [v, setV] = useState<any>(null); const [error, setError] = useState('');
+  const [f, setF] = useState({ date: '', start_time: '', type: '', reason: '' }); const [busy, setBusy] = useState(false);
+  useEffect(() => { careersApi.rescheduleView(token!).then((r) => { setV(r.data); setF((x) => ({ ...x, type: r.data.current.type })); }).catch((e) => setError(err(e))); }, [token]);
+  const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
+  const today = new Date().toISOString().slice(0, 10);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true);
+    try { setV((await careersApi.requestReschedule(token!, f)).data); } catch (x) { alert(err(x)); } finally { setBusy(false); }
+  };
+  if (error) return <CareersShell><div className="rec-empty">{error}</div></CareersShell>;
+  if (!v) return <CareersShell><div className="rec-empty">Loading…</div></CareersShell>;
+  return (
+    <CareersShell>
+      <div className="rec-card careers-detail">
+        <p className="rec-muted" style={{ margin: 0 }}>Reference {v.ref}</p>
+        <h1>Reschedule your final interview</h1>
+        <p className="careers-text">{v.name}, your interview for <b>{v.job}</b> is now {v.current.type === 'online' ? 'online' : 'a walk-in'} on <b>{v.current.date}</b>, {v.current.start_time} – {v.current.end_time} IST.</p>
+        {v.pending ? (
+          <section className="careers-block">
+            <h3>Request sent</h3>
+            <p className="careers-text">You asked for {v.pending.type === 'online' ? 'online' : 'walk-in'} on {v.pending.date} at {v.pending.start_time} IST. Our team will review it and email you the confirmed time. Until then, your current time stays.</p>
+          </section>
+        ) : (
+          <form className="careers-block" onSubmit={submit}>
+            <div className="rec-field"><label>Preferred new date *</label><input className="form-input" type="date" required min={today} value={f.date} onChange={set('date')} /></div>
+            <div className="rec-field"><label>Preferred time (IST) *</label><input className="form-input" type="time" required value={f.start_time} onChange={set('start_time')} /></div>
+            <div className="rec-field"><label>Interview mode *</label>
+              <select className="form-input" required value={f.type} onChange={set('type')}><option value="walkin">Walk-in (at our office)</option><option value="online">Online</option></select></div>
+            <div className="rec-field"><label>Reason for rescheduling *</label><textarea className="form-input" required maxLength={1000} rows={3} value={f.reason} onChange={set('reason')} /></div>
+            <button className="btn-primary" disabled={busy}>{busy ? 'Sending…' : 'Send request'}</button>
+          </form>
+        )}
+      </div>
+    </CareersShell>
+  );
+}
+
+// Applied but did not take the video interview, and lost the email: the link is re-sent to the applicant's inbox
+function LostLink() {
+  const [email, setEmail] = useState(''); const [done, setDone] = useState(''); const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault(); setBusy(true);
+    try { setDone((await careersApi.resendInterviewLink(email)).data.message); } catch (x) { alert(err(x)); } finally { setBusy(false); }
+  };
+  return (
+    <details className="rec-card" style={{ margin: '16px 0', padding: '12px 16px' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Already applied? Lost your video interview link?</summary>
+      {done ? <p className="careers-text">{done}</p> : (
+        <form onSubmit={submit} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          <input className="form-input" type="email" required placeholder="The email you applied with" value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: '1 1 240px' }} aria-label="Email you applied with" />
+          <button className="btn-primary" disabled={busy}>{busy ? 'Sending…' : 'Email me the link'}</button>
+        </form>
+      )}
+    </details>
   );
 }

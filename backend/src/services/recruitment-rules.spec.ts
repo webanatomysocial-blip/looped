@@ -17,7 +17,7 @@ const mgr = { id: 2, role: 'manager', name: 'Mgr' } as R.Actor;
 const noMail: R.Mailer = { interviewInvite: async () => undefined, scheduled: async () => undefined, cancelled: async () => undefined, selected: async () => undefined, welcome: async () => undefined };
 let jobA: any, jobB: any, jobA2: any; let n = 0;
 const RESUME = { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' };
-const person = (email: string, phone = '+91 98765 43210') => ({ name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' });
+const person = (email: string, phone = '+91 98765 43210') => ({ name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA', interview_mode: 'walkin' });
 
 before(async () => {
   await initDB();
@@ -103,7 +103,7 @@ test('a rejected candidate cannot apply for the same role for three months (by e
   assert.ok(await apply(jobB, 'ravi@example.com', '+91 90000 11111'), 'another role is open right away');
 });
 
-test('withdrawing never blocks reapplying; a reopened application no longer counts', async () => {
+test('a withdrawal with no recorded date does not block; a reopened application no longer counts', async () => {
   const { ref } = await apply(jobA, 'withdrew@x.test', '9222222222');
   await at(ref, 'withdrawn');
   assert.equal(await R.reapplyBlockedUntil(getDB(), jobA, 'withdrew@x.test', '9222222222'), null);

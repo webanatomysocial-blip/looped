@@ -131,6 +131,7 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     // Salary: confidential, shown to admins only (never in emails, lists, exports or to managers)
     ['current_ctc', (t: Knex.AlterTableBuilder) => t.string('current_ctc', 60).nullable()],
     ['expected_ctc', (t: Knex.AlterTableBuilder) => t.string('expected_ctc', 60).nullable()],
+    ['interview_mode', (t: Knex.AlterTableBuilder) => t.string('interview_mode', 10).nullable()],   // the candidate's preferred final interview: walkin | online
   ] as const) if (!(await db.schema.hasColumn('rec_applications', col))) await db.schema.alterTable('rec_applications', add);
   // Careers roles: recruitment's own list, with no link to Loop's employee departments
   await make('rec_roles', (t) => { t.increments('id').primary(); t.string('name', 100).notNullable(); t.timestamp('created_at').defaultTo(db.fn.now()); });
@@ -161,6 +162,19 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     t.string('dedupe', 80).notNullable(); t.string('detail', 300); t.integer('position').nullable();
     t.timestamp('at').notNullable(); t.string('status', 20).notNullable().defaultTo('open');   // open | suspicious | confirmed | dismissed | technical | insufficient
     t.unique(['interview_id', 'dedupe']);
+  });
+  // A candidate's request to move their final interview, from the link in the interview email (stored hashed on the schedule)
+  if (!(await db.schema.hasColumn('rec_schedules', 'reschedule_hash'))) await db.schema.alterTable('rec_schedules', (t) => t.string('reschedule_hash', 64).nullable());
+  await make('rec_reschedule_requests', (t) => {
+    t.increments('id').primary();
+    t.integer('application_id').unsigned().notNullable().references('id').inTable('rec_applications').onDelete('CASCADE');
+    t.integer('schedule_id').unsigned().notNullable();
+    t.date('date').notNullable(); t.string('start_time', 5).notNullable(); t.string('type', 10).notNullable();
+    t.text('reason').notNullable();
+    t.string('status', 10).notNullable().defaultTo('pending');   // pending | approved | rejected
+    t.integer('decided_by').unsigned().nullable(); t.timestamp('decided_at').nullable(); t.text('decision_note');
+    t.timestamp('created_at').defaultTo(db.fn.now());
+    t.index(['status']);
   });
   if (!(await db.schema.hasColumn('rec_evaluations', 'video_at'))) await db.schema.alterTable('rec_evaluations', (t) => t.integer('video_at').nullable());   // seconds into the recording the note is about
   if (!(await db.schema.hasColumn('rec_questions', 'sort_order'))) await db.schema.alterTable('rec_questions', (t) => t.integer('sort_order').nullable());
@@ -334,13 +348,15 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your total experience in years');
   const current_ctc = clip(body.current_ctc, 60), expected_ctc = clip(body.expected_ctc, 60);
   if (!current_ctc || !expected_ctc) throw new ServiceError(400, 'Please enter your current CTC and expected CTC');
+  const interview_mode = body.interview_mode === 'online' ? 'online' : body.interview_mode === 'walkin' ? 'walkin' : null;
+  if (!interview_mode) throw new ServiceError(400, 'Please choose your preferred interview mode (walk-in or online)');
   return withApplyLock(`${email}|${phoneKey(phone)}`, async () => {
   // By email only: a shared phone is not proof of the same person (it is shown to reviewers as a possible conflict)
   if (await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).whereRaw('LOWER(email) = ?', [email]).whereNotIn('status', CLOSED).first('id')) throw new ServiceError(409, 'You already have an open application for this role. Use your tracking link to check its status.');
   // The video interview starts right after applying: the role must have questions
   if (!(await roleQuestions(db, job.role_id)).length) throw new ServiceError(503, 'Applications for this role open shortly. Please try again later.');
   const until = await reapplyBlockedUntil(db, job, email, phone);
-  if (until) throw new ServiceError(409, `You applied for this role recently and were not selected. You can apply for it again from ${until.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' })}. You are welcome to apply for other roles now.`);
+  if (until) throw new ServiceError(409, `You applied for this role recently (the application was not selected or was withdrawn). You can apply for it again from ${until.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' })}. You are welcome to apply for other roles now. For any issue, contact ${SUPPORT_EMAIL}.`);
   const token = newToken();
   const ref = newRef();
   const interviewToken = newToken();
@@ -349,7 +365,7 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   const [id] = await db('rec_applications').insert({
     ref, access_hash: sha(token), job_id: job.id, name, email, phone,
     location: clip(body.location, 120), education: clip(body.education, 200), experience_years: years,
-    company: clip(body.company, 160), skills: clip(body.skills, 2000), current_ctc, expected_ctc,
+    company: clip(body.company, 160), skills: clip(body.skills, 2000), current_ctc, expected_ctc, interview_mode,
     resume_file: resume.file, resume_name: clip(resume.name, 200), resume_mime: resume.mime,
     status: 'prelim_pending', interview_hash: sha(interviewToken), interview_expires_at: expires,
   });
@@ -381,13 +397,13 @@ export async function sameRoleJobIds(db: Knex, job: { id: number; title: string;
 }
 export async function reapplyBlockedUntil(db: Knex, job: { id: number; title: string; role_id?: number | null }, email: string, phone: string, now = new Date()): Promise<Date | null> {
   email = String(email).trim().toLowerCase();
-  const rejected = await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).where({ status: 'rejected' }).whereNull('reapply_override_at').select('id', 'email', 'phone');
+  const rejected = await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).whereIn('status', ['rejected', 'withdrawn']).whereNull('reapply_override_at').select('id', 'email', 'phone', 'status');
   const pk = phoneKey(phone);
   let latest: Date | null = null;
   for (const r of rejected) {
     if (String(r.email).toLowerCase() !== email && !(pk.length >= 7 && phoneKey(r.phone) === pk)) continue;
     // From the actual rejection (the latest move to "rejected"; a reopened-then-rejected application counts from the last)
-    const h = await db('rec_history').where({ application_id: r.id, to_status: 'rejected' }).orderBy('id', 'desc').first('created_at');
+    const h = await db('rec_history').where({ application_id: r.id, to_status: r.status }).orderBy('id', 'desc').first('created_at');
     const at = h?.created_at ? toDate(h.created_at) : null;
     if (!at) continue;
     const until = addCalendarMonths(at, 3);
@@ -434,6 +450,21 @@ export async function renewInterviewLink(db: Knex, actor: Actor, appId: number, 
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   if (token) await mail.interviewInvite(a, job?.title ?? '', token, expires);
   return { expires_at: expires, link: token ? `${site()}/careers/interview/${token}` : null };
+}
+
+/** "Lost your interview link?": a new link goes to the applicant's own inbox only; the reply never says whether the email exists. */
+export async function resendInterviewLinks(db: Knex, email: string, mail: Mailer = defaultMailer) {
+  email = clip(email, 190).toLowerCase();
+  if (!EMAIL.test(email)) throw new ServiceError(400, 'Please enter a valid email address');
+  const apps = await db('rec_applications').whereRaw('LOWER(email) = ?', [email]).where({ status: 'prelim_pending' }).where('interview_expires_at', '>', new Date());
+  for (const a of apps) {
+    const token = newToken();   // the old link stops working
+    await db('rec_applications').where({ id: a.id }).update({ interview_hash: sha(token), updated_at: new Date() });
+    const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
+    const sent = await mail.interviewInvite(a, job?.title ?? '', token, toDate(a.interview_expires_at));
+    await log(db, { application_id: a.id, action: 'email', actor: null, comment: `Interview link re-sent at the candidate's request: ${sent ?? ''}` });
+  }
+  return { message: `If there is a pending video interview for ${email}, we have emailed the link. Please check your inbox and spam folder. For any issue, contact ${SUPPORT_EMAIL}.` };
 }
 
 export async function byAccessToken(db: Knex, token: string) {
@@ -887,6 +918,8 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
     meeting_url: type === 'online' ? String(body.meeting_url) : null, interviewers: JSON.stringify(people), instructions: clip(body.instructions, 2000),
     updated_at: new Date(),
   };
+  const rtoken = newToken();
+  Object.assign(row, { reschedule_hash: sha(rtoken) });   // a new link with every email; the old one stops working
   if (resched) {
     const n = await db('rec_schedules').where({ id: scheduleId, application_id: a.id, status: 'scheduled' }).update(row);
     if (!n) throw new ServiceError(404, 'Scheduled interview not found');
@@ -898,7 +931,13 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   for (const p of people) await createNotification(p.id, `You are an interviewer for ${a.name} on ${date} at ${body.start_time}`, 'recruitment');
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   await mailInterviewers(db, a, job?.title ?? 'a role', { ...row, people }, resched, actor);
-  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people }, resched);
+  const first = people.length ? await db('users').where({ id: people[0].id }).first('email') : null;
+  // Saving the schedule settles the candidate's pending request: approved when it was opened from it, otherwise replaced
+  const reqId = Number(body.request_id) || 0;
+  const pending = await db('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).select('id');
+  for (const r of pending) await db('rec_reschedule_requests').where({ id: r.id }).update({ status: r.id === reqId ? 'approved' : 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: r.id === reqId ? null : 'a different time was set' });
+  if (pending.some((r: any) => r.id === reqId)) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${date} ${body.start_time}` });
+  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, contact: first?.email ?? null, reschedule_link: `${site()}/careers/reschedule/${rtoken}` }, resched);
   if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Interview details email ${sent}` });
 }
 
@@ -910,7 +949,7 @@ export async function mailInterviewers(db: Knex, a: any, job: string, row: any, 
   const out: string[] = [];
   for (const u of staff.filter((x: any) => x.email)) {
     const res = await sendMail({ email: u.email, name: u.name }, `${resched ? 'Updated: ' : ''}You are interviewing ${a.name} for ${job}`,
-      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${date}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`);
+      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${date}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
     await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name}: ${res}` });
     out.push(`${u.name}: ${res}`);
   }
@@ -928,6 +967,41 @@ export async function cancelSchedule(db: Knex, actor: Actor, appId: number, sche
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   const sent = await mail.cancelled(a, job?.title ?? '', clip(reason, 300));
   if (sent) await log(db, { application_id: appId, action: 'email', actor, comment: `Cancellation email ${sent}` });
+}
+
+// ── Reschedule requests from the candidate (public link in the interview email) ──
+export async function byRescheduleToken(db: Knex, token: string) {
+  const s = token && token.length >= 20 ? await db('rec_schedules').where({ reschedule_hash: sha(String(token)), status: 'scheduled' }).first() : null;
+  const a = s ? await db('rec_applications').where({ id: s.application_id, status: 'final_scheduled' }).first() : null;
+  if (!s || !a) throw new ServiceError(404, 'This reschedule link is no longer valid. Please use the link in your latest interview email.');
+  return { s, a };
+}
+export async function rescheduleView(db: Knex, token: string) {
+  const { s, a } = await byRescheduleToken(db, token);
+  const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
+  const pending = await db('rec_reschedule_requests').where({ schedule_id: s.id, status: 'pending' }).orderBy('id', 'desc').first('date', 'start_time', 'type', 'reason', 'created_at');
+  return { name: a.name, ref: a.ref, job: job?.title ?? '', current: { type: s.type, date: String(s.date).slice(0, 10), start_time: s.start_time, end_time: s.end_time }, pending: pending ? { ...pending, date: String(pending.date).slice(0, 10) } : null };
+}
+export async function requestReschedule(db: Knex, token: string, body: any) {
+  const { s, a } = await byRescheduleToken(db, token);
+  const date = String(body.date ?? '').slice(0, 10), type = body.type === 'online' ? 'online' : body.type === 'walkin' ? 'walkin' : null, reason = clip(body.reason, 1000);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !TIME.test(body.start_time)) throw new ServiceError(400, 'Please choose a date and time');
+  if (date < new Date().toISOString().slice(0, 10)) throw new ServiceError(400, 'Please choose a date that is not in the past');
+  if (!type) throw new ServiceError(400, 'Please choose walk-in or online');
+  if (!reason) throw new ServiceError(400, 'Please tell us the reason for rescheduling');
+  // One open request at a time: a new one replaces the previous
+  await db('rec_reschedule_requests').where({ schedule_id: s.id, status: 'pending' }).update({ status: 'rejected', decision_note: 'replaced by a newer request', decided_at: new Date() });
+  await db('rec_reschedule_requests').insert({ application_id: a.id, schedule_id: s.id, date, start_time: body.start_time, type, reason, status: 'pending' });
+  await log(db, { application_id: a.id, action: 'reschedule_requested', from: a.status, to: a.status, actor: null, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${date} at ${body.start_time} · ${reason}` });
+  const staff = await db('users').whereIn('role', ['admin', 'manager']).pluck('id');
+  for (const id of staff) await createNotification(id, `${a.name} (${a.ref}) asked to reschedule the final interview`, 'recruitment');
+  return rescheduleView(db, token);
+}
+/** Rejecting keeps the current time; the admin then sets their own time with the reschedule form (which emails as usual). */
+export async function rejectRescheduleRequest(db: Knex, actor: Actor, appId: number, reqId: number, note?: string) {
+  const n = await db('rec_reschedule_requests').where({ id: reqId, application_id: appId, status: 'pending' }).update({ status: 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: clip(note, 500) || null });
+  if (!n) throw new ServiceError(404, 'This request was already handled');
+  await log(db, { application_id: appId, action: 'reschedule_rejected', actor, comment: note || null });
 }
 
 export async function completeFinal(db: Knex, actor: Actor, appId: number, comment?: string) {
@@ -950,18 +1024,39 @@ const site = () => (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'h
 // Every candidate email is copied to the hiring leads (RECRUITMENT_CC on the server replaces the list, comma-separated)
 export const RECRUITMENT_CC = (process.env.RECRUITMENT_CC ?? 'supraja@mosol9.com,srujan@mosol9.com').split(',').map((x) => x.trim()).filter(Boolean);
 // Returns what happened, so the application history can say whether the candidate was really emailed
-async function sendMail(to: { email: string; name: string }, subject: string, body: string): Promise<string> {
+// The office for walk-in interviews: prefilled in the schedule form (editable there)
+export const OFFICE = {
+  location: 'https://share.google/vAhxADGa1dORAecE6',
+  address: 'Suite no: 202, 2nd floor, Vision Arcade Building, Jai Hind Gandhi Rd, Cyber Hills Colony, VIP Hills, Silicon Valley, Madhapur, Hyderabad, Telangana 500081',
+};
+export const SUPPORT_EMAIL = 'webanatomysocial@gmail.com';
+const HIRING_CONTACTS = ['srujan@mosol9.com', 'supraja@mosol9.com'];
+// Every candidate email ends with the same note: automated, and who to write to about the interview
+function withFooter(body: string, contact?: string | null) {
+  const to = contact ? `${contact} (copy ${HIRING_CONTACTS.join(' and ')})` : HIRING_CONTACTS.join(' or ');
+  const important = `For rescheduling your interview or any other issue, please email ${to}.`;
+  const text = `${body}\n\n---\nThis is an automated email; replies to it are not read.\n\nIMPORTANT: ${important}`;
+  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${esc(body).replace(/\n/g, '<br>')}`
+    + `<hr style="border:none;border-top:1px solid #ddd;margin:20px 0 12px"><p style="color:#777;font-size:12px;margin:0 0 10px">This is an automated email; replies to it are not read.</p>`
+    + `<div style="background:#fff4e5;border-left:4px solid #f59e0b;padding:10px 14px;border-radius:6px"><b>Important:</b> ${esc(important)}</div></div>`;
+  return { text, html };
+}
+async function sendMail(to: { email: string; name: string }, subject: string, body: string, contact?: string | null | false): Promise<string> {
   // Never during tests or when mail is not set up; a mail failure never blocks the decision
   if (process.env.RECRUITMENT_EMAILS === 'off') return 'not sent (emails are switched off)';
+  // false: an email to staff (interviewers), without the candidate footer
+  const { text, html } = contact === false ? { text: body, html: undefined } : withFooter(body, contact); body = text;
+  const cc = contact === false ? [] : RECRUITMENT_CC;   // staff (interviewer) emails are not copied to the hiring leads
   // Local testing: the email is printed in the server log, never sent
-  if (process.env.RECRUITMENT_EMAILS === 'log') { console.log(`\n[recruitment] EMAIL (test mode, not sent)\nTo: ${to.name} <${to.email}>\nCc: ${RECRUITMENT_CC.join(', ')}\nSubject: ${subject}\n\n${body}\n`); return `not sent (test mode: printed in the server log)`; }
+  if (process.env.RECRUITMENT_EMAILS === 'log') { console.log(`\n[recruitment] EMAIL (test mode, not sent)\nTo: ${to.name} <${to.email}>\nCc: ${cc.join(', ')}\nSubject: ${subject}\n\n${body}\n`); return `not sent (test mode: printed in the server log)`; }
   if (!process.env.GMAIL_USER) return 'not sent (email is not set up on the server)';
   // Local testing with real emails: everything goes to the sending Gmail account itself, never to candidates, staff or the CC list
   if (process.env.RECRUITMENT_EMAILS === 'self') {
-    try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [{ email: process.env.GMAIL_USER!, name: 'Loop test inbox' }], subject: `[TEST for ${to.email}] ${subject}`, body: `(Test mode: would go to ${to.name} <${to.email}>, cc ${RECRUITMENT_CC.join(', ')})\n\n${body}` }); return `test copy sent to ${process.env.GMAIL_USER} (not to ${to.email})`; }
+    try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [{ email: process.env.GMAIL_USER!, name: 'Loop test inbox' }], subject: `[TEST for ${to.email}] ${subject}`, body: `(Test mode: would go to ${to.name} <${to.email}>, cc ${cc.join(', ') || 'none'})\n\n${body}`, html: `<p style="color:#777">(Test mode: would go to ${to.name} &lt;${to.email}&gt;, cc ${cc.join(', ') || 'none'})</p>${html ?? body.replace(/</g, '&lt;').replace(/\n/g, '<br>')}` }); return `test copy sent to ${process.env.GMAIL_USER} (not to ${to.email})`; }
     catch (e: any) { return `FAILED test send (${String(e?.message ?? e).slice(0, 200)})`; }
   }
-  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc: RECRUITMENT_CC, subject, body }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${RECRUITMENT_CC.length ? ` (cc ${RECRUITMENT_CC.join(', ')})` : ''}`; }
+  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc, subject, body, html }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${cc.length ? ` (cc ${cc.join(', ')})` : ''}`; }
   catch (e: any) { console.error(`[recruitment] email "${subject}" could not be sent: ${e?.message ?? e}`); return `FAILED to send to ${to.email} (${String(e?.message ?? e).slice(0, 200)})`; }
 }
 export const defaultMailer: Mailer = {
@@ -970,7 +1065,7 @@ export const defaultMailer: Mailer = {
   interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `Your video interview for ${job}`,
     `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${expires.toDateString()}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
   scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Updated: ' : ''}Final interview for ${job}`,
-    `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${s.date}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).`),
+    `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${s.date}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).${s.reschedule_link ? `\n\nNeed a different date or time? Request a reschedule here:\n${s.reschedule_link}` : ''}`, s.contact),
   cancelled: (a, job, reason) => sendMail({ email: a.email, name: a.name }, `Final interview for ${job} has been cancelled`,
     `Hi ${a.name},\n\nYour final interview for ${job} has been cancelled${reason ? ` (${reason})` : ''}. We will share a new time with you soon.\n\nReference: ${a.ref}`),
   selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been shortlisted for ${job}`,

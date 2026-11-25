@@ -13,6 +13,7 @@ export async function sendEmail(opts: {
   cc?: string[];
   subject: string;
   body: string;
+  html?: string;
   fromName?: string;
   attachments?: { filename: string; path: string }[];
 }): Promise<void> {
@@ -24,7 +25,7 @@ export async function sendEmail(opts: {
     cc: opts.cc?.length ? opts.cc.join(', ') : undefined,
     subject: opts.subject,
     text: opts.body,
-    html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${opts.body.replace(/\n/g, '<br>')}</div>`,
+    html: opts.html ?? `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${opts.body.replace(/\n/g, '<br>')}</div>`,
     attachments: opts.attachments,
   });
 }

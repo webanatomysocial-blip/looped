@@ -136,7 +136,8 @@ router.get('/applications', run(async (req) => {
   const sizes = await R.storageBytes(getDB(), files);
   const away = await R.tabSwitches(getDB(), rows.map((r: any) => Number(r.id)));
   const integrity = new Map((await getDB()('rec_interviews').whereIn('application_id', rows.map((r: any) => r.id)).select('application_id', 'warnings', 'integrity_status', 'status')).map((i: any) => [Number(i.application_id), i]));
-  return rows.map((r: any) => ({ ...r, warnings: Number(integrity.get(Number(r.id))?.warnings ?? 0), integrity_status: integrity.get(Number(r.id))?.integrity_status ?? null, interview_paused: integrity.get(Number(r.id))?.status === 'paused', status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0, ...(away.get(Number(r.id)) ?? { tab_switches: 0, away_seconds: 0 }) }));
+  const resched = new Set((await getDB()('rec_reschedule_requests').whereIn('application_id', rows.map((r: any) => r.id)).where({ status: 'pending' }).pluck('application_id')).map(Number));
+  return rows.map((r: any) => ({ ...r, reschedule_pending: resched.has(Number(r.id)), warnings: Number(integrity.get(Number(r.id))?.warnings ?? 0), integrity_status: integrity.get(Number(r.id))?.integrity_status ?? null, interview_paused: integrity.get(Number(r.id))?.status === 'paused', status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0, ...(away.get(Number(r.id)) ?? { tab_switches: 0, away_seconds: 0 }) }));
 }));
 
 router.get('/applications/:id', run(async (req) => {
@@ -148,7 +149,8 @@ router.get('/applications/:id', run(async (req) => {
   const job = await db('rec_jobs as j').leftJoin('rec_roles as c', 'c.id', 'j.role_id').where('j.id', a.job_id).first('j.id', 'j.title', 'c.name as department');
   const history = await db('rec_history').where({ application_id: id }).orderBy('id');
   const evaluations = await db('rec_evaluations').where({ application_id: id }).orderBy('id', 'desc');
-  const schedules = (await db('rec_schedules').where({ application_id: id }).orderBy('id', 'desc')).map((s: any) => ({ ...s, date: String(s.date).slice(0, 10), interviewers: JSON.parse(s.interviewers || '[]') }));
+  const schedules = (await db('rec_schedules').where({ application_id: id }).orderBy('id', 'desc')).map(({ reschedule_hash, ...s }: any) => ({ ...s, date: String(s.date).slice(0, 10), interviewers: JSON.parse(s.interviewers || '[]') }));
+  const reschedule_requests = (await db('rec_reschedule_requests').where({ application_id: id }).orderBy('id', 'desc')).map((r: any) => ({ ...r, date: String(r.date).slice(0, 10) }));
   const iv = await db('rec_interviews').where({ application_id: id }).first();
   let interview: any = null;
   if (iv) {
@@ -173,10 +175,11 @@ router.get('/applications/:id', run(async (req) => {
     };
   }
   const identity = await R.identityMatches(db, a);
+
   const { access_hash, interview_hash, resume_file, current_ctc, expected_ctc, ...safe } = a;
   if (req.user!.role === 'admin') Object.assign(safe, { current_ctc, expected_ctc });   // salary: admins only
   return {
-    ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, job, history, evaluations, schedules, interview, identity,
+    ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, schedule_defaults: R.OFFICE, job, history, evaluations, schedules, reschedule_requests, interview, identity,
     // What this person may do now: the same rules the server applies
     can: ['approve', 'reject', 'reopen'].filter((x) => { try { R.decide(a.status, req.user!.role, x as R.Decision, 'applied'); return x !== 'reopen' || a.status === 'rejected'; } catch { return false; } }),
   };
@@ -229,6 +232,7 @@ router.post('/applications/:id/evaluations', run(async (req) => {
 router.post('/applications/:id/schedule', run(async (req) => R.schedule(getDB(), actor(req), num(req.params.id), req.body ?? {}), 201));
 router.put('/applications/:id/schedule/:sid', run(async (req) => R.schedule(getDB(), actor(req), num(req.params.id), req.body ?? {}, R.defaultMailer, num(req.params.sid))));
 router.post('/applications/:id/schedule/:sid/cancel', run(async (req) => R.cancelSchedule(getDB(), actor(req), num(req.params.id), num(req.params.sid), req.body?.reason)));
+router.post('/applications/:id/reschedule-requests/:rid/reject', run(async (req) => R.rejectRescheduleRequest(getDB(), actor(req), num(req.params.id), num(req.params.rid), req.body?.note)));
 router.post('/applications/:id/final-completed', run(async (req) => R.completeFinal(getDB(), actor(req), num(req.params.id), req.body?.comment)));
 router.post('/applications/bulk-delete', requireRoles('admin'), run(async (req) => R.deleteCandidates(getDB(), actor(req), Array.isArray(req.body?.ids) ? req.body.ids : [])));
 router.delete('/applications/:id', requireRoles('admin'), run(async (req) => R.deleteCandidate(getDB(), num(req.params.id))));

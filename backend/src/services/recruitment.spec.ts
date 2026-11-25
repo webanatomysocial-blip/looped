@@ -45,7 +45,7 @@ function applyForm(fields: Record<string, string>, file: { data: Buffer; name: s
   if (file) f.append('resume', new Blob([new Uint8Array(file.data)], { type: file.type }), file.name);
   return f;
 }
-const candidate = (email: string) => ({ name: 'Asha Rao', email, phone: '+91 98765 43210', location: 'Hyderabad', education: 'B.Tech', experience_years: '2', current_ctc: '4 LPA', expected_ctc: '6 LPA', company: 'Acme', skills: 'React, Node' });
+const candidate = (email: string) => ({ name: 'Asha Rao', email, phone: '+91 98765 43210', location: 'Hyderabad', education: 'B.Tech', experience_years: '2', current_ctc: '4 LPA', expected_ctc: '6 LPA', interview_mode: 'walkin', company: 'Acme', skills: 'React, Node' });
 
 let JOB = ''; let JOB_ID = 0;
 before(async () => {

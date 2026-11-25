@@ -36,7 +36,7 @@ import XLR8Tickets from './pages/XLR8Tickets';
 import TicketTypes from './pages/admin/TicketTypes';
 import AssistantControl from './pages/admin/AssistantControl';
 import Recruitment from './pages/Recruitment';
-import Careers, { CareerJob, CareerTrack } from './pages/Careers';
+import Careers, { CareerJob, CareerTrack, CareerReschedule } from './pages/Careers';
 import CareerInterview from './pages/CareerInterview';
 import LandingPage from './pages/LandingPage';
 import CalendarPage from './pages/Calendar';
@@ -270,6 +270,7 @@ function AppRoutes() {
       <Route path="/careers" element={<Careers />} />
       <Route path="/careers/track/:token" element={<CareerTrack />} />
       <Route path="/careers/interview/:token" element={<CareerInterview />} />
+      <Route path="/careers/reschedule/:token" element={<CareerReschedule />} />
       <Route path="/careers/:id" element={<CareerJob />} />
       {/* Recruitment: every admin and manager (the server enforces the same roles) */}
       <Route path="/recruitment" element={<PrivateRoute roles={['admin', 'manager']}><Recruitment /></PrivateRoute>} />
