@@ -494,10 +494,16 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     <Drawer title={a.name} label={`${a.ref} · ${a.job?.title ?? ''}`} onClose={onClose}>
       <div className="drawer-body" style={{ overflowY: 'auto' }}>
         {a.identity?.related?.length > 0 && (
-          <div className={a.identity.conflict ? 'iv-warn' : 'rec-muted'} style={{ marginBottom: 12 }}>
-            {a.identity.conflict ? <b>Possible identity conflict: check before deciding. Nothing is merged automatically. </b> : <b>Other applications from this person: </b>}
-            {a.identity.related.map((r: any) => `${r.ref} (${r.job ?? 'job'}, ${r.status_label}, same ${r.match})`).join(' · ')}
-          </div>
+          <details className={`rec-ident ${a.identity.conflict ? 'rec-ident--warn' : ''}`}>
+            <summary>
+              <b>{a.identity.conflict ? '⚠ Same phone number, different email' : 'Other applications from this person'}</b>
+              <span className="rec-muted"> · {a.identity.related.length} other application{a.identity.related.length > 1 ? 's' : ''} · show</span>
+            </summary>
+            {a.identity.conflict && <p className="rec-muted">Could be the same person with another email, or a shared phone. Check before deciding; nothing is merged.</p>}
+            <ul>
+              {a.identity.related.map((r: any) => <li key={r.ref}><b>{r.ref}</b> · {r.job ?? 'job'} · <span className="rec-muted">{r.status_label} · same {r.match}</span></li>)}
+            </ul>
+          </details>
         )}
         <p><span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span></p>
 

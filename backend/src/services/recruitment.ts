@@ -953,7 +953,14 @@ export const RECRUITMENT_CC = (process.env.RECRUITMENT_CC ?? 'supraja@mosol9.com
 async function sendMail(to: { email: string; name: string }, subject: string, body: string): Promise<string> {
   // Never during tests or when mail is not set up; a mail failure never blocks the decision
   if (process.env.RECRUITMENT_EMAILS === 'off') return 'not sent (emails are switched off)';
+  // Local testing: the email is printed in the server log, never sent
+  if (process.env.RECRUITMENT_EMAILS === 'log') { console.log(`\n[recruitment] EMAIL (test mode, not sent)\nTo: ${to.name} <${to.email}>\nCc: ${RECRUITMENT_CC.join(', ')}\nSubject: ${subject}\n\n${body}\n`); return `not sent (test mode: printed in the server log)`; }
   if (!process.env.GMAIL_USER) return 'not sent (email is not set up on the server)';
+  // Local testing with real emails: everything goes to the sending Gmail account itself, never to candidates, staff or the CC list
+  if (process.env.RECRUITMENT_EMAILS === 'self') {
+    try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [{ email: process.env.GMAIL_USER!, name: 'Loop test inbox' }], subject: `[TEST for ${to.email}] ${subject}`, body: `(Test mode: would go to ${to.name} <${to.email}>, cc ${RECRUITMENT_CC.join(', ')})\n\n${body}` }); return `test copy sent to ${process.env.GMAIL_USER} (not to ${to.email})`; }
+    catch (e: any) { return `FAILED test send (${String(e?.message ?? e).slice(0, 200)})`; }
+  }
   try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc: RECRUITMENT_CC, subject, body }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${RECRUITMENT_CC.length ? ` (cc ${RECRUITMENT_CC.join(', ')})` : ''}`; }
   catch (e: any) { console.error(`[recruitment] email "${subject}" could not be sent: ${e?.message ?? e}`); return `FAILED to send to ${to.email} (${String(e?.message ?? e).slice(0, 200)})`; }
 }

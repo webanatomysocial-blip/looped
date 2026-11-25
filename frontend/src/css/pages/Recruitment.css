@@ -239,3 +239,10 @@
 .rec-note-av { width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .rec-note-new { display: flex; flex-direction: column; gap: 8px; }
 .rec-score { width: auto; display: inline-block; padding: 4px 6px; }
+
+/* Other applications with the same phone or email: a one-line notice that opens into a list */
+.rec-ident { border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.rec-ident--warn { background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.4); }
+.rec-ident summary { cursor: pointer; }
+.rec-ident p { margin: 8px 0 4px; }
+.rec-ident ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
