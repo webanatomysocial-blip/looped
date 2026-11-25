@@ -49,9 +49,55 @@ function Verification({ v }: { v: any }) {
   );
 }
 // The verified recording: one file with sound and video together. A link that ran out is renewed on the spot.
-function FinalVideo({ url, refresh }: { url: string; refresh: () => void }) {
+function FinalVideo({ url, refresh, video, onTime }: { url: string; refresh: () => void; video?: React.RefObject<HTMLVideoElement>; onTime?: (s: number) => void }) {
   const retried = useRef(false);
-  return <video key={url} className="rec-video" controls preload="metadata" src={url} onError={() => { if (!retried.current) { retried.current = true; refresh(); } }} />;
+  return <video key={url} ref={video} className="rec-video" controls preload="metadata" src={url} onTimeUpdate={(e) => onTime?.(e.currentTarget.currentTime)} onError={() => { if (!retried.current) { retried.current = true; refresh(); } }} />;
+}
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+// The question on screen at this moment of the recording, and every question as a jump point
+function QuestionTrack({ questions, now, seek }: { questions: any[]; now: number; seek: (s: number) => void }) {
+  const timed = questions.filter((q) => q.video_at !== null && q.video_at !== undefined);
+  if (!timed.length) return null;
+  const cur = [...timed].reverse().find((q) => q.video_at <= now + 0.5) ?? timed[0];
+  return (
+    <div className="rec-qtrack">
+      <div className="rec-qnow"><span className="rec-qnow-n">Question {cur.position + 1} of {questions.length}</span>{cur.text}</div>
+      <div className="rec-qlist">
+        {timed.map((q) => <button key={q.position} className={`rec-qjump ${q === cur ? 'rec-qjump--on' : ''}`} title={q.text} onClick={() => seek(q.video_at)}><b>{mmss(q.video_at)}</b> Q{q.position + 1}</button>)}
+      </div>
+      {timed[0].approximate && <p className="rec-muted" style={{ margin: 0 }}>The page was reloaded during this interview, so times after the reload are approximate.</p>}
+    </div>
+  );
+}
+// Evaluations as comments under the video: who wrote it, when, and the moment of the recording it is about
+function EvaluationNotes({ list, videoNow, seek, save }: { list: any[]; videoNow: number | null; seek: (s: number) => void; save: (e: any) => Promise<boolean> }) {
+  const blank = { comments: '', overall: '', communication: '', confidence: '' };
+  const [ev, setEv] = useState<any>(blank); const [pin, setPin] = useState(true); const [busy, setBusy] = useState(false);
+  const submit = async () => { setBusy(true); if (await save({ ...ev, video_at: pin && videoNow !== null ? videoNow : null })) setEv(blank); setBusy(false); };
+  return (
+    <div className="rec-notes">
+      <h4>Evaluation comments ({list.length})</h4>
+      {list.length === 0 && <p className="rec-muted">No evaluations yet.</p>}
+      {[...list].reverse().map((e) => (
+        <div key={e.id} className="rec-note">
+          <div className="rec-note-head"><span className="rec-note-av">{(e.reviewer_name || '?').slice(0, 1).toUpperCase()}</span><b>{e.reviewer_name}</b><span className="rec-muted">{dt(e.created_at)}</span>
+            {e.video_at !== null && e.video_at !== undefined && <button className="rec-qjump" onClick={() => seek(e.video_at)}>▶ {mmss(e.video_at)}</button>}</div>
+          {(e.overall || e.communication || e.confidence) && <div className="rec-sub">{[['Overall', e.overall], ['Communication', e.communication], ['Confidence', e.confidence]].filter(([, v]) => v).map(([l, v]) => `${l} ${v}/5`).join(' · ')}</div>}
+          {e.observations && <p className="careers-text">{e.observations}</p>}{e.comments && <p className="careers-text">{e.comments}</p>}
+        </div>
+      ))}
+      <div className="rec-note-new">
+        <textarea className="form-input" rows={2} placeholder="Write your evaluation…" value={ev.comments} onChange={(e) => setEv({ ...ev, comments: e.target.value })} />
+        <div className="rec-actions">
+          {[['overall', 'Overall'], ['communication', 'Communication'], ['confidence', 'Confidence']].map(([k, l]) => (
+            <label key={k} className="rec-muted">{l} <select className="form-input rec-score" value={ev[k]} onChange={(x) => setEv({ ...ev, [k]: x.target.value })}><option value="">—</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+          ))}
+          {videoNow !== null && <label className="rec-muted"><input type="checkbox" checked={pin} onChange={(x) => setPin(x.target.checked)} /> at {mmss(videoNow)} in the video</label>}
+          <button className="btn-primary" disabled={busy || (!ev.comments.trim() && !ev.overall && !ev.communication && !ev.confidence)} onClick={submit}>{busy ? 'Saving…' : 'Post'}</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 // The recording can come in parts (Safari records 30-second parts; a reload starts a new one): played back to back
 function Recording({ parts }: { parts: { segment: number; url: string; audio_url?: string | null }[] }) {
@@ -391,7 +437,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   const { user } = useAuth();
   const [a, setA] = useState<any>(null); const [media, setMedia] = useState<{ status: string | null; final: string | null; parts: any[] } | null>(null);
   const [comment, setComment] = useState(''); const [busy, setBusy] = useState(false);
-  const [ev, setEv] = useState<any>({ overall: '', communication: '', confidence: '', observations: '', comments: '' });
+  const video = useRef<HTMLVideoElement>(null); const [now, setNow] = useState(0);
+  const seek = (t: number) => { const v = video.current; if (!v) return; v.currentTime = t; v.scrollIntoView({ behavior: 'smooth', block: 'center' }); void v.play().catch(() => undefined); };
   const [sched, setSched] = useState<any>(null);
   const load = async () => {
     const r = await api.application(id); setA(r.data);
@@ -438,7 +485,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
     try { await api.allowReapply(id, reason.trim()); await refresh(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); }
   };
   const resume = async (download = false) => { try { const r = await api.resumeLink(id); window.open(r.data.url + (download ? '&download=1' : ''), '_blank', 'noopener'); } catch (e) { notify(err(e), 'bad'); } };
-  const saveEval = async () => { try { await api.evaluate(id, ev); setEv({ overall: '', communication: '', confidence: '', observations: '', comments: '' }); await load(); } catch (e) { notify(err(e), 'bad'); } };
+  const saveEval = async (ev: any) => { try { await api.evaluate(id, ev); await load(); notify('Evaluation saved', 'good'); return true; } catch (e) { notify(err(e), 'bad'); return false; } };
   const current = useMemo(() => a?.schedules?.find((s: any) => s.status === 'scheduled'), [a]);
   if (!a) return <Drawer title="Application" onClose={onClose}><div className="drawer-body rec-muted">Loading…</div></Drawer>;
   const iv = a.interview;
@@ -458,6 +505,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           <dl className="rec-kv">
             <dt>Email</dt><dd>{a.email}</dd><dt>Phone</dt><dd>{a.phone}</dd><dt>Location</dt><dd>{a.location || '—'}</dd>
             <dt>Qualification</dt><dd>{a.education || '—'}</dd><dt>Experience</dt><dd>{Number(a.experience_years)} years</dd><dt>Company</dt><dd>{a.company || '—'}</dd>
+            {a.current_ctc !== undefined && <><dt>Current CTC 🔒</dt><dd>{a.current_ctc || '—'}</dd><dt>Expected CTC 🔒</dt><dd>{a.expected_ctc || '—'}</dd></>}
             <dt>Skills</dt><dd className="careers-text">{a.skills || '—'}</dd><dt>Department</dt><dd>{a.job?.department ?? '—'}</dd><dt>Applied</dt><dd>{dt(a.created_at)}</dd>
           </dl>
           <div className="rec-actions"><button className="btn-secondary" onClick={() => resume()}>View resume</button><button className="btn-secondary" onClick={() => resume(true)}>Download</button><span className="rec-muted">{a.resume_name}</span></div>
@@ -508,32 +556,15 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
               </div>
             )}
             {media && !iv.recording_deleted_at && (media.final
-              ? <FinalVideo url={media.final} refresh={() => loadMedia(iv.id)} />
+              ? <><FinalVideo url={media.final} refresh={() => loadMedia(iv.id)} video={video} onTime={setNow} /><QuestionTrack questions={iv.questions ?? []} now={now} seek={seek} /></>
               : media.parts.length > 0 && iv.processing_status !== 'processing' && <><p className="rec-muted">Not a verified recording: the uploaded parts as received.</p><Recording parts={media.parts} /></>)}
+            <EvaluationNotes list={a.evaluations} videoNow={media?.final ? Math.floor(now) : null} seek={seek} save={saveEval} />
             {(iv.incidents?.length > 0 || iv.status === 'paused' || iv.integrity_status) && <IntegrityReview iv={iv} admin={user?.role === 'admin'} done={refresh} />}
             {iv.monitoring && <Monitoring m={iv.monitoring} who={`${a.ref} ${a.name}`} verification={iv.processing_status} />}
           </div>
         )}
 
-        {(iv || a.evaluations.length > 0) && (
-          <div className="rec-section"><h3>Evaluation</h3>
-            {a.evaluations.map((e: any) => (
-              <div key={e.id} className="rec-card rec-card--pad" style={{ padding: 12 }}>
-                <b>{e.reviewer_name}</b> <span className="rec-muted">· {dt(e.created_at)}</span>
-                <div className="rec-sub">Overall {e.overall ?? '—'}/5 · Communication {e.communication ?? '—'}/5 · Confidence {e.confidence ?? '—'}/5</div>
-                {e.observations && <p className="careers-text" style={{ fontSize: 13 }}>{e.observations}</p>}{e.comments && <p className="careers-text" style={{ fontSize: 13 }}>{e.comments}</p>}
-              </div>
-            ))}
-            <div className="rec-grid2">
-              {[['overall', 'Overall'], ['communication', 'Communication'], ['confidence', 'Confidence / presentation']].map(([k, l]) => (
-                <div key={k} className="rec-field"><label>{l}</label><select className="form-input" value={ev[k]} onChange={(e) => setEv({ ...ev, [k]: e.target.value })}><option value="">—</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}</select></div>
-              ))}
-              <div className="rec-field rec-field--full"><label>Observations</label><textarea className="form-input" rows={2} value={ev.observations} onChange={(e) => setEv({ ...ev, observations: e.target.value })} /></div>
-              <div className="rec-field rec-field--full"><label>Comments</label><textarea className="form-input" rows={2} value={ev.comments} onChange={(e) => setEv({ ...ev, comments: e.target.value })} /></div>
-            </div>
-            <div><button className="btn-secondary" onClick={saveEval}>Save evaluation</button></div>
-          </div>
-        )}
+        {!iv && a.evaluations.length > 0 && <div className="rec-section"><EvaluationNotes list={a.evaluations} videoNow={null} seek={seek} save={saveEval} /></div>}
 
         {(a.status === 'prelim_approved' || a.schedules.length > 0) && (
           <div className="rec-section"><h3>Final interview</h3>

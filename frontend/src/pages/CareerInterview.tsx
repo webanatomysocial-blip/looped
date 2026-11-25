@@ -156,14 +156,38 @@ export default function CareerInterview() {
     setDeviceError('');
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: true });
-      s.getVideoTracks()[0]?.addEventListener('ended', () => note('camera_lost'));
+      s.getVideoTracks()[0]?.addEventListener('ended', () => { note('camera_lost', 'camera stopped'); void reconnectCamera(); });
       s.getAudioTracks()[0]?.addEventListener('ended', () => note('microphone_lost'));
       // The device silencing the microphone without ending it (seen on iPhone): logged with the moment it happened
       s.getAudioTracks()[0]?.addEventListener('mute', () => note('microphone_lost', 'muted by the device'));
       s.getAudioTracks()[0]?.addEventListener('unmute', () => note('recording_resumed', 'microphone back'));
       setStream(s);
+      return s;
     } catch (e: any) { setDeviceError(e?.name === 'NotAllowedError' ? 'Camera and microphone access was blocked. Allow access in your browser settings and try again.' : 'No camera or microphone was found. Please connect them and try again.'); }
   };
+
+  // The camera stopping mid-interview (phone locked, app switched, camera taken by another app): ask for it again and
+  // continue the recording in a new part with the picture; tried again whenever the page comes back into view
+  const reconnecting = useRef(false);
+  const reconnectCamera = async () => {
+    const r = rec.current;
+    if (reconnecting.current || finishing.current || pausedRef.current || !r.recorder || document.visibilityState !== 'visible') return;
+    reconnecting.current = true;
+    try {
+      const fresh = await getDevices();
+      if (!fresh?.getVideoTracks().some((t) => t.readyState === 'live') || finishing.current) return;
+      (r as any).stopNow?.(); await r.stopped;
+      if (finishing.current || pausedRef.current) { fresh.getTracks().forEach((t) => t.stop()); return; }
+      startRecorder(await recordable(fresh), r.seg + 1);
+      note('recording_resumed', 'camera reconnected');
+    } finally { reconnecting.current = false; }
+  };
+  useEffect(() => {
+    if (phase !== 'live') return;
+    const back = () => { if (document.visibilityState === 'visible' && stream && !stream.getVideoTracks().some((t) => t.readyState === 'live')) void reconnectCamera(); };
+    document.addEventListener('visibilitychange', back);
+    return () => document.removeEventListener('visibilitychange', back);
+  }, [phase, stream]);
 
   // A new recorder is a new segment: every segment is a complete, playable file
   const startRecorder = (s: MediaStream, segment: number, plain = false) => {
@@ -246,13 +270,19 @@ export default function CareerInterview() {
   const begin = async () => {
     if (!stream) return;
     setError('');
+    // A camera that stopped after the preview (phone locked, app switched, camera taken by another app) records sound only:
+    // ask for it again, and never start a recording without a picture
+    const camOk = (m?: MediaStream | null) => !!m?.getVideoTracks().some((t) => t.readyState === 'live');
+    let use = stream;
+    if (!camOk(use)) { use.getTracks().forEach((t) => t.stop()); use = (await getDevices()) ?? use; }
+    if (!camOk(use)) { setError('Your camera is not working right now. Close other apps using the camera, allow camera access, then try again.'); return; }
     try {
       const r = st.state === 'not_started' ? await careersApi.start(token!, st.consent_version) : await careersApi.interview(token!);
       setSt(r.data); position.current = r.data.position;
       if (st.state === 'in_progress') note('page_reload', 'resumed after leaving the page');
       note('device_info', `${pickMime() || 'browser default'} · ${navigator.userAgent}`.slice(0, 300));
       startedAt.current = performance.now();
-      startRecorder(await recordable(stream), r.data.segments);
+      startRecorder(await recordable(use), r.data.segments);
       note('recording_started', `part ${r.data.segments + 1}`);
       setPhase('live');
       try { await document.documentElement.requestFullscreen?.(); } catch { /* optional */ }

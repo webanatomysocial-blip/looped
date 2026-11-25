@@ -163,7 +163,7 @@ router.get('/applications/:id', run(async (req) => {
       processing_status: iv.processing_status ?? null, verified_at: iv.verified_at ?? null,
       verification: iv.verification ? JSON.parse(iv.verification) : null,
       segments: segments.map((s: any) => ({ n: s.n, bytes: s.bytes, done: s.done })),
-      questions: await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position').select('position', 'category', 'text', 'shown_at', 'answered_at'),
+      questions: await R.questionTimes(db, iv),
       events: await db('rec_events').where({ interview_id: iv.id }).orderBy('at').select('type', 'detail', 'position', 'at'),
       ...((await R.tabSwitches(db, [id])).get(id) ?? { tab_switches: 0, away_seconds: 0 }),
       monitoring: await R.monitoring(db, iv),
@@ -173,7 +173,8 @@ router.get('/applications/:id', run(async (req) => {
     };
   }
   const identity = await R.identityMatches(db, a);
-  const { access_hash, interview_hash, resume_file, ...safe } = a;
+  const { access_hash, interview_hash, resume_file, current_ctc, expected_ctc, ...safe } = a;
+  if (req.user!.role === 'admin') Object.assign(safe, { current_ctc, expected_ctc });   // salary: admins only
   return {
     ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, job, history, evaluations, schedules, interview, identity,
     // What this person may do now: the same rules the server applies
@@ -217,8 +218,10 @@ router.post('/applications/:id/evaluations', run(async (req) => {
   if (!(await db('rec_applications').where({ id }).first('id'))) throw new ServiceError(404, 'Application not found');
   const score = (v: unknown) => (v === undefined || v === null || v === '' ? null : (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 5 ? Number(v) : (() => { throw new ServiceError(400, 'Scores are from 1 to 5'); })()));
   const b = req.body ?? {};
-  const row = { application_id: id, reviewer_id: req.user!.id, reviewer_name: req.user!.name, overall: score(b.overall), communication: score(b.communication), confidence: score(b.confidence), observations: R.clip(b.observations, 4000), comments: R.clip(b.comments, 4000) };
-  if (!row.overall && !row.comments) throw new ServiceError(400, 'Add an overall score or a comment');
+  const at = Number(b.video_at);
+  const row = { application_id: id, reviewer_id: req.user!.id, reviewer_name: req.user!.name, overall: score(b.overall), communication: score(b.communication), confidence: score(b.confidence),
+    observations: R.clip(b.observations, 4000), comments: R.clip(b.comments, 4000), video_at: Number.isFinite(at) && at >= 0 && at < 86400 ? Math.floor(at) : null };
+  if (!row.overall && !row.communication && !row.confidence && !row.comments && !row.observations) throw new ServiceError(400, 'Write a comment or give a score');
   await db('rec_evaluations').insert(row);
   return db('rec_evaluations').where({ application_id: id }).orderBy('id', 'desc');
 }, 201));

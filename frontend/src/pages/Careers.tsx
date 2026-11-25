@@ -72,7 +72,7 @@ export function CareerJob() {
   const { id } = useParams();
   const nav = useNavigate();
   const [job, setJob] = useState<any>(null); const [missing, setMissing] = useState(false);
-  const [f, setF] = useState<Record<string, string>>({ name: '', email: '', phone: '', location: '', education: '', experience_years: '', company: '', skills: '' });
+  const [f, setF] = useState<Record<string, string>>({ name: '', email: '', phone: '', location: '', education: '', experience_years: '', current_ctc: '', expected_ctc: '', company: '', skills: '' });
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   useEffect(() => { careersApi.job(id!).then((r) => setJob(r.data)).catch(() => setMissing(true)); }, [id]);
@@ -120,6 +120,8 @@ export function CareerJob() {
             <div className="rec-field"><label>Email *</label><input className="form-input" type="email" required maxLength={190} value={f.email} onChange={set('email')} autoComplete="email" /></div>
             <div className="rec-field"><label>Phone *</label><input className="form-input" type="tel" required maxLength={20} value={f.phone} onChange={set('phone')} autoComplete="tel" /></div>
             <div className="rec-field"><label>Total experience (years) *</label><input className="form-input" type="number" min="0" max="60" step="0.5" required value={f.experience_years} onChange={set('experience_years')} /></div>
+            <div className="rec-field"><label>Current CTC *</label><input className="form-input" required maxLength={60} placeholder="e.g. 4.5 LPA" value={f.current_ctc} onChange={set('current_ctc')} /></div>
+            <div className="rec-field"><label>Expected CTC *</label><input className="form-input" required maxLength={60} placeholder="e.g. 6 LPA" value={f.expected_ctc} onChange={set('expected_ctc')} /></div>
             <div className="rec-field"><label>Current location</label><input className="form-input" maxLength={120} value={f.location} onChange={set('location')} /></div>
             <div className="rec-field"><label>Highest qualification</label><input className="form-input" maxLength={200} value={f.education} onChange={set('education')} /></div>
             <div className="rec-field rec-field--full"><label>Current / previous company</label><input className="form-input" maxLength={160} value={f.company} onChange={set('company')} /></div>

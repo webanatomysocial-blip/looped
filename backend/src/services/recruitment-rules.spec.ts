@@ -17,7 +17,7 @@ const mgr = { id: 2, role: 'manager', name: 'Mgr' } as R.Actor;
 const noMail: R.Mailer = { interviewInvite: async () => undefined, scheduled: async () => undefined, cancelled: async () => undefined, selected: async () => undefined, welcome: async () => undefined };
 let jobA: any, jobB: any, jobA2: any; let n = 0;
 const RESUME = { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' };
-const person = (email: string, phone = '+91 98765 43210') => ({ name: 'Asha', email, phone, experience_years: 1 });
+const person = (email: string, phone = '+91 98765 43210') => ({ name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' });
 
 before(async () => {
   await initDB();

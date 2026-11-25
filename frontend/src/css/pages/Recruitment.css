@@ -222,3 +222,20 @@
 .rec-int__list small { color: #a8a29e; white-space: nowrap; }
 .rec-int__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .rec-int__note { margin: 10px 0 0; }
+
+/* Question on screen during the recording, jump points, and evaluation comments under the video */
+.rec-qtrack { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
+.rec-qnow { background: rgba(99,102,241,0.08); border-left: 3px solid #6366f1; border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.45; color: var(--ink); transition: background 0.2s; }
+.rec-qnow-n { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #6366f1; margin-bottom: 2px; }
+.rec-qlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.rec-qjump { border: 1px solid rgba(0,0,0,0.12); background: #fff; border-radius: 99px; padding: 3px 10px; font-size: 12px; cursor: pointer; color: var(--ink); font-family: inherit; }
+.rec-qjump:hover { background: var(--bg-sand); }
+.rec-qjump--on { background: #6366f1; border-color: #6366f1; color: #fff; }
+.rec-notes { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.rec-notes h4 { margin: 0; font-size: 13px; }
+.rec-note { border: 1px solid rgba(0,0,0,0.08); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.rec-note p { margin: 6px 0 0; font-size: 13px; }
+.rec-note-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec-note-av { width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.rec-note-new { display: flex; flex-direction: column; gap: 8px; }
+.rec-score { width: auto; display: inline-block; padding: 4px 6px; }

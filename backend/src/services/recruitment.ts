@@ -128,6 +128,9 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
   for (const [col, add] of [
     ['whatsapp', (t: Knex.AlterTableBuilder) => t.string('whatsapp', 20).nullable()],
     ['whatsapp_confirmed_at', (t: Knex.AlterTableBuilder) => t.timestamp('whatsapp_confirmed_at').nullable()],
+    // Salary: confidential, shown to admins only (never in emails, lists, exports or to managers)
+    ['current_ctc', (t: Knex.AlterTableBuilder) => t.string('current_ctc', 60).nullable()],
+    ['expected_ctc', (t: Knex.AlterTableBuilder) => t.string('expected_ctc', 60).nullable()],
   ] as const) if (!(await db.schema.hasColumn('rec_applications', col))) await db.schema.alterTable('rec_applications', add);
   // Careers roles: recruitment's own list, with no link to Loop's employee departments
   await make('rec_roles', (t) => { t.increments('id').primary(); t.string('name', 100).notNullable(); t.timestamp('created_at').defaultTo(db.fn.now()); });
@@ -159,6 +162,7 @@ export async function ensureRecruitmentSchema(db: Knex): Promise<void> {
     t.timestamp('at').notNullable(); t.string('status', 20).notNullable().defaultTo('open');   // open | suspicious | confirmed | dismissed | technical | insufficient
     t.unique(['interview_id', 'dedupe']);
   });
+  if (!(await db.schema.hasColumn('rec_evaluations', 'video_at'))) await db.schema.alterTable('rec_evaluations', (t) => t.integer('video_at').nullable());   // seconds into the recording the note is about
   if (!(await db.schema.hasColumn('rec_questions', 'sort_order'))) await db.schema.alterTable('rec_questions', (t) => t.integer('sort_order').nullable());
   if (!(await db.schema.hasColumn('rec_roles', 'shuffle'))) await db.schema.alterTable('rec_roles', (t) => t.boolean('shuffle').notNullable().defaultTo(false));
   // A question's role (rec_roles.id; the column keeps its first name); none = asked in every role's interview
@@ -328,6 +332,8 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   if (!resume) throw new ServiceError(400, 'Please attach your resume (PDF, DOC or DOCX)');
   const years = Number(body.experience_years ?? 0);
   if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your total experience in years');
+  const current_ctc = clip(body.current_ctc, 60), expected_ctc = clip(body.expected_ctc, 60);
+  if (!current_ctc || !expected_ctc) throw new ServiceError(400, 'Please enter your current CTC and expected CTC');
   return withApplyLock(`${email}|${phoneKey(phone)}`, async () => {
   // By email only: a shared phone is not proof of the same person (it is shown to reviewers as a possible conflict)
   if (await db('rec_applications').whereIn('job_id', await sameRoleJobIds(db, job)).whereRaw('LOWER(email) = ?', [email]).whereNotIn('status', CLOSED).first('id')) throw new ServiceError(409, 'You already have an open application for this role. Use your tracking link to check its status.');
@@ -343,7 +349,7 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   const [id] = await db('rec_applications').insert({
     ref, access_hash: sha(token), job_id: job.id, name, email, phone,
     location: clip(body.location, 120), education: clip(body.education, 200), experience_years: years,
-    company: clip(body.company, 160), skills: clip(body.skills, 2000),
+    company: clip(body.company, 160), skills: clip(body.skills, 2000), current_ctc, expected_ctc,
     resume_file: resume.file, resume_name: clip(resume.name, 200), resume_mime: resume.mime,
     status: 'prelim_pending', interview_hash: sha(interviewToken), interview_expires_at: expires,
   });
@@ -891,7 +897,24 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   await log(db, { application_id: a.id, action: resched ? 'interview_rescheduled' : 'interview_scheduled', from: a.status, to: 'final_scheduled', actor, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${date} ${body.start_time}–${body.end_time}${body.reason ? ` · ${clip(body.reason, 300)}` : ''}` });
   for (const p of people) await createNotification(p.id, `You are an interviewer for ${a.name} on ${date} at ${body.start_time}`, 'recruitment');
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
-  await mail.scheduled(a, job?.title ?? '', { ...row, people }, resched);
+  await mailInterviewers(db, a, job?.title ?? 'a role', { ...row, people }, resched, actor);
+  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people }, resched);
+  if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Interview details email ${sent}` });
+}
+
+// Interviewers are emailed too (not only the in-app bell), and the history says whether each email went out
+export async function mailInterviewers(db: Knex, a: any, job: string, row: any, resched: boolean, actor: Actor | null) {
+  const people = Array.isArray(row.people) ? row.people : JSON.parse(row.interviewers || '[]');
+  const staff = people.length ? await db('users').whereIn('id', people.map((p: any) => p.id)).select('name', 'email') : [];
+  const date = String(row.date).slice(0, 10);
+  const out: string[] = [];
+  for (const u of staff.filter((x: any) => x.email)) {
+    const res = await sendMail({ email: u.email, name: u.name }, `${resched ? 'Updated: ' : ''}You are interviewing ${a.name} for ${job}`,
+      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${date}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`);
+    await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name}: ${res}` });
+    out.push(`${u.name}: ${res}`);
+  }
+  return out;
 }
 
 export async function cancelSchedule(db: Knex, actor: Actor, appId: number, scheduleId: number, reason: string, mail: Mailer = defaultMailer) {
@@ -903,7 +926,8 @@ export async function cancelSchedule(db: Knex, actor: Actor, appId: number, sche
   await db('rec_applications').where({ id: appId }).update({ status: 'prelim_approved', updated_at: new Date() });
   await log(db, { application_id: appId, action: 'interview_cancelled', from: 'final_scheduled', to: 'prelim_approved', actor, comment: reason });
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
-  await mail.cancelled(a, job?.title ?? '', clip(reason, 300));
+  const sent = await mail.cancelled(a, job?.title ?? '', clip(reason, 300));
+  if (sent) await log(db, { application_id: appId, action: 'email', actor, comment: `Cancellation email ${sent}` });
 }
 
 export async function completeFinal(db: Knex, actor: Actor, appId: number, comment?: string) {
@@ -916,18 +940,22 @@ export async function completeFinal(db: Knex, actor: Actor, appId: number, comme
 
 // ── Emails to candidates: only good news and interview details. A rejection is shown on their tracking page. ──
 export interface Mailer {
-  interviewInvite(a: any, job: string, token: string, expires: Date): Promise<void>;
-  scheduled(a: any, job: string, s: any, resched: boolean): Promise<void>;
-  cancelled(a: any, job: string, reason: string): Promise<void>;
-  selected(a: any, job: string): Promise<void>;
-  welcome(a: any, job: string, link: string): Promise<void>;
+  interviewInvite(a: any, job: string, token: string, expires: Date): Promise<string | void>;
+  scheduled(a: any, job: string, s: any, resched: boolean): Promise<string | void>;
+  cancelled(a: any, job: string, reason: string): Promise<string | void>;
+  selected(a: any, job: string): Promise<string | void>;
+  welcome(a: any, job: string, link: string): Promise<string | void>;
 }
 const site = () => (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://looped.in').replace(/\/$/, '');
-async function sendMail(to: { email: string; name: string }, subject: string, body: string) {
+// Every candidate email is copied to the hiring leads (RECRUITMENT_CC on the server replaces the list, comma-separated)
+export const RECRUITMENT_CC = (process.env.RECRUITMENT_CC ?? 'supraja@mosol9.com,srujan@mosol9.com').split(',').map((x) => x.trim()).filter(Boolean);
+// Returns what happened, so the application history can say whether the candidate was really emailed
+async function sendMail(to: { email: string; name: string }, subject: string, body: string): Promise<string> {
   // Never during tests or when mail is not set up; a mail failure never blocks the decision
-  if (process.env.RECRUITMENT_EMAILS === 'off' || !process.env.GMAIL_USER) return;
-  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], subject, body }); }
-  catch { console.error('[recruitment] candidate email could not be sent'); }
+  if (process.env.RECRUITMENT_EMAILS === 'off') return 'not sent (emails are switched off)';
+  if (!process.env.GMAIL_USER) return 'not sent (email is not set up on the server)';
+  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc: RECRUITMENT_CC, subject, body }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${RECRUITMENT_CC.length ? ` (cc ${RECRUITMENT_CC.join(', ')})` : ''}`; }
+  catch (e: any) { console.error(`[recruitment] email "${subject}" could not be sent: ${e?.message ?? e}`); return `FAILED to send to ${to.email} (${String(e?.message ?? e).slice(0, 200)})`; }
 }
 export const defaultMailer: Mailer = {
   welcome: (a, job, link) => sendMail({ email: a.email, name: a.name }, `Thank you for applying for ${job}`,
@@ -990,6 +1018,16 @@ export async function deleteRecording(db: Knex, actor: Actor, interviewId: numbe
 }
 
 /** How often each applicant left the interview tab, and for how long in total (from the "away N s" the page records). */
+// Each question with the second of the recording it appeared at, so reviewers see what the candidate is answering.
+// The recorder starts as the first question is shown, so the first question's server time is second 0.
+// shortcut: exact only for a recording in one part; after a reload the gap between parts is not in the video, so later times drift (flagged as approximate).
+export async function questionTimes(db: Knex, iv: any) {
+  const qs = await db('rec_interview_questions').where({ interview_id: iv.id }).orderBy('position').select('position', 'category', 'text', 'shown_at', 'answered_at');
+  const t0 = qs[0]?.shown_at ? toDate(qs[0].shown_at).getTime() : null;
+  const approximate = JSON.parse(iv.segments || '[]').length > 1;
+  return qs.map((q: any) => ({ ...q, video_at: t0 !== null && q.shown_at ? Math.max(0, Math.round((toDate(q.shown_at).getTime() - t0) / 1000)) : null, approximate }));
+}
+
 export async function tabSwitches(db: Knex, appIds: number[]): Promise<Map<number, { tab_switches: number; away_seconds: number }>> {
   const out = new Map<number, { tab_switches: number; away_seconds: number }>();
   if (!appIds.length) return out;

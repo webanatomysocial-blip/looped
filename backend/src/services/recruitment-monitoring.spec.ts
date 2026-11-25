@@ -19,7 +19,7 @@ const job = async (title: string, role_id: number | null) => {
   const d = getDB(); const [id] = await d('rec_jobs').insert({ public_id: `mon-${++n}`, title, role_id, status: 'published' });
   return d('rec_jobs').where({ id }).first();
 };
-const apply = (j: any, email: string, phone: string) => R.submitApplication(getDB(), j.public_id, { name: 'Asha', email, phone, experience_years: 1 }, RESUME);
+const apply = (j: any, email: string, phone: string) => R.submitApplication(getDB(), j.public_id, { name: 'Asha', email, phone, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' }, RESUME);
 const app = (ref: string) => getDB()('rec_applications').where({ ref }).first();
 
 before(async () => {
@@ -148,4 +148,12 @@ test('identity: other applications by the same email or phone are listed; a phon
   const m = await R.identityMatches(getDB(), await app(ref));
   assert.equal(m.related.length, 1); assert.equal(m.related[0].match, 'phone'); assert.equal(m.conflict, true);
   assert.equal((await getDB()('rec_applications').where({ email: 'id@x.test' })).length, 1, 'nothing merged');
+});
+
+test('current and expected CTC are required and stored', async () => {
+  const j = await job('CTC role', roleB);
+  await assert.rejects(R.submitApplication(getDB(), j.public_id, { name: 'Asha', email: 'ctc@x.test', phone: '9123400000', experience_years: 1 }, RESUME), /current CTC and expected CTC/);
+  const { ref } = await apply(j, 'ctc@x.test', '9123400000');
+  const a = await app(ref);
+  assert.equal(a.current_ctc, '4 LPA'); assert.equal(a.expected_ctc, '6 LPA');
 });

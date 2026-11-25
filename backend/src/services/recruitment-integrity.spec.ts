@@ -28,7 +28,7 @@ after(() => { getDB().destroy(); });
 async function live() {
   const [jid] = await db()('rec_jobs').insert({ public_id: `int-${++n}`, title: `Integrity ${n}`, role_id: role, status: 'published' });
   const job = await db()('rec_jobs').where({ id: jid }).first();
-  const { ref } = await R.submitApplication(db(), job.public_id, { name: 'C', email: `c${n}@x.test`, phone: `98000000${String(n).padStart(2, '0')}`, experience_years: 1 }, { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' }, noMail);
+  const { ref } = await R.submitApplication(db(), job.public_id, { name: 'C', email: `c${n}@x.test`, phone: `98000000${String(n).padStart(2, '0')}`, experience_years: 1, current_ctc: '4 LPA', expected_ctc: '6 LPA' }, { file: 'r.pdf', name: 'r.pdf', mime: 'application/pdf' }, noMail);
   const a = await db()('rec_applications').where({ ref }).first();
   await R.startInterview(db(), a, { accepted: true, version: 'v1' });
   const iv = await db()('rec_interviews').where({ application_id: a.id }).first();
@@ -155,4 +155,22 @@ test('warnings and review status are stored, so a reload or a server restart kee
   const fresh = await db()('rec_applications').where({ id: a.id }).first();   // as after a restart: read back from the database
   assert.equal((await R.interviewState(db(), fresh)).warnings.count, 1);
   assert.equal((await db()('rec_incidents').where({ interview_id: iv.id })).length, 1);
+});
+
+test('each question gets the second of the recording it appeared at (first question = 0:00)', async () => {
+  const { iv } = await live();
+  const t0 = new Date('2026-01-01T10:00:00Z');
+  await db()('rec_interview_questions').where({ interview_id: iv.id, position: 0 }).update({ shown_at: t0 });
+  await db()('rec_interview_questions').where({ interview_id: iv.id, position: 1 }).update({ shown_at: new Date(t0.getTime() + 95_000) });
+  const q = await R.questionTimes(db(), await ivOf(iv.id));
+  assert.deepEqual(q.slice(0, 2).map((x: any) => x.video_at), [0, 95]); assert.equal(q[2]?.video_at ?? null, null, 'not shown yet: no time');
+});
+
+test('scheduling records in the history whether the candidate email went out', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  const mail = { ...noMail, scheduled: async () => 'FAILED to send to c@x.test (bad login)' };
+  await R.schedule(db(), admin, a.id, { type: 'online', date: '2027-01-05', start_time: '10:00', end_time: '10:30', meeting_url: 'https://meet.example/abc' }, mail);
+  const h = await db()('rec_history').where({ application_id: a.id, action: 'email' }).first();
+  assert.match(h.comment, /Interview details email FAILED/);
 });

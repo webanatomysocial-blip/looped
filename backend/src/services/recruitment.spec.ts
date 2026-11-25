@@ -45,7 +45,7 @@ function applyForm(fields: Record<string, string>, file: { data: Buffer; name: s
   if (file) f.append('resume', new Blob([new Uint8Array(file.data)], { type: file.type }), file.name);
   return f;
 }
-const candidate = (email: string) => ({ name: 'Asha Rao', email, phone: '+91 98765 43210', location: 'Hyderabad', education: 'B.Tech', experience_years: '2', company: 'Acme', skills: 'React, Node' });
+const candidate = (email: string) => ({ name: 'Asha Rao', email, phone: '+91 98765 43210', location: 'Hyderabad', education: 'B.Tech', experience_years: '2', current_ctc: '4 LPA', expected_ctc: '6 LPA', company: 'Acme', skills: 'React, Node' });
 
 let JOB = ''; let JOB_ID = 0;
 before(async () => {
@@ -375,7 +375,7 @@ test('scheduling: walk-in needs an address, online needs an https link; reschedu
   assert.equal((await getDB()('rec_applications').where({ id: APP_ID }).first()).status, 'prelim_approved');
   await ok('mgr', 'POST', url, 201, { type: 'online', date: '2099-01-12', start_time: '09:00', end_time: '09:30', meeting_url: 'https://meet.example.com/xyz' });
   const acts = (await getDB()('rec_history').where({ application_id: APP_ID }).orderBy('id')).map((h: any) => h.action);
-  assert.deepEqual(acts.slice(-4), ['interview_scheduled', 'interview_rescheduled', 'interview_cancelled', 'interview_scheduled']);
+  assert.deepEqual(acts.filter((x: string) => x !== 'email').slice(-4), ['interview_scheduled', 'interview_rescheduled', 'interview_cancelled', 'interview_scheduled']);
 });
 
 test('final decision: after the final interview, only an admin selects; the candidate is emailed', async () => {
