@@ -346,7 +346,7 @@ export async function submitApplication(db: Knex, jobPublicId: string, body: any
   if (!name || !EMAIL.test(email) || !PHONE.test(phone)) throw new ServiceError(400, 'Please enter your full name, a valid email and a valid phone number');
   if (!resume) throw new ServiceError(400, 'Please attach your resume (PDF, DOC or DOCX)');
   const years = Number(body.experience_years ?? 0);
-  if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your total experience in years');
+  if (!Number.isFinite(years) || years < 0 || years > 60) throw new ServiceError(400, 'Please enter your relevant experience in years');
   const current_ctc = clip(body.current_ctc, 60), expected_ctc = clip(body.expected_ctc, 60);
   if (!current_ctc || !expected_ctc) throw new ServiceError(400, 'Please enter your current CTC and expected CTC');
   const interview_mode = body.interview_mode === 'online' ? 'online' : body.interview_mode === 'walkin' ? 'walkin' : null;
