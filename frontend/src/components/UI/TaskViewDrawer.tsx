@@ -241,7 +241,7 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
                 if (!user || !['employee', 'manager'].includes(user.role)) return null;
                 if (['pending_approval', 'draft', 'completed', 'cancelled'].includes(task.status)) return null;
                 // A review stage the ticket has already reached needs no acceptance: the review itself (Approve / Send back) is the action
-                const inReview = (a: any) => ['pending_manager', 'pending_admin'].includes(task.xlr8_status) && Number(a.stage_idx ?? 0) <= Number(task.xlr8_stage_idx ?? 0);
+                const inReview = (a: any) => task.xlr8_status === 'completed' || task.created_by === user.id || Number(a.stage_idx ?? 0) < Number(task.xlr8_stage_idx ?? 0) || (['pending_manager', 'pending_admin'].includes(task.xlr8_status) && Number(a.stage_idx ?? 0) <= Number(task.xlr8_stage_idx ?? 0));
                 const mine = (task.stage_assignees ?? task.assignees ?? []).filter((a: any) => a.user_id === user.id && !Number(a.skipped) && (a.acceptance_status === 'pending' || a.acceptance_status == null) && !inReview(a));
                 if (!mine.length) return null;
                 const ticket = !!task.ticket_type_id;

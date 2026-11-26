@@ -565,7 +565,8 @@ export async function createTicket(db: Db, actor: Actor, body: any): Promise<Rec
       if (skipped) {
         rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: 0, skipped: 1, is_reviewer: isReviewer });
       } else if (sa.user_ids.length > 0) {
-        for (const uid of sa.user_ids) rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped: 0, is_reviewer: isReviewer });
+        // The creator never has to accept their own ticket
+        for (const uid of sa.user_ids) rows.push({ task_id: id, user_id: uid, assignee_role: sType, acceptance_status: Number(uid) === Number(actor.id) ? 'accepted' : 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped: 0, is_reviewer: isReviewer });
       } else if (estH) {
         // No user yet (review stage with no pre-assignment)
         rows.push({ task_id: id, user_id: null, assignee_role: sType, acceptance_status: 'pending', stage_idx: sa.stage_idx, est_hours: estH, skipped: 0, is_reviewer: isReviewer });

@@ -1807,6 +1807,13 @@ async function createSchema(): Promise<void> {
     .select('ta.id');
   if (halfAccepted.length) await db('task_assignees').whereIn('id', halfAccepted.map((r: any) => r.id)).update({ acceptance_status: 'accepted' });
 
+  // Stale accept prompts: the creator's own stages, and stages the ticket already passed or finished
+  const stalePrompts = await db('task_assignees as ta').join('tasks as t', 't.id', 'ta.task_id')
+    .whereNotNull('t.ticket_type_id').where((q: any) => q.whereNull('ta.acceptance_status').orWhere('ta.acceptance_status', 'pending'))
+    .where((q: any) => q.whereRaw('ta.user_id = t.created_by').orWhereRaw('ta.stage_idx < COALESCE(t.xlr8_stage_idx, 0)').orWhere('t.xlr8_status', 'completed'))
+    .select('ta.id');
+  if (stalePrompts.length) await db('task_assignees').whereIn('id', stalePrompts.map((r: any) => r.id)).update({ acceptance_status: 'accepted' });
+
   // Repair tickets stuck on "awaiting acceptance" although the current-stage assignee already accepted
   const stuck = await db('tasks as t')
     .join('task_assignees as ta', function (this: any) { this.on('ta.task_id', 't.id').andOn('ta.stage_idx', 't.xlr8_stage_idx'); })
