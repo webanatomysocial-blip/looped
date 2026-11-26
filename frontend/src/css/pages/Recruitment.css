@@ -314,3 +314,13 @@
   .careers form.careers-block .btn-primary, .careers-block > .btn-primary, .careers-problem .btn-primary { align-self: stretch; width: 100%; text-align: center; }
   .careers .form-input { font-size: 16px; }   /* below 16px iPhones zoom into the field */
 }
+
+/* "Needs your action" strip on Applications */
+.rec-todo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.rec-todo__card { display: flex; align-items: baseline; gap: 10px; text-align: left; padding: 14px 16px; border-radius: 14px; border: 1px solid rgba(0,0,0,0.08); background: #fff; font: inherit; cursor: pointer; color: var(--ink-muted); }
+.rec-todo__card b { font-size: 24px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rec-todo__card span { font-size: 13px; font-weight: 600; }
+.rec-todo__card--due { border-color: rgba(245,158,11,0.55); background: #fffaf0; }
+.rec-todo__card--due b { color: #b45309; }
+.rec-todo__card--on { outline: 2px solid var(--ink); }
+@media (max-width: 760px) { .rec-todo { grid-template-columns: 1fr; gap: 8px; } .rec-todo__card { padding: 10px 14px; } .rec-todo__card b { font-size: 20px; } }

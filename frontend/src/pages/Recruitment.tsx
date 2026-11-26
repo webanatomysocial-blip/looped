@@ -138,7 +138,7 @@ const QUEUES: [string, string][] = [
 ];
 
 export default function Recruitment() {
-  const [tab, setTab] = useState<Tab>('overview');
+  const [tab, setTab] = useState<Tab>('applications');
   const [queue, setQueue] = useState('');
   const [departments, setDepartments] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -146,7 +146,7 @@ export default function Recruitment() {
   useEffect(loadRefs, []);
   const { user } = useAuth();
   // Recruitment-wide settings are admin-only (the server enforces it too)
-  const tabs: [Tab, string][] = [['overview', 'Overview'], ['openings', 'Job Openings'], ['applications', 'Applications'], ['questions', 'Question Bank'], ...(user?.role === 'admin' ? [['settings', 'Settings'] as [Tab, string]] : [])];
+  const tabs: [Tab, string][] = [['applications', 'Applications'], ['overview', 'Overview'], ['openings', 'Job Openings'], ['questions', 'Question Bank'], ...(user?.role === 'admin' ? [['settings', 'Settings'] as [Tab, string]] : [])];
   return (
     <Layout>
       <DialogHost />
@@ -289,7 +289,18 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
   const [rows, setRows] = useState<any[] | null>(null); const [open, setOpen] = useState<number | null>(null);
   const isAdmin = useAuth().user?.role === 'admin';
   const [picked, setPicked] = useState<Set<number>>(new Set()); const [deleting, setDeleting] = useState(false);
-  const load = () => api.applications({ ...f, status: queue || undefined, search: search || undefined }).then((r) => { setRows(r.data); setPicked(new Set()); }).catch(() => setRows([]));
+  const [counts, setCounts] = useState<any>(null);
+  const load = () => {
+    api.overview().then((r) => setCounts(r.data)).catch(() => {});
+    return api.applications({ ...f, ...(queue === 'reschedule' ? { needs: 'reschedule' } : { status: queue || undefined }), search: search || undefined }).then((r) => { setRows(r.data); setPicked(new Set()); }).catch(() => setRows([]));
+  };
+  const countOf = (statuses: string) => (counts ? statuses.split(',').reduce((n, s) => n + Number(counts.by_status?.[s] ?? 0), 0) : null);
+  // What needs someone now: the first thing on the page, one click to the list
+  const ACTIONS: [string, string, number | null, string][] = [
+    ['reschedule', 'Reschedule requests', counts ? Number(counts.reschedule_pending ?? 0) : null, 'Candidates asking for a new interview time'],
+    [QUEUES[1][1], 'To review', countOf(QUEUES[1][1]), 'Applications and video interviews waiting for a decision'],
+    ['prelim_approved', 'Final interview to schedule', countOf('prelim_approved'), 'Approved, but no interview booked yet'],
+  ];
   const mb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(0, Math.round(b / 1024))} KB`);
   const total = (rows ?? []).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
   const pickedBytes = (rows ?? []).filter((r) => picked.has(r.id)).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
@@ -307,9 +318,17 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
   };
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [JSON.stringify(f), queue, search]);
   return (<>
+    <div className="rec-todo">
+      {ACTIONS.map(([q, label, n, hint]) => (
+        <button key={q} className={`rec-todo__card ${n ? 'rec-todo__card--due' : ''} ${queue === q ? 'rec-todo__card--on' : ''}`} onClick={() => setQueue(queue === q ? '' : q)} title={hint}>
+          <b>{n ?? '…'}</b><span>{label}</span>
+        </button>
+      ))}
+    </div>
     <div className="rec-tabs">
-      <button className={`rec-tab ${!queue ? 'rec-tab--on' : ''}`} onClick={() => setQueue('')}>All</button>
-      {QUEUES.map(([l, s]) => <button key={s} className={`rec-tab ${queue === s ? 'rec-tab--on' : ''}`} onClick={() => setQueue(s)}>{l}</button>)}
+      <button className={`rec-tab ${!queue ? 'rec-tab--on' : ''}`} onClick={() => setQueue('')}>All{counts && <span className="rec-count">{counts.applications_total}</span>}</button>
+      <button className={`rec-tab ${queue === 'reschedule' ? 'rec-tab--on' : ''}`} onClick={() => setQueue('reschedule')}>Reschedule requests{counts && <span className="rec-count">{counts.reschedule_pending ?? 0}</span>}</button>
+      {QUEUES.map(([l, s]) => <button key={s} className={`rec-tab ${queue === s ? 'rec-tab--on' : ''}`} onClick={() => setQueue(s)}>{l}{countOf(s) !== null && <span className="rec-count">{countOf(s)}</span>}</button>)}
     </div>
     <Filters jobs={jobs} departments={departments} f={f} setF={setF} extra={<input className="form-input" placeholder="Search name, email, reference" value={search} onChange={(e) => setSearch(e.target.value)} />} />
     <div className="rec-actions" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
@@ -494,7 +513,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   if (!a) return <Drawer title="Application" onClose={onClose}><div className="drawer-body rec-muted">Loading…</div></Drawer>;
   const iv = a.interview;
   // Opens where the work is: the video while it is reviewed, the final interview once it is approved
-  const view = tab || (['prelim_approved', 'final_scheduled', 'final_completed'].includes(a.status) ? 'final' : a.interview?.status === 'submitted' && !['selected', 'rejected', 'withdrawn'].includes(a.status) ? 'interview' : 'profile');
+  const askedReschedule = (a.reschedule_requests ?? []).some((r: any) => r.status === 'pending');
+  const view = tab || (askedReschedule || ['prelim_approved', 'final_scheduled', 'final_completed'].includes(a.status) ? 'final' : a.interview?.status === 'submitted' && !['selected', 'rejected', 'withdrawn'].includes(a.status) ? 'interview' : 'profile');
   const nextLabel = a.status === 'final_completed' ? 'Select candidate' : user?.role === 'admin' ? (['applied', 'under_review', 'interview_review'].includes(a.status) ? 'Approve (admin decision)' : 'Approve') : 'Approve (recommend)';
   return (
     <Drawer title={a.name} label={`${a.ref} · ${a.job?.title ?? ''}`} onClose={onClose}>
@@ -512,6 +532,9 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
           </details>
         )}
         <p><span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span></p>
+        {askedReschedule && view !== 'final' && (
+          <div className="rec-resched"><b>The candidate asked to reschedule.</b> <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => setTab('final')}>Review the request</button></div>
+        )}
         <div className="rec-tabs rec-dtabs">
           {([['profile', 'Profile'], ['interview', 'Video interview'], ['final', 'Final interview'], ['history', 'History']] as const).map(([k, l]) => <button key={k} className={`rec-tab ${view === k ? 'rec-tab--on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
         </div>
@@ -596,9 +619,9 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                   <div>{r.type === 'online' ? 'Online' : 'Walk-in'} · {fmtDay(r.date)} at {r.start_time} IST</div>
                   <div className="rec-muted">Reason: {r.reason}</div>
                   <div className="rec-actions">
-                    <button className="btn-primary" onClick={() => setSched({ ...base, type: r.type, date: r.date, start_time: r.start_time, end_time: endTime, request_id: r.id, location: base.location || a.schedule_defaults?.location, address: base.address || a.schedule_defaults?.address })}>{r.status === 'pending' ? 'Approve (review and send)' : 'Approve it instead'}</button>
+                    <button className="btn-primary" onClick={() => setSched({ ...base, type: r.type, date: r.date, start_time: r.start_time, end_time: endTime, request_id: r.id, location: base.location || a.schedule_defaults?.location, address: base.address || a.schedule_defaults?.address })}>{r.status === 'pending' ? 'Accept this new time' : 'Accept their time instead'}</button>
                     {r.status === 'rejected' && <button className="btn-secondary" onClick={() => setSched(base)}>Set my own time</button>}
-                    {r.status === 'pending' && <button className="rec-btn-danger" onClick={async () => { const note = await ask({ title: 'Reject this request?', text: 'Next, set the time you want; the candidate gets the usual interview email.', input: { placeholder: 'Note (optional)' }, confirm: 'Reject and set my own time', danger: true }); if (note === null) return; try { await api.rejectReschedule(id, r.id, String(note || '')); await refresh(); setSched(base); } catch (e) { notify(err(e), 'bad'); } }}>Reject</button>}
+                    {r.status === 'pending' && <button className="rec-btn-danger" onClick={async () => { const note = await ask({ title: 'Decline this reschedule request?', text: 'The candidate stays in the process. Next, set the time you want; they get the usual interview email.', input: { placeholder: 'Note (optional)' }, confirm: 'Decline and set my own time', danger: true }); if (note === null) return; try { await api.rejectReschedule(id, r.id, String(note || '')); await refresh(); setSched(base); } catch (e) { notify(err(e), 'bad'); } }}>Decline request</button>}
                   </div>
                 </div>
               );
@@ -606,8 +629,8 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             <div className="rec-actions">
               {a.status === 'prelim_approved' && <button className="btn-primary" onClick={() => setSched({ type: a.interview_mode || 'walkin', location: a.schedule_defaults?.location ?? '', address: a.schedule_defaults?.address ?? '' })}>Schedule final interview</button>}
               {current && <>
-                <button className="btn-secondary" onClick={() => setSched({ ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id })}>Reschedule</button>
-                <button className="rec-btn-danger" onClick={async () => { const reason = await ask({ title: 'Cancel the final interview?', text: 'The candidate is told it is cancelled.', input: { placeholder: 'Reason for cancelling', required: true }, confirm: 'Cancel interview', danger: true }); if (!reason) return; try { await api.cancelSchedule(id, current.id, reason); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Cancel</button>
+                <button className="btn-secondary" onClick={() => setSched({ ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id })}>Change time</button>
+                <button className="rec-btn-danger" onClick={async () => { const reason = await ask({ title: 'Cancel the final interview?', text: 'The candidate is told it is cancelled.', input: { placeholder: 'Reason for cancelling', required: true }, confirm: 'Cancel interview', danger: true }); if (!reason) return; try { await api.cancelSchedule(id, current.id, reason); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Cancel interview</button>
                 <button className="btn-secondary" onClick={async () => { try { await api.finalCompleted(id); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Mark interview completed</button>
               </>}
             </div>
@@ -635,7 +658,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         <div className="rec-footer">
           {a.can.length > 0 ? <>
             <input className="form-input" placeholder={a.can.includes('reject') ? 'Comment (required to reject)' : 'Comment (optional)'} value={comment} onChange={(e) => setComment(e.target.value)} />
-            {a.can.includes('reject') && <button className="rec-btn-danger" disabled={busy} onClick={() => decide('reject')}>Reject</button>}
+            {a.can.includes('reject') && <button className="rec-btn-danger" disabled={busy} onClick={() => decide('reject')}>Reject candidate</button>}
             {a.can.includes('reopen') && <button className="btn-secondary" disabled={busy} onClick={() => decide('reopen')}>Reopen</button>}
             {a.can.includes('approve') && <button className="btn-primary" disabled={busy} onClick={() => decide('approve')}>{nextLabel}</button>}
           </> : <span className="rec-muted">Waiting for an admin decision.</span>}

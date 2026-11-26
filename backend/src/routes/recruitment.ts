@@ -127,6 +127,8 @@ router.get('/applications', run(async (req) => {
   if (job_id) q.where('a.job_id', Number(job_id));
   if (department_id) q.where('j.role_id', Number(department_id));
   if (status) q.whereIn('a.status', String(status).split(','));
+  // Candidates waiting for an answer to their reschedule request
+  if (req.query.needs === 'reschedule') q.whereIn('a.id', getDB()('rec_reschedule_requests').where({ status: 'pending' }).select('application_id'));
   if (from) q.where('a.created_at', '>=', `${String(from).slice(0, 10)} 00:00:00`);
   if (to) q.where('a.created_at', '<=', `${String(to).slice(0, 10)} 23:59:59`);
   if (search) { const s = `%${String(search).slice(0, 60)}%`; q.where((w: any) => w.where('a.name', 'like', s).orWhere('a.email', 'like', s).orWhere('a.ref', 'like', s)); }
@@ -318,6 +320,7 @@ router.get('/overview', run(async (req) => {
     awaiting_manager: c('interview_review', 'applied', 'under_review'), awaiting_admin: c('interview_admin_review', 'admin_review'),
     prelim_pending: c('prelim_pending'), awaiting_evaluation: c('interview_review', 'interview_admin_review'), to_schedule: c('prelim_approved'),
     final_scheduled: c('final_scheduled'), selected: c('selected'), rejected: c('rejected'), withdrawn: c('withdrawn'),
+    reschedule_pending: Number((await db('rec_reschedule_requests as r').join('rec_applications as a', 'a.id', 'r.application_id').where('r.status', 'pending').where('a.status', 'final_scheduled').countDistinct({ n: 'r.application_id' }).first() as any)?.n ?? 0),
     by_status: byStatus, per_job: perJob.map((r: any) => ({ ...r, applications: Number(r.applications), selected: Number(r.selected ?? 0), rejected: Number(r.rejected ?? 0) })),
   };
 }));
