@@ -211,8 +211,13 @@ export default function Tasks() {
 
   useEffect(() => { load(podTab); }, [podTab]);
 
+  // Loaded with the page and again whenever the form needs it while the list is empty: one failed request (e.g. during a
+  // server restart) used to leave the Ticket Type list empty until a full page reload
+  const [typesError, setTypesError] = useState(false);
+  const loadTypes = () => xlr8Api.getTicketTypes().then((r) => { setTicketTypes(r.data); setTypesError(false); }).catch(() => setTypesError(true));
+  useEffect(() => { if (canCreate && form.project_id && !ticketTypes.length) loadTypes(); }, [form.project_id]);
   useEffect(() => {
-    if (canCreate) xlr8Api.getTicketTypes().then((r) => setTicketTypes(r.data)).catch(() => {});
+    if (canCreate) loadTypes();
     if (canCreate) categoriesApi.list().then((r) => setCategories(r.data || [])).catch(() => {});
   }, [canCreate]);
 
@@ -1378,7 +1383,7 @@ export default function Tasks() {
                           setStageChecklistOpen({});
                           setForm({ ...form, ticket_type_id: e.target.value, checklist: tt ? [] : [{ text: '', checked: false }] });
                         }} required>
-                          <option value="">Select type…</option>
+                          <option value="">{typesError && !ticketTypes.length ? 'Could not load ticket types — pick the project again or refresh' : 'Select type…'}</option>
                           {ticketTypes.filter(t => !t.is_custom || String(t.id) === String(form.ticket_type_id)).map((t) => <option key={t.id} value={t.id}>{t.is_custom ? 'Custom: ' : ''}{t.name} ({t.stages.length} stage{t.stages.length !== 1 ? 's' : ''})</option>)}
                           <option value="__custom__">＋ Customise stages…</option>
                         </select>
