@@ -323,7 +323,7 @@ export function decide(status: string, role: string, action: Decision, beforeRej
 }
 
 // ── Applications ──
-async function log(db: Knex, a: { application_id: number; action: string; from?: string | null; to?: string | null; actor?: Actor | null; override?: boolean; comment?: string | null }) {
+export async function log(db: Knex, a: { application_id: number; action: string; from?: string | null; to?: string | null; actor?: Actor | null; override?: boolean; comment?: string | null }) {
   await db('rec_history').insert({
     application_id: a.application_id, action: a.action, from_status: a.from ?? null, to_status: a.to ?? null,
     actor_id: a.actor?.id ?? null, actor_name: a.actor?.name ?? (a.actor === null ? 'Candidate' : null), actor_role: a.actor?.role ?? 'candidate',
@@ -1072,14 +1072,15 @@ export const OFFICE = {
 export const SUPPORT_EMAIL = 'webanatomysocial@gmail.com';
 const HIRING_CONTACTS = ['srujan@mosol9.com', 'supraja@mosol9.com'];
 // Every candidate email ends with the same note: automated, and who to write to about the interview
+// contact '' (the rejection email): only the automated-email note, no IMPORTANT line
 function withFooter(body: string, contact?: string | null) {
   const to = contact ? `${contact} (copy ${HIRING_CONTACTS.join(' and ')})` : HIRING_CONTACTS.join(' or ');
   const important = contact ? `For rescheduling your interview or any other issue, please email ${to}.` : `For any questions, please email ${to}.`;
-  const text = `${body}\n\n---\nThis is an automated email; replies to it are not read.\n\nIMPORTANT: ${important}`;
+  const text = `${body}\n\n---\nThis is an automated email; replies to it are not read.${contact === '' ? '' : `\n\nIMPORTANT: ${important}`}`;
   const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${esc(body).replace(/\n/g, '<br>')}`
     + `<hr style="border:none;border-top:1px solid #ddd;margin:20px 0 12px"><p style="color:#777;font-size:12px;margin:0 0 10px">This is an automated email; replies to it are not read.</p>`
-    + `<div style="background:#fff4e5;border-left:4px solid #f59e0b;padding:10px 14px;border-radius:6px"><b>Important:</b> ${esc(important)}</div></div>`;
+    + (contact === '' ? '' : `<div style="background:#fff4e5;border-left:4px solid #f59e0b;padding:10px 14px;border-radius:6px"><b>Important:</b> ${esc(important)}</div>`) + `</div>`;
   return { text, html };
 }
 async function sendMail(to: { email: string; name: string }, subject: string, body: string, contact?: string | null | false): Promise<string> {
@@ -1109,7 +1110,7 @@ export const defaultMailer: Mailer = {
   cancelled: (a, job, reason) => sendMail({ email: a.email, name: a.name }, `Final interview for ${job} has been cancelled`,
     `Hi ${a.name},\n\nYour final interview for ${job} has been cancelled${reason ? ` (${reason})` : ''}. We will share a new time with you soon.\n\nReference: ${a.ref}`),
   rejected: (a, job) => sendMail({ email: a.email, name: a.name }, `Your application for ${job}`,
-    `Hi ${a.name},\n\nThank you for your interest in ${job} and for the time you gave to our hiring process (reference ${a.ref}).\n\nAfter careful consideration, we will not be moving forward with your application at this time. This was not an easy decision.\n\nYou can apply for other open roles any time. For this same role, you can apply again after three months.\n\nWe wish you the very best.`),
+    `Hi ${a.name},\n\nThank you for your interest in ${job} and for the time you gave to our hiring process (reference ${a.ref}).\n\nAfter careful consideration, we will not be moving forward with your application at this time. This was not an easy decision.\n\nYou can apply for other open roles any time. For this same role, you can apply again after three months.\n\nWe wish you the very best.`, ''),
   selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been shortlisted for ${job}`,
     `Hi ${a.name},\n\nWe're delighted to let you know that you have been shortlisted for ${job}. Our team will contact you shortly about the next steps.\n\nReference: ${a.ref}`),
 };
