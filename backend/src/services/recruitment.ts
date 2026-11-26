@@ -526,12 +526,19 @@ export async function act(db: Knex, actor: Actor, appId: number, action: Decisio
   // Guarded by the current status, so two reviewers acting at once cannot both move it
   const n = await db('rec_applications').where({ id: a.id, status: a.status }).update(patch);
   if (!n) throw new ServiceError(409, 'This application was just updated by someone else. Please refresh.');
-  if (to === 'rejected' && a.status === 'final_scheduled') await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).update({ status: 'cancelled', updated_at: new Date() });
+  const booked = to === 'rejected' && a.status === 'final_scheduled' ? await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).first() : null;
+  if (booked) await db('rec_schedules').where({ id: booked.id }).update({ status: 'cancelled', updated_at: new Date() });
   await log(db, { application_id: a.id, action, from: a.status, to, actor, override, comment });
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   if (to === 'admin_review' || to === 'interview_admin_review') await notifyStaff(db, `${actor.name} approved ${a.name} (${job?.title}) — awaiting admin decision`, ['admin']);
   if (to === 'prelim_pending' && interviewToken) await mail.interviewInvite(a, job?.title ?? '', interviewToken, patch.interview_expires_at);
   if (to === 'selected') await mail.selected(a, job?.title ?? '');
+  if (to === 'rejected') {
+    // The reviewers' comment is internal: never in the candidate's email
+    const sent = await mail.rejected?.(a, job?.title ?? '');
+    if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Rejection email ${sent}` });
+    if (booked) await mailInterviewersOff(db, a, job?.title ?? 'a role', JSON.parse(booked.interviewers || '[]'), `the candidate is no longer in the process, so the interview on ${dmy(booked.date)} at ${booked.start_time} is CANCELLED`, actor);
+  }
   return { status: to, override };
 }
 
@@ -947,7 +954,7 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   // A rejected request is settled once a new time is sent
   await db('rec_reschedule_requests').where({ application_id: a.id, status: 'rejected' }).whereNull('followed_up_at').update({ followed_up_at: new Date() });
   if (approved) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${dmy(date)} ${body.start_time}` });
-  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, contact: first?.email ?? null, reschedule_link: `${site()}/careers/reschedule/${rtoken}` }, resched);
+  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, old, contact: first?.email ?? null, reschedule_link: `${site()}/careers/reschedule/${rtoken}` }, resched);
   if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Interview details email ${sent}` });
 }
 
@@ -1042,12 +1049,13 @@ export async function completeFinal(db: Knex, actor: Actor, appId: number, comme
   await log(db, { application_id: appId, action: 'final_completed', from: 'final_scheduled', to: 'final_completed', actor, comment });
 }
 
-// ── Emails to candidates: only good news and interview details. A rejection is shown on their tracking page. ──
+// ── Emails to candidates: interview details, shortlisting and rejection (a rejection never carries the reviewers' comment) ──
 export interface Mailer {
   interviewInvite(a: any, job: string, token: string, expires: Date): Promise<string | void>;
   scheduled(a: any, job: string, s: any, resched: boolean): Promise<string | void>;
   cancelled(a: any, job: string, reason: string): Promise<string | void>;
   selected(a: any, job: string): Promise<string | void>;
+  rejected?(a: any, job: string): Promise<string | void>;
   welcome(a: any, job: string, link: string): Promise<string | void>;
 }
 // Day-month-year in every email and history line (yyyy-mm-dd → dd-mm-yyyy)
@@ -1066,7 +1074,7 @@ const HIRING_CONTACTS = ['srujan@mosol9.com', 'supraja@mosol9.com'];
 // Every candidate email ends with the same note: automated, and who to write to about the interview
 function withFooter(body: string, contact?: string | null) {
   const to = contact ? `${contact} (copy ${HIRING_CONTACTS.join(' and ')})` : HIRING_CONTACTS.join(' or ');
-  const important = `For rescheduling your interview or any other issue, please email ${to}.`;
+  const important = contact ? `For rescheduling your interview or any other issue, please email ${to}.` : `For any questions, please email ${to}.`;
   const text = `${body}\n\n---\nThis is an automated email; replies to it are not read.\n\nIMPORTANT: ${important}`;
   const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const html = `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;color:#1a1a1a;">${esc(body).replace(/\n/g, '<br>')}`
@@ -1096,10 +1104,12 @@ export const defaultMailer: Mailer = {
     `Hi ${a.name},\n\nThank you for applying for ${job} and for completing your video interview (reference ${a.ref}).\n\nOur team will review your application and keep you updated here and on WhatsApp.\n\nYou can check your application status any time with this private link (please keep it to yourself):\n${link}\n\nBest wishes,\nThe Loooped team`),
   interviewInvite: (a, job, token, expires) => sendMail({ email: a.email, name: a.name }, `Your video interview for ${job}`,
     `Hi ${a.name},\n\nThank you for applying for ${job} (reference ${a.ref}). The next step is a short recorded video interview.\n\nIf you haven't finished it yet, you can take it here:\n${site()}/careers/interview/${token}\n\nThe link is valid until ${dmy(new Date(expires.getTime() + 5.5 * 3600_000).toISOString())}. You'll need a camera and microphone; the interview is recorded.\n\nBest of luck!`),
-  scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Updated: ' : ''}Final interview for ${job}`,
-    `Hi ${a.name},\n\nCongratulations on clearing the preliminary interview for ${job}. Your final interview is ${resched ? 'now ' : ''}scheduled:\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${dmy(s.date)}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).${s.reschedule_link ? `\n\nNeed a different date or time? Request a reschedule here:\n${s.reschedule_link}` : ''}`, s.contact),
+  scheduled: (a, job, s, resched) => sendMail({ email: a.email, name: a.name }, `${resched ? 'Rescheduled: ' : ''}Final interview for ${job}`,
+    `Hi ${a.name},\n\n${resched ? `Your final interview for ${job} has been RESCHEDULED.${s.old ? `\n\nWas: ${slot(s.old)}\nNow: ${slot(s)}` : ''}\n\nThe new details:` : `Congratulations on clearing the preliminary interview for ${job}. Your final interview is scheduled:`}\n\nType: ${s.type === 'online' ? 'Online (one-to-one)' : 'Walk-in'}\nDate: ${dmy(s.date)}\nTime: ${s.start_time} – ${s.end_time} (IST)\n${s.type === 'online' ? `Meeting link: ${s.meeting_url}` : `Location: ${s.location || ''}\nAddress: ${s.address}`}\n${s.instructions ? `\nInstructions: ${s.instructions}\n` : ''}\nYou can always check your application at the tracking link you received when you applied (reference ${a.ref}).${s.reschedule_link ? `\n\nNeed a different date or time? Request a reschedule here:\n${s.reschedule_link}` : ''}`, s.contact),
   cancelled: (a, job, reason) => sendMail({ email: a.email, name: a.name }, `Final interview for ${job} has been cancelled`,
     `Hi ${a.name},\n\nYour final interview for ${job} has been cancelled${reason ? ` (${reason})` : ''}. We will share a new time with you soon.\n\nReference: ${a.ref}`),
+  rejected: (a, job) => sendMail({ email: a.email, name: a.name }, `Your application for ${job}`,
+    `Hi ${a.name},\n\nThank you for your interest in ${job} and for the time you gave to our hiring process (reference ${a.ref}).\n\nAfter careful consideration, we will not be moving forward with your application at this time. This was not an easy decision.\n\nYou can apply for other open roles any time. For this same role, you can apply again after three months.\n\nWe wish you the very best.`),
   selected: (a, job) => sendMail({ email: a.email, name: a.name }, `Congratulations! You've been shortlisted for ${job}`,
     `Hi ${a.name},\n\nWe're delighted to let you know that you have been shortlisted for ${job}. Our team will contact you shortly about the next steps.\n\nReference: ${a.ref}`),
 };

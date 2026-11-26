@@ -242,3 +242,17 @@ test('interviewers: rescheduled ones are told was → now, removed ones and a ca
   assert.equal(mails.filter((c: string) => /Iv (One|Three) \(not needed\)/.test(c)).length, 2, 'both told of the cancellation');
   assert.equal(mails.filter((c: string) => c.startsWith('Interviewer email to Iv One:')).length, 2, 'assigned, then rescheduled');
 });
+
+test('rejecting a candidate with a booked interview emails them (no reviewer comment) and frees the interviewers', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  const [u1] = await db()('users').insert({ name: 'Iv Rej', email: `ivr-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-04-05', start_time: '10:00', end_time: '10:30', address: 'Office', interviewer_ids: [u1] }, noMail);
+  let got: any = null;
+  await R.act(db(), admin, a.id, 'reject', 'internal: weak answers', { ...noMail, rejected: async (x: any, job: string) => { got = { x, job }; return 'sent'; } });
+  assert.equal(got?.x.email, a.email);
+  const h = await db()('rec_history').where({ application_id: a.id, action: 'email' }).pluck('comment');
+  assert.ok(h.includes('Rejection email sent'));
+  assert.ok(h.some((c: string) => c.startsWith('Interviewer email to Iv Rej (not needed)')));
+  assert.equal((await db()('rec_schedules').where({ application_id: a.id }).first()).status, 'cancelled');
+});
