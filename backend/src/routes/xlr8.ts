@@ -30,6 +30,7 @@ router.get('/tickets/:id/return-stages', run((req) => x.getReturnStages(getDB(),
 // ── Tickets: create + assignment ──
 router.post('/tickets', run((req) => x.createTicket(getDB(), actor(req), req.body), 201));
 router.put('/tickets/:id/stage-assignments', run((req) => x.updateStageAssignments(getDB(), actor(req), id(req), req.body)));
+router.put('/tickets/:id/final-skips', run((req) => x.setFinalSkips(getDB(), actor(req), id(req), req.body)));
 router.post('/tickets/:id/accept', run((req) => x.startAssignment(getDB(), actor(req), id(req))));
 router.post('/tickets/:id/assign', run((req) => x.assignTicket(getDB(), actor(req), id(req), req.body)));
 

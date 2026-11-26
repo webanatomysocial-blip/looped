@@ -312,6 +312,7 @@ export const xlr8Api = {
   // Tickets
   getTickets: (project_id?: number) => api.get('/xlr8/tickets', { params: project_id ? { project_id } : {} }),
   createTicket: (data: any) => api.post('/xlr8/tickets', data),
+  setFinalSkips: (id: number, data: { skip_admin?: boolean; skip_client?: boolean }) => api.put(`/xlr8/tickets/${id}/final-skips`, data),
   getTicket: (id: number) => api.get(`/xlr8/tickets/${id}`),
   getTicketLog: (id: number) => api.get(`/xlr8/tickets/${id}/log`),
   // Workflow actions

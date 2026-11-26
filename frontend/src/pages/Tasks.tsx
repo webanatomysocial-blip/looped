@@ -339,7 +339,7 @@ export default function Tasks() {
     if (!form.title.trim()) { alert('Please enter a title.'); return; }
     if (!form.project_id) { alert('Please select a project.'); return; }
     const isXlr8 = !!form.ticket_type_id;
-    const draftExtra = { draft_form: JSON.stringify({ form, stageAssignments, approvalFlow, customStages: formCustomStages() }), replaces_id: resubmitOf };
+    const draftExtra = { draft_form: JSON.stringify({ form, stageAssignments, approvalFlow, customStages: formCustomStages(), skipFinal }), replaces_id: resubmitOf };
     try {
       if (isXlr8) {
         await xlr8Api.createTicket({
@@ -695,6 +695,7 @@ export default function Tasks() {
     setForm(saved.form);
     setStageAssignments(saved.stageAssignments || {});
     setApprovalFlow(saved.approvalFlow || []);
+    setSkipFinal(saved.skipFinal || { admin: false, client: false });
     setCapacityWarnings([]);
     setResubmitOf(task.id);
     setShowModal(true);

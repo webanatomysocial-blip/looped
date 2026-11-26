@@ -16,9 +16,11 @@ interface Props {
   task: any;
   log: any[];
   drawerElapsed?: number;
+  // Set when this viewer may skip/include the final steps; called with the new choice
+  onSkip?: (key: 'skip_admin' | 'skip_client', value: boolean) => void;
 }
 
-export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
+export default function XLR8StageFlow({ task, log, drawerElapsed = 0, onSkip }: Props) {
   if (!task.ticket_type_id || !task.xlr8_stages?.length) return null;
 
   const stages: any[] = task.xlr8_stages;
@@ -220,10 +222,12 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
               const cards: { key: string; label: string; color: string; accentColor: string; isDone: boolean; isActive: boolean }[] = [];
               const lastAdminEvent = [...log].reverse().find((e: any) => e.action === 'admin_skipped' || e.action === 'sent_to_admin');
               const adminSkipped = lastAdminEvent?.action === 'admin_skipped';
-              if (fa.adminRequired && !adminSkipped) {
+              const adminOff = !!Number(task.skip_admin), clientOff = !!Number(task.skip_client);
+              const canToggle = !!onSkip && !allStagesDone;
+              if ((fa.adminRequired || adminOff) && !adminSkipped) {
                 cards.push({ key: 'admin', label: 'Admin Approval', color: '#ea580c', accentColor: 'rgba(234,88,12,0.08)', isDone: isCompleted || task.xlr8_status === 'pending_client', isActive: task.xlr8_status === 'pending_admin' });
               }
-              if (fa.clientOptional) {
+              if (fa.clientOptional || clientOff) {
                 cards.push({ key: 'client', label: 'Client Approval', color: '#0891b2', accentColor: 'rgba(8,145,178,0.08)', isDone: isCompleted, isActive: task.xlr8_status === 'pending_client' });
               }
               if (cards.length === 0) return null;
@@ -243,8 +247,18 @@ export default function XLR8StageFlow({ task, log, drawerElapsed = 0 }: Props) {
                       {!c.isDone && !c.isActive && <MinusCircle size={22} color="#cbd5e1" />}
                     </div>
                     <div style={{ fontSize: 11, fontWeight: 600, color: c.isDone ? 'var(--ink)' : c.isActive ? c.color : 'var(--ink-muted)' }}>
-                      {c.isDone ? 'Approved' : c.isActive ? 'Pending approval' : 'Awaiting stages'}
+                      {(c.key === 'admin' ? adminOff : clientOff) ? 'Skipped' : c.isDone ? 'Approved' : c.isActive ? 'Pending approval' : 'Awaiting stages'}
                     </div>
+                    {canToggle && (() => {
+                      const k = c.key === 'admin' ? 'skip_admin' : 'skip_client';
+                      const off = c.key === 'admin' ? adminOff : clientOff;
+                      return (
+                        <button type="button" onClick={() => onSkip!(k, !off)}
+                          style={{ alignSelf: 'flex-start', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${off ? '#ef4444' : 'var(--sand-border)'}`, background: off ? 'rgba(239,68,68,0.1)' : 'transparent', color: off ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer' }}>
+                          {off ? '✕ Skipped · include' : 'Skip'}
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               ));

@@ -426,7 +426,11 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
               {task.ticket_type_id && task.xlr8_stages?.length > 0 && (
                 <div>
                   <div className="drawer-info-label" style={{ marginBottom: 12 }}>Stage Flow</div>
-                  <XLR8StageFlow task={task} log={log} drawerElapsed={drawerElapsed} />
+                  <XLR8StageFlow task={task} log={log} drawerElapsed={drawerElapsed}
+                    onSkip={user && (task.created_by === user.id || ['manager', 'admin'].includes(user.role)) ? async (k, v) => {
+                      try { await xlr8Api.setFinalSkips(task.id, { [k]: v }); setReloadKey(r => r + 1); onChanged?.(); }
+                      catch (e: any) { alert(e.response?.data?.error || 'Could not change this'); }
+                    } : undefined} />
                 </div>
               )}
 

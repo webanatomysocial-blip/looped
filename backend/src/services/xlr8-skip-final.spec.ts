@@ -67,3 +67,17 @@ test('the type itself is not changed for other tickets', async () => {
   const tt = await db()('xlr8_ticket_types').where({ id: U.T }).first();
   assert.equal(JSON.parse(tt.final_approval).adminRequired, true);
 });
+
+test('an existing ticket (e.g. waiting for manager approval) can be switched to skip, then it skips', async () => {
+  const { setFinalSkips } = await import('./xlr8');
+  const r: any = await createTicket(db(), emp(), { title: 'old', project_id: U.P, ticket_type_id: U.T, stage_assignments: [{ stage_idx: 0, user_ids: [U.a], est_hours: 1 }] });
+  const other = (await db()('users').insert({ name: 'o', email: 'o@sf.t', password_hash: 'x', role: 'employee', pod: 'pod1' }))[0];
+  await assert.rejects(setFinalSkips(db(), { id: other, role: 'employee' } as any, r.id, { skip_admin: true }), /Only the creator/);
+  await setFinalSkips(db(), emp(), r.id, { skip_admin: true });
+  await setFinalSkips(db(), mgr(), r.id, { skip_client: true });
+  // Manager approval starts it; the creator's own stage is already accepted
+  await db()('tasks').where({ id: r.id }).update({ xlr8_status: 'in_progress', status: 'in_progress', xlr8_assignee_id: U.a, assigned_to: U.a });
+  await markStageDone(db(), emp(), r.id);
+  assert.equal(await status(r.id), 'completed');
+  await assert.rejects(setFinalSkips(db(), mgr(), r.id, { skip_admin: false }), /already reached/);
+});

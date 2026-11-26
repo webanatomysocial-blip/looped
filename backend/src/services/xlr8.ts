@@ -614,6 +614,23 @@ export async function createTicket(db: Db, actor: Actor, body: any): Promise<Rec
 
 // ── Tickets: manager assignment ─────────────────────────────────────────────
 
+// Skip or bring back the final admin approval / client review on an existing ticket, until it gets there
+export async function setFinalSkips(db: Db, actor: Actor, id: number | string, body: any): Promise<Result> {
+  const t = await db('tasks').where({ id }).whereNotNull('ticket_type_id').first();
+  if (!t) throw new ServiceError(404, 'Ticket not found');
+  if (Number(t.created_by) !== Number(actor.id) && !(['manager', 'admin'].includes(actor.role) && await canManageTask(db, actor, t.id))) {
+    throw new ServiceError(403, 'Only the creator, their manager or an admin can change this');
+  }
+  if (['pending_admin', 'pending_client', 'completed'].includes(t.xlr8_status)) throw new ServiceError(409, 'The ticket has already reached final approval');
+  const patch: any = {};
+  for (const k of ['skip_admin', 'skip_client']) if (typeof body?.[k] === 'boolean') patch[k] = body[k];
+  if (!Object.keys(patch).length) throw new ServiceError(400, 'Nothing to change');
+  await db('tasks').where({ id: t.id }).update(patch);
+  const say = (k: string, label: string) => (k in patch ? [`${label} ${patch[k] ? 'skipped' : 'included'}`] : []);
+  await appendLog(t.id, actor, 'final_skips', t.xlr8_status, t.xlr8_status, [...say('skip_admin', 'Admin approval'), ...say('skip_client', 'Client review')].join(', '));
+  return { ok: true } as any;
+}
+
 export async function updateStageAssignments(db: Db, actor: Actor, id: number | string, body: any): Promise<Result> {
   if (!['admin', 'manager'].includes(actor.role)) throw new ServiceError(403, 'Manager only');
   const { stage_assignments } = body ?? {};
