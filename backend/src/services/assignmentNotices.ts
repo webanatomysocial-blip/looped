@@ -672,7 +672,8 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
   const start = await noticesSince(db);
   const nowMs = now.getTime();
   const waiting = await db('tasks as t').leftJoin('projects as p', 'p.id', 't.project_id')
-    .whereNotNull('t.ticket_type_id').where('t.xlr8_status', 'pending_assignee').whereNotNull('t.xlr8_assignee_id')
+    // in_progress too: a ticket whose people had all accepted (e.g. the creator works on it) starts at once and still needs announcing
+    .whereNotNull('t.ticket_type_id').whereIn('t.xlr8_status', ['pending_assignee', 'in_progress']).whereNotNull('t.xlr8_assignee_id')
     .whereNotIn('t.status', ['completed', 'cancelled'])
     .leftJoin('users as cb', 'cb.id', 't.created_by')
     .select('t.id', 't.title', 't.priority', 't.due_date', 't.due_time', 't.xlr8_assignee_id', 't.status', 't.xlr8_status', 't.ticket_type_id', 't.xlr8_stage_idx', 'p.name as project_name', 'cb.name as created_by_name');

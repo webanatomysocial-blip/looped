@@ -195,6 +195,18 @@ test('multi-stage tickets: "assigned" notice and one reminder for the stage hold
   assert.ok(!sent.some((t) => /Reminder: acceptance pending/.test(t)), 'no reminder after accepting');
 });
 
+test('a ticket that starts at once (its worker already accepted, e.g. they created it) is still announced in the group', async () => {
+  const d = db();
+  const type = (await d('xlr8_ticket_types').insert({ name: 'Instant type', stages: JSON.stringify([{ category_name: 'Dev' }]) }))[0];
+  const [id] = await d('tasks').insert({ title: 'Self ticket', project_id: U.P, created_by: U.nit, priority: 'high', status: 'in_progress', ticket_type_id: type, xlr8_status: 'in_progress', xlr8_assignee_id: U.nit, assigned_to: U.nit });
+  const now = new Date();
+  await d('xlr8_ticket_log').insert({ task_id: id, actor_id: U.mgr, actor_name: 'Mia', action: 'created', from_state: null, to_state: 'pending_assignee', created_at: new Date(now.getTime() - 60_000) });
+  await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'accepted', stage_idx: 0, est_hours: 1, skipped: 0 });
+  await enqueueTicketNotices(d, now, 1);
+  const rows = await d('whatsapp_outbox').where({ task_id: id });
+  assert.deepEqual(rows.map((r: any) => r.event_key.split(':')[0]), ['tassign'], 'one group card, no accept reminders');
+});
+
 test('picture details match the saved task exactly: title, project, person, priority, deadline, status', async () => {
   const d = db();
   const r: any = await createTask(d, actor('mgr', 'manager'), { title: 'Card accuracy check', project_id: U.P, working_person_id: U.pardu, task_manager_id: U.mgr, priority: 'high', due_date: '2026-11-21', due_time: '17:30' });
