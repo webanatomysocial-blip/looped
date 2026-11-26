@@ -232,14 +232,17 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
 
           {task && tab === 'info' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {showApproval && (
+              {/* A ticket under review has the clearer "Your review" panel below; showing both doubled the buttons */}
+              {showApproval && !(task.ticket_type_id && ['pending_manager', 'pending_admin'].includes(task.xlr8_status)) && (
                 <TaskApprovalSection taskId={taskId} onChanged={() => { setReloadKey(k => k + 1); onChanged?.(); }} />
               )}
               {/* The viewer still has to accept this: the stage flow below says "Awaiting acceptance", so the action is here */}
               {(() => {
                 if (!user || !['employee', 'manager'].includes(user.role)) return null;
                 if (['pending_approval', 'draft', 'completed', 'cancelled'].includes(task.status)) return null;
-                const mine = (task.stage_assignees ?? task.assignees ?? []).filter((a: any) => a.user_id === user.id && !Number(a.skipped) && (a.acceptance_status === 'pending' || a.acceptance_status == null));
+                // A review stage the ticket has already reached needs no acceptance: the review itself (Approve / Send back) is the action
+                const inReview = (a: any) => ['pending_manager', 'pending_admin'].includes(task.xlr8_status) && Number(a.stage_idx ?? 0) <= Number(task.xlr8_stage_idx ?? 0);
+                const mine = (task.stage_assignees ?? task.assignees ?? []).filter((a: any) => a.user_id === user.id && !Number(a.skipped) && (a.acceptance_status === 'pending' || a.acceptance_status == null) && !inReview(a));
                 if (!mine.length) return null;
                 const ticket = !!task.ticket_type_id;
                 const holder = ticket && task.xlr8_status === 'pending_assignee' && task.xlr8_assignee_id === user.id;

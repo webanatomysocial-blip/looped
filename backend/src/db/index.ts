@@ -1428,6 +1428,13 @@ async function createSchema(): Promise<void> {
     });
   }
 
+  // Tickets without a project ("None", e.g. recurring tickets): the live MySQL column was created NOT NULL, so every such
+  // insert failed. SQLite installs already allow it. Runs once: only while the column is still NOT NULL.
+  if (isMySQLClient()) {
+    const [col] = await db.raw("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'project_id'");
+    if (col?.[0]?.n === 'NO') await db.raw('ALTER TABLE `tasks` MODIFY `project_id` INT UNSIGNED NULL');
+  }
+
   // Manual scheduling: the day a person chose to start their stage (scheduler keeps it), and which slots came from it
   if (!(await db.schema.hasColumn('task_assignees', 'schedule_anchor'))) {
     await db.schema.table('task_assignees', (t) => { t.string('schedule_anchor', 10).nullable(); });

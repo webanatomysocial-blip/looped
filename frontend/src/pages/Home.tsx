@@ -569,7 +569,7 @@ export default function Home() {
             t.status !== 'pending_approval' &&
             t.acceptance_status === 'pending' &&
             // Tickets: only later stages here; the current stage has its own "Action required" banner
-            (!t.ticket_type_id || (t as any).future_stage || t.xlr8_status !== 'pending_assignee')
+            (!t.ticket_type_id || (t as any).future_stage || !['pending_assignee', 'pending_manager', 'pending_admin'].includes(t.xlr8_status as any))
           );
           if (pending.length === 0) return null;
           return (

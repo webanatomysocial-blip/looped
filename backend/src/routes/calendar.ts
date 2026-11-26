@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, Request, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { getDB, isMySQLClient } from '../db';
 import type { Knex } from 'knex';
@@ -64,6 +64,8 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
   const canAssign = user.role === 'admin' || user.role === 'manager';
   const assignee = canAssign && assigned_to ? Number(assigned_to) : user.id;
 
+  // All or nothing: a failed first ticket must not leave a template behind (the daily job would keep retrying it)
+  const id = await db.transaction(async (db) => {
   const [id] = await db('recurring_tasks').insert({
     title,
     description: description || null,
@@ -110,6 +112,8 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
     });
     break;
   }
+  return id;
+  });
 
   res.json({ id });
 });
@@ -356,6 +360,8 @@ export async function generateTodayInstances(): Promise<number> {
 
   let count = 0;
   for (const rt of templates) {
+    // One broken template must not stop the others for the day
+    try {
     const days = rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [];
     let occurs = false;
     if (rt.recurrence_type === 'daily') occurs = true;
@@ -381,6 +387,7 @@ export async function generateTodayInstances(): Promise<number> {
       recurrence_date: dateStr,
     });
     count++;
+    } catch (e: any) { console.error(`[recurring] template ${rt.id} "${rt.title}" could not create today's ticket: ${e?.sqlMessage ?? e?.message ?? e}`); }
   }
   return count;
 }
@@ -902,6 +909,12 @@ router.patch('/slot/:slotId/time', async (req: AuthRequest, res: Response) => {
     await db('task_schedule_slots').where({ id: slotId }).update({ custom_start_hour: Math.max(0, Math.min(24 - hrs, start_hour)) });
     res.json({ ok: true });
   } catch (e: any) { res.status(500).json({ error: e?.message || 'Server error' }); }
+});
+
+// A crash in any calendar route (e.g. a database error) is logged and shown to the user with its reason, not a bare "Error"
+router.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+  console.error(`[calendar] ${req.method} ${req.originalUrl} failed:`, err);
+  if (!res.headersSent) res.status(500).json({ error: `Could not complete this: ${String(err?.sqlMessage ?? err?.message ?? err).slice(0, 200)}` });
 });
 
 export default router;
