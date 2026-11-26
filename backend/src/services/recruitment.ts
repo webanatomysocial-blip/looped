@@ -921,6 +921,7 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   };
   const rtoken = newToken();
   Object.assign(row, { reschedule_hash: sha(rtoken) });   // a new link with every email; the old one stops working
+  const old = resched ? await db('rec_schedules').where({ id: scheduleId, application_id: a.id }).first() : null;
   if (resched) {
     const n = await db('rec_schedules').where({ id: scheduleId, application_id: a.id, status: 'scheduled' }).update(row);
     if (!n) throw new ServiceError(404, 'Scheduled interview not found');
@@ -931,7 +932,12 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   await log(db, { application_id: a.id, action: resched ? 'interview_rescheduled' : 'interview_scheduled', from: a.status, to: 'final_scheduled', actor, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} ${body.start_time}–${body.end_time}${body.reason ? ` · ${clip(body.reason, 300)}` : ''}` });
   for (const p of people) await createNotification(p.id, `You are an interviewer for ${a.name} on ${dmy(date)} at ${body.start_time}`, 'recruitment');
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
-  await mailInterviewers(db, a, job?.title ?? 'a role', { ...row, people }, resched, actor);
+  await mailInterviewers(db, a, job?.title ?? 'a role', { ...row, people }, resched, actor, old);
+  // Interviewers taken off in a reschedule are told they are no longer needed
+  if (old) {
+    const gone = JSON.parse(old.interviewers || '[]').filter((p: any) => !people.some((n: any) => Number(n.id) === Number(p.id)));
+    await mailInterviewersOff(db, a, job?.title ?? 'a role', gone, `you have been taken off this interview (it was on ${dmy(old.date)} at ${old.start_time})`, actor);
+  }
   const first = people.length ? await db('users').where({ id: people[0].id }).first('email') : null;
   // Saving the schedule settles the candidate's pending request: approved when it was opened from it, otherwise replaced
   const reqId = Number(body.request_id) || 0;
@@ -946,31 +952,44 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
 }
 
 // Interviewers are emailed too (not only the in-app bell), and the history says whether each email went out
-export async function mailInterviewers(db: Knex, a: any, job: string, row: any, resched: boolean, actor: Actor | null) {
+const slot = (r: any) => `${r.type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(r.date)}, ${r.start_time} – ${r.end_time} IST`;
+export async function mailInterviewers(db: Knex, a: any, job: string, row: any, resched: boolean, actor: Actor | null, old?: any) {
   const people = Array.isArray(row.people) ? row.people : JSON.parse(row.interviewers || '[]');
   const staff = people.length ? await db('users').whereIn('id', people.map((p: any) => p.id)).select('name', 'email') : [];
   const date = String(row.date).slice(0, 10);
   const out: string[] = [];
   for (const u of staff.filter((x: any) => x.email)) {
     const res = await sendMail({ email: u.email, name: u.name }, `${resched ? 'Updated: ' : ''}You are interviewing ${a.name} for ${job}`,
-      `Hi ${u.name},\n\nYou have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${dmy(date)}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
+      `Hi ${u.name},\n\n${old ? `The final interview of ${a.name} for ${job} (reference ${a.ref}) has been RESCHEDULED.\n\nWas: ${slot(old)}\nNow: ${slot(row)}\n\nNew details:` : `You have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).`}\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${dmy(date)}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
     await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name}: ${res}` });
     out.push(`${u.name}: ${res}`);
   }
   return out;
 }
 
+/** Tell interviewers they are no longer needed (taken off, or the interview was cancelled). Staff email: no CC. */
+async function mailInterviewersOff(db: Knex, a: any, job: string, people: any[], why: string, actor: Actor | null) {
+  const staff = people.length ? await db('users').whereIn('id', people.map((p: any) => p.id)).select('name', 'email') : [];
+  for (const u of staff.filter((x: any) => x.email)) {
+    const res = await sendMail({ email: u.email, name: u.name }, `No longer needed: interview of ${a.name} for ${job}`,
+      `Hi ${u.name},\n\nPlease note: ${why}. You don't need to attend the final interview of ${a.name} for ${job} (reference ${a.ref}).`, false);
+    await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name} (not needed): ${res}` });
+  }
+}
+
 export async function cancelSchedule(db: Knex, actor: Actor, appId: number, scheduleId: number, reason: string, mail: Mailer = defaultMailer) {
   const a = await db('rec_applications').where({ id: appId }).first();
   if (!a || a.status !== 'final_scheduled') throw new ServiceError(409, 'There is no scheduled interview to cancel');
   if (!String(reason ?? '').trim()) throw new ServiceError(400, 'Please give a reason for cancelling');
+  const s = await db('rec_schedules').where({ id: scheduleId, application_id: appId, status: 'scheduled' }).first();
   const n = await db('rec_schedules').where({ id: scheduleId, application_id: appId, status: 'scheduled' }).update({ status: 'cancelled', updated_at: new Date() });
-  if (!n) throw new ServiceError(404, 'Scheduled interview not found');
+  if (!n || !s) throw new ServiceError(404, 'Scheduled interview not found');
   await db('rec_applications').where({ id: appId }).update({ status: 'prelim_approved', updated_at: new Date() });
   await log(db, { application_id: appId, action: 'interview_cancelled', from: 'final_scheduled', to: 'prelim_approved', actor, comment: reason });
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   const sent = await mail.cancelled(a, job?.title ?? '', clip(reason, 300));
   if (sent) await log(db, { application_id: appId, action: 'email', actor, comment: `Cancellation email ${sent}` });
+  await mailInterviewersOff(db, a, job?.title ?? 'a role', JSON.parse(s.interviewers || '[]'), `the interview on ${dmy(s.date)} at ${s.start_time} has been CANCELLED (${clip(reason, 200)})`, actor);
 }
 
 // ── Reschedule requests from the candidate (public link in the interview email) ──
@@ -999,6 +1018,13 @@ export async function requestReschedule(db: Knex, token: string, body: any) {
   await log(db, { application_id: a.id, action: 'reschedule_requested', from: a.status, to: a.status, actor: null, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} at ${body.start_time} · ${reason}` });
   const staff = await db('users').whereIn('role', ['admin', 'manager']).pluck('id');
   for (const id of staff) await createNotification(id, `${a.name} (${a.ref}) asked to reschedule the final interview`, 'recruitment');
+  // The hiring leads also get it by email, to decide quickly (staff email: no candidate footer, no CC)
+  const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
+  for (const to of HIRING_CONTACTS) {
+    const res = await sendMail({ email: to, name: to.split('@')[0] }, `Reschedule request: ${a.name} (${a.ref})`,
+      `${a.name} (${a.ref}) for ${job?.title ?? 'a role'} asked to reschedule the final interview.\n\nCurrent: ${slot(s)}\nRequested: ${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} at ${body.start_time} IST\nReason: ${reason}\n\nApprove or reject it in Loop: ${site()}/recruitment (Applications → ${a.ref} → Final interview).`, false);
+    await log(db, { application_id: a.id, action: 'email', actor: null, comment: `Reschedule request email to ${to}: ${res}` });
+  }
   return rescheduleView(db, token);
 }
 /** Rejecting keeps the current time; the admin then sets their own time with the reschedule form (which emails as usual). */

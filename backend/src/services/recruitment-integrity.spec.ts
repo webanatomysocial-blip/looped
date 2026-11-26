@@ -226,3 +226,19 @@ test('a rejected reschedule request stays open for a decision until a new time i
   const after = await db()('rec_reschedule_requests').where({ id: req.id }).first();
   assert.equal(after.status, 'approved'); assert.ok(after.followed_up_at);
 });
+
+test('interviewers: rescheduled ones are told was → now, removed ones and a cancellation say "no longer needed"', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  const [u1] = await db()('users').insert({ name: 'Iv One', email: `iv1-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const [u2] = await db()('users').insert({ name: 'Iv Two', email: `iv2-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const [u3] = await db()('users').insert({ name: 'Iv Three', email: `iv3-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-03-05', start_time: '10:00', end_time: '10:30', address: 'Office', interviewer_ids: [u1, u2] }, noMail);
+  const s = await db()('rec_schedules').where({ application_id: a.id }).first();
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-03-07', start_time: '11:00', end_time: '11:30', address: 'Office', interviewer_ids: [u1, u3] }, noMail, s.id);
+  await R.cancelSchedule(db(), admin, a.id, s.id, 'candidate unwell', noMail);
+  const mails = (await db()('rec_history').where({ application_id: a.id, action: 'email' }).pluck('comment')).filter((c: string) => c.startsWith('Interviewer email'));
+  assert.equal(mails.filter((c: string) => c.includes('Iv Two (not needed)')).length, 1, 'removed in the reschedule');
+  assert.equal(mails.filter((c: string) => /Iv (One|Three) \(not needed\)/.test(c)).length, 2, 'both told of the cancellation');
+  assert.equal(mails.filter((c: string) => c.startsWith('Interviewer email to Iv One:')).length, 2, 'assigned, then rescheduled');
+});
