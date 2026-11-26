@@ -1446,6 +1446,19 @@ async function createSchema(): Promise<void> {
   }
   if (orphans.length) console.log(`[migration] added the assignee to ${orphans.length} recurring ticket(s)`);
 
+  // A permanent change log for projects and people: who created, changed (old → new) or deleted what, and when.
+  // A deletion keeps a full copy of what was erased.
+  if (!(await db.schema.hasTable('audit_log'))) {
+    await db.schema.createTable('audit_log', (t) => {
+      t.increments('id').primary();
+      t.string('kind', 20).notNullable(); t.string('action', 20).notNullable(); t.integer('record_id').notNullable(); t.string('name', 255);
+      t.integer('actor_id').nullable(); t.string('actor_name', 255);
+      t.text('details', 'longtext');
+      t.timestamp('created_at').defaultTo(db.fn.now());
+      t.index(['kind', 'record_id']);
+    });
+  }
+
   // Manual scheduling: the day a person chose to start their stage (scheduler keeps it), and which slots came from it
   if (!(await db.schema.hasColumn('task_assignees', 'schedule_anchor'))) {
     await db.schema.table('task_assignees', (t) => { t.string('schedule_anchor', 10).nullable(); });
@@ -1905,6 +1918,28 @@ export async function onCommit(job: PostCommitJob): Promise<void> {
   if (jobs) jobs.push(job);
   else await job();
 }
+
+// Never written to the change log
+const HIDDEN = new Set(['password_hash', 'token_version', 'updated_at', 'created_at', 'last_login_at']);
+const clean = (row: any) => Object.fromEntries(Object.entries(row ?? {}).filter(([k]) => !HIDDEN.has(k)));
+/** Record a create, a change (only the fields that changed, old → new) or a deletion (call BEFORE deleting: keeps a full copy). */
+export async function audit(kind: 'project' | 'user', action: 'create' | 'update' | 'delete', row: any, actor: { id: number; name?: string }, extra: Record<string, unknown> = {}, before?: any) {
+  try {
+    let details: any = action === 'update' ? {} : clean(row);
+    if (action === 'update') {
+      for (const [k, v] of Object.entries(clean(row))) if (String(v ?? '') !== String(clean(before)[k] ?? '')) details[k] = { from: clean(before)[k] ?? null, to: v ?? null };
+      if (!Object.keys(details).length && !Object.keys(extra).length) return;   // saved with no changes
+    }
+    await getDB()('audit_log').insert({ kind, action, record_id: Number(row.id), name: String(row.name ?? '').slice(0, 255), actor_id: actor.id, actor_name: actor.name ?? null, details: JSON.stringify({ ...details, ...extra }) });
+    console.log(`[audit] ${actor.name ?? actor.id} ${action}d ${kind} #${row.id} "${row.name}"`);
+  } catch (e: any) {
+    // A failed log must never be silent for a deletion (the caller stops); for create/update the change itself already happened
+    if (action === 'delete') throw e;
+    console.error(`[audit] could not record ${action} of ${kind} #${row?.id}: ${e?.message ?? e}`);
+  }
+}
+/** Deleting needs the exact name typed in (case and outer spaces ignored). */
+export const nameConfirmed = (typed: unknown, name: unknown) => String(typed ?? '').trim().toLowerCase() === String(name ?? '').trim().toLowerCase() && String(name ?? '').trim() !== '';
 
 export async function createNotification(userId: number, message: string, type = 'info', projectId?: number | null): Promise<void> {
   // A notification must never fail the action that triggered it

@@ -1,5 +1,5 @@
 import { Router, Response } from 'express';
-import { getDB, createNotification } from '../db';
+import { getDB, createNotification, audit, nameConfirmed } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { listProjects, getProject, createProject, updateProject, deleteProject } from '../services/projects';
 import { canSeeProject, canManageProject, sendServiceError } from '../services/access';
@@ -57,7 +57,11 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
 // POST create project — admin-created projects go to the pod manager for acceptance
 router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  try { res.status(201).json(await createProject(getDB(), req.user!, req.body)); }
+  try {
+    const out = await createProject(getDB(), req.user!, req.body);
+    await audit('project', 'create', await getDB()('projects').where({ id: out.id }).first() ?? out, req.user!);
+    res.status(201).json(out);
+  }
   catch (err) { sendServiceError(res, err, 'projects.create'); }
 });
 
@@ -113,13 +117,31 @@ router.post('/:id/manager-response', requireRoles('manager'), manageProject, asy
 
 // PUT update project (admin; managers for the projects in their list)
 router.put('/:id', requireRoles('admin', 'manager'), async (req: AuthRequest, res: Response) => {
-  try { await updateProject(getDB(), req.user!, req.params.id as string, req.body); res.json({ message: 'Updated' }); }
+  try {
+    const db = getDB(); const before = await db('projects').where({ id: req.params.id }).first();
+    const members = () => db('project_members').where({ project_id: req.params.id }).orderBy('user_id').pluck('user_id');
+    const mBefore = await members();
+    await updateProject(db, req.user!, req.params.id as string, req.body);
+    const mAfter = await members();
+    if (before) await audit('project', 'update', await db('projects').where({ id: req.params.id }).first(), req.user!, mBefore.join() !== mAfter.join() ? { members: { from: mBefore, to: mAfter } } : {}, before);
+    res.json({ message: 'Updated' });
+  }
   catch (err) { sendServiceError(res, err, 'projects.update'); }
 });
 
-// DELETE project — admins, and managers for projects in their list
-router.delete('/:id', requireRoles('admin', 'manager'), manageProject, async (req: AuthRequest, res: Response) => {
-  try { await deleteProject(getDB(), req.user!, req.params.id as string); res.json({ message: 'Deleted' }); }
+// DELETE project — admins only, with the project's name typed in; a full copy goes to audit_log first
+router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const db = getDB();
+    const p = await db('projects').where({ id: req.params.id }).first();
+    if (!p) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!nameConfirmed(req.body?.confirm_name, p.name)) { res.status(400).json({ error: `To delete, type the project name exactly: ${p.name}` }); return; }
+    await audit('project', 'delete', p, req.user!, {
+      members: await db('project_members').where({ project_id: p.id }).pluck('user_id'),
+      tasks: await db('tasks').where({ project_id: p.id }).select('id', 'title', 'status', 'assigned_to', 'created_by', 'due_date', 'created_at'),
+    });
+    await deleteProject(db, req.user!, req.params.id as string); res.json({ message: 'Deleted' });
+  }
   catch (err) { sendServiceError(res, err, 'projects.delete'); }
 });
 

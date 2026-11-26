@@ -46,6 +46,7 @@ export const authApi = {
 
 export const usersApi = {
   list: () => api.get('/users'),
+  auditLog: (params: { kind?: string; q?: string }) => api.get('/users/audit-log/list', { params }),
   byRole: (role: string) => api.get(`/users/by-role/${role}`),
   companies: () => api.get('/users/companies'),
   renameCompany: (id: number, name: string) => api.put(`/users/companies/${id}`, { name }),
@@ -53,7 +54,7 @@ export const usersApi = {
   userProjects: (id: number) => api.get(`/users/${id}/projects`),
   create: (data: any) => api.post('/users', data),
   update: (id: number, data: any) => api.put(`/users/${id}`, data),
-  delete: (id: number) => api.delete(`/users/${id}`),
+  delete: (id: number, confirm_name: string) => api.delete(`/users/${id}`, { data: { confirm_name } }),
   changePassword: (current_password: string, new_password: string) =>
     api.put('/users/me/password', { current_password, new_password }),
   uploadAvatar: (file: File) => {
@@ -85,7 +86,7 @@ export const projectsApi = {
   get: (id: number) => api.get(`/projects/${id}`),
   create: (data: any) => api.post('/projects', data),
   update: (id: number, data: any) => api.put(`/projects/${id}`, data),
-  delete: (id: number) => api.delete(`/projects/${id}`),
+  delete: (id: number, confirm_name: string) => api.delete(`/projects/${id}`, { data: { confirm_name } }),
   managerResponse: (id: number, action: 'accept' | 'decline', member_ids?: number[]) =>
     api.post(`/projects/${id}/manager-response`, { action, member_ids }),
   members: (id: number) => api.get(`/projects/${id}/members`),

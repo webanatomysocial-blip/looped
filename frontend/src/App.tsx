@@ -17,6 +17,7 @@ import Notifications from './pages/Notifications';
 import Messages from './pages/Messages';
 import Settings from './pages/Settings';
 import UserManagement from './pages/admin/UserManagement';
+import AuditLog from './pages/admin/AuditLog';
 import ContactFormProjects from './pages/admin/ContactFormProjects';
 import ContactFormProjectDetail from './pages/admin/ContactFormProjectDetail';
 import ContactFormSubmissions from './pages/admin/ContactFormSubmissions';
@@ -225,6 +226,12 @@ function AppRoutes() {
       <Route path="/team-capacity" element={
         <PrivateRoute roles={['admin', 'manager']}>
           <TeamCapacityPage />
+        </PrivateRoute>
+      } />
+
+      <Route path="/admin/change-log" element={
+        <PrivateRoute roles={['admin']}>
+          <AuditLog />
         </PrivateRoute>
       } />
 

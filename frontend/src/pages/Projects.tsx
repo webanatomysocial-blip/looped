@@ -271,8 +271,10 @@ export default function Projects() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this project?')) return;
-    try { await projectsApi.delete(id); } catch (err: any) { alert(err.response?.data?.error || 'Delete failed'); return; }
+    const name = projects.find((p: any) => p.id === id)?.name ?? '';
+    const typed = prompt(`PERMANENTLY delete the project "${name}"?\n\nThis also erases ALL of its tickets, approvals and time logs. It cannot be undone.\n\nTo confirm, type the project name:`);
+    if (typed === null) return;
+    try { await projectsApi.delete(id, typed); } catch (err: any) { alert(err.response?.data?.error || 'Delete failed'); return; }
     load();
   };
 
@@ -628,7 +630,7 @@ export default function Projects() {
                         <span className="proj-due">
                           {project.due_date ? format(parseISO(project.due_date), 'dd-MM-yyyy') : '—'}
                         </span>
-                        {isAdminLike && (
+                        {user?.role === 'admin' && (
                           <button
                             className="proj-delete-btn"
                             onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}

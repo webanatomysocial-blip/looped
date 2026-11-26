@@ -183,7 +183,10 @@ test('project list keeps its scope; money only for admins and managers', async (
 
 test("managers can't edit, delete or accept another pod's projects", async () => {
   await expectStatus('mgr2', 'PUT', `/projects/${P1}`, 404, { name: 'Hijacked' });
-  await expectStatus('mgr1', 'DELETE', `/projects/${P2}`, 404);
+  await expectStatus('mgr1', 'DELETE', `/projects/${P2}`, 403, { confirm_name: 'x' });   // only admins delete projects
+  await expectStatus('admin', 'DELETE', `/projects/${P2}`, 400);                         // and only with the name typed in
+  await expectStatus('admin', 'DELETE', `/projects/${P2}`, 400, { confirm_name: 'wrong name' });
+  assert.ok(await getDB()('projects').where({ id: P2 }).first(), 'still there');
   await expectStatus('mgr1', 'POST', `/projects/${PENDING2}/manager-response`, 404, { action: 'accept' });
   await expectStatus('emp1', 'PUT', `/projects/${P1}`, 403, { name: 'x' });
   assert.equal((await getDB()('projects').where({ id: P1 }).first()).name, 'Alpha');

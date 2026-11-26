@@ -238,3 +238,15 @@
   color: #2459a4;
 }
 .cat-checkbox-item:hover:not(.selected) { border-color: rgba(26,26,26,0.2); color: var(--ink); }
+
+/* Change log */
+.audit-list { display: flex; flex-direction: column; gap: 10px; }
+.audit-row { background: #fff; border: 1px solid rgba(0,0,0,0.07); border-radius: 12px; padding: 12px 14px; font-size: 13px; }
+.audit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.audit-tag { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 99px; }
+.audit-meta { color: var(--ink-muted); font-size: 12px; margin-left: auto; }
+.audit-line { margin-top: 6px; color: var(--ink-muted); line-height: 1.5; word-break: break-word; }
+.audit-copy { margin-top: 8px; }
+.audit-copy summary { cursor: pointer; color: var(--ink-muted); font-size: 12px; }
+.audit-copy pre { max-height: 320px; overflow: auto; background: #f7f7f5; padding: 10px; border-radius: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+@media (max-width: 600px) { .audit-meta { margin-left: 0; flex-basis: 100%; } }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { UserPlus, Edit2, Trash2, Shield, Plus, X, Tag } from 'lucide-react';
 import Layout from '../../components/Layout/Layout';
@@ -153,8 +154,10 @@ export default function UserManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Delete this user? This cannot be undone.')) return;
-    try { await usersApi.delete(id); load(); }
+    const name = users.find((u: any) => u.id === id)?.name ?? '';
+    const typed = prompt(`PERMANENTLY delete "${name}"?\n\nThis also erases every ticket they created, their messages and notifications. It cannot be undone.\n\nTo confirm, type their name:`);
+    if (typed === null) return;
+    try { await usersApi.delete(id, typed); load(); }
     catch (err: any) { alert(err.response?.data?.error || 'Error'); }
   };
 
@@ -195,7 +198,7 @@ export default function UserManagement() {
         <div className="users-top">
           <div>
             <h2 className="page-title">Users</h2>
-            <p className="page-subtitle">{filtered.length} member{filtered.length !== 1 ? 's' : ''}</p>
+            <p className="page-subtitle">{filtered.length} member{filtered.length !== 1 ? 's' : ''}{isAdmin && <> · <Link to="/admin/change-log">Change log</Link></>}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {isAdmin && (
@@ -287,7 +290,7 @@ export default function UserManagement() {
                 </div>
                 <div className="user-card__actions">
                   <button className="icon-action" onClick={() => openEdit(u)} title="Edit"><Edit2 size={12} /></button>
-                  <button className="icon-action danger" onClick={() => handleDelete(u.id)} title="Delete"><Trash2 size={12} /></button>
+                  {me?.role === 'admin' && <button className="icon-action danger" onClick={() => handleDelete(u.id)} title="Delete"><Trash2 size={12} /></button>}
                 </div>
               </div>
             </div>

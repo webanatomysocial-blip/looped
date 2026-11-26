@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { getDB } from '../db';
+import { getDB, audit, nameConfirmed } from '../db';
 import { authenticate, requireRoles, AuthRequest, revokeSessions } from '../middleware/auth';
 import { sendEmail } from '../services/emailService';
 import { io } from '../socket';
@@ -271,6 +271,7 @@ router.post('/', requireRoles('admin', 'manager'), async (req: AuthRequest, res:
       pod: pod || null,
       monthly_salary: monthly_salary != null ? Number(monthly_salary) : null,
     });
+    await audit('user', 'create', await db('users').where({ id }).first(), req.user!, { categories: category_ids ?? [] });
 
     let clientCompanyId: number | null = null;
     if (role === 'client') {
@@ -362,6 +363,9 @@ router.put('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, a
   const company_name = isManager ? undefined : req.body.company_name;
   try {
     const db = getDB();
+    const before = await db('users').where({ id: req.params.id }).first();
+    const cats = () => db('user_categories').where({ user_id: req.params.id }).orderBy('category_id').pluck('category_id');
+    const catsBefore = await cats();
     const updates: any = {};
     if (name)     updates.name = name;
     if (email)    updates.email = email;
@@ -427,20 +431,34 @@ router.put('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, a
 
     // Role/category/pod drive page access — refresh the user's open sessions
     io.to(`user:${req.params.id}`).emit('permissions_updated');
+    const catsAfter = await cats();
+    if (before) await audit('user', 'update', await db('users').where({ id: req.params.id }).first(), req.user!, {
+      ...(catsBefore.join() !== catsAfter.join() ? { categories: { from: catsBefore, to: catsAfter } } : {}),
+      ...(password ? { password: 'changed' } : {}),
+    }, before);
     res.json({ message: 'Updated' });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// DELETE user (admin; managers can delete employees only)
-router.delete('/:id', requireRoles('admin', 'manager'), employeesOnlyForManagers, async (req: AuthRequest, res: Response) => {
+// DELETE user — admins only, with the person's name typed in; a full copy goes to audit_log first.
+// Deleting also erases the tickets they created, so the copy keeps those too.
+router.delete('/:id', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
   if (Number(req.params.id) === req.user!.id) {
     res.status(400).json({ error: 'Cannot delete yourself' }); return;
   }
   try {
     const db = getDB();
     const uid = req.params.id;
+    const target = await db('users').where({ id: uid }).first();
+    if (!target) { res.status(404).json({ error: 'User not found' }); return; }
+    if (!nameConfirmed(req.body?.confirm_name, target.name)) { res.status(400).json({ error: `To delete, type the person's name exactly: ${target.name}` }); return; }
+    await audit('user', 'delete', target, req.user!, {
+      projects: await db('project_members').where({ user_id: uid }).pluck('project_id'),
+      categories: await db('user_categories').where({ user_id: uid }).pluck('category_id'),
+      tasks_created: await db('tasks').where({ created_by: uid }).select('id', 'title', 'status', 'project_id', 'assigned_to', 'due_date', 'created_at'),
+    });
 
     // Remember the company this client belonged to (so we can clean it up after)
     const deletedUser = await db('users').where({ id: uid }).select('role', 'client_company_id').first();
@@ -632,8 +650,19 @@ router.put('/:id/pages', requireRoles('admin', 'manager'), employeesOnlyForManag
     const userId = Number(req.params.id);
     await savePagePermissions(userId, pages);
     io.to(`user:${userId}`).emit('permissions_updated');
+    const u = await getDB()('users').where({ id: userId }).first();
+    if (u) await audit('user', 'update', u, req.user!, { page_access: pages }, u);
     res.json({ ok: true });
   } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// The change log for projects and people (admins only), newest first
+router.get('/audit-log/list', requireRoles('admin'), async (req: AuthRequest, res: Response) => {
+  const { kind, q } = req.query as any;
+  const rows = getDB()('audit_log').orderBy('id', 'desc').limit(500);
+  if (kind === 'project' || kind === 'user') rows.where({ kind });
+  if (q) rows.where((w: any) => w.where('name', 'like', `%${String(q).slice(0, 60)}%`).orWhere('actor_name', 'like', `%${String(q).slice(0, 60)}%`));
+  res.json((await rows).map((r: any) => ({ ...r, details: JSON.parse(r.details || '{}') })));
 });
 
 export default router;
