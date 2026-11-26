@@ -1538,6 +1538,11 @@ async function createSchema(): Promise<void> {
     await db.schema.table('tasks', (t) => { t.text('pending_assign').nullable(); t.string('pending_prev_status', 20).nullable(); });
   }
 
+  // Per-ticket choice to leave out the final admin approval and/or the client review
+  if (!(await db.schema.hasColumn('tasks', 'skip_admin'))) {
+    await db.schema.table('tasks', (t) => { t.boolean('skip_admin').defaultTo(false); t.boolean('skip_client').defaultTo(false); });
+  }
+
   // Full create-form state of a draft, so reopening it restores stages, assignees and estimates
   if (!(await db.schema.hasColumn('tasks', 'draft_form'))) {
     await db.schema.table('tasks', (t) => { t.text('draft_form').nullable(); });

@@ -28,7 +28,15 @@ function scheduleOne(userId: number, db: Db) { import('./scheduler').then(({ sch
 
 async function loadType(db: Db, ticket: any) {
   const tt = await db('xlr8_ticket_types').where({ id: ticket.ticket_type_id }).first();
-  return { stages: pj(tt?.stages, []) as any[], finalApproval: pj(tt?.final_approval, {}) };
+  return { stages: pj(tt?.stages, []) as any[], finalApproval: ticketFinalApproval(tt?.final_approval, ticket) };
+}
+
+// The type's final approval, minus what the creator chose to leave out for this ticket
+export function ticketFinalApproval(raw: any, ticket: any) {
+  const fa = { ...pj(raw, {}) };
+  if (Number(ticket?.skip_admin)) fa.adminRequired = false;
+  if (Number(ticket?.skip_client)) fa.clientOptional = false;
+  return fa;
 }
 
 async function requireManage(db: Db, actor: Actor, taskId: number | string) {
@@ -424,7 +432,7 @@ export async function listTickets(db: Db, actor: Actor, filters: { project_id?: 
     .whereNotNull('t.ticket_type_id')
     .select(
       't.id', 't.title', 't.description', 't.status', 't.xlr8_status', 't.xlr8_stage_idx',
-      't.ticket_type_id', 't.created_at', 't.project_id', 't.xlr8_assignee_id',
+      't.ticket_type_id', 't.created_at', 't.project_id', 't.xlr8_assignee_id', 't.skip_admin', 't.skip_client',
       'p.name as project_name',
       'creator.id as creator_id', 'creator.name as creator_name',
       'assignee.name as assignee_name', 'assignee.avatar_color as assignee_color', 'assignee.avatar_url as assignee_avatar_url', 'assignee.role as assignee_role',
@@ -448,7 +456,7 @@ export async function listTickets(db: Db, actor: Actor, filters: { project_id?: 
     q = q.where('p.client_company_id', me?.client_company_id ?? -1);
   }
   const rows = await q.orderBy('t.created_at', 'desc');
-  return rows.map((r: any) => ({ ...r, stages: pj(r.stages, []), final_approval: pj(r.final_approval, {}) }));
+  return rows.map((r: any) => ({ ...r, stages: pj(r.stages, []), final_approval: ticketFinalApproval(r.final_approval, r) }));
 }
 
 export async function getTicket(db: Db, actor: Actor, id: number | string) {
@@ -473,7 +481,7 @@ export async function getTicket(db: Db, actor: Actor, id: number | string) {
   const myPending = !!(await db('task_assignees').where({ task_id: ticket.id, user_id: actor.id }).whereIn('assignee_role', ['employee', 'manager'])
     .where((q: any) => q.whereNull('skipped').orWhere('skipped', 0))
     .where((q: any) => q.whereNull('acceptance_status').orWhere('acceptance_status', 'pending')).first());
-  return { ...ticket, stages: pj(ticket.stages, []), final_approval: pj(ticket.final_approval, {}), log, my_acceptance_pending: myPending };
+  return { ...ticket, stages: pj(ticket.stages, []), final_approval: ticketFinalApproval(ticket.final_approval, ticket), log, my_acceptance_pending: myPending };
 }
 
 export async function getTicketLog(db: Db, actor: Actor, id: number | string) {
@@ -547,6 +555,7 @@ export async function createTicket(db: Db, actor: Actor, body: any): Promise<Rec
     ticket_type_id, xlr8_stage_idx: 0,
     xlr8_status: actor.role === 'employee' ? 'pending_approval' : 'pending_manager',
     priority: priority || 'medium',
+    skip_admin: !!body.skip_admin, skip_client: !!body.skip_client,
   });
 
   if (checklistRows.length > 0) await db('task_checklist').insert(checklistRows.map(r => ({ task_id: id, ...r })));

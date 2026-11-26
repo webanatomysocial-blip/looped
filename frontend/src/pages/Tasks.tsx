@@ -133,6 +133,8 @@ export default function Tasks() {
     est_hours: '', est_minutes: '0',
     ticket_type_id: '', priority: 'medium',
   });
+  // Per ticket: leave out the final admin approval and/or the client review
+  const [skipFinal, setSkipFinal] = useState({ admin: false, client: false });
   const [ticketTypes, setTicketTypes] = useState<{ id: number; name: string; stages: any[]; checklist: { text: string; checked: boolean }[]; is_custom?: boolean | number; final_approval?: any }[]>([]);
   const [customStagesOpen, setCustomStagesOpen] = useState<'new' | 'edit' | null>(null);
   const setFormCustomStages = (c: CustomStages | null) => setTicketTypes(prev => [
@@ -295,6 +297,7 @@ export default function Tasks() {
           stage_assignments: sa,
           priority: form.priority || 'medium',
           replaces_id: resubmitOf,
+          skip_admin: skipFinal.admin, skip_client: skipFinal.client,
         });
         setShowModal(false);
         setResubmitOf(null);
@@ -704,6 +707,7 @@ export default function Tasks() {
       const tk = (await xlr8Api.getTicket(task.id)).data;
       setFormCustomStages({ name: tk.ticket_type_name || 'Custom stages', stages: tk.stages || [], final_approval: tk.final_approval });
     } else setFormCustomStages(null);
+    setSkipFinal({ admin: !!Number(full.skip_admin), client: !!Number(full.skip_client) });
     const sa: Record<number, { user_ids: number[]; est_hours: string; est_minutes: string; skipped?: boolean; checklist?: CheckItem[]; skip_checklist?: boolean }> = {};
     const stageItems = ((full.checklist ?? []) as any[]).filter(c => c.stage_idx != null);
     if (full.ticket_type_id) for (const i of [...new Set(stageItems.map(c => Number(c.stage_idx)))]) {
@@ -1219,7 +1223,7 @@ export default function Tasks() {
                 {newMenuOpen && (
                   <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, minWidth: 190, background: '#fff', border: '1px solid var(--sand-border)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: 4 }}>
                     {[
-                      { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setShowModal(true); } },
+                      { label: 'Ticket', hint: 'One-off ticket', icon: <Plus size={14} />, run: () => { setForm({ title: '', description: '', project_id: '', working_person_id: '', task_manager_id: '', due_date: '', due_time: '18:00', checklist: [{ text: '', checked: false }], est_hours: '', est_minutes: '0', ticket_type_id: '', priority: 'medium' }); setCapacityWarnings([]); setApprovalFlow([]); setStageAssignments({}); setResubmitOf(null); setFormCustomStages(null); setShownPods([]); setSkipFinal({ admin: false, client: false }); setShowModal(true); } },
                       { label: 'Recurring ticket', hint: 'Repeats on a schedule', icon: <RefreshCw size={13} />, run: () => { setRecurringForm({ title: '', description: '', doc_link: '', recurrence_type: 'weekly', recurrence_days: [], day_of_month: '1', estimated_hours: '1', estimated_minutes: '0', project_id: '', assigned_to: String(user?.id || ''), end_date: '' }); setShowRecurringModal(true); } },
                     ].map(item => (
                       <button key={item.label} type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); item.run(); }}
@@ -1714,6 +1718,27 @@ export default function Tasks() {
                           );
                         })}
                         {inserter(tt.stages.length)}
+                        {(() => {
+                          const fa = { adminRequired: true, adminSkippable: true, clientOptional: true, ...(tt.final_approval || {}) };
+                          const steps = [
+                            fa.adminRequired && { key: 'admin' as const, label: 'Admin final approval' },
+                            fa.clientOptional && { key: 'client' as const, label: 'Client review' },
+                          ].filter(Boolean) as { key: 'admin' | 'client'; label: string }[];
+                          if (!steps.length) return null;
+                          return steps.map(st => {
+                            const off = skipFinal[st.key];
+                            return (
+                              <div key={st.key} style={{ padding: '8px 12px', borderRadius: 8, border: `1px solid ${off ? '#d1d5db' : 'var(--sand-border)'}`, opacity: off ? 0.55 : 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: off ? 'var(--ink-muted)' : 'var(--ink)' }}>{st.label}{off ? ' (skipped)' : ''}</span>
+                                <button type="button" onClick={() => setSkipFinal(p => ({ ...p, [st.key]: !p[st.key] }))}
+                                  title={off ? 'Skipped. Click to include' : 'Click to skip this step for this ticket'}
+                                  style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, border: `1.5px solid ${off ? '#ef4444' : 'var(--sand-border)'}`, background: off ? 'rgba(239,68,68,0.1)' : 'transparent', color: off ? '#ef4444' : 'var(--ink-muted)', cursor: 'pointer' }}>
+                                  {off ? '✕ Skipped' : 'Skip'}
+                                </button>
+                              </div>
+                            );
+                          });
+                        })()}
                         {insertAt != null && user?.role === 'employee' && (
                           <div style={{ fontSize: 11, color: '#92400e' }}>Tickets with edited stages go to your pod manager for approval first.</div>
                         )}

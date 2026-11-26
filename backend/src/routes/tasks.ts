@@ -3,7 +3,7 @@ import { getDB, createNotification, isMySQLClient } from '../db';
 import { authenticate, requireRoles, AuthRequest } from '../middleware/auth';
 import { refreshChecklistCounts, uncheckedItems, uncheckedError } from '../utils/checklist';
 import { ensureTrashTable, snapshotTicket, restoreTicket } from '../services/ticketTrash';
-import { appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn } from '../services/xlr8';
+import { appendLog, approvalReasons, reasonPods, holdForCrossPod, notifyAdminCrossPod, discardRejected, creditRequester, activateTicket, dropCustomTypeIfUnused, awaitingPodApproval, AWAITING_APPROVAL, startIfAccepted, waitingOn, ticketFinalApproval } from '../services/xlr8';
 import { multerName } from '../services/uploads';
 
 import { listTasks, getTask, createTask, updateTask, sameStage } from '../services/tasks';
@@ -269,7 +269,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
       const tt = await db('xlr8_ticket_types').where({ id: task.ticket_type_id }).first();
       if (tt) {
         xlr8_stages = typeof tt.stages === 'string' ? JSON.parse(tt.stages || '[]') : (tt.stages ?? []);
-        xlr8_final_approval = typeof tt.final_approval === 'string' ? JSON.parse(tt.final_approval || '{}') : (tt.final_approval ?? {});
+        xlr8_final_approval = ticketFinalApproval(tt.final_approval, task);
       }
     }
 
