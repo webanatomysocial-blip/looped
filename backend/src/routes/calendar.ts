@@ -1,6 +1,6 @@
 import { Router, Response, Request, NextFunction } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
-import { getDB, isMySQLClient } from '../db';
+import { getDB, isMySQLClient, createNotification } from '../db';
 import type { Knex } from 'knex';
 import { DAY_CAP, loadItems, planSlots, scheduleUser, itemKey, nextDay, isWeekend, skipToWorkday, WorkItem, Slot } from '../services/scheduler';
 
@@ -97,7 +97,7 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
     if (!occurs) continue;
     const exists = await db('tasks').where('recurring_task_id', id).where('recurrence_date', dateStr).first();
     if (exists) continue;
-    await db('tasks').insert({
+    const [taskId] = await db('tasks').insert({
       title,
       description: description || '',
       project_id: project_id || null,
@@ -110,10 +110,12 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
       recurring_task_id: id,
       recurrence_date: dateStr,
     });
+    await addRecurringAssignee(db, Number(taskId), assignee, user.id, title, false);   // notified after the transaction
     break;
   }
   return id;
   });
+  if (Number(assignee) !== Number(user.id)) await notifyRecurring(assignee, title);
 
   res.json({ id });
 });
@@ -345,6 +347,15 @@ router.post('/recurring/generate', async (req: AuthRequest, res: Response) => {
   res.json({ generated: count });
 });
 
+// A recurring ticket's person must be on task_assignees: the employee task list only shows tasks they are assigned to there,
+// and the status reads "Waiting" until they accept. Someone's own recurring ticket needs no acceptance.
+export async function addRecurringAssignee(db: Knex, taskId: number, userId: number, createdBy: number, title: string, notify = true) {
+  const own = Number(userId) === Number(createdBy);
+  await db('task_assignees').insert({ task_id: taskId, user_id: userId, assignee_role: 'employee', acceptance_status: own ? 'accepted' : 'pending' });
+  if (!own && notify) await notifyRecurring(userId, title);
+}
+const notifyRecurring = (userId: number, title: string) => createNotification(userId, `New recurring ticket for you: "${title}". Please accept it in Tasks.`, 'task').catch(() => {});
+
 export async function generateTodayInstances(): Promise<number> {
   const db = getDB();
   const today = new Date();
@@ -373,7 +384,7 @@ export async function generateTodayInstances(): Promise<number> {
     const exists = await db('tasks').where('recurring_task_id', rt.id).where('recurrence_date', dateStr).first();
     if (exists) continue;
 
-    await db('tasks').insert({
+    const [taskId] = await db('tasks').insert({
       title: rt.title,
       description: rt.description || '',
       project_id: rt.project_id || null,
@@ -386,6 +397,7 @@ export async function generateTodayInstances(): Promise<number> {
       recurring_task_id: rt.id,
       recurrence_date: dateStr,
     });
+    await addRecurringAssignee(db, Number(taskId), rt.assigned_to, rt.created_by, rt.title);
     count++;
     } catch (e: any) { console.error(`[recurring] template ${rt.id} "${rt.title}" could not create today's ticket: ${e?.sqlMessage ?? e?.message ?? e}`); }
   }

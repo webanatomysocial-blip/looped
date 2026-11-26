@@ -1435,6 +1435,17 @@ async function createSchema(): Promise<void> {
     if (col?.[0]?.n === 'NO') await db.raw('ALTER TABLE `tasks` MODIFY `project_id` INT UNSIGNED NULL');
   }
 
+  // Recurring tickets made before their person was added to task_assignees were invisible in that employee's task list
+  // and showed "Accepted" with no request. Add the missing row once: accepted if it is their own or already started.
+  const orphans = await db('tasks as t').whereNotNull('t.recurring_task_id').whereNotNull('t.assigned_to').whereNot('t.status', 'completed')
+    .whereNotExists(function (this: any) { this.select(1).from('task_assignees as ta').whereRaw('ta.task_id = t.id'); })
+    .select('t.id', 't.assigned_to', 't.created_by', 't.status');
+  for (const t of orphans) {
+    const accepted = Number(t.assigned_to) === Number(t.created_by) || t.status !== 'todo';
+    await db('task_assignees').insert({ task_id: t.id, user_id: t.assigned_to, assignee_role: 'employee', acceptance_status: accepted ? 'accepted' : 'pending' });
+  }
+  if (orphans.length) console.log(`[migration] added the assignee to ${orphans.length} recurring ticket(s)`);
+
   // Manual scheduling: the day a person chose to start their stage (scheduler keeps it), and which slots came from it
   if (!(await db.schema.hasColumn('task_assignees', 'schedule_anchor'))) {
     await db.schema.table('task_assignees', (t) => { t.string('schedule_anchor', 10).nullable(); });
