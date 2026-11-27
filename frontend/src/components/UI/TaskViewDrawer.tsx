@@ -6,6 +6,7 @@ import XLR8StageFlow, { fmtSec } from './XLR8StageFlow';
 import MentionField, { renderMentions, Person } from './MentionField';
 import { tasksApi, xlr8Api, calendarApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { fmtDate } from '../../utils/date';
 import { MiniAvatar } from './Avatar';
 import TaskApprovalSection from '../approvals/TaskApprovalSection';
 import { taskStage, reworkFromLog, TASK_STAGE_LABELS, TASK_STAGE_BADGE } from '../../utils/taskStatus';
@@ -79,7 +80,10 @@ function ReviewPanel({ task, me, onDone }: { task: any; me: any; onDone: () => v
   );
 }
 
-export default function TaskViewDrawer({ taskId, onClose, showApproval = false, onChanged }: Props) {
+export default function TaskViewDrawer({ taskId: openedId, onClose, showApproval = false, onChanged }: Props) {
+  // A recurring task's "Days" chips switch the drawer to another day's copy
+  const [taskId, setTaskId] = useState(openedId);
+  useEffect(() => { setTaskId(openedId); }, [openedId]);
   const { user } = useAuth();
   const [task, setTask] = useState<any>(null);
   // Bumped after an approval action to reload the task (status, stage flow)
@@ -367,6 +371,26 @@ export default function TaskViewDrawer({ taskId, onClose, showApproval = false, 
               )}
 
               {/* Description */}
+              {Array.isArray(task.recurring_days) && task.recurring_days.length > 1 && (
+                <div>
+                  <div className="drawer-info-label">Days</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                    {task.recurring_days.map((d: any) => {
+                      const on = Number(d.id) === Number(taskId);
+                      const done = d.status === 'completed';
+                      return (
+                        <button key={d.id} type="button" onClick={() => setTaskId(Number(d.id))} aria-current={on ? 'true' : undefined}
+                          title={done ? 'Completed' : d.status === 'overdue' ? 'Delayed' : 'Open'}
+                          style={{ fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 99, cursor: 'pointer',
+                            border: `1px solid ${on ? 'var(--ink)' : 'var(--sand-border)'}`, background: on ? 'var(--ink)' : '#fff',
+                            color: on ? '#fff' : done ? '#257a50' : 'var(--ink)' }}>
+                          {fmtDate(String(d.recurrence_date).slice(0, 10))}{done ? ' · done' : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="drawer-info-label">Description</div>
                 {task.description

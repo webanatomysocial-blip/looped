@@ -218,7 +218,14 @@ export async function getTask(db: Knex, actor: Actor, taskId: number | string) {
   }
   const stageName = (i: number) => { const st = (xlr8_stages as any[] | null)?.[i]; return st?.type === 'admin' ? 'Admin review' : st?.category_name || `Stage ${i + 1}`; };
   const labelled = checklist.map((c: any) => ({ ...c, stage_name: c.stage_idx == null ? null : stageName(Number(c.stage_idx)) }));
-  return { ...task, checklist: labelled, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval };
+  // A recurring task's other days (newest first), so earlier copies can be opened without a link
+  let recurring_days: any[] = [];
+  if (task.recurring_task_id) {
+    const q = db('tasks').where({ recurring_task_id: task.recurring_task_id });
+    if (actor.role === 'employee') q.where((w: any) => w.where('assigned_to', actor.id).orWhere('created_by', actor.id));
+    recurring_days = await q.orderBy('recurrence_date', 'desc').limit(30).select('id', 'recurrence_date', 'status');
+  }
+  return { ...task, checklist: labelled, stage_assignees: stageAssignees, stage_tracked: stageTracked, xlr8_stages, xlr8_final_approval, recurring_days };
 }
 
 // ── Create ──
