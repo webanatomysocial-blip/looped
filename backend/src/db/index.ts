@@ -56,6 +56,8 @@ export async function initDB(): Promise<void> {
   await ensureAssistantSchema(db);
   await ensurePendingSchema(db);
   await ensureOutboxSchema(db);
+  await (await import('../services/escalations')).ensureEscalationSchema(db);
+  await (await import('../services/interviewFeedback')).ensureFeedbackSchema(db);
   await ensureUsageSchema(db);
   await ensureEmployeePhoneSchema(db);
   await (await import('../assistant/settingsStore')).ensureSettingsSchema(db);

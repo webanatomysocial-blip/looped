@@ -114,3 +114,15 @@ test('the edit form can load a recurring task for its creator, managers and admi
   assert.equal((await call('emp2', 'GET', `/calendar/recurring/${r.body.id}`)).status, 403);
   assert.equal((await call('mgr', 'GET', '/calendar/recurring/99999')).status, 404);
 });
+
+test('the recurring list: employees see their own, managers their pod\'s employees too, admins everyone\'s', async () => {
+  const [other] = await db()('users').insert({ name: 'far', email: 'far@rc.t', password_hash: 'x', role: 'employee', pod: 'pod2' });
+  const mine = (await call('emp', 'POST', '/calendar/recurring', { title: 'Pod1 work', recurrence_type: 'daily', start_date: today })).body.id;
+  const far = (await call('adm', 'POST', '/calendar/recurring', { title: 'Pod2 work', recurrence_type: 'daily', start_date: today, assigned_to: Number(other) })).body.id;
+  const ids = async (who: string) => ((await call(who, 'GET', '/calendar/recurring')).body as any[]).map((r) => Number(r.id));
+  assert.ok((await ids('emp')).includes(mine));
+  assert.ok(!(await ids('emp2')).includes(mine), 'not another employee\'s');
+  assert.ok((await ids('mgr')).includes(mine), 'manager sees their pod employee\'s');
+  assert.ok(!(await ids('mgr')).includes(far), 'but not another pod\'s');
+  assert.ok((await ids('adm')).includes(mine) && (await ids('adm')).includes(far));
+});

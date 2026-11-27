@@ -635,7 +635,14 @@ router.get('/:id/profile', async (req: AuthRequest, res: Response) => {
       .count('t.id as n').first();
     const achievements = Number((achieveRow as any)?.n ?? 0);
 
-    res.json({ ...user, categories, pod_manager, overdue_tasks, achievements, certificates: [], awards: [] });
+    // Escalations: shown to admins, managers and the employee themselves
+    let escalations: { confirmed: number; pending: number } | null = null;
+    if (['admin', 'manager'].includes(req.user!.role) || Number(req.user!.id) === Number(req.params.id)) {
+      const rows = await db('employee_escalations').where({ user_id: req.params.id }).whereIn('status', ['confirmed', 'pending']).groupBy('status').select('status', db.raw('COUNT(*) as n')).catch(() => []);
+      const by = Object.fromEntries(rows.map((r: any) => [r.status, Number(r.n)]));
+      escalations = { confirmed: by.confirmed ?? 0, pending: by.pending ?? 0 };
+    }
+    res.json({ ...user, categories, pod_manager, overdue_tasks, achievements, escalations, certificates: [], awards: [] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

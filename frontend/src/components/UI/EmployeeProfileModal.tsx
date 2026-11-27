@@ -17,6 +17,7 @@ interface Profile {
   pod_manager: string | null;
   overdue_tasks: number;
   achievements: number;
+  escalations?: { confirmed: number; pending: number } | null;
   certificates: string[];
   awards: string[];
 }
@@ -113,6 +114,7 @@ export default function EmployeeProfileModal({ userId, onClose }: Props) {
             {/* Stats */}
             <div style={{ display: 'flex', gap: 8 }}>
               <StatBox value={profile?.overdue_tasks ?? '—'} label="Overdue Tickets" color="#ef4444" />
+              {profile?.escalations && <StatBox value={profile.escalations.confirmed} label={profile.escalations.pending ? `Escalations (+${profile.escalations.pending} to review)` : 'Escalations'} color="#f97316" />}
               <StatBox value={profile?.achievements ?? '—'} label="Achievements" color="#22c55e" />
               <StatBox value="—" label="Certificates" color="#f59e0b" />
               <StatBox value="—" label="Awards" color="#a78bfa" />

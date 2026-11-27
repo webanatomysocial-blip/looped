@@ -515,7 +515,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
   // Opens where the work is: the video while it is reviewed, the final interview once it is approved
   const askedReschedule = (a.reschedule_requests ?? []).some((r: any) => r.status === 'pending');
   const view = tab || (askedReschedule || ['prelim_approved', 'final_scheduled', 'final_completed'].includes(a.status) ? 'final' : a.interview?.status === 'submitted' && !['selected', 'rejected', 'withdrawn'].includes(a.status) ? 'interview' : 'profile');
-  const nextLabel = a.status === 'final_completed' ? 'Select candidate' : user?.role === 'admin' ? (['applied', 'under_review', 'interview_review'].includes(a.status) ? 'Approve (admin decision)' : 'Approve') : 'Approve (recommend)';
+  const nextLabel = ['final_completed', 'final_scheduled'].includes(a.status) ? 'Shortlist candidate (final decision)' : user?.role === 'admin' ? (['applied', 'under_review', 'interview_review'].includes(a.status) ? 'Approve (admin decision)' : 'Approve') : 'Approve (recommend)';
   return (
     <Drawer title={a.name} label={`${a.ref} · ${a.job?.title ?? ''}`} onClose={onClose}>
       <div className="drawer-body" style={{ overflowY: 'auto' }}>
@@ -607,6 +607,27 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 {s.interviewers.length > 0 && ` · with ${s.interviewers.map((p: any) => p.name).join(', ')}`}
               </div>
             ))}
+            {/* Interviewers rate and recommend; the admin's decision below is final */}
+            <div style={{ marginTop: 12 }}>
+              <h3 style={{ fontSize: 14, margin: '0 0 6px' }}>Interviewer feedback</h3>
+              {(a.interviewer_feedback ?? []).length === 0 ? <p className="rec-muted" style={{ fontSize: 13 }}>No feedback yet. Interviewers send it from Loop → My Interviews.</p> : (
+                <>
+                  <p className="rec-muted" style={{ fontSize: 12, margin: '0 0 6px' }}>
+                    {(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'approve').length} recommend approving · {(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'reject').length} recommend rejecting · average {((a.interviewer_feedback as any[]).reduce((t, f) => t + Number(f.rating), 0) / a.interviewer_feedback.length).toFixed(1)}/5. The final decision is the admin's.
+                  </p>
+                  {(a.interviewer_feedback as any[]).map((f) => (
+                    <div key={f.id} style={{ border: '1px solid var(--sand-border)', borderRadius: 10, padding: '8px 10px', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
+                        <b>{f.user_name}</b>
+                        <span className={`rec-pill ${f.recommendation === 'approve' ? 'rec-pill--good' : 'rec-pill--bad'}`}>{f.recommendation === 'approve' ? 'Recommends approve' : 'Recommends reject'}</span>
+                        <span>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)} {f.rating}/5</span>
+                      </div>
+                      <div style={{ fontSize: 13, marginTop: 4, whiteSpace: 'pre-wrap' }}>{f.notes}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
             {current && (a.reschedule_requests ?? []).filter((r: any) => r.status === 'pending' || (r.status === 'rejected' && r.decided_by && !r.followed_up)).slice(0, 1).map((r: any) => {
               // Same length as the current slot, starting at the requested time
               const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));

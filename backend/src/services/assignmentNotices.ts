@@ -1,6 +1,7 @@
 // WhatsApp group notices for task assignments. Loop is the source of truth; WhatsApp is only a notification channel.
 // A notice is queued in the outbox after the assignment commits, and a worker sends it to the one configured group.
 // Nothing here changes an assignment. A failure to queue or send never rolls back or blocks the assignment.
+import { recordEscalation } from './escalations';
 import { Knex } from 'knex';
 import { renderCard, Card } from './reportCard';
 import { loadNotificationGroup } from '../assistant/settingsStore';
@@ -282,6 +283,15 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
       if (payload.to) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'failed', last_error: 'bad_destination' }); failed++; }
       continue;   // no group chosen yet: a group notice waits
     }
+    if (row.kind === 'interview' && payload.iv) {
+      // Before the interview: only while that slot still stands. After it: only while feedback is still missing.
+      const s = await db('rec_schedules').where({ id: payload.iv.scheduleId }).first('status', 'date', 'start_time', 'interviewers');
+      const a = s ? await db('rec_schedules as s').join('rec_applications as a', 'a.id', 's.application_id').where('s.id', payload.iv.scheduleId).first('a.status') : null;
+      const slotOk = !!s && deadlineInstant(String(s.date).slice(0, 10), s.start_time) === payload.iv.startMs && (payload.iv.after ? ['scheduled', 'completed'] : ['scheduled']).includes(s.status)
+        && !['selected', 'rejected', 'withdrawn'].includes(a?.status);
+      const missing = slotOk && payload.iv.after ? await feedbackMissing(db, payload.iv.scheduleId, payload.iv.userIds) : payload.iv.userIds;
+      if (!slotOk || !missing.length) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
+    }
     if (row.kind === 'escalation') {
       // Only the people who still have not accepted are named; nobody left means nothing is sent
       const still: any[] = [];
@@ -529,7 +539,10 @@ export async function enqueueAcceptanceReminders(db: Knex, now: Date = new Date(
     const r0 = e.rows[0];
     const args = { title: String(r0.title), project: r0.project_name ? String(r0.project_name) : '', minutes: acceptanceEscalateMinutes(process.env, minutes), managers };
     const people = e.rows.map((r) => ({ ...r.person, assignmentId: Number(r.id) }));
-    if (await insertRow(db, { event_key: key, kind: 'escalation', task_id: taskId, now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) queued++;
+    if (await insertRow(db, { event_key: key, kind: 'escalation', task_id: taskId, now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) {
+      queued++;
+      await recordEscalation(db, { userIds: e.rows.map((r) => Number(r.user_id)), taskId, kind: 'acceptance', reason: 'Did not accept the task in time', eventKey: key });
+    }
   }
   return queued;
 }
@@ -579,31 +592,52 @@ export function buildDeadlineText(args: {
   return { text, mentions: mentionsOf(args.people), tags: tagsOf(args.people), ...pic };
 }
 
+// Delayed work is followed up in three steps: 1 deadline crossed, 2 warning, 3 escalation
+export const OVERDUE_STEPS = [
+  { level: 1, afterMin: 0, key: 'overdue' },
+  { level: 2, afterMin: 4 * 60, key: 'overdue2' },
+  { level: 3, afterMin: 24 * 60, key: 'overdue3' },
+] as const;
 export function buildOverdueText(args: {
   title: string; project: string; dueLabel: string; minutesLate: number; status: string | null;
   people: { name: string; mention: string | null }[];
   leads?: { name: string; mention: string | null }[];   // group follow-up: managers and admins to tag
+  level?: 1 | 2 | 3;
 }): { text: string; mentions: string[]; tags: Tag[]; card: Card; caption: string } {
+  const level = args.level ?? 1;
   const leads = (args.leads ?? []).filter((p, i, a) => a.findIndex((q) => q.name === p.name) === i);
-  const action = leads.length ? `👉 *Please follow up:* ${names(leads)}` : '👉 Please finish it or update the deadline in Loop.';
   const late = args.minutesLate >= 120 ? `about ${plural(Math.round(args.minutesLate / 60), 'hour')}` : plural(args.minutesLate, 'minute');
-  const head = heading('🚨', 'Deadline crossed');
+  const who = names(args.people);
+  const copy = {
+    1: { icon: '🚨', title: 'Deadline crossed',
+      line: `This task is ${bold(late)} past its deadline.`,
+      ask: '👉 Please finish it and submit it, or update the deadline in Loop with a reason.' },
+    2: { icon: '⚠️', title: 'Warning: task still delayed',
+      line: `Second reminder: this task is now ${bold(late)} late and still not closed.`,
+      ask: `👉 ${who}, please complete and close it today. If it is blocked, say why in Loop and agree a new deadline with your manager.` },
+    3: { icon: '🔴', title: 'Escalation: delayed task',
+      line: `Escalated: this task is ${bold(late)} late after two reminders and is still with ${who}.`,
+      ask: `👉 ${who}, please reply with an update and close it now.` },
+  }[level];
+  const followUp = leads.length ? `\n👀 *Please follow up:* ${names(leads)}` : '';
+  const head = heading(copy.icon, copy.title);
   const pic = detailCard(head, clean(args.title, 60), [
     { label: 'Overdue by', value: late, tone: 'bad' }, { label: 'Was due', value: args.dueLabel },
-    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: 'Assigned to', value: plainNames(args.people) },
+    { label: 'Project', value: args.project ? clean(args.project) : null }, { label: level === 3 ? 'Ticket is with' : 'Assigned to', value: plainNames(args.people) },
     { label: 'Status', value: args.status, tone: 'warn' },
-  ], names(args.people), action);
+    { label: 'Reminder', value: `${level} of 3`, tone: level === 1 ? 'warn' : 'bad' },
+  ], who, copy.ask + followUp);
   const text = compose(
     head,
-    `This task is ${bold(late)} past its deadline.`,
-    [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Was due', args.dueLabel), field('Assigned to', names(args.people)), args.status ? field('Status', args.status) : ''],
-    action,
+    copy.line,
+    [field('Task', clean(args.title)), args.project ? field('Project', clean(args.project)) : '', field('Was due', args.dueLabel), field(level === 3 ? 'Ticket is with' : 'Assigned to', who), args.status ? field('Status', args.status) : ''],
+    copy.ask + followUp,
   );
   const all = [...args.people, ...leads];
   return { text, mentions: mentionsOf(all), tags: tagsOf(all), ...pic };
 }
 
-const OVERDUE_LOOKBACK_HOURS = 24;   // a deadline crossed longer ago than this (e.g. while WhatsApp was down) is not announced late
+const OVERDUE_LOOKBACK_HOURS = 24;   // a step that fell due longer ago than this (e.g. while WhatsApp was down) is not sent late
 
 // Queues, per task deadline, one "approaching" alert and one "crossed" alert. Each key is the task and its exact deadline
 // instant, so neither repeats across passes, retries or restarts; a changed deadline is a new deadline with its own alerts.
@@ -625,9 +659,12 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     const approaching = est > 0 && deadlineAlertDue({ deadlineMs, estimatedHours: est, nowMs, percent })
       && deadlineMs - (est * 3_600_000 * percent) / 100 >= start;
     // Crossed: the deadline passed after the start point, recently, and the task is still open
-    const crossed = deadlineMs <= nowMs && deadlineMs >= start && nowMs - deadlineMs <= OVERDUE_LOOKBACK_HOURS * 3600_000;
+    // Only the latest step reached is sent (after an outage nobody gets steps 1-3 at once)
+    const lateMin = (nowMs - deadlineMs) / 60_000;
+    const step = deadlineMs <= nowMs && deadlineMs >= start ? [...OVERDUE_STEPS].reverse().find((st) => lateMin >= st.afterMin) : undefined;
+    const crossed = !!step && lateMin - step.afterMin <= OVERDUE_LOOKBACK_HOURS * 60;
     if (!approaching && !crossed) continue;
-    const eventKey = crossed ? `overdue:${t.id}:${deadlineMs}` : `deadline:${t.id}:${deadlineMs}`;
+    const eventKey = crossed ? `${step!.key}:${t.id}:${deadlineMs}` : `deadline:${t.id}:${deadlineMs}`;
     // A multi-stage ticket: the person holding the current stage
     const people = t.ticket_type_id
       ? (t.xlr8_assignee_id ? await db('users').where({ id: t.xlr8_assignee_id }).select('id as user_id', 'name') : [])
@@ -649,15 +686,18 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
       if (!p.mention) continue;
       const me = [{ name: p.name, mention: null }];
       const built = crossed
-        ? buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, []) || null, people: me })
+        ? buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, []) || null, people: me, level: step!.level })
         : buildDeadlineText({ title: String(t.title), project, dueLabel: due, minutesLeft: Math.max(1, Math.ceil((deadlineMs - nowMs) / 60_000)), people: me });
       if (await insertRow(db, { event_key: `${eventKey}:${p.mention.split('@')[0].slice(-12)}`, kind: 'deadline', task_id: Number(t.id), now, payload: { ...built, taskId: Number(t.id), to: p.mention } })) queued++;
     }
     // A crossed deadline is also posted in the group, tagging the people on it, their managers and the admins
     if (crossed) {
       const { managers, admins } = await leadsFor(db, Number(t.id), people.map((p: any) => Number(p.user_id)));
-      const built = buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, []) || null, people: list, leads: [...managers, ...admins] });
-      if (await insertRow(db, { event_key: `${eventKey}:group`, kind: 'deadline', task_id: Number(t.id), now, payload: { ...built, taskId: Number(t.id) } })) queued++;
+      const built = buildOverdueText({ title: String(t.title), project, dueLabel: due, minutesLate: Math.max(1, Math.floor((nowMs - deadlineMs) / 60_000)), status: statusLabel(t, []) || null, people: list, leads: [...managers, ...admins], level: step!.level });
+      if (await insertRow(db, { event_key: `${eventKey}:group`, kind: 'deadline', task_id: Number(t.id), now, payload: { ...built, taskId: Number(t.id) } })) {
+        queued++;
+        if (step!.level === 3) await recordEscalation(db, { userIds: people.map((p: any) => Number(p.user_id)), taskId: Number(t.id), kind: 'delayed', reason: `Still not closed about ${Math.round((nowMs - deadlineMs) / 3_600_000)} hours after the deadline (due ${due})`, eventKey: `${eventKey}:group` });
+      }
     }
   }
   return queued;
@@ -718,7 +758,10 @@ export async function enqueueTicketNotices(db: Knex, now: Date = new Date(), min
         const { managers } = await leadsFor(db, Number(t.id), pending.map((p) => p.id));
         const args = { title: String(t.title), project, minutes: acceptanceEscalateMinutes(process.env, minutes), managers, ticket: true };
         const people = pending.map((p) => ({ name: p.name, mention: p.mention, ticketId: Number(t.id), userId: p.id }));
-        if (await insertRow(db, { event_key: `tescalate:${base}`, kind: 'escalation', task_id: Number(t.id), now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) queued++;
+        if (await insertRow(db, { event_key: `tescalate:${base}`, kind: 'escalation', task_id: Number(t.id), now, payload: { ...buildEscalationText({ ...args, people }), args, people } })) {
+          queued++;
+          await recordEscalation(db, { userIds: pending.map((p) => p.id), taskId: Number(t.id), kind: 'acceptance', reason: 'Did not accept the ticket in time', eventKey: `tescalate:${base}` });
+        }
         continue;
       }
       const n = step === 'remind1' ? 1 : 2;
@@ -948,4 +991,78 @@ export async function queueSamples(db: Knex, adminUserId: number, now: Date = ne
   for (const p of group) await insertRow(db, { event_key: `sample:g${n++}:${stamp}`, kind: 'sample', task_id: Number(t.id), now, payload: p });
   for (const p of dm) await insertRow(db, { event_key: `sample:d${n++}:${stamp}`, kind: 'sample', task_id: Number(t.id), now, payload: { ...label(p), to: me!.mention } });
   return { group: group.length, private: dm.length, task: String(t.title) };
+}
+
+
+// ── Final interviews: private WhatsApp messages to the interviewers ──
+// Assigned → 1 hour before → 5 minutes before → (no feedback) 1 hour after the end → (still none) 30 minutes later,
+// tagged in the group. Everything before the group step is private. A step missed by more than its window is not sent late.
+export const INTERVIEW_STEPS_MIN = { before60: -60, before5: -5, after60: 60, group: 90 } as const;
+const IV_WINDOW_MIN = 30;
+const ivPeople = (s: any): number[] => { try { return (JSON.parse(s.interviewers || '[]') as any[]).map((p) => Number(p.id)).filter(Boolean); } catch { return []; } };
+async function feedbackMissing(db: Knex, scheduleId: number, userIds: number[]): Promise<number[]> {
+  const done = new Set((await db('rec_interview_feedback').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')).map(Number));
+  return userIds.filter((u) => !done.has(Number(u)));
+}
+export function buildInterviewText(kind: 'assigned' | 'before60' | 'before5' | 'after60' | 'group', a: {
+  candidate: string; job: string; ref: string; when: string; type: string; place: string; link: string; people?: { name: string; mention: string | null }[];
+}) {
+  const where = a.type === 'online' ? field('Meeting link', a.place) : field('Venue', clean(a.place, 200));
+  const facts = [field('Candidate', clean(a.candidate)), field('Role', clean(a.job)), field('When', a.when), field('Type', a.type === 'online' ? 'Online' : 'Walk-in'), where];
+  const open = `👉 Open it in Loop (resume and evaluation): ${a.link}`;
+  const copy = {
+    assigned: [heading('🎙️', 'You are taking an interview'), `You've been assigned to the final interview of ${bold(a.candidate)}.`, `${open}\nAfter the interview, rate the candidate and recommend approve or reject there.`],
+    before60: [heading(ICON.reminder, 'Interview in 1 hour'), `Your interview with ${bold(a.candidate)} starts in about an hour. Have a look at the resume before you start.`, open],
+    before5: [heading(ICON.reminder, 'Interview in 5 minutes'), `Your interview with ${bold(a.candidate)} starts in 5 minutes.`, a.type === 'online' ? `👉 Join: ${a.place}\n📄 Resume and evaluation in Loop: ${a.link}` : open],
+    after60: [heading('📝', 'Interview feedback pending'), `The interview with ${bold(a.candidate)} ended an hour ago and your evaluation is still missing.`, `👉 Please rate the candidate and recommend approve or reject now: ${a.link}`],
+    group: [heading('⚠️', 'Interview feedback overdue'), `The final interview of ${bold(a.candidate)} (${clean(a.ref)}) ended and no evaluation has been sent yet by: ${names(a.people ?? [])}.`, `👉 Please submit it in Loop → My Interviews: ${a.link}`],
+  }[kind];
+  const text = compose(copy[0], copy[1], facts, copy[2]);
+  const people = a.people ?? [];
+  return { text, mentions: mentionsOf(people), tags: tagsOf(people) };
+}
+export async function enqueueInterviewNotices(db: Knex, now: Date = new Date()): Promise<number> {
+  if (!notificationGroupJid()) return 0;
+  if (!(await db.schema.hasTable('rec_interview_feedback'))) return 0;
+  const nowMs = now.getTime();
+  const site = (process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://looped.in').replace(/\/$/, '');
+  const rows = await db('rec_schedules as s').join('rec_applications as a', 'a.id', 's.application_id').leftJoin('rec_jobs as j', 'j.id', 'a.job_id')
+    .whereIn('s.status', ['scheduled', 'completed']).whereNotIn('a.status', ['selected', 'rejected', 'withdrawn'])
+    .where('s.date', '>=', new Date(nowMs - 3 * 86_400_000).toISOString().slice(0, 10))
+    .select('s.*', 'a.name as candidate', 'a.ref', 'j.title as job');
+  let queued = 0;
+  for (const s of rows) {
+    const ids = ivPeople(s);
+    if (!ids.length) continue;
+    const date = String(s.date).slice(0, 10);
+    const startMs = deadlineInstant(date, s.start_time), endMs = deadlineInstant(date, s.end_time);
+    if (startMs === null || endMs === null) continue;
+    const ppl = await peopleFor(db, ids);
+    const base = { candidate: String(s.candidate), job: String(s.job ?? ''), ref: String(s.ref), when: `${dateTime(startMs)} (IST)`, type: s.type,
+      place: s.type === 'online' ? String(s.meeting_url ?? '') : `${s.location ?? ''} ${s.address ?? ''}`.trim(), link: `${site}/my-interviews#iv-${s.id}` };
+    const due = (offsetMin: number, from: number) => { const at = from + offsetMin * 60_000; return nowMs >= at && nowMs - at <= IV_WINDOW_MIN * 60_000; };
+    const key = (step: string, uid?: number) => `iv:${step}:${s.id}:${startMs}${uid ? `:${uid}` : ''}`;
+    const dm = async (step: 'assigned' | 'before60' | 'before5' | 'after60', uid: number, after = false) => {
+      const p = ppl.get(uid);
+      if (!p?.mention) return;
+      if (await insertRow(db, { event_key: key(step, uid), kind: 'interview', task_id: 0, now,
+        payload: { ...buildInterviewText(step, base), to: p.mention, iv: { scheduleId: Number(s.id), startMs, userIds: [uid], after } } })) queued++;
+    };
+    const upcoming = s.status === 'scheduled' && startMs > nowMs;
+    for (const uid of ids) {
+      if (upcoming && nowMs - toMs(s.updated_at ?? s.created_at) <= 24 * 3600_000) await dm('assigned', uid);
+      if (s.status === 'scheduled' && due(INTERVIEW_STEPS_MIN.before60, startMs) && startMs > nowMs) await dm('before60', uid);
+      if (s.status === 'scheduled' && due(INTERVIEW_STEPS_MIN.before5, startMs) && startMs > nowMs) await dm('before5', uid);
+    }
+    if (nowMs < endMs) continue;
+    const missing = await feedbackMissing(db, Number(s.id), ids);
+    if (!missing.length) continue;
+    if (due(INTERVIEW_STEPS_MIN.after60, endMs)) for (const uid of missing) await dm('after60', uid, true);
+    if (due(INTERVIEW_STEPS_MIN.group, endMs)) {
+      const people = missing.filter((u) => ppl.has(u)).map((u) => ppl.get(u)!);
+      if (people.length && await insertRow(db, { event_key: key('group'), kind: 'interview', task_id: 0, now,
+        payload: { ...buildInterviewText('group', { ...base, people }), iv: { scheduleId: Number(s.id), startMs, userIds: missing, after: true } } })) queued++;
+    }
+  }
+  return queued;
 }

@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RiDashboardLine, RiFolderOpenLine, RiCheckboxLine, RiThumbUpLine,
   RiArchiveLine, RiBarChart2Line, RiBellLine, RiChat1Line,
-  RiGroupLine, RiSettings4Line, RiLogoutBoxRLine,
+  RiGroupLine, RiAlarmWarningLine, RiUserVoiceLine, RiSettings4Line, RiLogoutBoxRLine,
   RiMagicLine, RiLayoutGridLine, RiCloseLine, RiSearchEyeLine,
   RiHeartPulseLine, RiFileCheckLine, RiMegaphoneLine, RiLightbulbFlashLine,
   RiMailAddLine, RiMapPin2Line, RiTicket2Line, RiRobot2Line, RiCalendarLine, RiTimeLine, RiUserSearchLine,
@@ -36,11 +36,13 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/admin/ticket-types', icon: RiTicket2Line,    label: 'Ticket Types' },
       { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant' },
       { to: '/recruitment',        icon: RiUserSearchLine, label: 'Recruitment' },
+      { to: '/my-interviews',      icon: RiUserVoiceLine,  label: 'My Interviews' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
+      { to: '/escalations',        icon: RiAlarmWarningLine, label: 'Escalations' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
       { to: '/regularisation',     icon: RiTimeLine,       label: 'Regularisation' },
     ],
@@ -58,8 +60,10 @@ const NAV: Record<Role, NavGroup> = {
     ],
     more: [
       { to: '/admin/users',        icon: RiGroupLine,      label: 'Users' },
+      { to: '/escalations',        icon: RiAlarmWarningLine, label: 'Escalations' },
       { to: '/admin/assistant',    icon: RiRobot2Line,     label: 'AI Assistant' },
       { to: '/recruitment',        icon: RiUserSearchLine, label: 'Recruitment' },
+      { to: '/my-interviews',      icon: RiUserVoiceLine,  label: 'My Interviews' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
@@ -83,6 +87,7 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },
       { to: '/content',            icon: RiMagicLine,      label: 'Content AI' },
       { to: '/contact-forms',      icon: RiMailAddLine,    label: 'Contact Forms' },
+      { to: '/my-interviews',      icon: RiUserVoiceLine,  label: 'My Interviews' },
     ],
   },
   client: {
@@ -154,9 +159,11 @@ export default function Sidebar() {
     { to: '/ads',                icon: RiMegaphoneLine,      label: 'Ads',            section: 'more' },
     { to: '/content',            icon: RiMagicLine,          label: 'Content AI',     section: 'more' },
     { to: '/admin/users',        icon: RiGroupLine,          label: 'Users',          section: 'more' },
+    { to: '/escalations',        icon: RiAlarmWarningLine,   label: 'Escalations',    section: 'more' },
     { to: '/admin/ticket-types', icon: RiTicket2Line,        label: 'Ticket Types',   section: 'more' },
     { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant', section: 'more' },
     { to: '/recruitment',        icon: RiUserSearchLine,     label: 'Recruitment',    section: 'more' },
+    { to: '/my-interviews',      icon: RiUserVoiceLine,      label: 'My Interviews',  section: 'more' },
     { to: '/contact-forms',      icon: RiMailAddLine,        label: 'Contact Forms',  section: 'more' },
     { to: '/regularisation',     icon: RiTimeLine,           label: 'Regularisation', section: 'more' },
   ];
@@ -167,7 +174,7 @@ export default function Sidebar() {
   if (perms && user.role !== 'admin' && user.role !== 'client') {
     // Use master list filtered by saved permissions
     // Managers always get Users, the AI Assistant and Recruitment, whatever pages were saved for them
-    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || (user.role === 'manager' && (n.to === '/admin/users' || n.to === '/admin/assistant' || n.to === '/recruitment')));
+    const allowed = MASTER_NAV.filter(n => perms.includes(n.to) || n.to === '/my-interviews' || (user.role === 'manager' && (n.to === '/admin/users' || n.to === '/admin/assistant' || n.to === '/recruitment' || n.to === '/escalations')));
     top  = allowed.filter(n => n.section === 'top');
     more = allowed.filter(n => n.section === 'more');
   } else {

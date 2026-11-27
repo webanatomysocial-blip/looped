@@ -1020,6 +1020,7 @@ export default function CalendarPage() {
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--ink-muted)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ background: 'rgba(99,102,241,0.1)', color: '#4f46e5', borderRadius: 99, padding: '1px 7px', fontWeight: 600 }}>{describeRecurrence(rt)}</span>
+                      {Number(rt.assigned_to) !== Number(user?.id) && <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{rt.assigned_to_name}</span>}
                       {rt.project_name && <span>{rt.project_name}</span>}
                       <span>{fmtHours(rt.estimated_hours || 0)}</span>
                     </div>

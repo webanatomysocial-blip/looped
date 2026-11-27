@@ -45,7 +45,8 @@ test('an admin can reject at every stage where candidates used to be stuck; a ma
     if (status === 'final_scheduled') await getDB()('rec_schedules').insert({ application_id: a.id, type: 'online', date: '2099-01-01', start_time: '10:00', end_time: '11:00', meeting_url: 'https://m.x/1', status: 'scheduled' });
     await assert.rejects(R.act(getDB(), mgr, a.id, 'reject', 'no'), /Only an admin/);
     await assert.rejects(R.act(getDB(), admin, a.id, 'reject', ''), /reason/);
-    await assert.rejects(R.act(getDB(), admin, a.id, 'approve'), /No decision/, 'no approval sneaks in at these stages');
+    if (status === 'final_scheduled') await assert.rejects(R.act(getDB(), mgr, a.id, 'approve'), /Only an admin/, 'the final decision is the admin\'s');
+    else await assert.rejects(R.act(getDB(), admin, a.id, 'approve'), /No decision/, 'no approval sneaks in at these stages');
     assert.equal((await R.act(getDB(), admin, a.id, 'reject', 'Did not attend', noMail)).status, 'rejected');
     const after = await app(ref);
     assert.equal(after.status, 'rejected'); assert.equal(after.interview_hash, null, 'an open interview link stops working');

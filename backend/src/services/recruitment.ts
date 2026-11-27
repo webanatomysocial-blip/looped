@@ -305,6 +305,11 @@ export function decide(status: string, role: string, action: Decision, beforeRej
   const isAdmin = role === 'admin';
   if (role !== 'admin' && role !== 'manager') throw new ServiceError(403, 'Not authorised');
   if (REJECT_ONLY.includes(status) && action !== 'reopen') {
+    // After the final interview is booked, an admin can make the final decision straight away (interviewers only recommend)
+    if (status === 'final_scheduled' && action === 'approve') {
+      if (!isAdmin) throw new ServiceError(403, 'Only an admin can make the final decision');
+      return { to: 'selected', override: false };
+    }
     if (action !== 'reject') throw new ServiceError(409, `No decision can be made while the application is "${STATUS_LABEL[status] ?? status}"`);
     if (!isAdmin) throw new ServiceError(403, 'Only an admin can reject at this stage');
     return { to: 'rejected', override: false };
@@ -526,6 +531,7 @@ export async function act(db: Knex, actor: Actor, appId: number, action: Decisio
   // Guarded by the current status, so two reviewers acting at once cannot both move it
   const n = await db('rec_applications').where({ id: a.id, status: a.status }).update(patch);
   if (!n) throw new ServiceError(409, 'This application was just updated by someone else. Please refresh.');
+  if (to === 'selected' && a.status === 'final_scheduled') await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).update({ status: 'completed', updated_at: new Date() });
   const booked = to === 'rejected' && a.status === 'final_scheduled' ? await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).first() : null;
   if (booked) await db('rec_schedules').where({ id: booked.id }).update({ status: 'cancelled', updated_at: new Date() });
   await log(db, { application_id: a.id, action, from: a.status, to, actor, override, comment });
@@ -933,7 +939,8 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
     const n = await db('rec_schedules').where({ id: scheduleId, application_id: a.id, status: 'scheduled' }).update(row);
     if (!n) throw new ServiceError(404, 'Scheduled interview not found');
   } else {
-    await db('rec_schedules').insert({ ...row, application_id: a.id, status: 'scheduled', created_by: actor.id });
+    const [sid] = await db('rec_schedules').insert({ ...row, application_id: a.id, status: 'scheduled', created_by: actor.id });
+    Object.assign(row, { id: Number(sid) });   // so the interviewers' link opens this interview
     await db('rec_applications').where({ id: a.id }).update({ status: 'final_scheduled', updated_at: new Date() });
   }
   await log(db, { application_id: a.id, action: resched ? 'interview_rescheduled' : 'interview_scheduled', from: a.status, to: 'final_scheduled', actor, comment: `${type === 'online' ? 'Online' : 'Walk-in'} on ${dmy(date)} ${body.start_time}–${body.end_time}${body.reason ? ` · ${clip(body.reason, 300)}` : ''}` });
@@ -954,7 +961,9 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   // A rejected request is settled once a new time is sent
   await db('rec_reschedule_requests').where({ application_id: a.id, status: 'rejected' }).whereNull('followed_up_at').update({ followed_up_at: new Date() });
   if (approved) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${dmy(date)} ${body.start_time}` });
-  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, old, contact: first?.email ?? null, reschedule_link: `${site()}/careers/reschedule/${rtoken}` }, resched);
+  const declined = await rescheduleDeclined(db, a.id);
+  if (declined) await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).update({ reschedule_hash: null });
+  const sent = await mail.scheduled(a, job?.title ?? '', { ...row, people, old, contact: first?.email ?? null, reschedule_link: declined ? null : `${site()}/careers/reschedule/${rtoken}` }, resched);
   if (sent) await log(db, { application_id: a.id, action: 'email', actor, comment: `Interview details email ${sent}` });
 }
 
@@ -964,10 +973,13 @@ export async function mailInterviewers(db: Knex, a: any, job: string, row: any, 
   const people = Array.isArray(row.people) ? row.people : JSON.parse(row.interviewers || '[]');
   const staff = people.length ? await db('users').whereIn('id', people.map((p: any) => p.id)).select('name', 'email') : [];
   const date = String(row.date).slice(0, 10);
+  // The candidate's resume goes with the email (left out, with a note, if the file is missing)
+  const resumePath = a.resume_file ? path.join(resumeDir(), a.resume_file) : '';
+  const resume = resumePath && fs.existsSync(resumePath) ? [{ filename: a.resume_name || `${a.ref}-resume`, path: resumePath }] : [];
   const out: string[] = [];
   for (const u of staff.filter((x: any) => x.email)) {
     const res = await sendMail({ email: u.email, name: u.name }, `${resched ? 'Updated: ' : ''}You are interviewing ${a.name} for ${job}`,
-      `Hi ${u.name},\n\n${old ? `The final interview of ${a.name} for ${job} (reference ${a.ref}) has been RESCHEDULED.\n\nWas: ${slot(old)}\nNow: ${slot(row)}\n\nNew details:` : `You have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).`}\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${dmy(date)}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\nThe candidate's details, resume and video interview are in Loop: Recruitment → Applications → ${a.ref}.`, false);
+      `Hi ${u.name},\n\n${old ? `The final interview of ${a.name} for ${job} (reference ${a.ref}) has been RESCHEDULED.\n\nWas: ${slot(old)}\nNow: ${slot(row)}\n\nNew details:` : `You have been assigned to take the final interview of ${a.name} for ${job} (reference ${a.ref}).`}\n\nType: ${row.type === 'online' ? 'Online' : 'Walk-in'}\nDate: ${dmy(date)}\nTime: ${row.start_time} – ${row.end_time} (IST)\n${row.type === 'online' ? `Meeting link: ${row.meeting_url}` : `Location: ${row.location || ''}\nAddress: ${row.address}`}\n\n${resume.length ? 'The candidate\'s resume is attached. ' : ''}You can open the interview${resume.length ? '' : ' and the resume'} in Loop → My Interviews: ${site()}/my-interviews${row.id ?? old?.id ? `#iv-${row.id ?? old?.id}` : ''}\n\nAfter the interview, please rate the candidate, recommend approve or reject, and add your notes there. The final decision is made by the admin.`, false, resume);
     await log(db, { application_id: a.id, action: 'email', actor, comment: `Interviewer email to ${u.name}: ${res}` });
     out.push(`${u.name}: ${res}`);
   }
@@ -1000,10 +1012,18 @@ export async function cancelSchedule(db: Knex, actor: Actor, appId: number, sche
 }
 
 // ── Reschedule requests from the candidate (public link in the interview email) ──
+// Once staff decline a candidate's reschedule request, the candidate gets no more reschedule links
+// (a request merely replaced by the candidate's own newer one doesn't count)
+async function rescheduleDeclined(db: Knex, appId: number): Promise<boolean> {
+  return !!(await db('rec_reschedule_requests').where({ application_id: appId, status: 'rejected' })
+    .where((q: any) => q.whereNull('decision_note').orWhereNot('decision_note', 'replaced by a newer request')).first('id'));
+}
+
 export async function byRescheduleToken(db: Knex, token: string) {
   const s = token && token.length >= 20 ? await db('rec_schedules').where({ reschedule_hash: sha(String(token)), status: 'scheduled' }).first() : null;
   const a = s ? await db('rec_applications').where({ id: s.application_id, status: 'final_scheduled' }).first() : null;
   if (!s || !a) throw new ServiceError(404, 'This reschedule link is no longer valid. Please use the link in your latest interview email.');
+  if (await rescheduleDeclined(db, a.id)) throw new ServiceError(410, `Rescheduling is no longer available for this interview. For any questions, please email ${SUPPORT_EMAIL}.`);
   return { s, a };
 }
 export async function rescheduleView(db: Knex, token: string) {
@@ -1038,6 +1058,8 @@ export async function requestReschedule(db: Knex, token: string, body: any) {
 export async function rejectRescheduleRequest(db: Knex, actor: Actor, appId: number, reqId: number, note?: string) {
   const n = await db('rec_reschedule_requests').where({ id: reqId, application_id: appId, status: 'pending' }).update({ status: 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: clip(note, 500) || null });
   if (!n) throw new ServiceError(404, 'This request was already handled');
+  // The link in the candidate's email stops working at once
+  await db('rec_schedules').where({ application_id: appId }).update({ reschedule_hash: null });
   await log(db, { application_id: appId, action: 'reschedule_rejected', actor, comment: note || null });
 }
 
@@ -1083,21 +1105,21 @@ function withFooter(body: string, contact?: string | null) {
     + (contact === '' ? '' : `<div style="background:#fff4e5;border-left:4px solid #f59e0b;padding:10px 14px;border-radius:6px"><b>Important:</b> ${esc(important)}</div>`) + `</div>`;
   return { text, html };
 }
-async function sendMail(to: { email: string; name: string }, subject: string, body: string, contact?: string | null | false): Promise<string> {
+async function sendMail(to: { email: string; name: string }, subject: string, body: string, contact?: string | null | false, attachments?: { filename: string; path: string }[]): Promise<string> {
   // Never during tests or when mail is not set up; a mail failure never blocks the decision
   if (process.env.RECRUITMENT_EMAILS === 'off') return 'not sent (emails are switched off)';
   // false: an email to staff (interviewers), without the candidate footer
   const { text, html } = contact === false ? { text: body, html: undefined } : withFooter(body, contact); body = text;
   const cc = contact === false ? [] : RECRUITMENT_CC;   // staff (interviewer) emails are not copied to the hiring leads
   // Local testing: the email is printed in the server log, never sent
-  if (process.env.RECRUITMENT_EMAILS === 'log') { console.log(`\n[recruitment] EMAIL (test mode, not sent)\nTo: ${to.name} <${to.email}>\nCc: ${cc.join(', ')}\nSubject: ${subject}\n\n${body}\n`); return `not sent (test mode: printed in the server log)`; }
+  if (process.env.RECRUITMENT_EMAILS === 'log') { console.log(`\n[recruitment] EMAIL (test mode, not sent)\nTo: ${to.name} <${to.email}>\nCc: ${cc.join(', ')}\nSubject: ${subject}${attachments?.length ? `\nAttachments: ${attachments.map((x) => x.filename).join(', ')}` : ''}\n\n${body}\n`); return `not sent (test mode: printed in the server log)`; }
   if (!process.env.GMAIL_USER) return 'not sent (email is not set up on the server)';
   // Local testing with real emails: everything goes to the sending Gmail account itself, never to candidates, staff or the CC list
   if (process.env.RECRUITMENT_EMAILS === 'self') {
-    try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [{ email: process.env.GMAIL_USER!, name: 'Loop test inbox' }], subject: `[TEST for ${to.email}] ${subject}`, body: `(Test mode: would go to ${to.name} <${to.email}>, cc ${cc.join(', ') || 'none'})\n\n${body}`, html: `<p style="color:#777">(Test mode: would go to ${to.name} &lt;${to.email}&gt;, cc ${cc.join(', ') || 'none'})</p>${html ?? body.replace(/</g, '&lt;').replace(/\n/g, '<br>')}` }); return `test copy sent to ${process.env.GMAIL_USER} (not to ${to.email})`; }
+    try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [{ email: process.env.GMAIL_USER!, name: 'Loop test inbox' }], subject: `[TEST for ${to.email}] ${subject}`, body: `(Test mode: would go to ${to.name} <${to.email}>, cc ${cc.join(', ') || 'none'})\n\n${body}`, html: `<p style="color:#777">(Test mode: would go to ${to.name} &lt;${to.email}&gt;, cc ${cc.join(', ') || 'none'})</p>${html ?? body.replace(/</g, '&lt;').replace(/\n/g, '<br>')}`, attachments }); return `test copy sent to ${process.env.GMAIL_USER} (not to ${to.email})`; }
     catch (e: any) { return `FAILED test send (${String(e?.message ?? e).slice(0, 200)})`; }
   }
-  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc, subject, body, html }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${cc.length ? ` (cc ${cc.join(', ')})` : ''}`; }
+  try { const { sendEmail } = await import('./emailService'); await sendEmail({ to: [to], cc, subject, body, html, attachments }); console.log(`[recruitment] email "${subject}" sent`); return `sent to ${to.email}${cc.length ? ` (cc ${cc.join(', ')})` : ''}`; }
   catch (e: any) { console.error(`[recruitment] email "${subject}" could not be sent: ${e?.message ?? e}`); return `FAILED to send to ${to.email} (${String(e?.message ?? e).slice(0, 200)})`; }
 }
 export const defaultMailer: Mailer = {

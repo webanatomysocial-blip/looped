@@ -48,8 +48,16 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
       'p.name as project_name'
     );
 
-  // Calendar shows only your own recurring tickets — even ones you created for someone else
-  query = query.where('rt.assigned_to', user.id);
+  // Employees: their own. Managers: theirs plus their pod's employees'. Admins: everyone's.
+  if (user.role === 'manager') {
+    const me = await db('users').where('id', user.id).first('pod');
+    query = query.where((q: any) => {
+      q.where('rt.assigned_to', user.id).orWhere('rt.created_by', user.id);
+      if (me?.pod) q.orWhere('u.pod', me.pod);
+    });
+  } else if (user.role !== 'admin') {
+    query = query.where('rt.assigned_to', user.id);
+  }
 
   const rows = await query.orderBy('rt.created_at', 'desc');
   res.json(rows.map(r => ({ ...r, recurrence_days: r.recurrence_days ? (typeof r.recurrence_days === 'string' ? JSON.parse(r.recurrence_days) : r.recurrence_days) : [] })));

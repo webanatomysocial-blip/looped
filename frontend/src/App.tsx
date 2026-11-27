@@ -18,6 +18,8 @@ import Messages from './pages/Messages';
 import Settings from './pages/Settings';
 import UserManagement from './pages/admin/UserManagement';
 import AuditLog from './pages/admin/AuditLog';
+import Escalations from './pages/admin/Escalations';
+import MyInterviews from './pages/MyInterviews';
 import ContactFormProjects from './pages/admin/ContactFormProjects';
 import ContactFormProjectDetail from './pages/admin/ContactFormProjectDetail';
 import ContactFormSubmissions from './pages/admin/ContactFormSubmissions';
@@ -62,7 +64,8 @@ function PrivateRoute({ children, roles, guard }: { children: React.ReactNode; r
     }
   }, [denied, location.pathname, recheckedFor]);
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  // Back to this page after logging in (e.g. an interview link from WhatsApp)
+  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`} replace />;
   if ((user as any).must_change_password) return <Navigate to="/change-password" replace />;
   if (denied) {
     if (recheckedFor !== location.pathname) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;
@@ -226,6 +229,18 @@ function AppRoutes() {
       <Route path="/team-capacity" element={
         <PrivateRoute roles={['admin', 'manager']}>
           <TeamCapacityPage />
+        </PrivateRoute>
+      } />
+
+      <Route path="/my-interviews" element={
+        <PrivateRoute roles={['admin', 'manager', 'employee']}>
+          <MyInterviews />
+        </PrivateRoute>
+      } />
+
+      <Route path="/escalations" element={
+        <PrivateRoute roles={['admin', 'manager']}>
+          <Escalations />
         </PrivateRoute>
       } />
 

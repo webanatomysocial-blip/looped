@@ -148,6 +148,8 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/regularisation', regularisationRoutes);
 app.use('/api/assistant', assistantRoutes);
 // Recruitment: internal (admins and managers) and the public careers pages
+app.use('/api/my-interviews', require('./routes/myInterviews').default);
+app.use('/api/escalations', require('./routes/escalations').default);
 app.use('/api/recruitment', require('./routes/recruitment').default);
 app.use('/api/public/careers', require('./routes/publicRecruitment').default);
 // Phase 4.5: admin-only control centre API. No action handlers are registered, so nothing can be retried or executed.

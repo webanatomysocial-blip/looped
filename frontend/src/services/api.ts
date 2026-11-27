@@ -44,6 +44,12 @@ export const authApi = {
   resetPassword: (token: string, password: string) => api.post('/auth/reset-password', { token, password }),
 };
 
+export const escalationsApi = {
+  list: (status?: string) => api.get('/escalations', { params: { status } }),
+  counts: () => api.get('/escalations/counts'),
+  review: (id: number, decision: 'confirm' | 'reject', note?: string) => api.post(`/escalations/${id}/review`, { decision, note }),
+};
+
 export const usersApi = {
   list: () => api.get('/users'),
   auditLog: (params: { kind?: string; q?: string }) => api.get('/users/audit-log/list', { params }),
@@ -375,6 +381,12 @@ export const assistantAdminApi = {
 export default api;
 
 // Recruitment (admins and managers)
+export const myInterviewsApi = {
+  list: () => api.get('/my-interviews'),
+  resumeLink: (scheduleId: number) => api.get(`/my-interviews/${scheduleId}/resume-link`),
+  feedback: (scheduleId: number, data: { rating: number; recommendation: 'approve' | 'reject'; notes: string }) => api.post(`/my-interviews/${scheduleId}/feedback`, data),
+};
+
 export const recruitmentApi = {
   overview: (params?: Record<string, any>) => api.get('/recruitment/overview', { params }),
   departments: () => api.get('/recruitment/departments'),

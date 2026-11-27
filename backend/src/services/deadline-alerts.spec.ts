@@ -216,3 +216,70 @@ test('deadline crossed: one alert once the deadline passes on an open task; none
   await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 30 * 3600_000), 12);
   assert.equal((await db()('whatsapp_outbox').where('event_key', 'like', `overdue:${late}:${DEADLINE_MS}%`)).length, 0, 'not announced a day late');
 });
+
+test('delayed work: step 1 crossed, step 2 warning at 4h, step 3 escalation at 24h; each once, stops when closed', async () => {
+  const id = await task({ title: 'Three step', hours: 2 });
+  const HOUR = 3600_000;
+  const keys = async () => (await db()('whatsapp_outbox').where({ task_id: id }).select('event_key')).map((r: any) => r.event_key.split(':')[0] + (r.event_key.endsWith(':group') ? ':group' : '')).sort();
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 10 * MIN), 12);
+  assert.deepEqual(await keys(), ['overdue', 'overdue:group']);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 3 * HOUR), 12);
+  assert.equal((await keys()).length, 2, 'nothing new before 4 hours');
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 4 * HOUR + MIN), 12);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 5 * HOUR), 12);
+  assert.deepEqual(await keys(), ['overdue', 'overdue2', 'overdue2:group', 'overdue:group']);
+  const warn = JSON.parse((await db()('whatsapp_outbox').where({ event_key: `overdue2:${id}:${DEADLINE_MS}:group` }).first()).payload);
+  assert.match(warn.text, /Warning: task still delayed[\s\S]*please complete and close it today/);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 24 * HOUR + MIN), 12);
+  const esc = JSON.parse((await db()('whatsapp_outbox').where({ event_key: `overdue3:${id}:${DEADLINE_MS}:group` }).first()).payload);
+  assert.match(esc.text, /Escalation: delayed task[\s\S]*still with[\s\S]*Ticket is with[\s\S]*Please follow up:\* .*Mia/);
+  assert.equal(esc.card.fields.find((f: any) => f.label === 'Reminder').value, '3 of 3');
+
+  // A task closed before the warning gets no more steps
+  const closed = await task({ title: 'Closed early', hours: 2 });
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 10 * MIN), 12);
+  await db()('tasks').where({ id: closed }).update({ status: 'completed' });
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 5 * HOUR), 12);
+  assert.equal((await db()('whatsapp_outbox').where({ task_id: closed }).where('event_key', 'like', 'overdue2%')).length, 0);
+
+  // After an outage only the latest step goes out, not all three at once
+  const outage = await task({ title: 'Outage', hours: 2 });
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 25 * HOUR), 12);
+  const ok = (await db()('whatsapp_outbox').where({ task_id: outage }).select('event_key')).map((r: any) => r.event_key.split(':')[0]);
+  assert.deepEqual([...new Set(ok)], ['overdue3']);
+});
+
+test('escalations are stored against the employee, reviewed (confirm / reject with reason), and counted', async () => {
+  const { listEscalations, reviewEscalation, escalationCounts } = await import('./escalations');
+  const id = await task({ title: 'Escalate me', hours: 2 });
+  const at = new Date(DEADLINE_MS + 24 * 3600_000 + MIN);
+  await enqueueDeadlineAlerts(db(), at, 12);
+  await enqueueDeadlineAlerts(db(), at, 12);
+  const mgr = { id: U.mgr, role: 'manager', name: 'Mia' } as any;
+  const mine = (await listEscalations(db(), mgr, 'pending')).filter((r: any) => Number(r.task_id) === id);
+  assert.equal(mine.length, 1, 'one escalation, recorded once');
+  assert.equal(Number(mine[0].user_id), U.nit, 'against the person the work is with');
+  assert.equal(mine[0].kind, 'delayed');
+  assert.equal((await db()('employee_escalations').where({ task_id: id })).length, 1);
+
+  // Steps 1 and 2 are reminders, not escalations
+  const early = await task({ title: 'Only warned', hours: 2 });
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 5 * 3600_000), 12);
+  assert.equal((await db()('employee_escalations').where({ task_id: early })).length, 0);
+
+  await assert.rejects(reviewEscalation(db(), { id: U.ravi, role: 'employee' } as any, mine[0].id, 'reject', 'x'), /Only managers and admins/);
+  await assert.rejects(reviewEscalation(db(), mgr, mine[0].id, 'reject', ''), /reason/);
+  await reviewEscalation(db(), mgr, mine[0].id, 'reject', 'Client delayed the inputs');
+  let c = (await escalationCounts(db(), mgr)).find((x: any) => x.user_id === U.nit)!;
+  assert.equal(c.confirmed, 0, 'a rejected escalation does not count');
+  assert.equal(c.rejected, 1);
+  await reviewEscalation(db(), mgr, mine[0].id, 'confirm');
+  c = (await escalationCounts(db(), mgr)).find((x: any) => x.user_id === U.nit)!;
+  assert.equal(c.confirmed, 1, 'confirmed: counts against the employee');
+  const row = await db()('employee_escalations').where({ id: mine[0].id }).first();
+  assert.equal(row.reviewed_by_name, 'Mia');
+
+  // Another pod's manager sees none of it
+  const [far] = await db()('users').insert({ name: 'Far', email: 'far@dl.test', password_hash: 'x', role: 'manager', pod: 'pod9' });
+  assert.equal((await listEscalations(db(), { id: Number(far), role: 'manager' } as any)).length, 0);
+});

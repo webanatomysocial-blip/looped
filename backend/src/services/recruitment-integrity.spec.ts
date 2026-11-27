@@ -227,6 +227,25 @@ test('a rejected reschedule request stays open for a decision until a new time i
   assert.equal(after.status, 'approved'); assert.ok(after.followed_up_at);
 });
 
+test('after a reschedule request is declined the candidate has no reschedule link: the old one stops, the new email has none', async () => {
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  let link: string | null = '';
+  const mail = { ...noMail, scheduled: async (_a: any, _j: string, s: any) => { link = s.reschedule_link; return 'ok'; } };
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-03-05', start_time: '10:00', end_time: '10:30', address: 'Office' }, mail);
+  const token = link!.split('/').pop()!;
+  await R.requestReschedule(db(), token, { date: '2027-03-09', start_time: '12:00', type: 'walkin', reason: 'travel' });
+  await R.requestReschedule(db(), token, { date: '2027-03-10', start_time: '12:00', type: 'walkin', reason: 'travel' });
+  assert.ok(await R.rescheduleView(db(), token), 'replacing your own request does not close it');
+  const req = await db()('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).first();
+  await R.rejectRescheduleRequest(db(), admin, a.id, req.id, 'not possible');
+  await assert.rejects(R.rescheduleView(db(), token), /no longer valid|no longer available/);
+  const s = await db()('rec_schedules').where({ application_id: a.id }).first();
+  await R.schedule(db(), admin, a.id, { type: 'walkin', date: '2027-03-06', start_time: '11:00', end_time: '11:30', address: 'Office' }, mail, s.id);
+  assert.equal(link, null, 'the new interview email has no reschedule link');
+  assert.equal((await db()('rec_schedules').where({ id: s.id }).first()).reschedule_hash, null);
+});
+
 test('interviewers: rescheduled ones are told was → now, removed ones and a cancellation say "no longer needed"', async () => {
   const { a } = await live();
   await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
@@ -255,4 +274,61 @@ test('rejecting a candidate with a booked interview emails them (no reviewer com
   assert.ok(h.includes('Rejection email sent'));
   assert.ok(h.some((c: string) => c.startsWith('Interviewer email to Iv Rej (not needed)')));
   assert.equal((await db()('rec_schedules').where({ application_id: a.id }).first()).status, 'cancelled');
+});
+
+test('interviewers get the candidate\'s resume attached to their email', async () => {
+  const fs = await import('fs'); const path = await import('path');
+  const { a } = await live();
+  fs.writeFileSync(path.join(R.resumeDir(), a.resume_file), 'pdf');
+  const [u] = await db()('users').insert({ name: 'Iv Res', email: `ivres-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const full = await db()('rec_applications').where({ id: a.id }).first();
+  const row = { type: 'walkin', date: '2027-04-01', start_time: '10:00', end_time: '10:30', address: 'Office', people: [{ id: Number(u), name: 'Iv Res' }] };
+  const printed: string[] = []; const log = console.log; const mode = process.env.RECRUITMENT_EMAILS;
+  console.log = (...x: any[]) => { printed.push(x.join(' ')); };
+  process.env.RECRUITMENT_EMAILS = 'log';
+  try { await R.mailInterviewers(db(), full, 'Designer', row, false, admin); }
+  finally { console.log = log; process.env.RECRUITMENT_EMAILS = mode; }
+  const mail = printed.find((t) => t.includes('You are interviewing'))!;
+  assert.match(mail, new RegExp(`Attachments: ${full.resume_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(mail, /resume is attached/);
+});
+
+test('My Interviews: interviewers see their interviews (no salary), send feedback, and the admin makes the final decision', async () => {
+  const F = await import('./interviewFeedback');
+  process.env.JWT_SECRET ||= 'test-secret';   // resume links are signed with it
+  const { a } = await live();
+  await db()('rec_applications').where({ id: a.id }).update({ status: 'prelim_approved' });
+  const [u1] = await db()('users').insert({ name: 'Emp One', email: `fb1-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const [u2] = await db()('users').insert({ name: 'Emp Two', email: `fb2-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const [u3] = await db()('users').insert({ name: 'Not on it', email: `fb3-${a.id}@x.test`, password_hash: 'x', role: 'employee' });
+  const e1 = { id: Number(u1), role: 'employee', name: 'Emp One' }, e2 = { id: Number(u2), role: 'employee', name: 'Emp Two' }, other = { id: Number(u3), role: 'employee', name: 'Not on it' };
+  await R.schedule(db(), admin, a.id, { type: 'online', date: '2027-05-05', start_time: '10:00', end_time: '10:30', meeting_url: 'https://meet.example/x', interviewer_ids: [e1.id, e2.id] }, noMail);
+
+  const mine = await F.myInterviews(db(), e1);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].candidate, 'C'); assert.equal(mine[0].meeting_url, 'https://meet.example/x');
+  assert.ok(!JSON.stringify(mine).includes('LPA'), 'no salary details for interviewers');
+  assert.equal((await F.myInterviews(db(), other)).length, 0, 'someone not on the interview sees nothing');
+  const sid = mine[0].schedule_id;
+  assert.match((await F.interviewerResumeLink(db(), e1, sid)).url, /\/api\/recruitment\/media\//);
+  await assert.rejects(F.interviewerResumeLink(db(), other, sid), /not found/);
+
+  await assert.rejects(F.submitFeedback(db(), e1, sid, { rating: 6, recommendation: 'approve', notes: 'x' }), /1 to 5/);
+  await assert.rejects(F.submitFeedback(db(), e1, sid, { rating: 4, recommendation: 'maybe', notes: 'x' }), /approve or reject/);
+  await assert.rejects(F.submitFeedback(db(), e1, sid, { rating: 4, recommendation: 'approve', notes: ' ' }), /notes/);
+  await assert.rejects(F.submitFeedback(db(), other, sid, { rating: 4, recommendation: 'approve', notes: 'x' }), /not found/);
+  await F.submitFeedback(db(), e1, sid, { rating: 4, recommendation: 'approve', notes: 'Strong portfolio' });
+  await F.submitFeedback(db(), e1, sid, { rating: 5, recommendation: 'approve', notes: 'Strong portfolio, great attitude' });
+  await F.submitFeedback(db(), e2, sid, { rating: 2, recommendation: 'reject', notes: 'Weak on basics' });
+  const fb = await F.feedbackFor(db(), a.id);
+  assert.equal(fb.length, 2, 'one entry per interviewer, edits replace');
+  assert.deepEqual(fb.map((f: any) => [f.user_name, f.rating, f.recommendation]).sort(), [['Emp One', 5, 'approve'], ['Emp Two', 2, 'reject']]);
+
+  // The admin decides, whatever the recommendations; a manager can't
+  const mgr = { id: 999, role: 'manager', name: 'M' };
+  await assert.rejects(R.act(db(), mgr as any, a.id, 'approve'), /Only an admin/);
+  assert.equal((await R.act(db(), admin, a.id, 'approve', 'Final call', noMail)).status, 'selected');
+  assert.equal((await db()('rec_schedules').where({ id: sid }).first()).status, 'completed');
+  assert.equal((await F.myInterviews(db(), e2))[0].decision, 'Shortlisted', 'interviewers see the final decision');
+  await assert.rejects(F.submitFeedback(db(), e2, sid, { rating: 3, recommendation: 'reject', notes: 'late' }), /already been made/);
 });
