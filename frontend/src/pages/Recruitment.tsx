@@ -524,7 +524,7 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         {a.identity?.related?.length > 0 && (
           <details className={`rec-ident ${a.identity.conflict ? 'rec-ident--warn' : ''}`}>
             <summary>
-              <b>{a.identity.conflict ? '⚠ Same phone number, different email' : 'Other applications from this person'}</b>
+              <b>{a.identity.conflict ? 'Same phone number, different email' : 'Other applications from this person'}</b>
               <span className="rec-muted"> · {a.identity.related.length} other application{a.identity.related.length > 1 ? 's' : ''} · show</span>
             </summary>
             {a.identity.conflict && <p className="rec-muted">Could be the same person with another email, or a shared phone. Check before deciding; nothing is merged.</p>}
