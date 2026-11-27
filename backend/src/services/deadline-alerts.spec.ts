@@ -283,3 +283,17 @@ test('escalations are stored against the employee, reviewed (confirm / reject wi
   const [far] = await db()('users').insert({ name: 'Far', email: 'far@dl.test', password_hash: 'x', role: 'manager', pod: 'pod9' });
   assert.equal((await listEscalations(db(), { id: Number(far), role: 'manager' } as any)).length, 0);
 });
+
+test('a recurring task\'s older copy gets no delay reminders once the next day\'s copy exists', async () => {
+  const d = db();
+  const [rt] = await d('recurring_tasks').insert({ title: 'Daily outreach', assigned_to: U.nit, created_by: U.nit, recurrence_type: 'daily', start_date: '2030-11-19' });
+  const mk = async (date: string) => { const [id] = await d('tasks').insert({ title: 'Daily outreach', project_id: null, created_by: U.nit, assigned_to: U.nit, status: 'todo', priority: 'medium', due_date: date, due_time: '10:00', estimated_hours: 1, recurring_task_id: rt, recurrence_date: date }); await d('task_assignees').insert({ task_id: id, user_id: U.nit, assignee_role: 'employee', acceptance_status: 'accepted' }); return Number(id); };
+  const old = await mk(DUE);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 10 * MIN), 12);
+  assert.ok((await d('whatsapp_outbox').where({ task_id: old }).where('event_key', 'like', 'overdue:%')).length > 0, 'alone, it is still alerted');
+  await mk('2030-11-21');
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 5 * 3600_000), 12);
+  await enqueueDeadlineAlerts(db(), new Date(DEADLINE_MS + 24 * 3600_000 + MIN), 12);
+  assert.equal((await d('whatsapp_outbox').where({ task_id: old }).where((q: any) => q.where('event_key', 'like', 'overdue2%').orWhere('event_key', 'like', 'overdue3%'))).length, 0, 'no warning or escalation once replaced');
+  assert.equal((await d('employee_escalations').where({ task_id: old })).length, 0);
+});

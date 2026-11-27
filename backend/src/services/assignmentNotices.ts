@@ -649,6 +649,10 @@ export async function enqueueDeadlineAlerts(db: Knex, now: Date = new Date(), pe
     .whereNotNull('t.due_date')
     .whereNotIn('t.status', ['completed', 'cancelled', 'draft', 'pending_approval'])
     .where((q: any) => q.whereNull('t.pending_assign').orWhere('t.pending_assign', 0))
+    // A recurring task's older copy is replaced by the next day's: no delay reminders or escalation for it
+    .whereNotExists(function (this: any) {
+      this.select(db.raw('1')).from('tasks as n').whereRaw('n.recurring_task_id = t.recurring_task_id').whereRaw('n.recurrence_date > t.recurrence_date');
+    })
     .select('t.id', 't.title', 't.due_date', 't.due_time', 't.estimated_hours', 't.status', 't.xlr8_status', 'p.name as project_name', 't.ticket_type_id', 't.xlr8_assignee_id');
   let queued = 0;
   for (const t of tasks) {

@@ -235,7 +235,7 @@ publicTaskRouter.get('/:token', async (req: any, res: any) => {
     if (!row) { res.status(404).json({ error: 'Invalid or revoked link' }); return; }
 
     const task = await db('tasks as t')
-      .join('projects as p', 't.project_id', 'p.id')
+      .leftJoin('projects as p', 't.project_id', 'p.id')   // recurring tasks often have no project
       .leftJoin('users as a', 't.assigned_to', 'a.id')
       .leftJoin('users as cr', 't.created_by', 'cr.id')
       .leftJoin('client_companies as c', 'p.client_company_id', 'c.id')
