@@ -7,7 +7,31 @@ import { ServiceError } from './access';
 
 const CLOSED = ['selected', 'rejected', 'withdrawn'];
 
+// Why an interviewer can't give feedback (the interview didn't happen as planned)
+export const ISSUE_REASONS: Record<string, string> = {
+  no_show: 'Candidate did not attend',
+  candidate_late: 'Candidate came too late to interview',
+  interviewer_unavailable: 'I could not take the interview',
+  technical: 'Technical problems (could not connect)',
+  postponed: 'Interview was postponed',
+  other: 'Other',
+};
+
 export async function ensureFeedbackSchema(db: Knex): Promise<void> {
+  if (!(await db.schema.hasTable('rec_interview_issues'))) {
+    await db.schema.createTable('rec_interview_issues', (t) => {
+      t.increments('id').primary();
+      t.integer('application_id').unsigned().notNullable().index();
+      t.integer('schedule_id').unsigned().notNullable();
+      t.integer('user_id').unsigned().notNullable();
+      t.string('user_name', 120).nullable();
+      t.string('reason', 40).notNullable();
+      t.text('note').nullable();
+      t.timestamp('created_at').defaultTo(db.fn.now());
+      t.timestamp('updated_at').defaultTo(db.fn.now());
+      t.unique(['schedule_id', 'user_id']);
+    });
+  }
   if (await db.schema.hasTable('rec_interview_feedback')) return;
   await db.schema.createTable('rec_interview_feedback', (t) => {
     t.increments('id').primary();
@@ -36,6 +60,7 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
     .select('s.*', 'a.name as candidate', 'a.ref', 'a.status as app_status', 'a.experience_years', 'a.resume_file', 'j.title as job')
     .orderBy('s.date', 'desc')).filter((s: any) => isInterviewer(s, actor.id));
   const mine = rows.length ? await db('rec_interview_feedback').whereIn('schedule_id', rows.map((s: any) => s.id)).where({ user_id: actor.id }) : [];
+  const issues = rows.length ? await db('rec_interview_issues').whereIn('schedule_id', rows.map((s: any) => s.id)).where({ user_id: actor.id }) : [];
   return rows.map((s: any) => {
     const fb = mine.find((f: any) => Number(f.schedule_id) === Number(s.id));
     return {
@@ -45,6 +70,7 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
       decision: CLOSED.includes(s.app_status) ? (R.STATUS_LABEL[s.app_status] ?? s.app_status) : null,
       has_resume: !!s.resume_file,
       feedback: fb ? { rating: fb.rating, recommendation: fb.recommendation, notes: fb.notes, updated_at: fb.updated_at } : null,
+      issue: (() => { const i = issues.find((x: any) => Number(x.schedule_id) === Number(s.id)); return i ? { reason: i.reason, label: ISSUE_REASONS[i.reason] ?? i.reason, note: i.note } : null; })(),
     };
   });
 }
@@ -86,4 +112,30 @@ export async function submitFeedback(db: Knex, actor: R.Actor, scheduleId: numbe
 export async function feedbackFor(db: Knex, applicationId: number) {
   return db('rec_interview_feedback').where({ application_id: applicationId }).orderBy('updated_at', 'desc')
     .select('id', 'user_id', 'user_name', 'rating', 'recommendation', 'notes', 'updated_at');
+}
+
+/** The interview didn't go as planned (e.g. the candidate didn't come): recorded instead of an evaluation. */
+export async function reportIssue(db: Knex, actor: R.Actor, scheduleId: number, body: any) {
+  const s = await mySchedule(db, actor, scheduleId);
+  const a = await db('rec_applications').where({ id: s.application_id }).first('id', 'name', 'ref', 'status');
+  if (!a || CLOSED.includes(a.status)) throw new ServiceError(409, 'The final decision has already been made for this candidate');
+  const reason = String(body?.reason ?? '');
+  if (!ISSUE_REASONS[reason]) throw new ServiceError(400, 'Please choose what happened');
+  const note = String(body?.note ?? '').trim().slice(0, 2000);
+  if (reason === 'other' && !note) throw new ServiceError(400, 'Please tell us what happened');
+  const prev = await db('rec_interview_issues').where({ schedule_id: s.id, user_id: actor.id }).first();
+  const row = { reason, note: note || null, user_name: actor.name, updated_at: new Date() };
+  if (prev) await db('rec_interview_issues').where({ id: prev.id }).update(row);
+  else await db('rec_interview_issues').insert({ ...row, application_id: a.id, schedule_id: s.id, user_id: actor.id });
+  await R.log(db, { application_id: a.id, action: 'interview_issue', actor, comment: `${ISSUE_REASONS[reason]}${note ? ` · ${note}` : ''}` });
+  for (const u of await db('users').whereIn('role', ['admin', 'manager']).pluck('id')) {
+    await createNotification(u, `${actor.name} reported a problem with the interview of ${a.name} (${a.ref}): ${ISSUE_REASONS[reason]}`, 'recruitment');
+  }
+  return { ok: true };
+}
+
+/** Problems interviewers reported for one application, for admins and managers. */
+export async function issuesFor(db: Knex, applicationId: number) {
+  return (await db('rec_interview_issues').where({ application_id: applicationId }).orderBy('updated_at', 'desc')
+    .select('id', 'user_id', 'user_name', 'reason', 'note', 'updated_at')).map((i: any) => ({ ...i, label: ISSUE_REASONS[i.reason] ?? i.reason }));
 }

@@ -8,6 +8,45 @@ import { fmtDate } from '../utils/date';
 
 const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
 
+// "Need help?": when an evaluation isn't possible (e.g. the candidate didn't come), say why instead
+function Help({ iv, reasons, onSaved }: { iv: any; reasons: Record<string, string>; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<string>(iv.issue?.reason ?? '');
+  const [note, setNote] = useState<string>(iv.issue?.note ?? '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  if (iv.decision) return null;
+  const send = async () => {
+    setBusy(true); setMsg('');
+    try { await myInterviewsApi.reportIssue(iv.schedule_id, { reason, note }); setOpen(false); onSaved(); }
+    catch (e: any) { setMsg(e?.response?.data?.error || 'Could not send'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ marginTop: 8 }}>
+      {!open ? (
+        <button type="button" className="btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setOpen(true)}>
+          {iv.issue ? 'Change the problem you reported' : 'Need help? Report a problem'}
+        </button>
+      ) : (
+        <div style={{ border: '1px solid var(--sand-border)', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }} htmlFor={`why-${iv.schedule_id}`}>What happened?</label>
+          <select id={`why-${iv.schedule_id}`} className="form-input" value={reason} onChange={(e) => setReason(e.target.value)}>
+            <option value="">Choose a reason…</option>
+            {Object.entries(reasons).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+          <textarea className="form-input" rows={2} placeholder={reason === 'other' ? 'Please tell us what happened (required)' : 'Anything else the admin should know (optional)'} value={note} onChange={(e) => setNote(e.target.value)} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="btn-primary" disabled={busy || !reason || (reason === 'other' && !note.trim())} onClick={send}>Send to admin</button>
+            <button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Close</button>
+            {msg && <span style={{ fontSize: 12, color: '#b91c1c' }}>{msg}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Feedback({ iv, onSaved }: { iv: any; onSaved: () => void }) {
   const [rating, setRating] = useState<number>(iv.feedback?.rating ?? 0);
   const [rec, setRec] = useState<'approve' | 'reject' | ''>(iv.feedback?.recommendation ?? '');
@@ -55,6 +94,8 @@ function Feedback({ iv, onSaved }: { iv: any; onSaved: () => void }) {
 
 export default function MyInterviews() {
   const [rows, setRows] = useState<any[] | null>(null);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  useEffect(() => { myInterviewsApi.issueReasons().then((r) => setReasons(r.data)).catch(() => {}); }, []);
   const load = () => myInterviewsApi.list().then((r) => setRows(r.data)).catch(() => setRows([]));
   useEffect(() => { load(); }, []);
   // Opened from a WhatsApp or email link: scroll to that interview
@@ -74,6 +115,7 @@ export default function MyInterviews() {
         <span className="audit-meta">Ref {iv.ref}</span>
         {iv.decision ? <span className="audit-tag" style={{ color: iv.decision === 'Shortlisted' ? '#257a50' : '#b52028', background: iv.decision === 'Shortlisted' ? '#257a5018' : '#b5202818' }}>Final decision: {iv.decision}</span>
           : iv.feedback ? <span className="audit-tag" style={{ color: '#1a5fa0', background: '#1a5fa018' }}>Feedback sent</span>
+          : iv.issue ? <span className="audit-tag" style={{ color: '#b45309', background: '#b4530918' }}>Problem reported</span>
           : <span className="audit-tag" style={{ color: '#b45309', background: '#b4530918' }}>Feedback needed</span>}
       </div>
       <div className="audit-line">
@@ -85,7 +127,9 @@ export default function MyInterviews() {
         {iv.has_resume && <> · <button type="button" onClick={() => openResume(iv)} style={{ background: 'none', border: 'none', padding: 0, color: '#1a5fa0', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>Open resume</button></>}
       </div>
       {iv.decision && iv.feedback && <div className="audit-line">Your feedback: {iv.feedback.rating}/5, recommended {iv.feedback.recommendation}.</div>}
+      {iv.issue && <div className="audit-line" style={{ color: '#b45309' }}>You reported: {iv.issue.label}{iv.issue.note ? ` · “${iv.issue.note}”` : ''}</div>}
       <Feedback iv={iv} onSaved={load} />
+      <Help iv={iv} reasons={reasons} onSaved={load} />
     </div>
   );
   return (
@@ -94,7 +138,7 @@ export default function MyInterviews() {
         <div className="users-top">
           <div>
             <h2 className="page-title">My Interviews</h2>
-            <p className="page-subtitle">Candidates you're interviewing. After each interview, rate the candidate and recommend approve or reject. The admin makes the final decision.</p>
+            <p className="page-subtitle">Candidates you're interviewing. After each interview, rate the candidate and recommend approve or reject. If the interview couldn't happen (for example the candidate didn't come), use “Need help?” instead. The admin makes the final decision.</p>
           </div>
         </div>
         {rows === null ? <p className="page-subtitle">Loading…</p> : rows.length === 0 ? <p className="page-subtitle">You have no interviews assigned.</p> : (

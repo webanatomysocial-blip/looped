@@ -183,6 +183,7 @@ router.get('/applications/:id', run(async (req) => {
   return {
     ...safe, status_label: R.STATUS_LABEL[a.status] ?? a.status, schedule_defaults: R.OFFICE, job, history, evaluations, schedules, reschedule_requests, interview, identity,
     interviewer_feedback: await (await import('../services/interviewFeedback')).feedbackFor(db, id),
+    interview_issues: await (await import('../services/interviewFeedback')).issuesFor(db, id),
     // What this person may do now: the same rules the server applies
     can: ['approve', 'reject', 'reopen'].filter((x) => { try { R.decide(a.status, req.user!.role, x as R.Decision, 'applied'); return x !== 'reopen' || a.status === 'rejected'; } catch { return false; } }),
   };

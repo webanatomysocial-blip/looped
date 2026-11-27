@@ -607,6 +607,11 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 {s.interviewers.length > 0 && ` · with ${s.interviewers.map((p: any) => p.name).join(', ')}`}
               </div>
             ))}
+            {(a.interview_issues ?? []).map((i: any) => (
+              <div key={`i${i.id}`} className="rec-resched" style={{ marginTop: 10 }}>
+                <b>{i.label}</b> — reported by {i.user_name}{i.note ? <div style={{ fontSize: 13, marginTop: 2 }}>“{i.note}”</div> : null}
+              </div>
+            ))}
             {/* Interviewers rate and recommend; the admin's decision below is final */}
             <div style={{ marginTop: 12 }}>
               <h3 style={{ fontSize: 14, margin: '0 0 6px' }}>Interviewer feedback</h3>

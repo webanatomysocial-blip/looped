@@ -14,5 +14,7 @@ const run = (fn: (req: AuthRequest) => Promise<any>) => async (req: AuthRequest,
 };
 router.get('/', run((req) => F.myInterviews(getDB(), me(req))));
 router.get('/:scheduleId/resume-link', run((req) => F.interviewerResumeLink(getDB(), me(req), Number(req.params.scheduleId))));
+router.post('/:scheduleId/issue', run((req) => F.reportIssue(getDB(), me(req), Number(req.params.scheduleId), req.body)));
+router.get('/issue-reasons', run(async () => F.ISSUE_REASONS));
 router.post('/:scheduleId/feedback', run((req) => F.submitFeedback(getDB(), me(req), Number(req.params.scheduleId), req.body)));
 export default router;

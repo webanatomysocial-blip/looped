@@ -1001,7 +1001,11 @@ export const INTERVIEW_STEPS_MIN = { before60: -60, before5: -5, after60: 60, gr
 const IV_WINDOW_MIN = 30;
 const ivPeople = (s: any): number[] => { try { return (JSON.parse(s.interviewers || '[]') as any[]).map((p) => Number(p.id)).filter(Boolean); } catch { return []; } };
 async function feedbackMissing(db: Knex, scheduleId: number, userIds: number[]): Promise<number[]> {
-  const done = new Set((await db('rec_interview_feedback').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')).map(Number));
+  // Feedback or a reported problem (e.g. the candidate didn't come) both count as a response
+  const done = new Set([
+    ...(await db('rec_interview_feedback').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')),
+    ...(await db('rec_interview_issues').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')),
+  ].map(Number));
   return userIds.filter((u) => !done.has(Number(u)));
 }
 export function buildInterviewText(kind: 'assigned' | 'before60' | 'before5' | 'after60' | 'group', a: {

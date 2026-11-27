@@ -384,6 +384,8 @@ export default api;
 export const myInterviewsApi = {
   list: () => api.get('/my-interviews'),
   resumeLink: (scheduleId: number) => api.get(`/my-interviews/${scheduleId}/resume-link`),
+  issueReasons: () => api.get('/my-interviews/issue-reasons'),
+  reportIssue: (scheduleId: number, data: { reason: string; note?: string }) => api.post(`/my-interviews/${scheduleId}/issue`, data),
   feedback: (scheduleId: number, data: { rating: number; recommendation: 'approve' | 'reject'; notes: string }) => api.post(`/my-interviews/${scheduleId}/feedback`, data),
 };
 
