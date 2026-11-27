@@ -407,6 +407,7 @@ export const recruitmentApi = {
   evaluate: (id: number, data: any) => api.post(`/recruitment/applications/${id}/evaluations`, data),
   schedule: (id: number, data: any) => api.post(`/recruitment/applications/${id}/schedule`, data),
   reschedule: (id: number, sid: number, data: any) => api.put(`/recruitment/applications/${id}/schedule/${sid}`, data),
+  resolveIssue: (id: number, iid: number, note?: string) => api.post(`/recruitment/applications/${id}/issues/${iid}/resolve`, { note }),
   rejectReschedule: (id: number, rid: number, note: string) => api.post(`/recruitment/applications/${id}/reschedule-requests/${rid}/reject`, { note }),
   cancelSchedule: (id: number, sid: number, reason: string) => api.post(`/recruitment/applications/${id}/schedule/${sid}/cancel`, { reason }),
   finalCompleted: (id: number) => api.post(`/recruitment/applications/${id}/final-completed`, {}),

@@ -36,7 +36,6 @@ const NAV: Record<Role, NavGroup> = {
       { to: '/admin/ticket-types', icon: RiTicket2Line,    label: 'Ticket Types' },
       { to: '/admin/assistant', icon: RiRobot2Line, label: 'AI Assistant' },
       { to: '/recruitment',        icon: RiUserSearchLine, label: 'Recruitment' },
-      { to: '/my-interviews',      icon: RiUserVoiceLine,  label: 'My Interviews' },
       { to: '/seo',                icon: RiSearchEyeLine,  label: 'SEO' },
       { to: '/local-seo',          icon: RiMapPin2Line,    label: 'Local Dominator' },
       { to: '/ads',                icon: RiMegaphoneLine,  label: 'Ads' },

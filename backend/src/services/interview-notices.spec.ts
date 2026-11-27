@@ -107,3 +107,129 @@ test('"Need help?": a reported problem (candidate did not come) is recorded, sho
   await R.act(db(), { id: 1, role: 'admin', name: 'Admin' }, app.id, 'reject', 'Did not attend', noMail);
   await assert.rejects(F.reportIssue(db(), me, s.id, { reason: 'no_show' }), /already been made/);
 });
+
+test('reported problems stay open until dealt with: a new time, cancelling, the decision, or "Mark as handled"', async () => {
+  const F = await import('./interviewFeedback');
+  const admin = { id: 1, role: 'admin', name: 'Admin' };
+  const [role] = await db()('rec_roles').insert({ name: 'IV role 3' });
+  await db()('rec_questions').insert({ department_id: role, category: 'G', text: 'Q1', active: true });
+  await db()('rec_jobs').insert({ public_id: 'iv-job3', title: 'Intern', role_id: role, status: 'published' });
+  const mk = async (email: string, phone: string) => {
+    const { ref } = await R.submitApplication(db(), 'iv-job3', { name: 'P', email, phone, experience_years: 0, current_ctc: '0', expected_ctc: '2', interview_mode: 'walkin' }, { file: 'r3.pdf', name: 'r3.pdf', mime: 'application/pdf' }, noMail);
+    const app = await db()('rec_applications').where({ ref }).first();
+    await db()('rec_applications').where({ id: app.id }).update({ status: 'prelim_approved' });
+    await R.schedule(db(), admin, app.id, { type: 'walkin', date: '2030-08-01', start_time: '14:00', end_time: '14:30', address: 'Madhapur', interviewer_ids: [U.iv] }, noMail);
+    const s = await db()('rec_schedules').where({ application_id: app.id }).first();
+    await F.reportIssue(db(), { id: U.iv, role: 'employee', name: 'Ravi' }, s.id, { reason: 'no_show' });
+    return { app, s };
+  };
+  const open = async () => (await F.openIssueApps(db())).map((r: any) => Number(r.application_id));
+  const one = await mk('p1@x.test', '9833333331');
+  const two = await mk('p2@x.test', '9833333332');
+  assert.ok((await open()).includes(one.app.id) && (await open()).includes(two.app.id), 'both listed under Interview problems');
+  await R.schedule(db(), admin, one.app.id, { type: 'walkin', date: '2030-08-03', start_time: '11:00', end_time: '11:30', address: 'Madhapur', interviewer_ids: [U.iv] }, noMail, one.s.id);
+  assert.ok(!(await open()).includes(one.app.id), 'a new time closes it');
+  const i = (await F.issuesFor(db(), one.app.id))[0];
+  assert.equal(i.open, false); assert.equal(i.resolution, 'New interview time set');
+  const [iss] = await F.issuesFor(db(), two.app.id);
+  await F.resolveIssues(db(), two.app.id, admin, 'Called the candidate', iss.id);
+  assert.ok(!(await open()).includes(two.app.id), 'Mark as handled closes it');
+  await F.reportIssue(db(), { id: U.iv, role: 'employee', name: 'Ravi' }, two.s.id, { reason: 'technical' });
+  assert.ok((await open()).includes(two.app.id), 'reporting again reopens it');
+  await R.act(db(), admin, two.app.id, 'reject', 'Did not attend', noMail);
+  assert.ok(!(await open()).includes(two.app.id), 'the final decision closes it');
+});
+
+// ── Two interviewers, one reports: who still gets reminded ──
+let caseN = 0;
+async function twoOn(date: string) {
+  const [role] = await db()('rec_roles').insert({ name: `case role ${++caseN}` });
+  await db()('rec_questions').insert({ department_id: role, category: 'G', text: 'Q1', active: true });
+  await db()('rec_jobs').insert({ public_id: `case-${caseN}`, title: 'Intern', role_id: role, status: 'published' });
+  const { ref } = await R.submitApplication(db(), `case-${caseN}`, { name: `Case ${caseN}`, email: `case${caseN}@x.test`, phone: `98444444${String(caseN).padStart(2, '0')}`, experience_years: 0, current_ctc: '0', expected_ctc: '2', interview_mode: 'walkin' }, { file: `c${caseN}.pdf`, name: 'c.pdf', mime: 'application/pdf' }, noMail);
+  const app = await db()('rec_applications').where({ ref }).first();
+  await db()('rec_applications').where({ id: app.id }).update({ status: 'prelim_approved' });
+  await R.schedule(db(), { id: 1, role: 'admin', name: 'Admin' }, app.id, { type: 'walkin', date, start_time: '14:00', end_time: '14:30', address: 'Madhapur', interviewer_ids: [U.iv, U.iv2] }, noMail);
+  const s = await db()('rec_schedules').where({ application_id: app.id }).first();
+  return { app, s, start: deadlineInstant(date, '14:00')!, end: deadlineInstant(date, '14:30')! };
+}
+const ravi = () => ({ id: U.iv, role: 'employee', name: 'Ravi Interviewer' });
+const sita = () => ({ id: U.iv2, role: 'employee', name: 'Sita Interviewer' });
+const keysFor = async (sid: number, step: string) => (await db()('whatsapp_outbox').where('event_key', 'like', `iv:${step}:${sid}:%`).pluck('event_key'));
+
+test('case: one interviewer reports "candidate did not attend" → both stop getting reminders; the other sees why', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-09-01');
+  await F.reportIssue(db(), ravi(), c.s.id, { reason: 'no_show' });
+  await enqueueInterviewNotices(db(), new Date(c.end + 61 * MIN));
+  await enqueueInterviewNotices(db(), new Date(c.end + 91 * MIN));
+  assert.equal((await keysFor(c.s.id, 'after60')).length + (await keysFor(c.s.id, 'group')).length, 0, 'nobody reminded, nobody tagged');
+  const sitaView = (await F.myInterviews(db(), sita())).find((x: any) => x.schedule_id === c.s.id)!;
+  assert.equal(sitaView.team_issue?.by, 'Ravi Interviewer'); assert.equal(sitaView.team_issue?.label, 'Candidate did not attend');
+});
+
+test('case: "I could not take the interview" is personal → only that person stops; the other is still reminded', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-09-02');
+  await F.reportIssue(db(), ravi(), c.s.id, { reason: 'interviewer_unavailable' });
+  await enqueueInterviewNotices(db(), new Date(c.end + 61 * MIN));
+  assert.deepEqual((await keysFor(c.s.id, 'after60')).map((k) => Number(k.split(':').pop())), [U.iv2]);
+  assert.equal((await F.myInterviews(db(), sita())).find((x: any) => x.schedule_id === c.s.id)!.team_issue, null, 'not shown as covering Sita');
+});
+
+test('case: "postponed" before the interview → the 1-hour and 5-minute reminders stop for both', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-09-03');
+  await F.reportIssue(db(), sita(), c.s.id, { reason: 'postponed' });
+  await enqueueInterviewNotices(db(), new Date(c.start - 59 * MIN));
+  await enqueueInterviewNotices(db(), new Date(c.start - 4 * MIN));
+  assert.equal((await keysFor(c.s.id, 'before60')).length + (await keysFor(c.s.id, 'before5')).length, 0);
+});
+
+test('case: a reminder already queued is dropped at send time when a colleague reports the candidate did not come', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-09-04');
+  await enqueueInterviewNotices(db(), new Date(c.end + 61 * MIN));
+  assert.equal((await keysFor(c.s.id, 'after60')).length, 2, 'both queued');
+  await F.reportIssue(db(), ravi(), c.s.id, { reason: 'no_show' });
+  await db()('whatsapp_outbox').whereNot('event_key', 'like', `iv:after60:${c.s.id}:%`).where({ status: 'pending' }).update({ status: 'sent' });
+  await db()('whatsapp_outbox').where('event_key', 'like', `iv:after60:${c.s.id}:%`).update({ next_attempt_at: new Date(Date.now() - 1000) });
+  const sent: string[] = [];
+  await processOutbox(db(), { isConnected: () => true, sendGroup: async (_j: string, t: string) => { sent.push(t); return true; } } as any, new Date(), 1000);
+  assert.equal(sent.length, 0);
+  assert.equal((await db()('whatsapp_outbox').where('event_key', 'like', `iv:after60:${c.s.id}:%`).where({ status: 'cancelled' })).length, 2);
+});
+
+test('case: the admin sets a new time → the old report no longer counts; both are reminded about the new time', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-09-05');
+  await F.reportIssue(db(), ravi(), c.s.id, { reason: 'no_show' });
+  await R.schedule(db(), { id: 1, role: 'admin', name: 'Admin' }, c.app.id, { type: 'walkin', date: '2030-09-08', start_time: '10:00', end_time: '10:30', address: 'Madhapur', interviewer_ids: [U.iv, U.iv2] }, noMail, c.s.id);
+  const start = deadlineInstant('2030-09-08', '10:00')!;
+  await enqueueInterviewNotices(db(), new Date(start - 59 * MIN));
+  assert.equal((await keysFor(c.s.id, 'before60')).length, 2, 'both reminded for the new time');
+  assert.equal((await F.myInterviews(db(), sita())).find((x: any) => x.schedule_id === c.s.id)!.team_issue, null, 'the old report is not shown for the new time');
+});
+
+test('case: an interviewer taken off the interview gets none of the reminders queued for them', async () => {
+  const c = await twoOn('2030-09-06');
+  await enqueueInterviewNotices(db(), new Date(c.end + 61 * MIN));
+  await db()('rec_schedules').where({ id: c.s.id }).update({ interviewers: JSON.stringify([{ id: U.iv, name: 'Ravi Interviewer' }]) });
+  await db()('whatsapp_outbox').whereNot('event_key', 'like', `iv:after60:${c.s.id}:%`).where({ status: 'pending' }).update({ status: 'sent' });
+  await db()('whatsapp_outbox').where('event_key', 'like', `iv:after60:${c.s.id}:%`).update({ next_attempt_at: new Date(Date.now() - 1000) });
+  const sent: string[] = [];
+  await processOutbox(db(), { isConnected: () => true, sendGroup: async (j: string) => { sent.push(j); return true; } } as any, new Date(), 1000);
+  assert.deepEqual(sent, ['919000000001@s.whatsapp.net'], 'only Ravi, who is still on it');
+});
+
+test('case: cancelling the interview or the final decision stops every reminder', async () => {
+  const c = await twoOn('2030-09-07');
+  await R.cancelSchedule(db(), { id: 1, role: 'admin', name: 'Admin' } as any, c.app.id, c.s.id, 'Candidate withdrew', noMail);
+  await enqueueInterviewNotices(db(), new Date(c.start - 59 * MIN));
+  await enqueueInterviewNotices(db(), new Date(c.end + 61 * MIN));
+  assert.equal((await db()('whatsapp_outbox').where('event_key', 'like', `iv:%:${c.s.id}:%`).whereIn('event_key', await keysFor(c.s.id, 'before60'))).length + (await keysFor(c.s.id, 'after60')).length, 0);
+  const d = await twoOn('2030-09-09');
+  await R.act(db(), { id: 1, role: 'admin', name: 'Admin' } as any, d.app.id, 'reject', 'Not a fit', noMail);
+  await enqueueInterviewNotices(db(), new Date(d.end + 61 * MIN));
+  assert.equal((await keysFor(d.s.id, 'after60')).length, 0);
+});

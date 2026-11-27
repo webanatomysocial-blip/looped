@@ -289,7 +289,7 @@ export async function processOutbox(db: Knex, sender: GroupSender, now: Date = n
       const a = s ? await db('rec_schedules as s').join('rec_applications as a', 'a.id', 's.application_id').where('s.id', payload.iv.scheduleId).first('a.status') : null;
       const slotOk = !!s && deadlineInstant(String(s.date).slice(0, 10), s.start_time) === payload.iv.startMs && (payload.iv.after ? ['scheduled', 'completed'] : ['scheduled']).includes(s.status)
         && !['selected', 'rejected', 'withdrawn'].includes(a?.status);
-      const missing = slotOk && payload.iv.after ? await feedbackMissing(db, payload.iv.scheduleId, payload.iv.userIds) : payload.iv.userIds;
+      const missing = slotOk ? await stillNeeded(db, payload.iv.scheduleId, payload.iv.userIds, !!payload.iv.after) : [];
       if (!slotOk || !missing.length) { await db('whatsapp_outbox').where({ id: row.id }).update({ status: 'cancelled', last_error: 'no_longer_needed' }); continue; }
     }
     if (row.kind === 'escalation') {
@@ -1000,13 +1000,20 @@ export async function queueSamples(db: Knex, adminUserId: number, now: Date = ne
 export const INTERVIEW_STEPS_MIN = { before60: -60, before5: -5, after60: 60, group: 90 } as const;
 const IV_WINDOW_MIN = 30;
 const ivPeople = (s: any): number[] => { try { return (JSON.parse(s.interviewers || '[]') as any[]).map((p) => Number(p.id)).filter(Boolean); } catch { return []; } };
-async function feedbackMissing(db: Knex, scheduleId: number, userIds: number[]): Promise<number[]> {
-  // Feedback or a reported problem (e.g. the candidate didn't come) both count as a response
-  const done = new Set([
-    ...(await db('rec_interview_feedback').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')),
-    ...(await db('rec_interview_issues').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')),
-  ].map(Number));
-  return userIds.filter((u) => !done.has(Number(u)));
+// Who still needs a reminder for this interview's current time. Nobody, if someone reported that the interview didn't
+// happen (candidate didn't come, postponed, ...); not a person who reported a personal problem, was taken off the
+// interview, or (after it) already sent feedback. Reports about an earlier time don't count.
+const WHOLE_INTERVIEW_ISSUES = ['no_show', 'candidate_late', 'technical', 'postponed'];
+async function stillNeeded(db: Knex, scheduleId: number, userIds: number[], after: boolean): Promise<number[]> {
+  const s = await db('rec_schedules').where({ id: scheduleId }).first('date', 'start_time', 'interviewers');
+  if (!s) return [];
+  const slot = `${String(s.date).slice(0, 10)} ${s.start_time}`;
+  const issues = await db('rec_interview_issues').where({ schedule_id: scheduleId, slot }).select('user_id', 'reason');
+  if (issues.some((i: any) => WHOLE_INTERVIEW_ISSUES.includes(i.reason))) return [];
+  const onIt = new Set(ivPeople(s));
+  const skip = new Set(issues.map((i: any) => Number(i.user_id)));
+  if (after) for (const u of await db('rec_interview_feedback').where({ schedule_id: scheduleId }).whereIn('user_id', userIds).pluck('user_id')) skip.add(Number(u));
+  return userIds.filter((u) => onIt.has(Number(u)) && !skip.has(Number(u)));
 }
 export function buildInterviewText(kind: 'assigned' | 'before60' | 'before5' | 'after60' | 'group', a: {
   candidate: string; job: string; ref: string; when: string; type: string; place: string; link: string; people?: { name: string; mention: string | null }[];
@@ -1053,13 +1060,15 @@ export async function enqueueInterviewNotices(db: Knex, now: Date = new Date()):
         payload: { ...buildInterviewText(step, base), to: p.mention, iv: { scheduleId: Number(s.id), startMs, userIds: [uid], after } } })) queued++;
     };
     const upcoming = s.status === 'scheduled' && startMs > nowMs;
+    const before = new Set(await stillNeeded(db, Number(s.id), ids, false));
     for (const uid of ids) {
+      if (!before.has(uid)) continue;
       if (upcoming && nowMs - toMs(s.updated_at ?? s.created_at) <= 24 * 3600_000) await dm('assigned', uid);
       if (s.status === 'scheduled' && due(INTERVIEW_STEPS_MIN.before60, startMs) && startMs > nowMs) await dm('before60', uid);
       if (s.status === 'scheduled' && due(INTERVIEW_STEPS_MIN.before5, startMs) && startMs > nowMs) await dm('before5', uid);
     }
     if (nowMs < endMs) continue;
-    const missing = await feedbackMissing(db, Number(s.id), ids);
+    const missing = await stillNeeded(db, Number(s.id), ids, true);
     if (!missing.length) continue;
     if (due(INTERVIEW_STEPS_MIN.after60, endMs)) for (const uid of missing) await dm('after60', uid, true);
     if (due(INTERVIEW_STEPS_MIN.group, endMs)) {

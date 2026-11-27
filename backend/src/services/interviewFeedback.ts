@@ -16,6 +16,9 @@ export const ISSUE_REASONS: Record<string, string> = {
   postponed: 'Interview was postponed',
   other: 'Other',
 };
+// These mean the interview itself didn't happen, so they cover every interviewer on it (the rest are personal)
+export const WHOLE_INTERVIEW_ISSUES = ['no_show', 'candidate_late', 'technical', 'postponed'];
+const slotOf = (s: any) => `${String(s.date).slice(0, 10)} ${s.start_time}`;
 
 export async function ensureFeedbackSchema(db: Knex): Promise<void> {
   if (!(await db.schema.hasTable('rec_interview_issues'))) {
@@ -32,7 +35,19 @@ export async function ensureFeedbackSchema(db: Knex): Promise<void> {
       t.unique(['schedule_id', 'user_id']);
     });
   }
-  if (await db.schema.hasTable('rec_interview_feedback')) return;
+  // A reported problem stays open until it is dealt with (new time, cancelled, decided, or marked handled)
+  // Which interview time the report was about: a new time starts fresh
+  if (!(await db.schema.hasColumn('rec_interview_issues', 'slot'))) await db.schema.alterTable('rec_interview_issues', (t) => { t.string('slot', 20).nullable(); });
+  // Reports made before the time was stored: about the time the interview has now
+  if (await db.schema.hasTable('rec_schedules')) {
+    for (const i of await db('rec_interview_issues as i').join('rec_schedules as s', 's.id', 'i.schedule_id').whereNull('i.slot').select('i.id', 's.date', 's.start_time')) {
+      await db('rec_interview_issues').where({ id: i.id }).update({ slot: slotOf(i) });
+    }
+  }
+  if (!(await db.schema.hasColumn('rec_interview_issues', 'resolved_at'))) {
+    await db.schema.alterTable('rec_interview_issues', (t) => { t.timestamp('resolved_at').nullable(); t.string('resolved_by_name', 120).nullable(); t.string('resolution', 200).nullable(); });
+  }
+  if (await db.schema.hasTable('rec_interview_issues') && await db.schema.hasTable('rec_interview_feedback')) return;
   await db.schema.createTable('rec_interview_feedback', (t) => {
     t.increments('id').primary();
     t.integer('application_id').unsigned().notNullable().index();
@@ -60,7 +75,8 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
     .select('s.*', 'a.name as candidate', 'a.ref', 'a.status as app_status', 'a.experience_years', 'a.resume_file', 'j.title as job')
     .orderBy('s.date', 'desc')).filter((s: any) => isInterviewer(s, actor.id));
   const mine = rows.length ? await db('rec_interview_feedback').whereIn('schedule_id', rows.map((s: any) => s.id)).where({ user_id: actor.id }) : [];
-  const issues = rows.length ? await db('rec_interview_issues').whereIn('schedule_id', rows.map((s: any) => s.id)).where({ user_id: actor.id }) : [];
+  const allIssues = rows.length ? await db('rec_interview_issues').whereIn('schedule_id', rows.map((s: any) => s.id)) : [];
+  const issues = allIssues.filter((i: any) => Number(i.user_id) === Number(actor.id));
   return rows.map((s: any) => {
     const fb = mine.find((f: any) => Number(f.schedule_id) === Number(s.id));
     return {
@@ -71,6 +87,11 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
       has_resume: !!s.resume_file,
       feedback: fb ? { rating: fb.rating, recommendation: fb.recommendation, notes: fb.notes, updated_at: fb.updated_at } : null,
       issue: (() => { const i = issues.find((x: any) => Number(x.schedule_id) === Number(s.id)); return i ? { reason: i.reason, label: ISSUE_REASONS[i.reason] ?? i.reason, note: i.note } : null; })(),
+      // A colleague said the interview didn't happen (e.g. the candidate didn't come): this person needn't send anything
+      team_issue: (() => {
+        const i = allIssues.find((x: any) => Number(x.schedule_id) === Number(s.id) && Number(x.user_id) !== Number(actor.id) && WHOLE_INTERVIEW_ISSUES.includes(x.reason) && x.slot === slotOf(s));
+        return i ? { by: i.user_name, label: ISSUE_REASONS[i.reason] ?? i.reason, note: i.note } : null;
+      })(),
     };
   });
 }
@@ -124,7 +145,7 @@ export async function reportIssue(db: Knex, actor: R.Actor, scheduleId: number, 
   const note = String(body?.note ?? '').trim().slice(0, 2000);
   if (reason === 'other' && !note) throw new ServiceError(400, 'Please tell us what happened');
   const prev = await db('rec_interview_issues').where({ schedule_id: s.id, user_id: actor.id }).first();
-  const row = { reason, note: note || null, user_name: actor.name, updated_at: new Date() };
+  const row = { reason, note: note || null, user_name: actor.name, slot: slotOf(s), updated_at: new Date(), resolved_at: null, resolved_by_name: null, resolution: null };
   if (prev) await db('rec_interview_issues').where({ id: prev.id }).update(row);
   else await db('rec_interview_issues').insert({ ...row, application_id: a.id, schedule_id: s.id, user_id: actor.id });
   await R.log(db, { application_id: a.id, action: 'interview_issue', actor, comment: `${ISSUE_REASONS[reason]}${note ? ` · ${note}` : ''}` });
@@ -137,5 +158,14 @@ export async function reportIssue(db: Knex, actor: R.Actor, scheduleId: number, 
 /** Problems interviewers reported for one application, for admins and managers. */
 export async function issuesFor(db: Knex, applicationId: number) {
   return (await db('rec_interview_issues').where({ application_id: applicationId }).orderBy('updated_at', 'desc')
-    .select('id', 'user_id', 'user_name', 'reason', 'note', 'updated_at')).map((i: any) => ({ ...i, label: ISSUE_REASONS[i.reason] ?? i.reason }));
+    .select('id', 'user_id', 'user_name', 'reason', 'note', 'updated_at', 'resolved_at', 'resolved_by_name', 'resolution')).map((i: any) => ({ ...i, label: ISSUE_REASONS[i.reason] ?? i.reason, open: !i.resolved_at }));
 }
+
+/** Close the open problems of an application (called when staff act on it, or by "Mark as handled"). */
+export async function resolveIssues(db: Knex, applicationId: number, actor: { name?: string } | null, resolution: string, issueId?: number) {
+  if (!(await db.schema.hasTable('rec_interview_issues'))) return 0;
+  const q = db('rec_interview_issues').where({ application_id: applicationId }).whereNull('resolved_at');
+  if (issueId) q.where({ id: issueId });
+  return q.update({ resolved_at: new Date(), resolved_by_name: actor?.name ?? null, resolution: resolution.slice(0, 200) });
+}
+export const openIssueApps = (db: Knex) => db('rec_interview_issues').whereNull('resolved_at').select('application_id');

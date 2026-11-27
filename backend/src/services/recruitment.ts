@@ -535,6 +535,7 @@ export async function act(db: Knex, actor: Actor, appId: number, action: Decisio
   const booked = to === 'rejected' && a.status === 'final_scheduled' ? await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).first() : null;
   if (booked) await db('rec_schedules').where({ id: booked.id }).update({ status: 'cancelled', updated_at: new Date() });
   await log(db, { application_id: a.id, action, from: a.status, to, actor, override, comment });
+  if (['selected', 'rejected'].includes(to)) await (await import('./interviewFeedback')).resolveIssues(db, a.id, actor, to === 'selected' ? 'Final decision: shortlisted' : 'Final decision: rejected');
   const job = await db('rec_jobs').where({ id: a.job_id }).first('title');
   if (to === 'admin_review' || to === 'interview_admin_review') await notifyStaff(db, `${actor.name} approved ${a.name} (${job?.title}) — awaiting admin decision`, ['admin']);
   if (to === 'prelim_pending' && interviewToken) await mail.interviewInvite(a, job?.title ?? '', interviewToken, patch.interview_expires_at);
@@ -960,6 +961,7 @@ export async function schedule(db: Knex, actor: Actor, appId: number, body: any,
   await db('rec_reschedule_requests').where({ application_id: a.id, status: 'pending' }).update({ status: 'rejected', decided_by: actor.id, decided_at: new Date(), decision_note: 'a different time was set' });
   // A rejected request is settled once a new time is sent
   await db('rec_reschedule_requests').where({ application_id: a.id, status: 'rejected' }).whereNull('followed_up_at').update({ followed_up_at: new Date() });
+  if (resched) await (await import('./interviewFeedback')).resolveIssues(db, a.id, actor, 'New interview time set');
   if (approved) await log(db, { application_id: a.id, action: 'reschedule_approved', from: a.status, to: 'final_scheduled', actor, comment: `Candidate's requested time given: ${dmy(date)} ${body.start_time}` });
   const declined = await rescheduleDeclined(db, a.id);
   if (declined) await db('rec_schedules').where({ application_id: a.id, status: 'scheduled' }).update({ reschedule_hash: null });
@@ -1009,6 +1011,7 @@ export async function cancelSchedule(db: Knex, actor: Actor, appId: number, sche
   const sent = await mail.cancelled(a, job?.title ?? '', clip(reason, 300));
   if (sent) await log(db, { application_id: appId, action: 'email', actor, comment: `Cancellation email ${sent}` });
   await mailInterviewersOff(db, a, job?.title ?? 'a role', JSON.parse(s.interviewers || '[]'), `the interview on ${dmy(s.date)} at ${s.start_time} has been CANCELLED (${clip(reason, 200)})`, actor);
+  await (await import('./interviewFeedback')).resolveIssues(db, appId, actor, 'Interview cancelled');
 }
 
 // ── Reschedule requests from the candidate (public link in the interview email) ──

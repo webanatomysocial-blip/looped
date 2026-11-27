@@ -115,7 +115,7 @@ export default function MyInterviews() {
         <span className="audit-meta">Ref {iv.ref}</span>
         {iv.decision ? <span className="audit-tag" style={{ color: iv.decision === 'Shortlisted' ? '#257a50' : '#b52028', background: iv.decision === 'Shortlisted' ? '#257a5018' : '#b5202818' }}>Final decision: {iv.decision}</span>
           : iv.feedback ? <span className="audit-tag" style={{ color: '#1a5fa0', background: '#1a5fa018' }}>Feedback sent</span>
-          : iv.issue ? <span className="audit-tag" style={{ color: '#b45309', background: '#b4530918' }}>Problem reported</span>
+          : iv.issue || iv.team_issue ? <span className="audit-tag" style={{ color: '#b45309', background: '#b4530918' }}>Problem reported</span>
           : <span className="audit-tag" style={{ color: '#b45309', background: '#b4530918' }}>Feedback needed</span>}
       </div>
       <div className="audit-line">
@@ -127,6 +127,7 @@ export default function MyInterviews() {
         {iv.has_resume && <> · <button type="button" onClick={() => openResume(iv)} style={{ background: 'none', border: 'none', padding: 0, color: '#1a5fa0', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>Open resume</button></>}
       </div>
       {iv.decision && iv.feedback && <div className="audit-line">Your feedback: {iv.feedback.rating}/5, recommended {iv.feedback.recommendation}.</div>}
+      {iv.team_issue && !iv.issue && <div className="audit-line" style={{ color: '#b45309' }}>{iv.team_issue.by} reported: {iv.team_issue.label}{iv.team_issue.note ? ` · “${iv.team_issue.note}”` : ''}. No feedback needed from you unless the interview goes ahead.</div>}
       {iv.issue && <div className="audit-line" style={{ color: '#b45309' }}>You reported: {iv.issue.label}{iv.issue.note ? ` · “${iv.issue.note}”` : ''}</div>}
       <Feedback iv={iv} onSaved={load} />
       <Help iv={iv} reasons={reasons} onSaved={load} />
