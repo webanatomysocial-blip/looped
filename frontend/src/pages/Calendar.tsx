@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import TaskViewDrawer from '../components/UI/TaskViewDrawer';
 import Layout from '../components/Layout/Layout';
@@ -886,6 +887,15 @@ export default function CalendarPage() {
     setForm({ title:rt.title, description:rt.description||'', doc_link:rt.doc_link||'', assigned_to:String(rt.assigned_to), project_id:rt.project_id?String(rt.project_id):'', recurrence_type:rt.recurrence_type, recurrence_days:Array.isArray(rt.recurrence_days)?rt.recurrence_days:(rt.recurrence_days?JSON.parse(rt.recurrence_days):[]), day_of_month:String(rt.day_of_month||1), start_date:rt.start_date, end_date:rt.end_date||'', estimated_hours:String(Math.floor(totalMins/60)), estimated_minutes:String(totalMins%60 >= 45 ? 45 : totalMins%60 >= 30 ? 30 : totalMins%60 >= 15 ? 15 : 0), priority:rt.priority||'medium' });
     setModal(true);
   }
+  // Opened from the tickets list's Edit button: load that recurring task into the form
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const id = (location.state as any)?.editRecurring;
+    if (!id) return;
+    navigate(location.pathname, { replace: true, state: null });
+    calendarApi.getRecurring(Number(id)).then(r => openEdit(r.data)).catch((e: any) => alert(e?.response?.data?.error || 'Could not open this recurring task'));
+  }, [location.state]);
   async function saveForm() {
     const payload = { ...form, assigned_to:form.assigned_to?Number(form.assigned_to):undefined, project_id:form.project_id?Number(form.project_id):null, recurrence_days:form.recurrence_type==='weekly'?form.recurrence_days:[], day_of_month:form.recurrence_type==='monthly'?Number(form.day_of_month):null, end_date:form.end_date||null, estimated_hours:(Number(form.estimated_hours)||0)+(Number((form as any).estimated_minutes)||0)/60 || 1 };
       if (editing) await calendarApi.updateRecurring(editing.id, payload);

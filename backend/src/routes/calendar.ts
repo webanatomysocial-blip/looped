@@ -55,6 +55,15 @@ router.get('/recurring', async (req: AuthRequest, res: Response) => {
   res.json(rows.map(r => ({ ...r, recurrence_days: r.recurrence_days ? (typeof r.recurrence_days === 'string' ? JSON.parse(r.recurrence_days) : r.recurrence_days) : [] })));
 });
 
+// One recurring task, for the edit form (opened from the tickets list)
+router.get('/recurring/:id', async (req: AuthRequest, res: Response) => {
+  const user = req.user!;
+  const rt = await getDB()('recurring_tasks').where('id', req.params.id).first();
+  if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
+  if (rt.created_by !== user.id && !['admin', 'manager'].includes(user.role)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  res.json({ ...rt, recurrence_days: rt.recurrence_days ? (typeof rt.recurrence_days === 'string' ? JSON.parse(rt.recurrence_days) : rt.recurrence_days) : [] });
+});
+
 router.post('/recurring', async (req: AuthRequest, res: Response) => {
   const db = getDB();
   const user = req.user!;
@@ -88,7 +97,8 @@ router.post('/recurring', async (req: AuthRequest, res: Response) => {
   for (let i = 0; i < 30; i++) {
     const d = new Date(start_date + 'T00:00:00');
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
+    // Local date: toISOString() is UTC and gave yesterday's date in India
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     if (endLimit && d > endLimit) break;
     let occurs = false;
     if (recurrence_type === 'daily') occurs = true;
@@ -125,7 +135,7 @@ router.put('/recurring/:id', async (req: AuthRequest, res: Response) => {
   const user = req.user!;
   const rt = await db('recurring_tasks').where('id', req.params.id).first();
   if (!rt) { res.status(404).json({ error: 'Not found' }); return; }
-  if (rt.created_by !== user.id && user.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return; }
+  if (rt.created_by !== user.id && !['admin', 'manager'].includes(user.role)) { res.status(403).json({ error: 'Only the person who set this up, or a manager, can edit it' }); return; }
 
   const { title, description, doc_link, assigned_to, project_id, recurrence_type, recurrence_days, day_of_month, start_date, end_date, estimated_hours, priority, active } = req.body;
   await db('recurring_tasks').where('id', req.params.id).update({
@@ -143,6 +153,18 @@ router.put('/recurring/:id', async (req: AuthRequest, res: Response) => {
     priority: priority ?? rt.priority,
     active: active !== undefined ? active : rt.active,
   });
+  // Copies not started yet (to do, no time logged) follow the edit, so today's copy matches
+  const fresh = await db('recurring_tasks').where('id', rt.id).first();
+  const untouched = (await db('tasks').where({ recurring_task_id: rt.id, status: 'todo' })
+    .whereNotIn('id', db('time_logs').whereNotNull('task_id').select('task_id')).select('id')).map((r: any) => Number(r.id));
+  if (untouched.length) {
+    await db('tasks').whereIn('id', untouched).update({ title: fresh.title, description: fresh.description || '', project_id: fresh.project_id || null,
+      priority: fresh.priority || 'medium', estimated_hours: fresh.estimated_hours || 1, assigned_to: fresh.assigned_to });
+    if (Number(fresh.assigned_to) !== Number(rt.assigned_to)) {
+      await db('task_assignees').whereIn('task_id', untouched).delete();
+      for (const tid of untouched) await addRecurringAssignee(db, tid, fresh.assigned_to, fresh.created_by, fresh.title);
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -163,6 +185,7 @@ router.delete('/recurring/:id', async (req: AuthRequest, res: Response) => {
     const toDelete = taskIds.filter((tid: number) => !loggedSet.has(tid));
     if (toDelete.length) {
       await db('task_sessions').whereIn('task_id', toDelete).delete().catch(() => {});
+      await db('task_schedule_slots').whereIn('task_id', toDelete).delete().catch(() => {});
       await db('task_assignees').whereIn('task_id', toDelete).delete().catch(() => {});
       await db('task_checklist').whereIn('task_id', toDelete).delete().catch(() => {});
       await db('task_comments').whereIn('task_id', toDelete).delete().catch(() => {});

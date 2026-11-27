@@ -796,8 +796,10 @@ export default function Tasks() {
     catch (err: any) { alert(err.response?.data?.error || 'Could not delete'); }
   };
   // Projects that have tickets, A–Z; the dropdown and tabs both pick from these
-  const ticketProjects = [...new Map(tasks.filter((t) => t.project_id).map((t) => [Number(t.project_id), t.project_name || 'Untitled project'])).entries()]
-    .sort((a, b) => a[1].localeCompare(b[1]));
+  // Work with no project (e.g. recurring tasks) gets its own group (id 0) at the end instead of being dropped
+  const pidOf = (t: any) => Number(t.project_id) || 0;
+  const ticketProjects = [...new Map(tasks.map((t) => [pidOf(t), pidOf(t) ? (t.project_name || 'Untitled project') : 'Recurring'])).entries()]
+    .sort((a, b) => (a[0] === 0 ? 1 : b[0] === 0 ? -1 : a[1].localeCompare(b[1])));
   const activeProject = clientFilter;
   const projectKey = ticketProjects.map(([id]) => id).join(',');
   useEffect(() => {
@@ -814,11 +816,11 @@ export default function Tasks() {
     }
     return true;
   });
-  const filtered = activeProject === 'all' ? beforeProject : beforeProject.filter((t) => Number(t.project_id) === activeProject);
+  const filtered = activeProject === 'all' ? beforeProject : beforeProject.filter((t) => pidOf(t) === activeProject);
   // No client picked: one row per project, expandable to its tickets; pages count projects, not tickets
   const groupedView = clientFilter === 'all';
   const groups = ticketProjects
-    .map(([id, name]) => { const ts = filtered.filter((t) => Number(t.project_id) === id); return { id, name, tasks: ts, overdue: ts.filter((t) => t.status === 'overdue').length }; })
+    .map(([id, name]) => { const ts = filtered.filter((t) => pidOf(t) === id); return { id, name, tasks: ts, overdue: ts.filter((t) => t.status === 'overdue').length }; })
     .filter((g) => g.tasks.length > 0);
   const toggleGroup = (id: number) => setOpenGroups((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const totalPages  = Math.max(1, Math.ceil((groupedView ? groups.length : filtered.length) / PAGE_SIZE));
@@ -1116,7 +1118,13 @@ export default function Tasks() {
                           <Send size={10} /> Send Again
                         </button>
                       )}
-                      {(user?.role === 'admin' || user?.role === 'manager') && task.status !== 'completed' && (
+                      {(task as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager' || task.created_by === user?.id) && (
+                        <button className="icon-action" title="Edit recurring task" aria-label="Edit recurring task"
+                          onClick={() => navigate('/calendar', { state: { editRecurring: (task as any).recurring_task_id } })}>
+                          <Pencil size={11} />
+                        </button>
+                      )}
+                      {!(task as any).recurring_task_id && (user?.role === 'admin' || user?.role === 'manager') && task.status !== 'completed' && (
                         <button className="icon-action" title="Edit ticket" onClick={() => openEdit(task)}>
                           <Pencil size={11} />
                         </button>

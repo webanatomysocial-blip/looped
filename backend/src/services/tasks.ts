@@ -88,8 +88,7 @@ export async function listTasks(db: Knex, actor: Actor, filters: { project_id?: 
   if (role === 'employee') {
     query = applyEmployeeTaskListScope(query, actor);
   } else if (role === 'admin' || role === 'manager') {
-    // Recurring task instances are personal — only visible to the assignee/creator, not all admins/managers
-    query = query.whereRaw(`(t.recurring_task_id IS NULL OR t.assigned_to = ? OR t.created_by = ?)`, [userId, userId]);
+    // Admins and managers see everyone's work, recurring copies included
   } else if (role === 'client') {
     // Same rule as opening a single ticket (access.clientListScope)
     query = (await clientListScope(db, actor))(query);

@@ -614,7 +614,7 @@ async function createSchema(): Promise<void> {
         t.increments('id').primary();
         t.string('title').notNullable();
         t.text('description').nullable();
-        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects');
         t.integer('assigned_to').unsigned().nullable().references('id').inTable('users');
         t.integer('created_by').unsigned().notNullable().references('id').inTable('users');
         t.date('due_date').nullable();
@@ -707,7 +707,7 @@ async function createSchema(): Promise<void> {
       await db.schema.createTable('time_logs', (t) => {
         t.increments('id').primary();
         t.integer('task_id').unsigned().notNullable().references('id').inTable('tasks').onDelete('CASCADE');
-        t.integer('project_id').unsigned().notNullable().references('id').inTable('projects').onDelete('CASCADE');
+        t.integer('project_id').unsigned().nullable().references('id').inTable('projects').onDelete('CASCADE');
         t.integer('user_id').unsigned().notNullable().references('id').inTable('users').onDelete('CASCADE');
         t.integer('task_session_id').unsigned().nullable().references('id').inTable('task_sessions').onDelete('SET NULL');
         t.date('log_date').notNullable();
@@ -1433,6 +1433,9 @@ async function createSchema(): Promise<void> {
   if (isMySQLClient()) {
     const [col] = await db.raw("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'project_id'");
     if (col?.[0]?.n === 'NO') await db.raw('ALTER TABLE `tasks` MODIFY `project_id` INT UNSIGNED NULL');
+    // Same for time logged on work without a project (recurring tasks): pausing or finishing one failed
+    const [tl] = await db.raw("SELECT IS_NULLABLE AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'time_logs' AND COLUMN_NAME = 'project_id'");
+    if (tl?.[0]?.n === 'NO') await db.raw('ALTER TABLE `time_logs` MODIFY `project_id` INT UNSIGNED NULL');
   }
 
   // Recurring tickets made before their person was added to task_assignees were invisible in that employee's task list

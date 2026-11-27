@@ -293,6 +293,7 @@ export const calendarApi = {
   updateRecurringTime: (recurringTaskId: number, date: string, start_hour: number) => api.patch(`/calendar/recurring/${recurringTaskId}/time`, { start_hour, date }),
   schedule: (all?: boolean) => api.post('/calendar/schedule', { all }),
   listRecurring: () => api.get('/calendar/recurring'),
+  getRecurring: (id: number) => api.get(`/calendar/recurring/${id}`),
   createRecurring: (data: Record<string, any>) => api.post('/calendar/recurring', data),
   updateRecurring: (id: number, data: Record<string, any>) => api.put(`/calendar/recurring/${id}`, data),
   deleteRecurring: (id: number) => api.delete(`/calendar/recurring/${id}`),

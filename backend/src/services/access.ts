@@ -110,10 +110,11 @@ export function applyEmployeeTaskListScope(q: Knex.QueryBuilder, actor: Actor): 
   q = q.where(function (this: any) { this.whereNot('t.status', 'pending_approval').orWhere('t.created_by', actor.id); });
   return q.whereRaw(
     `(t.created_by = ?
+      OR (t.recurring_task_id IS NOT NULL AND t.assigned_to = ?)
       OR (t.crosspod_pods IS NULL AND t.crosspod_note IS NULL AND (
         t.id IN (SELECT task_id FROM task_assignees WHERE user_id = ? AND COALESCE(skipped, 0) = 0 AND (acceptance_status IS NULL OR acceptance_status != 'declined'))
       )))`,
-    [actor.id, actor.id],
+    [actor.id, actor.id, actor.id],
   );
 }
 
