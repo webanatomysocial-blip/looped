@@ -130,6 +130,8 @@ router.get('/applications', run(async (req) => {
   // Candidates waiting for an answer to their reschedule request
   if (req.query.needs === 'reschedule') q.whereIn('a.id', getDB()('rec_reschedule_requests').where({ status: 'pending' }).select('application_id'));
   // Interviews an interviewer reported a problem with (e.g. the candidate didn't come), not yet dealt with
+  if (req.query.needs === 'action') q.whereIn('a.id', await (await import('../services/interviewFeedback')).needsActionIds(getDB(), req.user!.role));
+  if (req.query.needs === 'decide') q.whereIn('a.id', await (await import('../services/interviewFeedback')).readyToDecide(getDB()));
   if (req.query.needs === 'issues') q.whereIn('a.id', (await import('../services/interviewFeedback')).openIssueApps(getDB()));
   if (from) q.where('a.created_at', '>=', `${String(from).slice(0, 10)} 00:00:00`);
   if (to) q.where('a.created_at', '<=', `${String(to).slice(0, 10)} 23:59:59`);
@@ -142,7 +144,8 @@ router.get('/applications', run(async (req) => {
   const integrity = new Map((await getDB()('rec_interviews').whereIn('application_id', rows.map((r: any) => r.id)).select('application_id', 'warnings', 'integrity_status', 'status')).map((i: any) => [Number(i.application_id), i]));
   const resched = new Set((await getDB()('rec_reschedule_requests').whereIn('application_id', rows.map((r: any) => r.id)).where({ status: 'pending' }).pluck('application_id')).map(Number));
   const issues = new Set((await (await import('../services/interviewFeedback')).openIssueApps(getDB()).whereIn('application_id', rows.map((r: any) => r.id)).pluck('application_id')).map(Number));
-  return rows.map((r: any) => ({ ...r, reschedule_pending: resched.has(Number(r.id)), issue_open: issues.has(Number(r.id)), warnings: Number(integrity.get(Number(r.id))?.warnings ?? 0), integrity_status: integrity.get(Number(r.id))?.integrity_status ?? null, interview_paused: integrity.get(Number(r.id))?.status === 'paused', status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0, ...(away.get(Number(r.id)) ?? { tab_switches: 0, away_seconds: 0 }) }));
+  const progress = await (await import('../services/interviewFeedback')).feedbackProgress(getDB(), rows.filter((r: any) => ['final_scheduled', 'final_completed', 'selected', 'rejected'].includes(r.status)).map((r: any) => Number(r.id)));
+  return rows.map((r: any) => ({ ...r, feedback: progress.get(Number(r.id)) ?? null, reschedule_pending: resched.has(Number(r.id)), issue_open: issues.has(Number(r.id)), warnings: Number(integrity.get(Number(r.id))?.warnings ?? 0), integrity_status: integrity.get(Number(r.id))?.integrity_status ?? null, interview_paused: integrity.get(Number(r.id))?.status === 'paused', status_label: R.STATUS_LABEL[r.status] ?? r.status, storage_bytes: sizes.get(Number(r.id)) ?? 0, ...(away.get(Number(r.id)) ?? { tab_switches: 0, away_seconds: 0 }) }));
 }));
 
 router.get('/applications/:id', run(async (req) => {
@@ -331,6 +334,8 @@ router.get('/overview', run(async (req) => {
     awaiting_manager: c('interview_review', 'applied', 'under_review'), awaiting_admin: c('interview_admin_review', 'admin_review'),
     prelim_pending: c('prelim_pending'), awaiting_evaluation: c('interview_review', 'interview_admin_review'), to_schedule: c('prelim_approved'),
     final_scheduled: c('final_scheduled'), selected: c('selected'), rejected: c('rejected'), withdrawn: c('withdrawn'),
+    needs_action: (await (await import('../services/interviewFeedback')).needsActionIds(db, req.user!.role)).length,
+    ready_to_decide: (await (await import('../services/interviewFeedback')).readyToDecide(db)).length,
     issues_open: Number((await db('rec_interview_issues').whereNull('resolved_at').countDistinct({ n: 'application_id' }).first() as any)?.n ?? 0),
     reschedule_pending: Number((await db('rec_reschedule_requests as r').join('rec_applications as a', 'a.id', 'r.application_id').where('r.status', 'pending').where('a.status', 'final_scheduled').countDistinct({ n: 'r.application_id' }).first() as any)?.n ?? 0),
     by_status: byStatus, per_job: perJob.map((r: any) => ({ ...r, applications: Number(r.applications), selected: Number(r.selected ?? 0), rejected: Number(r.rejected ?? 0) })),

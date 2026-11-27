@@ -4,17 +4,20 @@ import { useEffect, useMemo, useState } from 'react';
 import Layout from '../components/Layout/Layout';
 import '../css/admin/UserManagement.css';
 import '../css/pages/MyInterviews.css';
-import { myInterviewsApi } from '../services/api';
+import { myInterviewsApi, recruitmentApi } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 
 type Tab = 'todo' | 'upcoming' | 'done';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const startOf = (iv: any) => new Date(`${iv.date}T${iv.start_time}:00+05:30`).getTime();   // interview times are IST
 const responded = (iv: any) => !!(iv.feedback || iv.issue || iv.team_issue);
-const tabOf = (iv: any, now: number): Tab => (iv.decision || responded(iv) ? 'done' : startOf(iv) > now ? 'upcoming' : 'todo');
+// Admins' interviews are done only once decided (their decision is final); others' once they responded
+const tabOf = (iv: any, now: number, admin = false): Tab => (iv.decision || (!admin && responded(iv)) ? 'done' : startOf(iv) > now ? 'upcoming' : 'todo');
 const RATING = ['', 'Poor', 'Below average', 'Average', 'Good', 'Excellent'];
 
-function Status({ iv, tab }: { iv: any; tab: Tab }) {
+function Status({ iv, tab, admin }: { iv: any; tab: Tab; admin: boolean }) {
   if (iv.decision) return <span className={`mi-pill ${iv.decision === 'Shortlisted' ? 'mi-pill--done' : 'mi-pill--muted'}`}>{iv.decision}</span>;
+  if (admin && tab === 'todo') return <span className="mi-pill mi-pill--due">{iv.feedback ? 'Decision pending' : 'Evaluate and decide'}</span>;
   if (iv.feedback) return <span className="mi-pill mi-pill--done">Evaluated</span>;
   if (iv.issue || iv.team_issue) return <span className="mi-pill mi-pill--warn">Problem reported</span>;
   if (tab === 'todo') return <span className="mi-pill mi-pill--due">Evaluation due</span>;
@@ -22,15 +25,19 @@ function Status({ iv, tab }: { iv: any; tab: Tab }) {
   return <span className="mi-pill mi-pill--soon">{days <= 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`}</span>;
 }
 
-function Evaluate({ iv, onDone }: { iv: any; onDone: () => void }) {
+function Evaluate({ iv, onDone, admin }: { iv: any; onDone: () => void; admin: boolean }) {
   const [rating, setRating] = useState<number>(iv.feedback?.rating ?? 0);
   const [rec, setRec] = useState<'approve' | 'reject' | ''>(iv.feedback?.recommendation ?? '');
   const [notes, setNotes] = useState<string>(iv.feedback?.notes ?? '');
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
-  const save = async () => {
+  // decide: an admin's Shortlist / Reject is applied straight away as the final decision
+  const save = async (decide = false) => {
     setBusy(true); setMsg('');
-    try { await myInterviewsApi.feedback(iv.schedule_id, { rating, recommendation: rec as any, notes }); onDone(); }
-    catch (e: any) { setMsg(e?.response?.data?.error || 'Could not save'); } finally { setBusy(false); }
+    try {
+      await myInterviewsApi.feedback(iv.schedule_id, { rating, recommendation: rec as any, notes });
+      if (decide) await recruitmentApi.decide(iv.application_id, rec === 'approve' ? 'approve' : 'reject', notes);
+      onDone();
+    } catch (e: any) { setMsg(e?.response?.data?.error || 'Could not save'); onDone(); } finally { setBusy(false); }
   };
   return (<>
     <div className="mi-field">
@@ -41,18 +48,21 @@ function Evaluate({ iv, onDone }: { iv: any; onDone: () => void }) {
       </div>
     </div>
     <div className="mi-field">
-      <span className="mi-label">Your recommendation</span>
+      <span className="mi-label">{admin ? 'Your decision (final)' : 'Your recommendation'}</span>
       <div className="mi-seg">
-        <button type="button" className={rec === 'approve' ? 'mi-seg--yes' : ''} onClick={() => setRec('approve')}>Approve</button>
+        <button type="button" className={rec === 'approve' ? 'mi-seg--yes' : ''} onClick={() => setRec('approve')}>{admin ? 'Shortlist' : 'Approve'}</button>
         <button type="button" className={rec === 'reject' ? 'mi-seg--no' : ''} onClick={() => setRec('reject')}>Reject</button>
       </div>
     </div>
     <div className="mi-field">
-      <label className="mi-label" htmlFor={`n-${iv.schedule_id}`}>Notes for the admin</label>
+      <label className="mi-label" htmlFor={`n-${iv.schedule_id}`}>{admin ? 'Notes (kept with the decision; never sent to the candidate)' : 'Notes for the admin'}</label>
       <textarea id={`n-${iv.schedule_id}`} className="form-input" rows={3} placeholder="Strengths, concerns, anything they should know" value={notes} onChange={(e) => setNotes(e.target.value)} />
     </div>
     <div className="mi-actions">
-      <button type="button" className="mi-btn mi-btn--primary" disabled={busy || !rating || !rec || !notes.trim()} onClick={save}>{iv.feedback ? 'Save changes' : 'Submit evaluation'}</button>
+      {admin ? (<>
+        <button type="button" className="mi-btn mi-btn--primary" disabled={busy || !rating || !rec || !notes.trim()} onClick={() => save(true)}>{rec === 'reject' ? 'Reject candidate' : 'Shortlist candidate'}</button>
+        <button type="button" className="mi-btn" disabled={busy || !rating || !rec || !notes.trim()} onClick={() => save(false)}>Save, decide later</button>
+      </>) : <button type="button" className="mi-btn mi-btn--primary" disabled={busy || !rating || !rec || !notes.trim()} onClick={() => save()}>{iv.feedback ? 'Save changes' : 'Submit evaluation'}</button>}
       {msg ? <span className="mi-msg mi-msg--bad">{msg}</span> : (!rating || !rec || !notes.trim()) && <span className="mi-msg">Rating, recommendation and notes are needed</span>}
     </div>
   </>);
@@ -86,8 +96,8 @@ function Problem({ iv, reasons, onDone }: { iv: any; reasons: Record<string, str
   </>);
 }
 
-function Card({ iv, tab, reasons, focus, onChanged }: { iv: any; tab: Tab; reasons: Record<string, string>; focus: boolean; onChanged: () => void }) {
-  const [mode, setMode] = useState<'' | 'evaluate' | 'problem'>(focus && !iv.decision && !responded(iv) ? 'evaluate' : '');
+function Card({ iv, tab, reasons, focus, onChanged, admin }: { iv: any; tab: Tab; reasons: Record<string, string>; focus: boolean; onChanged: () => void; admin: boolean }) {
+  const [mode, setMode] = useState<'' | 'evaluate' | 'problem'>(focus && !iv.decision && !responded(iv) && tab !== 'upcoming' ? 'evaluate' : '');
   const d = new Date(`${iv.date}T00:00:00`);
   const openResume = async () => {
     const w = window.open('', '_blank');
@@ -108,22 +118,32 @@ function Card({ iv, tab, reasons, focus, onChanged }: { iv: any; tab: Tab; reaso
           </div>
         </div>
         <div className="mi-side">
-          <Status iv={iv} tab={tab} />
+          <Status iv={iv} tab={tab} admin={admin} />
           {!iv.decision && iv.type === 'online' && iv.meeting_url && tab !== 'done' && <a className="mi-btn" href={iv.meeting_url} target="_blank" rel="noreferrer">Join meeting</a>}
           {iv.has_resume && <button type="button" className="mi-btn" onClick={openResume}>Resume</button>}
+          {admin && <a className="mi-btn" href={`/recruitment?app=${iv.application_id}`}>Open in Recruitment</a>}
           {canAct && mode === '' && (tab === 'upcoming'
             ? <button type="button" className="mi-btn" onClick={() => setMode('problem')}>Report a problem</button>
-            : <button type="button" className={`mi-btn ${tab === 'todo' ? 'mi-btn--primary' : ''}`} onClick={() => setMode('evaluate')}>{iv.feedback ? 'Edit evaluation' : iv.issue || iv.team_issue ? 'Evaluate anyway' : 'Evaluate'}</button>)}
+            : <button type="button" className={`mi-btn ${tab === 'todo' ? 'mi-btn--primary' : ''}`} onClick={() => setMode('evaluate')}>{admin ? (iv.feedback ? 'Decide' : 'Evaluate and decide') : iv.feedback ? 'Edit evaluation' : iv.issue || iv.team_issue ? 'Evaluate anyway' : 'Evaluate'}</button>)}
           {mode !== '' && <button type="button" className="mi-btn" onClick={() => setMode('')}>Close</button>}
         </div>
       </div>
       {iv.type === 'walkin' && tab !== 'done' && (iv.location || iv.address) && <div className="mi-summary">Venue: {iv.location} {iv.address}</div>}
       {iv.feedback && mode === '' && <div className="mi-summary">Your evaluation: {'★'.repeat(iv.feedback.rating)}{'☆'.repeat(5 - iv.feedback.rating)} · recommended <b>{iv.feedback.recommendation}</b></div>}
       {iv.issue && mode === '' && <div className="mi-note">You reported: <b>{iv.issue.label}</b>{iv.issue.note ? ` — “${iv.issue.note}”` : ''}</div>}
+      {admin && iv.team && (iv.team.feedback.length > 0 || iv.team.issues.length > 0) && (
+        <div className="mi-summary">
+          <div className="mi-label" style={{ marginBottom: 4 }}>Other interviewers</div>
+          {iv.team.feedback.map((f: any, k: number) => <div key={`f${k}`}>{f.by}: {'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)} · recommends <b>{f.recommendation}</b>{f.notes ? ` — “${f.notes}”` : ''}</div>)}
+          {iv.team.issues.map((i: any, k: number) => <div key={`i${k}`}>{i.by} reported: <b>{i.label}</b>{i.note ? ` — “${i.note}”` : ''}</div>)}
+        </div>
+      )}
+      {admin && iv.team && iv.team.feedback.length === 0 && iv.team.issues.length === 0 && tab === 'todo' && <div className="mi-summary" style={{ color: 'var(--ink-muted)' }}>No feedback from the other interviewers yet.</div>}
       {iv.team_issue && !iv.issue && mode === '' && <div className="mi-note"><b>{iv.team_issue.by}</b> reported: <b>{iv.team_issue.label}</b>{iv.team_issue.note ? ` — “${iv.team_issue.note}”` : ''}. Nothing needed from you unless the interview goes ahead.</div>}
       {mode !== '' && (
         <div className="mi-panel">
-          {mode === 'evaluate' ? <Evaluate iv={iv} onDone={done} /> : <Problem iv={iv} reasons={reasons} onDone={done} />}
+          {mode === 'evaluate' ? <Evaluate iv={iv} onDone={done} admin={admin} /> : <Problem iv={iv} reasons={reasons} onDone={done} />}
+          {admin && mode === 'problem' && <div className="mi-msg">As an admin you can also change the time or cancel the interview in <a href={`/recruitment?app=${iv.application_id}`}>Recruitment</a>.</div>}
           <div>
             {mode === 'evaluate'
               ? <button type="button" className="mi-link" onClick={() => setMode('problem')}>Couldn't take the interview? Report a problem</button>
@@ -136,6 +156,7 @@ function Card({ iv, tab, reasons, focus, onChanged }: { iv: any; tab: Tab; reaso
 }
 
 export default function MyInterviews() {
+  const admin = useAuth().user?.role === 'admin';
   const [rows, setRows] = useState<any[] | null>(null);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab | null>(null);
@@ -146,7 +167,7 @@ export default function MyInterviews() {
   const now = Date.now();
   const groups = useMemo(() => {
     const g: Record<Tab, any[]> = { todo: [], upcoming: [], done: [] };
-    for (const iv of rows ?? []) g[tabOf(iv, now)].push(iv);
+    for (const iv of rows ?? []) g[tabOf(iv, now, admin)].push(iv);
     g.upcoming.sort((a, b) => startOf(a) - startOf(b));
     return g;
   }, [rows]);
@@ -154,18 +175,18 @@ export default function MyInterviews() {
   useEffect(() => {
     if (!rows || tab) return;
     const linked = focusId ? rows.find((r) => Number(r.schedule_id) === focusId) : null;
-    setTab(linked ? tabOf(linked, now) : groups.todo.length ? 'todo' : groups.upcoming.length ? 'upcoming' : 'done');
+    setTab(linked ? tabOf(linked, now, admin) : groups.todo.length ? 'todo' : groups.upcoming.length ? 'upcoming' : 'done');
   }, [rows]);
   useEffect(() => { if (rows && focusId) setTimeout(() => document.getElementById(`iv-${focusId}`)?.scrollIntoView({ block: 'center' }), 50); }, [rows, tab]);
 
   const TABS: [Tab, string][] = [['todo', 'To do'], ['upcoming', 'Upcoming'], ['done', 'Done']];
-  const empty: Record<Tab, string> = { todo: 'Nothing to evaluate right now.', upcoming: 'No upcoming interviews.', done: 'No finished interviews yet.' };
+  const empty: Record<Tab, string> = { todo: admin ? 'Nothing to decide right now.' : 'Nothing to evaluate right now.', upcoming: 'No upcoming interviews.', done: 'No finished interviews yet.' };
   const current = tab ?? 'todo';
   return (
     <Layout>
       <div className="page-wrap">
         <h2 className="page-title">My Interviews</h2>
-        <p className="page-subtitle">After each interview, evaluate the candidate. The admin makes the final decision.</p>
+        <p className="page-subtitle">{admin ? 'Interviews you are taking. As an admin, your Shortlist or Reject is the final decision.' : 'After each interview, evaluate the candidate. The admin makes the final decision.'}</p>
         {rows === null ? <p className="page-subtitle">Loading…</p> : (<>
           <div className="mi-tabs" role="tablist">
             {TABS.map(([k, label]) => (
@@ -176,7 +197,7 @@ export default function MyInterviews() {
           </div>
           <div className="mi-list">
             {groups[current].length === 0 ? <div className="mi-empty">{empty[current]}</div>
-              : groups[current].map((iv) => <Card key={iv.schedule_id} iv={iv} tab={current} reasons={reasons} focus={focusId === Number(iv.schedule_id)} onChanged={load} />)}
+              : groups[current].map((iv) => <Card key={iv.schedule_id} iv={iv} tab={current} reasons={reasons} focus={focusId === Number(iv.schedule_id)} onChanged={load} admin={admin} />)}
           </div>
         </>)}
       </div>

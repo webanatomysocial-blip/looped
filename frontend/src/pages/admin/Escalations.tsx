@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Layout from '../../components/Layout/Layout';
 import '../../css/admin/UserManagement.css';
 import { escalationsApi } from '../../services/api';
+import TaskViewDrawer from '../../components/UI/TaskViewDrawer';
 
 const when = (v: any) => { const d = /^\d+$/.test(String(v)) ? new Date(Number(v)) : new Date(String(v).includes('T') || String(v).endsWith('Z') ? v : String(v).replace(' ', 'T') + 'Z'); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const STATUS: Record<string, [string, string]> = { pending: ['To review', '#b45309'], confirmed: ['Confirmed', '#b52028'], rejected: ['Rejected', '#64748b'] };
@@ -15,6 +16,7 @@ export default function Escalations() {
   const [counts, setCounts] = useState<any[]>([]);
   const [who, setWho] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [openTask, setOpenTask] = useState<number | null>(null);
   const load = () => {
     escalationsApi.list(tab || undefined).then((r) => setRows(r.data)).catch(() => setRows([]));
     escalationsApi.counts().then((r) => setCounts(r.data)).catch(() => setCounts([]));
@@ -71,9 +73,13 @@ export default function Escalations() {
                   <span>· {KIND[r.kind] ?? r.kind}</span>
                   <span className="audit-meta">{when(r.created_at)}</span>
                 </div>
-                <div className="audit-line">{r.task_title ? <>“{r.task_title}” · </> : null}{r.reason}</div>
+                <div className="audit-line">
+                  {r.task_id ? <button type="button" onClick={() => setOpenTask(Number(r.task_id))} title="Open the ticket" style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: '#1a5fa0', textDecoration: 'underline', cursor: 'pointer' }}>{r.task_title || `Ticket #${r.task_id}`}</button> : null}
+                  {r.task_id ? ' · ' : null}{r.reason}
+                </div>
                 {r.status !== 'pending' && <div className="audit-line">{r.status === 'confirmed' ? 'Confirmed' : 'Rejected'} by {r.reviewed_by_name ?? 'someone'}{r.reviewed_at ? ` · ${when(r.reviewed_at)}` : ''}{r.review_note ? ` · “${r.review_note}”` : ''}</div>}
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  {r.task_id ? <button type="button" className="btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => setOpenTask(Number(r.task_id))}>Open ticket</button> : null}
                   {r.status !== 'confirmed' && <button type="button" disabled={busy === r.id} className="btn-primary" style={{ fontSize: 12, padding: '4px 10px', background: '#b52028', borderColor: '#b52028' }} onClick={() => review(r, 'confirm')}>Confirm escalation</button>}
                   {r.status !== 'rejected' && <button type="button" disabled={busy === r.id} className="btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => review(r, 'reject')}>Reject</button>}
                 </div>
@@ -82,6 +88,7 @@ export default function Escalations() {
           </div>
         )}
       </div>
+      {openTask != null && <TaskViewDrawer taskId={openTask} onClose={() => setOpenTask(null)} onChanged={load} />}
     </Layout>
   );
 }

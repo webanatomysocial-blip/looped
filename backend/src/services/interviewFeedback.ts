@@ -76,6 +76,8 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
     .orderBy('s.date', 'desc')).filter((s: any) => isInterviewer(s, actor.id));
   const mine = rows.length ? await db('rec_interview_feedback').whereIn('schedule_id', rows.map((s: any) => s.id)).where({ user_id: actor.id }) : [];
   const allIssues = rows.length ? await db('rec_interview_issues').whereIn('schedule_id', rows.map((s: any) => s.id)) : [];
+  // An admin's decision is final, so they see what the other interviewers said (others never see each other's)
+  const teamFb = actor.role === 'admin' && rows.length ? await db('rec_interview_feedback').whereIn('schedule_id', rows.map((s: any) => s.id)).whereNot({ user_id: actor.id }) : [];
   const issues = allIssues.filter((i: any) => Number(i.user_id) === Number(actor.id));
   return rows.map((s: any) => {
     const fb = mine.find((f: any) => Number(f.schedule_id) === Number(s.id));
@@ -87,6 +89,10 @@ export async function myInterviews(db: Knex, actor: R.Actor) {
       has_resume: !!s.resume_file,
       feedback: fb ? { rating: fb.rating, recommendation: fb.recommendation, notes: fb.notes, updated_at: fb.updated_at } : null,
       issue: (() => { const i = issues.find((x: any) => Number(x.schedule_id) === Number(s.id)); return i ? { reason: i.reason, label: ISSUE_REASONS[i.reason] ?? i.reason, note: i.note } : null; })(),
+      team: actor.role === 'admin' ? {
+        feedback: teamFb.filter((f: any) => Number(f.schedule_id) === Number(s.id)).map((f: any) => ({ by: f.user_name, rating: f.rating, recommendation: f.recommendation, notes: f.notes })),
+        issues: allIssues.filter((i: any) => Number(i.schedule_id) === Number(s.id) && Number(i.user_id) !== Number(actor.id)).map((i: any) => ({ by: i.user_name, label: ISSUE_REASONS[i.reason] ?? i.reason, note: i.note })),
+      } : null,
       // A colleague said the interview didn't happen (e.g. the candidate didn't come): this person needn't send anything
       team_issue: (() => {
         const i = allIssues.find((x: any) => Number(x.schedule_id) === Number(s.id) && Number(x.user_id) !== Number(actor.id) && WHOLE_INTERVIEW_ISSUES.includes(x.reason) && x.slot === slotOf(s));
@@ -125,7 +131,7 @@ export async function submitFeedback(db: Knex, actor: R.Actor, scheduleId: numbe
   if (prev) await db('rec_interview_feedback').where({ id: prev.id }).update(row);
   else await db('rec_interview_feedback').insert({ ...row, application_id: a.id, schedule_id: s.id, user_id: actor.id });
   await R.log(db, { application_id: a.id, action: 'interviewer_feedback', actor, comment: `${prev ? 'Updated: ' : ''}${rating}/5, recommends ${recommendation === 'approve' ? 'approving' : 'rejecting'}` });
-  if (!prev) for (const u of await db('users').where({ role: 'admin' }).pluck('id')) await createNotification(u, `${actor.name} sent interview feedback for ${a.name} (${a.ref}): ${rating}/5, ${recommendation === 'approve' ? 'approve' : 'reject'}`, 'recruitment');
+  // No notification: admins see it on the candidate in Recruitment (they're only notified as interviewers)
   return { ok: true };
 }
 
@@ -149,7 +155,8 @@ export async function reportIssue(db: Knex, actor: R.Actor, scheduleId: number, 
   if (prev) await db('rec_interview_issues').where({ id: prev.id }).update(row);
   else await db('rec_interview_issues').insert({ ...row, application_id: a.id, schedule_id: s.id, user_id: actor.id });
   await R.log(db, { application_id: a.id, action: 'interview_issue', actor, comment: `${ISSUE_REASONS[reason]}${note ? ` · ${note}` : ''}` });
-  for (const u of await db('users').whereIn('role', ['admin', 'manager']).pluck('id')) {
+  // Managers are told; admins see it under Recruitment → Interview problems
+  for (const u of await db('users').where({ role: 'manager' }).whereNot({ id: actor.id }).pluck('id')) {
     await createNotification(u, `${actor.name} reported a problem with the interview of ${a.name} (${a.ref}): ${ISSUE_REASONS[reason]}`, 'recruitment');
   }
   return { ok: true };
@@ -169,3 +176,43 @@ export async function resolveIssues(db: Knex, applicationId: number, actor: { na
   return q.update({ resolved_at: new Date(), resolved_by_name: actor?.name ?? null, resolution: resolution.slice(0, 200) });
 }
 export const openIssueApps = (db: Knex) => db('rec_interview_issues').whereNull('resolved_at').select('application_id');
+
+/** For each application: who on its current final interview has responded (feedback or a reported problem) and who hasn't. */
+export async function feedbackProgress(db: Knex, appIds: number[]) {
+  const out = new Map<number, { done: string[]; waiting: string[] }>();
+  if (!appIds.length) return out;
+  const schedules = await db('rec_schedules').whereIn('application_id', appIds).whereIn('status', ['scheduled', 'completed']).orderBy('id', 'desc');
+  const ids = schedules.map((s: any) => s.id);
+  const fb = ids.length ? await db('rec_interview_feedback').whereIn('schedule_id', ids).select('schedule_id', 'user_id') : [];
+  const iss = ids.length ? await db('rec_interview_issues').whereIn('schedule_id', ids).select('schedule_id', 'user_id', 'reason', 'slot') : [];
+  for (const s of schedules) {
+    if (out.has(Number(s.application_id))) continue;   // newest interview only
+    let people: any[] = []; try { people = JSON.parse(s.interviewers || '[]'); } catch { /* none */ }
+    if (!people.length) continue;
+    const slot = slotOf(s);
+    const mine = iss.filter((i: any) => Number(i.schedule_id) === Number(s.id) && i.slot === slot);
+    const whole = mine.some((i: any) => WHOLE_INTERVIEW_ISSUES.includes(i.reason));
+    const answered = new Set([...fb.filter((f: any) => Number(f.schedule_id) === Number(s.id)), ...mine].map((x: any) => Number(x.user_id)));
+    out.set(Number(s.application_id), {
+      done: people.filter((p) => whole || answered.has(Number(p.id))).map((p) => p.name),
+      waiting: people.filter((p) => !whole && !answered.has(Number(p.id))).map((p) => p.name),
+    });
+  }
+  return out;
+}
+/** Final-interview candidates every interviewer has responded to: the admin can decide now. */
+export async function readyToDecide(db: Knex): Promise<number[]> {
+  const apps = (await db('rec_applications').whereIn('status', ['final_scheduled', 'final_completed']).pluck('id')).map(Number);
+  const p = await feedbackProgress(db, apps);
+  return apps.filter((id) => { const x = p.get(id); return !!x && x.done.length > 0 && x.waiting.length === 0; });
+}
+
+/** Every candidate someone has to act on now, for this person's role (managers don't see admin-only steps). */
+export async function needsActionIds(db: Knex, role: string): Promise<number[]> {
+  const steps = ['applied', 'under_review', 'interview_review', 'prelim_approved', ...(role === 'admin' ? ['admin_review', 'interview_admin_review'] : [])];
+  const ids = new Set<number>((await db('rec_applications').whereIn('status', steps).pluck('id')).map(Number));
+  for (const id of await db('rec_reschedule_requests as r').join('rec_applications as a', 'a.id', 'r.application_id').where('r.status', 'pending').where('a.status', 'final_scheduled').pluck('r.application_id')) ids.add(Number(id));
+  for (const id of await db('rec_interview_issues as i').join('rec_applications as a', 'a.id', 'i.application_id').whereNull('i.resolved_at').whereNotIn('a.status', ['selected', 'rejected', 'withdrawn']).pluck('i.application_id')) ids.add(Number(id));
+  if (role === 'admin') for (const id of await readyToDecide(db)) ids.add(id);   // only an admin decides
+  return [...ids];
+}

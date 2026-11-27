@@ -128,25 +128,50 @@ function Recording({ parts }: { parts: { segment: number; url: string; audio_url
 }
 const dt = (v: any) => (v ? new Date(typeof v === 'number' || /^\d+$/.test(String(v)) ? Number(v) : String(v).includes('T') || String(v).includes('Z') ? v : String(v).replace(' ', 'T') + 'Z').toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const tone = (s: string) => (s === 'selected' || s === 'prelim_approved' ? 'good' : s === 'rejected' || s === 'withdrawn' ? 'bad' : ['admin_review', 'interview_admin_review'].includes(s) ? 'warn' : 'info');
-// The application pipeline in five plain steps (statuses grouped)
-const QUEUES: [string, string][] = [
-  ['Interview pending', 'prelim_pending'],
-  ['To review', 'interview_review,applied,under_review,interview_admin_review,admin_review'],
-  ['Final interview', 'prelim_approved,final_scheduled,final_completed'],
-  ['Shortlisted', 'selected'],
-  ['Rejected', 'rejected'],
+// The hiring steps, in order. "Needs action" collects everything someone has to do now.
+const STAGES: [string, string, string][] = [
+  ['action', 'Needs action', ''],
+  ['new', 'New', 'applied,under_review,admin_review'],
+  ['video', 'Video interview', 'prelim_pending,interview_review,interview_admin_review'],
+  ['final', 'Final interview', 'prelim_approved,final_scheduled,final_completed'],
+  ['selected', 'Shortlisted', 'selected'],
+  ['rejected', 'Rejected', 'rejected,withdrawn'],
+  ['all', 'All', ''],
 ];
+// One plain "next step" per candidate, and whether it is someone's to do now
+type Next = { text: string; tone: 'bad' | 'warn' | 'good' | 'muted' };
+function nextStep(r: any, admin: boolean): Next {
+  if (r.issue_open) return { text: 'Interviewer reported a problem: handle it', tone: 'bad' };
+  if (r.reschedule_pending) return { text: 'Candidate asked to reschedule', tone: 'warn' };
+  switch (r.status) {
+    case 'applied': case 'under_review': return { text: 'Review the application', tone: 'warn' };
+    case 'admin_review': return admin ? { text: 'Manager approved: your decision', tone: 'warn' } : { text: 'Waiting for the admin', tone: 'muted' };
+    case 'prelim_pending': return { text: 'Waiting for the candidate to take the video interview', tone: 'muted' };
+    case 'interview_review': return { text: 'Watch and review the video interview', tone: 'warn' };
+    case 'interview_admin_review': return admin ? { text: 'Video approved by manager: your decision', tone: 'warn' } : { text: 'Waiting for the admin', tone: 'muted' };
+    case 'prelim_approved': return { text: 'Schedule the final interview', tone: 'warn' };
+    case 'final_scheduled': case 'final_completed': {
+      const f = r.feedback;
+      if (f && f.done.length && !f.waiting.length) return admin ? { text: 'All feedback in: make the final decision', tone: 'good' } : { text: 'All feedback in: waiting for the admin', tone: 'muted' };
+      if (f && f.waiting.length) return { text: `Waiting for feedback from ${f.waiting.join(', ')}`, tone: 'muted' };
+      return { text: r.status === 'final_completed' ? 'Interview done: make the final decision' : 'Final interview booked', tone: r.status === 'final_completed' && admin ? 'good' : 'muted' };
+    }
+    case 'selected': return { text: 'Shortlisted', tone: 'muted' };
+    case 'withdrawn': return { text: 'Withdrew their application', tone: 'muted' };
+    default: return { text: 'Not selected', tone: 'muted' };
+  }
+}
 
 export default function Recruitment() {
   const [tab, setTab] = useState<Tab>('applications');
-  const [queue, setQueue] = useState('');
+  const [queue, setQueue] = useState('action');
   const [departments, setDepartments] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const loadRefs = () => { api.departments().then((r) => setDepartments(r.data)).catch(() => {}); api.jobs().then((r) => setJobs(r.data)).catch(() => {}); };
   useEffect(loadRefs, []);
   const { user } = useAuth();
   // Recruitment-wide settings are admin-only (the server enforces it too)
-  const tabs: [Tab, string][] = [['applications', 'Applications'], ['overview', 'Overview'], ['openings', 'Job Openings'], ['questions', 'Question Bank'], ...(user?.role === 'admin' ? [['settings', 'Settings'] as [Tab, string]] : [])];
+  const tabs: [Tab, string][] = [['applications', 'Candidates'], ['openings', 'Openings'], ['questions', 'Question Bank'], ...(user?.role === 'admin' ? [['settings', 'Settings'] as [Tab, string]] : [])];
   return (
     <Layout>
       <DialogHost />
@@ -156,7 +181,6 @@ export default function Recruitment() {
           <a className="btn-secondary" href="/careers" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}>Open careers page ↗</a>
         </div>
         <div className="rec-tabs">{tabs.map(([k, l]) => <button key={k} className={`rec-tab ${tab === k ? 'rec-tab--on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}</div>
-        {tab === 'overview' && <Overview jobs={jobs} departments={departments} open={(q) => { setQueue(q); setTab('applications'); }} />}
         {tab === 'openings' && <Openings jobs={jobs} departments={departments} reload={loadRefs} />}
         {tab === 'applications' && <Applications jobs={jobs} departments={departments} queue={queue} setQueue={setQueue} />}
         {tab === 'questions' && <Questions departments={departments} />}
@@ -178,35 +202,6 @@ function Filters({ jobs, departments, f, setF, extra }: { jobs: any[]; departmen
   );
 }
 
-function Overview({ jobs, departments, open }: { jobs: any[]; departments: any[]; open: (q: string) => void }) {
-  const [f, setF] = useState<any>({}); const [o, setO] = useState<any>(null);
-  useEffect(() => { api.overview(f).then((r) => setO(r.data)).catch(() => setO(null)); }, [JSON.stringify(f)]);
-  if (!o) return <div className="rec-empty">Loading…</div>;
-  const m: [string, number, string?][] = [
-    ['Job openings', o.jobs_total], ['Active openings', o.jobs_active], ['Applications', o.applications_total],
-    ['Video interviews pending', o.prelim_pending, 'prelim_pending'], ['Awaiting manager review', o.awaiting_manager, 'interview_review,applied,under_review'],
-    ['Awaiting admin decision', o.awaiting_admin, 'interview_admin_review,admin_review'], ['Final interview to schedule', o.to_schedule, 'prelim_approved'],
-    ['Final interviews scheduled', o.final_scheduled, 'final_scheduled'], ['Shortlisted', o.selected, 'selected'], ['Rejected', o.rejected, 'rejected'],
-  ];
-  return (<>
-    <Filters jobs={jobs} departments={departments} f={f} setF={setF} />
-    <div className="rec-metrics">
-      {m.map(([label, n, q]) => (
-        <button key={label} className="rec-card rec-metric" style={{ textAlign: 'left', cursor: q ? 'pointer' : 'default', font: 'inherit' }} onClick={() => q && open(q)}>
-          <b>{n}</b><span>{label}</span>
-        </button>
-      ))}
-    </div>
-    <div className="rec-card rec-table-wrap">
-      <table className="rec-table">
-        <thead><tr><th>Opening</th><th>Department</th><th>Status</th><th>Applications</th><th>Selected</th><th>Rejected</th></tr></thead>
-        <tbody>{o.per_job.length ? o.per_job.map((j: any) => <tr key={j.id}><td>{j.title}</td><td>{j.department ?? '—'}</td><td><span className="rec-pill">{j.status}</span></td><td>{j.applications}</td><td>{j.selected}</td><td>{j.rejected}</td></tr>)
-          : <tr><td colSpan={6} className="rec-muted">No job openings yet.</td></tr>}</tbody>
-      </table>
-    </div>
-  </>);
-}
-
 // ── Job openings ──
 const EMPTY_JOB = { title: '', category_id: '', description: '', responsibilities: '', qualifications: '', skills: '', experience: '', employment_type: 'Full-time', location: '', vacancies: 1, deadline: '', status: 'draft' };
 function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any[]; reload: () => void }) {
@@ -214,18 +209,18 @@ function Openings({ jobs, departments, reload }: { jobs: any[]; departments: any
   const setStatus = async (j: any, status: string) => { try { await api.updateJob(j.id, { status }); reload(); } catch (e) { notify(err(e), 'bad'); } };
   const remove = async (j: any) => { if ((await ask({ title: `Delete "${j.title}"?`, text: 'The opening is removed. This cannot be undone.', confirm: 'Delete', danger: true })) === null) return; try { await api.deleteJob(j.id); reload(); } catch (e) { notify(err(e), 'bad'); } };
   return (<>
-    <div className="rec-actions" style={{ marginBottom: 14 }}><button className="btn-primary" onClick={() => setEdit({ ...EMPTY_JOB })}>+ New job opening</button></div>
+    <div className="rec-actions" style={{ marginBottom: 14 }}><button className="btn-primary" onClick={() => setEdit({ ...EMPTY_JOB })}>New opening</button></div>
     <div className="rec-card rec-table-wrap">
       <table className="rec-table">
         <thead><tr><th>Title</th><th>Role</th><th>Questions</th><th>Location</th><th>Vacancies</th><th>Deadline</th><th>Applications</th><th>Status</th><th /></tr></thead>
         <tbody>{jobs.length ? jobs.map((j) => (
           <tr key={j.id}>
-            <td><b>{j.title}</b><div className="rec-sub">{j.employment_type} · {j.experience || 'Any experience'} · by {j.created_by_name ?? '—'}</div></td>
+            <td><b>{j.title}</b><div className="rec-sub">{j.employment_type} · {j.experience || 'Any experience'}{j.created_by_name ? ` · by ${j.created_by_name}` : ''}</div></td>
             <td>{j.department ?? '—'}</td>
             <td>{Number(j.question_count) ? Number(j.question_count) : <span className="rec-pill rec-pill--warn" title="Add questions for this role in the Question Bank before publishing">None yet</span>}</td>
-            <td>{j.location || '—'}</td><td>{j.vacancies}</td><td>{j.deadline ? String(j.deadline).slice(0, 10) : '—'}</td><td>{Number(j.applications)}</td>
+            <td>{j.location || '—'}</td><td>{j.vacancies}</td><td style={{ whiteSpace: 'nowrap' }}>{j.deadline ? fmtDay(String(j.deadline).slice(0, 10)) : '—'}</td><td>{Number(j.applications)}</td>
             <td><span className={`rec-pill ${j.status === 'published' ? 'rec-pill--good' : j.status === 'closed' ? 'rec-pill--bad' : ''}`}>{j.status}</span></td>
-            <td><div className="rec-actions">
+            <td><div className="rec-actions rec-actions--row">
               <button className="btn-secondary" onClick={() => setEdit({ ...EMPTY_JOB, ...j, category_id: j.category_id ?? '', deadline: j.deadline ? String(j.deadline).slice(0, 10) : '' })}>Edit</button>
               {j.status !== 'published' && <button className="btn-secondary" onClick={() => setStatus(j, 'published')}>Publish</button>}
               {j.status === 'published' && <button className="btn-secondary" title="The role's own page, for LinkedIn and Instagram posts" onClick={() => { const url = `${window.location.origin}/careers/${slugify(j.title)}`; navigator.clipboard?.writeText(url).then(() => notify(`Link copied: ${url}`, 'good')).catch(() => notify(`Copy this link: ${url}`)); }}>Copy link</button>}
@@ -278,32 +273,29 @@ function JobForm({ job, departments, onClose, onSaved }: { job: any; departments
         ))}
       </div>
       {error && <p className="rec-error">{error}</p>}
-      <div className="rec-actions" style={{ marginTop: 12 }}><button className="btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button><button className="btn-secondary" onClick={onClose}>Cancel</button></div>
+      <div className="rec-actions rec-sticky-actions"><button className="btn-primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button><button className="btn-secondary" onClick={onClose}>Cancel</button></div>
     </Modal>
   );
 }
 
-// ── Applications ──
+// ── Candidates ──
 function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; departments: any[]; queue: string; setQueue: (q: string) => void }) {
-  const [f, setF] = useState<any>({}); const [search, setSearch] = useState('');
-  const [rows, setRows] = useState<any[] | null>(null); const [open, setOpen] = useState<number | null>(null);
+  const [f, setF] = useState<any>({}); const [search, setSearch] = useState(''); const [more, setMore] = useState(false);
+  const [rows, setRows] = useState<any[] | null>(null);
+  // ?app=ID (e.g. from My Interviews) opens that candidate straight away
+  const [open, setOpen] = useState<number | null>(() => Number(new URLSearchParams(window.location.search).get('app')) || null);
   const isAdmin = useAuth().user?.role === 'admin';
   const [picked, setPicked] = useState<Set<number>>(new Set()); const [deleting, setDeleting] = useState(false);
   const [counts, setCounts] = useState<any>(null);
+  const stage = STAGES.find(([k]) => k === queue) ?? STAGES[0];
   const load = () => {
     api.overview().then((r) => setCounts(r.data)).catch(() => {});
-    return api.applications({ ...f, ...(queue === 'reschedule' || queue === 'issues' ? { needs: queue } : { status: queue || undefined }), search: search || undefined }).then((r) => { setRows(r.data); setPicked(new Set()); }).catch(() => setRows([]));
+    const scope = stage[0] === 'action' ? { needs: 'action' } : stage[2] ? { status: stage[2] } : {};
+    return api.applications({ ...f, ...scope, search: search || undefined }).then((r) => { setRows(r.data); setPicked(new Set()); }).catch(() => setRows([]));
   };
-  const countOf = (statuses: string) => (counts ? statuses.split(',').reduce((n, s) => n + Number(counts.by_status?.[s] ?? 0), 0) : null);
-  // What needs someone now: the first thing on the page, one click to the list
-  const ACTIONS: [string, string, number | null, string][] = [
-    ['issues', 'Interview problems', counts ? Number(counts.issues_open ?? 0) : null, 'Interviewers reported a problem, e.g. the candidate did not attend'],
-    ['reschedule', 'Reschedule requests', counts ? Number(counts.reschedule_pending ?? 0) : null, 'Candidates asking for a new interview time'],
-    [QUEUES[1][1], 'To review', countOf(QUEUES[1][1]), 'Applications and video interviews waiting for a decision'],
-    ['prelim_approved', 'Final interview to schedule', countOf('prelim_approved'), 'Approved, but no interview booked yet'],
-  ];
+  const countOf = (k: string, statuses: string) => (!counts ? null : k === 'action' ? Number(counts.needs_action ?? 0) : k === 'all' ? Number(counts.applications_total ?? 0)
+    : statuses.split(',').reduce((n, x) => n + Number(counts.by_status?.[x] ?? 0), 0));
   const mb = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(0, Math.round(b / 1024))} KB`);
-  const total = (rows ?? []).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
   const pickedBytes = (rows ?? []).filter((r) => picked.has(r.id)).reduce((n, r) => n + Number(r.storage_bytes || 0), 0);
   const toggle = (id: number) => setPicked((p) => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s; });
   const allOn = !!rows?.length && rows.every((r) => picked.has(r.id));
@@ -318,39 +310,59 @@ function Applications({ jobs, departments, queue, setQueue }: { jobs: any[]; dep
     } catch (e) { notify(err(e), 'bad'); } finally { setDeleting(false); load(); }
   };
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [JSON.stringify(f), queue, search]);
+  const flagged = (r: any) => r.interview_paused || ['integrity_review_required', 'suspicious', 'confirmed', 'monitoring'].includes(r.integrity_status);
+  const filtersOn = !!(f.department_id || f.from || f.to);
   return (<>
-    <div className="rec-todo">
-      {ACTIONS.map(([q, label, n, hint]) => (
-        <button key={q} className={`rec-todo__card ${n ? 'rec-todo__card--due' : ''} ${queue === q ? 'rec-todo__card--on' : ''}`} onClick={() => setQueue(queue === q ? '' : q)} title={hint}>
-          <b>{n ?? '…'}</b><span>{label}</span>
-        </button>
-      ))}
+    <div className="rec-stages" role="tablist">
+      {STAGES.map(([k, label, st]) => {
+        const n = countOf(k, st);
+        return (
+          <button key={k} role="tab" aria-selected={queue === k} className={`rec-stage ${queue === k ? 'rec-stage--on' : ''} ${k === 'action' && n ? 'rec-stage--due' : ''}`} onClick={() => setQueue(k)}>
+            {label}{n !== null && <b>{n}</b>}
+          </button>
+        );
+      })}
     </div>
-    <div className="rec-tabs">
-      <button className={`rec-tab ${!queue ? 'rec-tab--on' : ''}`} onClick={() => setQueue('')}>All{counts && <span className="rec-count">{counts.applications_total}</span>}</button>
-      <button className={`rec-tab ${queue === 'issues' ? 'rec-tab--on' : ''}`} onClick={() => setQueue('issues')}>Interview problems{counts && <span className="rec-count">{counts.issues_open ?? 0}</span>}</button>
-      <button className={`rec-tab ${queue === 'reschedule' ? 'rec-tab--on' : ''}`} onClick={() => setQueue('reschedule')}>Reschedule requests{counts && <span className="rec-count">{counts.reschedule_pending ?? 0}</span>}</button>
-      {QUEUES.map(([l, s]) => <button key={s} className={`rec-tab ${queue === s ? 'rec-tab--on' : ''}`} onClick={() => setQueue(s)}>{l}{countOf(s) !== null && <span className="rec-count">{countOf(s)}</span>}</button>)}
+    <div className="rec-bar">
+      <input className="form-input rec-bar__search" placeholder="Search name, email or reference" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <select className="form-input" value={f.job_id ?? ''} onChange={(e) => setF({ ...f, job_id: e.target.value || undefined })}><option value="">All openings</option>{jobs.map((j) => <option key={j.id} value={j.id}>{j.title}</option>)}</select>
+      <button type="button" className={`btn-secondary ${filtersOn ? 'rec-bar__on' : ''}`} onClick={() => setMore(!more)}>{more ? 'Fewer filters' : filtersOn ? 'More filters (on)' : 'More filters'}</button>
     </div>
-    <Filters jobs={jobs} departments={departments} f={f} setF={setF} extra={<input className="form-input" placeholder="Search name, email, reference" value={search} onChange={(e) => setSearch(e.target.value)} />} />
-    <div className="rec-actions" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
-      <span className="rec-muted">{rows ? `${rows.length} applicant${rows.length === 1 ? '' : 's'} · ${mb(total)} of storage` : ''}</span>
-      {isAdmin && picked.size > 0 && <button className="rec-btn-danger" disabled={deleting} onClick={removePicked}>{deleting ? 'Deleting…' : `Delete selected (${picked.size} · ${mb(pickedBytes)})`}</button>}
-    </div>
+    {more && (
+      <div className="rec-bar">
+        <select className="form-input" value={f.department_id ?? ''} onChange={(e) => setF({ ...f, department_id: e.target.value || undefined })}><option value="">All departments</option>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+        <label className="rec-bar__date">Applied from <input className="form-input" type="date" value={f.from ?? ''} onChange={(e) => setF({ ...f, from: e.target.value || undefined })} /></label>
+        <label className="rec-bar__date">to <input className="form-input" type="date" value={f.to ?? ''} onChange={(e) => setF({ ...f, to: e.target.value || undefined })} /></label>
+        {filtersOn && <button type="button" className="btn-secondary" onClick={() => setF({ job_id: f.job_id })}>Clear</button>}
+      </div>
+    )}
+    {isAdmin && picked.size > 0 && (
+      <div className="rec-selbar">
+        <span>{picked.size} selected · {mb(pickedBytes)} of files</span>
+        <button className="rec-btn-danger" disabled={deleting} onClick={removePicked}>{deleting ? 'Deleting…' : 'Delete selected'}</button>
+        <button className="btn-secondary" onClick={() => setPicked(new Set())}>Cancel</button>
+      </div>
+    )}
     <div className="rec-card rec-table-wrap">
-      <table className="rec-table">
-        <thead><tr>{isAdmin && <th style={{ width: 32 }}><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set((rows ?? []).map((r) => r.id)))} /></th>}<th>Candidate</th><th>Opening</th><th>Experience</th><th>Status</th><th>Applied</th><th title="Times the candidate left the interview tab, and how long in total">Tab switches</th><th>Storage</th></tr></thead>
-        <tbody>{rows === null ? <tr><td colSpan={8} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => (
-          <tr key={r.id} className="rec-row" onClick={() => setOpen(r.id)}>
-            {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} /></td>}
-            <td><b>{r.name}</b><div className="rec-sub">{r.ref} · {r.email}</div></td>
-            <td>{r.job_title}<div className="rec-sub">{r.department ?? ''}</div></td>
-            <td>{Number(r.experience_years)} yrs</td>
-            <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span>{r.reschedule_pending && <span className="rec-pill rec-pill--warn" style={{ marginLeft: 4 }}>Reschedule asked</span>}{r.issue_open && <span className="rec-pill rec-pill--bad" style={{ marginLeft: 4 }}>Interview problem</span>}</td>
-            <td>{dt(r.created_at)}</td>
-            <td style={{ whiteSpace: 'nowrap' }}>{(r.interview_paused || ['integrity_review_required', 'suspicious', 'confirmed', 'monitoring'].includes(r.integrity_status)) && <span className={`rec-pill ${r.interview_paused || r.integrity_status === 'confirmed' ? 'rec-pill--bad' : 'rec-pill--warn'}`} style={{ marginRight: 4 }}>{r.interview_paused ? 'Paused' : INTEGRITY[r.integrity_status]}{r.warnings ? ` · ${r.warnings} warning${r.warnings > 1 ? 's' : ''}` : ''}</span>}{Number(r.tab_switches) ? <span className={`rec-pill ${Number(r.tab_switches) >= 3 ? 'rec-pill--warn' : ''}`}>{r.tab_switches}× · {Number(r.away_seconds)} s away</span> : <span className="rec-muted">—</span>}</td>
-            <td style={{ whiteSpace: 'nowrap' }}>{mb(Number(r.storage_bytes || 0))}</td>
-          </tr>)) : <tr><td colSpan={8} className="rec-muted">No applications here.</td></tr>}</tbody>
+      <table className="rec-table rec-table--list">
+        <thead><tr>{isAdmin && <th style={{ width: 32 }}><input type="checkbox" aria-label="Select all" checked={allOn} onChange={() => setPicked(allOn ? new Set() : new Set((rows ?? []).map((r) => r.id)))} /></th>}<th>Candidate</th><th>Opening</th><th>Stage</th><th>Next step</th><th>Applied</th></tr></thead>
+        <tbody>{rows === null ? <tr><td colSpan={6} className="rec-muted">Loading…</td></tr> : rows.length ? rows.map((r) => {
+          const n = nextStep(r, isAdmin);
+          return (
+            <tr key={r.id} className="rec-row" onClick={() => setOpen(r.id)}>
+              {isAdmin && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select ${r.name}`} checked={picked.has(r.id)} onChange={() => toggle(r.id)} /></td>}
+              <td>
+                <b>{r.name}</b>
+                <div className="rec-sub">{r.ref} · {Number(r.experience_years)} yrs</div>
+                {(flagged(r) || Number(r.tab_switches) >= 3) && <div className="rec-flag">{r.interview_paused ? 'Video interview paused' : flagged(r) ? INTEGRITY[r.integrity_status] : `Left the interview tab ${r.tab_switches} times`}</div>}
+              </td>
+              <td>{r.job_title}</td>
+              <td><span className={`rec-pill rec-pill--${tone(r.status)}`}>{r.status_label}</span></td>
+              <td><span className={`rec-next rec-next--${n.tone}`}>{n.text}</span></td>
+              <td className="rec-sub" style={{ whiteSpace: 'nowrap' }}>{fmtDay(r.created_at)}</td>
+            </tr>
+          );
+        }) : <tr><td colSpan={6} className="rec-empty-row">{queue === 'action' ? 'Nothing needs you right now.' : 'No candidates here.'}</td></tr>}</tbody>
       </table>
     </div>
     {open && <ApplicationDrawer id={open} onClose={() => setOpen(null)} onChanged={load} />}
@@ -457,6 +469,29 @@ function Monitoring({ m, who, verification }: { m: any; who: string; verificatio
   </>);
 }
 
+// A titled group of label/value rows (empty values show as a dash)
+function Facts({ title, rows }: { title: string; rows: [string, any][] }) {
+  return (
+    <div className="rec-facts">
+      <div className="rec-facts__title">{title}</div>
+      {rows.map(([k, v]) => <div key={k} className="rec-facts__row"><span>{k}</span><b>{v === null || v === undefined || v === '' ? '—' : v}</b></div>)}
+    </div>
+  );
+}
+// History entries in plain words
+const HISTORY_LABEL: Record<string, string> = {
+  applied: 'Applied', approve: 'Approved', reject: 'Rejected', reopen: 'Reopened', withdrawn: 'Candidate withdrew',
+  review_started: 'Review started', interview_started: 'Video interview started', interview_submitted: 'Video interview submitted',
+  interview_paused: 'Video interview paused', interview_resumed: 'Video interview resumed', interview_terminated: 'Video interview ended by an admin',
+  integrity_review: 'Integrity review', recording_opened: 'Recording watched', recording_deleted: 'Recording deleted', resume_opened: 'Resume opened',
+  interview_scheduled: 'Final interview scheduled', interview_rescheduled: 'Final interview time changed', interview_cancelled: 'Final interview cancelled',
+  final_completed: 'Final interview marked completed', reschedule_requested: 'Candidate asked to reschedule', reschedule_approved: 'Reschedule accepted',
+  reschedule_rejected: 'Reschedule declined', interviewer_feedback: 'Interviewer feedback', interview_issue: 'Interview problem reported',
+  interview_issue_handled: 'Interview problem handled', reapply_allowed: 'Allowed to reapply early', whatsapp_confirmed: 'WhatsApp confirmed', email: 'Email',
+};
+const dayOf = (v: any) => { const d = toDateSafe(v); return d ? fmtDay(d) : ''; };
+const toDateSafe = (v: any) => { if (!v) return null; const d = new Date(typeof v === 'number' || /^\d+$/.test(String(v)) ? Number(v) : String(v).includes('T') || String(v).includes('Z') ? v : String(v).replace(' ', 'T') + 'Z'); return isNaN(d.getTime()) ? null : d; };
+
 function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
   const { user } = useAuth();
   const [a, setA] = useState<any>(null); const [media, setMedia] = useState<{ status: string | null; final: string | null; parts: any[] } | null>(null);
@@ -533,7 +568,24 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
             </ul>
           </details>
         )}
-        <p><span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span></p>
+        {(() => {
+          // Same "next step" as the list, worked out from this candidate's details
+          const cur = (a.schedules ?? []).find((x: any) => ['scheduled', 'completed'].includes(x.status));
+          const names = (cur?.interviewers ?? []).map((p: any) => p.name);
+          const answered = new Set([...(a.interviewer_feedback ?? []).map((x: any) => x.user_name), ...(a.interview_issues ?? []).map((x: any) => x.user_name)]);
+          const n = nextStep({
+            status: a.status,
+            issue_open: (a.interview_issues ?? []).some((i: any) => i.open),
+            reschedule_pending: (a.reschedule_requests ?? []).some((r: any) => r.status === 'pending'),
+            feedback: names.length ? { done: names.filter((x: string) => answered.has(x)), waiting: names.filter((x: string) => !answered.has(x)) } : null,
+          }, user?.role === 'admin');
+          return (
+            <div className="rec-nextbar">
+              <span className={`rec-pill rec-pill--${tone(a.status)}`}>{a.status_label}</span>
+              <span className={`rec-next rec-next--${n.tone}`}>Next: {n.text}</span>
+            </div>
+          );
+        })()}
         {askedReschedule && view !== 'final' && (
           <div className="rec-resched"><b>{(a.interview_issues ?? []).some((i: any) => i.open) ? 'An interviewer reported a problem with the interview.' : 'The candidate asked to reschedule.'}</b> <button className="btn-primary" style={{ marginLeft: 8 }} onClick={() => setTab('final')}>Review it</button></div>
         )}
@@ -542,15 +594,17 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         </div>
         {view === 'profile' && <>
 
-        <div className="rec-section"><h3>Candidate</h3>
-          <dl className="rec-kv">
-            <dt>Email</dt><dd>{a.email}</dd><dt>Phone</dt><dd>{a.phone}</dd><dt>Location</dt><dd>{a.location || '—'}</dd>
-            <dt>Qualification</dt><dd>{a.education || '—'}</dd><dt>Experience</dt><dd>{Number(a.experience_years)} years</dd><dt>Company</dt><dd>{a.company || '—'}</dd><dt>Interview preference</dt><dd>{a.interview_mode === 'online' ? 'Online' : a.interview_mode === 'walkin' ? 'Walk-in' : '—'}</dd>
-            {a.current_ctc !== undefined && <><dt>Current CTC</dt><dd>{a.current_ctc || '—'}</dd><dt>Expected CTC</dt><dd>{a.expected_ctc || '—'}</dd></>}
-            <dt>Skills</dt><dd className="careers-text">{a.skills || '—'}</dd><dt>Department</dt><dd>{a.job?.department ?? '—'}</dd><dt>Applied</dt><dd>{dt(a.created_at)}</dd>
-          </dl>
-          <div className="rec-actions"><button className="btn-secondary" onClick={() => resume()}>View resume</button><button className="btn-secondary" onClick={() => resume(true)}>Download</button><span className="rec-muted">{a.resume_name}</span></div>
+        <div className="rec-filebox">
+          <div><div className="rec-filebox__label">Resume</div><div className="rec-filebox__name">{a.resume_name || 'Resume'}</div></div>
+          <div className="rec-actions"><button className="btn-primary" onClick={() => resume()}>View</button><button className="btn-secondary" onClick={() => resume(true)}>Download</button></div>
         </div>
+        <div className="rec-groups">
+          <Facts title="Contact" rows={[['Email', a.email], ['Phone', a.phone], ['Location', a.location]]} />
+          <Facts title="Background" rows={[['Qualification', a.education], ['Relevant experience', `${Number(a.experience_years)} years`], ['Company', a.company]]} />
+          <Facts title="Application" rows={[['Opening', a.job?.title], ['Department', a.job?.department], ['Interview preference', a.interview_mode === 'online' ? 'Online' : a.interview_mode === 'walkin' ? 'Walk-in' : null], ['Applied', dt(a.created_at)]]} />
+          {a.current_ctc !== undefined && <Facts title="Salary (admins only)" rows={[['Current CTC', a.current_ctc], ['Expected CTC', a.expected_ctc]]} />}
+        </div>
+        {a.skills && <div className="rec-section"><h3>Skills</h3><p className="careers-text" style={{ margin: 0 }}>{a.skills}</p></div>}
 
         {user?.role === 'admin' && a.status === 'rejected' && !a.reapply_override_at && (
           <div className="rec-section"><h3>Reapplying</h3>
@@ -573,16 +627,17 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         )}
         {iv && (
           <div className="rec-section"><h3>Video interview</h3>
-            <dl className="rec-kv">
-              <dt>Started</dt><dd>{dt(iv.started_at)}</dd><dt>Submitted</dt><dd>{iv.submitted_at ? dt(iv.submitted_at) : 'Not yet'}</dd>
-              <dt>Duration</dt><dd>{iv.duration_sec ? `${Math.floor(iv.duration_sec / 60)}m ${iv.duration_sec % 60}s` : '—'}</dd>
-              <dt>Consent</dt><dd>{dt(iv.consent_at)} · {iv.consent_version}</dd>
-              <dt>Recording</dt><dd><RecordingStatus iv={iv} /></dd>
-            </dl>
+            <div className="rec-factgrid">
+              <div><span>Started</span><b>{dt(iv.started_at)}</b></div>
+              <div><span>Submitted</span><b>{iv.submitted_at ? dt(iv.submitted_at) : 'Not yet'}</b></div>
+              <div><span>Duration</span><b>{iv.duration_sec ? `${Math.floor(iv.duration_sec / 60)}m ${iv.duration_sec % 60}s` : '—'}</b></div>
+              <div><span>Recording</span><b><RecordingStatus iv={iv} /></b></div>
+              <div><span>Consent</span><b>{dt(iv.consent_at)} · {iv.consent_version}</b></div>
+            </div>
             {iv.verification && <Verification v={iv.verification} />}
             {media && !iv.recording_deleted_at && (media.final || media.parts.length > 0) && (
               <div className="rec-actions" style={{ margin: '4px 0 8px' }}>
-                {media.final && <a className="btn-secondary" href={`${media.final}&download=1`} download style={{ textDecoration: 'none' }}>⬇ Download video</a>}
+                {media.final && <a className="btn-secondary" href={`${media.final}&download=1`} download style={{ textDecoration: 'none' }}>Download video</a>}
                 {user?.role === 'admin' && <button className="rec-btn-danger" disabled={busy} onClick={deleteVideo}>Delete video</button>}
               </div>
             )}
@@ -601,46 +656,17 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
         </>}
         {view === 'final' && !(a.status === 'prelim_approved' || a.schedules.length > 0) && <p className="rec-muted">The final interview can be scheduled once the video interview is approved.</p>}
         {view === 'final' && (a.status === 'prelim_approved' || a.schedules.length > 0) && (
-          <div className="rec-section"><h3>Final interview</h3>
-            {a.schedules.map((s: any) => (
-              <div key={s.id} className="rec-muted" style={{ fontSize: 13 }}>
-                <span className={`rec-pill ${s.status === 'scheduled' ? 'rec-pill--info' : s.status === 'cancelled' ? 'rec-pill--bad' : 'rec-pill--good'}`}>{s.status}</span>{' '}
-                {s.type === 'online' ? 'Online' : 'Walk-in'} · {fmtDay(s.date)} {s.start_time}–{s.end_time}{s.type === 'online' ? ` · ${s.meeting_url}` : ` · ${s.location ?? ''} ${s.address ?? ''}`}
-                {s.interviewers.length > 0 && ` · with ${s.interviewers.map((p: any) => p.name).join(', ')}`}
-              </div>
-            ))}
-            {(a.interview_issues ?? []).map((i: any) => (
-              <div key={`i${i.id}`} className="rec-resched" style={{ marginTop: 10, ...(i.open ? {} : { opacity: 0.6 }) }}>
+          <>
+            {/* 1. What needs attention first */}
+            {(a.interview_issues ?? []).filter((i: any) => i.open).map((i: any) => (
+              <div key={`i${i.id}`} className="rec-resched">
                 <b>{i.label}</b> — reported by {i.user_name}{i.note ? <div style={{ fontSize: 13, marginTop: 2 }}>“{i.note}”</div> : null}
-                {i.open ? (
-                  <div style={{ fontSize: 12, marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span className="rec-muted">Change the time, cancel the interview, make the final decision, or:</span>
-                    <button className="btn-secondary" style={{ fontSize: 12, padding: '3px 10px' }} disabled={busy} onClick={async () => { setBusy(true); try { await api.resolveIssue(id, i.id); await load(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); } }}>Mark as handled</button>
-                  </div>
-                ) : <div className="rec-muted" style={{ fontSize: 12, marginTop: 4 }}>Handled{i.resolved_by_name ? ` by ${i.resolved_by_name}` : ''}{i.resolution ? ` · ${i.resolution}` : ''}</div>}
+                <div style={{ fontSize: 12, marginTop: 6, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="rec-muted">Change the time, cancel the interview, make the final decision, or:</span>
+                  <button className="btn-secondary" style={{ fontSize: 12, padding: '3px 10px' }} disabled={busy} onClick={async () => { setBusy(true); try { await api.resolveIssue(id, i.id); await load(); } catch (e) { notify(err(e), 'bad'); } finally { setBusy(false); } }}>Mark as handled</button>
+                </div>
               </div>
             ))}
-            {/* Interviewers rate and recommend; the admin's decision below is final */}
-            <div style={{ marginTop: 12 }}>
-              <h3 style={{ fontSize: 14, margin: '0 0 6px' }}>Interviewer feedback</h3>
-              {(a.interviewer_feedback ?? []).length === 0 ? <p className="rec-muted" style={{ fontSize: 13 }}>No feedback yet. Interviewers send it from Loop → My Interviews.</p> : (
-                <>
-                  <p className="rec-muted" style={{ fontSize: 12, margin: '0 0 6px' }}>
-                    {(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'approve').length} recommend approving · {(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'reject').length} recommend rejecting · average {((a.interviewer_feedback as any[]).reduce((t, f) => t + Number(f.rating), 0) / a.interviewer_feedback.length).toFixed(1)}/5. The final decision is the admin's.
-                  </p>
-                  {(a.interviewer_feedback as any[]).map((f) => (
-                    <div key={f.id} style={{ border: '1px solid var(--sand-border)', borderRadius: 10, padding: '8px 10px', marginBottom: 6 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
-                        <b>{f.user_name}</b>
-                        <span className={`rec-pill ${f.recommendation === 'approve' ? 'rec-pill--good' : 'rec-pill--bad'}`}>{f.recommendation === 'approve' ? 'Recommends approve' : 'Recommends reject'}</span>
-                        <span>{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)} {f.rating}/5</span>
-                      </div>
-                      <div style={{ fontSize: 13, marginTop: 4, whiteSpace: 'pre-wrap' }}>{f.notes}</div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
             {current && (a.reschedule_requests ?? []).filter((r: any) => r.status === 'pending' || (r.status === 'rejected' && r.decided_by && !r.followed_up)).slice(0, 1).map((r: any) => {
               // Same length as the current slot, starting at the requested time
               const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -660,7 +686,26 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 </div>
               );
             })}
-            <div className="rec-actions">
+
+            {/* 2. The interview itself */}
+            <div className="rec-section"><h3>Final interview</h3>
+              {(() => {
+                const s = current ?? a.schedules.find((x: any) => x.status === 'completed');
+                if (!s) return <p className="rec-muted" style={{ margin: '0 0 10px' }}>Not scheduled yet.</p>;
+                return (
+                  <div className="rec-ivcard">
+                    <div className="rec-factgrid">
+                      <div><span>Status</span><b><span className={`rec-pill ${s.status === 'scheduled' ? 'rec-pill--info' : 'rec-pill--good'}`}>{s.status === 'scheduled' ? 'Scheduled' : 'Completed'}</span></b></div>
+                      <div><span>Date</span><b>{fmtDay(s.date)}</b></div>
+                      <div><span>Time</span><b>{s.start_time}–{s.end_time} IST</b></div>
+                      <div><span>Type</span><b>{s.type === 'online' ? 'Online' : 'Walk-in'}</b></div>
+                      <div className="rec-factgrid__wide"><span>{s.type === 'online' ? 'Meeting link' : 'Venue'}</span><b>{s.type === 'online' ? <a href={s.meeting_url} target="_blank" rel="noreferrer">{s.meeting_url}</a> : `${s.location ?? ''} ${s.address ?? ''}`}</b></div>
+                      <div className="rec-factgrid__wide"><span>Interviewers</span><b>{s.interviewers.length ? s.interviewers.map((p: any) => p.name).join(', ') : 'None assigned'}</b></div>
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="rec-actions">
               {a.status === 'prelim_approved' && <button className="btn-primary" onClick={() => setSched({ type: a.interview_mode || 'walkin', location: a.schedule_defaults?.location ?? '', address: a.schedule_defaults?.address ?? '' })}>Schedule final interview</button>}
               {current && <>
                 <button className="btn-secondary" onClick={() => setSched({ ...current, interviewer_ids: current.interviewers.map((p: any) => p.id), sid: current.id })}>Change time</button>
@@ -668,17 +713,65 @@ function ApplicationDrawer({ id, onClose, onChanged }: { id: number; onClose: ()
                 <button className="btn-secondary" onClick={async () => { try { await api.finalCompleted(id); await refresh(); } catch (e) { notify(err(e), 'bad'); } }}>Mark interview completed</button>
               </>}
             </div>
-          </div>
+              {a.schedules.filter((x: any) => x.status === 'cancelled').length > 0 && (
+                <details className="rec-earlier"><summary>Cancelled interviews ({a.schedules.filter((x: any) => x.status === 'cancelled').length})</summary>
+                  {a.schedules.filter((x: any) => x.status === 'cancelled').map((x: any) => <div key={x.id} className="rec-muted">{fmtDay(x.date)} {x.start_time}–{x.end_time} · {x.type === 'online' ? 'Online' : 'Walk-in'}</div>)}
+                </details>
+              )}
+            </div>
+
+            {/* 3. What the interviewers said; the admin's decision (below) is final */}
+            <div className="rec-section"><h3>Interviewer feedback</h3>
+              {(a.interviewer_feedback ?? []).length === 0 ? <p className="rec-muted" style={{ margin: 0 }}>No feedback yet. Interviewers send it from Loop → My Interviews.</p> : (
+                <>
+                  <div className="rec-fbsum">
+                    <span><b>{(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'approve').length}</b> recommend approving</span>
+                    <span><b>{(a.interviewer_feedback as any[]).filter((f) => f.recommendation === 'reject').length}</b> recommend rejecting</span>
+                    <span>Average <b>{((a.interviewer_feedback as any[]).reduce((t, f) => t + Number(f.rating), 0) / a.interviewer_feedback.length).toFixed(1)}/5</b></span>
+                  </div>
+                  {(a.interviewer_feedback as any[]).map((f) => (
+                    <div key={f.id} className="rec-fb">
+                      <div className="rec-fb__head">
+                        <b>{f.user_name}</b>
+                        <span className={`rec-pill ${f.recommendation === 'approve' ? 'rec-pill--good' : 'rec-pill--bad'}`}>{f.recommendation === 'approve' ? 'Recommends approve' : 'Recommends reject'}</span>
+                        <span className="rec-fb__stars">{'★'.repeat(f.rating)}{'☆'.repeat(5 - f.rating)} {f.rating}/5</span>
+                      </div>
+                      <div className="rec-fb__notes">{f.notes}</div>
+                    </div>
+                  ))}
+                </>
+              )}
+              {(a.interview_issues ?? []).filter((i: any) => !i.open).map((i: any) => (
+                <div key={`h${i.id}`} className="rec-muted" style={{ fontSize: 12, marginTop: 8 }}>{i.user_name} reported “{i.label}”{i.note ? ` — ${i.note}` : ''} · handled{i.resolved_by_name ? ` by ${i.resolved_by_name}` : ''}{i.resolution ? ` (${i.resolution})` : ''}</div>
+              ))}
+            </div>
+          </>
         )}
 
         {view === 'history' && <>
         <div className="rec-section"><h3>History</h3>
-          <ul className="rec-timeline">{a.history.map((h: any) => (
-            <li key={h.id}>
-              <b>{h.action.replace(/_/g, ' ')}</b>{h.override ? <span className="rec-override"> · admin override</span> : null}{h.to_status && h.from_status ? ` · ${h.from_status.replace(/_/g, ' ')} → ${h.to_status.replace(/_/g, ' ')}` : ''}
-              <div className="rec-sub">{h.actor_name ?? 'Candidate'} ({h.actor_role}) · {dt(h.created_at)}</div>
-              {h.comment && <div style={{ fontSize: 12 }}>"{h.comment}"</div>}
-            </li>))}</ul>
+          {(() => {
+            const days: [string, any[]][] = [];
+            for (const h of a.history) {
+              const d = dayOf(h.created_at); const last = days[days.length - 1];
+              const list = last && last[0] === d ? last[1] : (days.push([d, []]), days[days.length - 1][1]);
+              // The same thing done again by the same person with no comment (e.g. watching the recording): one line, counted
+              const prev = list[list.length - 1];
+              if (prev && prev.action === h.action && prev.actor_name === h.actor_name && !h.comment && !prev.comment && !h.override) { prev.times = (prev.times ?? 1) + 1; continue; }
+              list.push({ ...h });
+            }
+            return days.map(([d, list]) => (
+              <div key={d} className="rec-hday">
+                <div className="rec-hday__date">{d}</div>
+                <ul className="rec-timeline">{list.map((h: any) => (
+                  <li key={h.id}>
+                    <b>{HISTORY_LABEL[h.action] ?? h.action.replace(/_/g, ' ')}</b>{h.times > 1 && <span className="rec-hcount">×{h.times}</span>}{h.override ? <span className="rec-override"> · admin override</span> : null}
+                    <span className="rec-sub"> · {h.actor_name ?? 'Candidate'}{h.actor_role ? ` (${h.actor_role})` : ''} · {toDateSafe(h.created_at)?.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }) ?? ''}</span>
+                    {h.comment && <div className="rec-hcomment">{h.comment}</div>}
+                  </li>))}</ul>
+              </div>
+            ));
+          })()}
         </div>
 
         {user?.role === 'admin' && (
@@ -798,6 +891,7 @@ function Questions({ departments }: { departments: any[] }) {
   const toggle = async (q: any) => { try { await api.updateQuestion(q.id, { active: !q.active }); load(); } catch (e) { notify(err(e), 'bad'); } };
   const remove = async (q: any) => { if ((await ask({ title: 'Delete this question?', text: q.text, confirm: 'Delete', danger: true })) === null) return; try { await api.deleteQuestion(q.id); load(); } catch (e) { notify(err(e), 'bad'); } };
   const roleName = roleId == null ? 'All roles' : departments.find((d) => d.id === roleId)?.name ?? 'Role';
+  const showDiff = (qs ?? []).some((x: any) => x.difficulty);   // the Difficulty column only when some question has one
   return (<>
     <div className="rec-tabs">
       <button className={`rec-tab ${role === 'all' ? 'rec-tab--on' : ''}`} onClick={() => setRole('all')}>All roles <span className="rec-count">{count(null)}</span></button>
@@ -811,7 +905,7 @@ function Questions({ departments }: { departments: any[] }) {
         <label className="rec-switch" title="Each candidate gets these questions in a random order">
           <input type="checkbox" checked={shuffleOn} onChange={toggleShuffle} /><span /> Shuffle questions
         </label>
-        <button className="btn-primary" onClick={() => setEdit({ department_id: roleId, text: '', difficulty: '', active: true })}>+ Add question to {roleName}</button>
+        <button className="btn-primary" onClick={() => setEdit({ department_id: roleId, text: '', difficulty: '', active: true })}>Add question to {roleName}</button>
       </div>
     </div>
     {shuffleOn && <p className="rec-muted" style={{ margin: '-6px 0 12px' }}>Shuffle is on: each candidate gets this tab's questions in a random order, so the order below isn't used.</p>}
@@ -823,7 +917,7 @@ function Questions({ departments }: { departments: any[] }) {
     )}
     <div className="rec-card rec-table-wrap">
       <table className={`rec-table ${shuffleOn ? 'rec-q--shuffled' : ''}`}>
-        <thead><tr><th style={{ width: 150 }}>Order</th><th>Question</th><th>Difficulty</th><th>Status</th><th /></tr></thead>
+        <thead><tr><th style={{ width: 150 }}>Order</th><th>Question</th>{showDiff && <th>Difficulty</th>}<th>Status</th><th /></tr></thead>
         <tbody>{shown.length ? shown.map((q, n) => (
           <tr key={q.id} ref={(el) => { if (el) rowEls.current.set(q.id, el); else rowEls.current.delete(q.id); }}
             className={`${dragId === q.id ? 'rec-q--drag' : ''} ${order && was.get(q.id) !== n ? 'rec-q--changed' : ''}`}
@@ -838,12 +932,12 @@ function Questions({ departments }: { departments: any[] }) {
               {order && was.get(q.id) !== n && <span className="rec-q-was">was {(was.get(q.id) ?? 0) + 1}</span>}
             </td>
             <td style={{ maxWidth: 520 }}>{q.text}{q.used && <div className="rec-sub">Used in interviews</div>}</td>
-            <td>{q.difficulty || '—'}</td>
+            {showDiff && <td>{q.difficulty || '—'}</td>}
             <td><span className={`rec-pill ${q.active ? 'rec-pill--good' : ''}`}>{q.active ? 'Asked' : 'Off'}</span></td>
             <td><div className="rec-actions">
-              <button className="btn-secondary" onClick={() => setPreview(q)}>Preview</button>
-              <button className="btn-secondary" onClick={() => setEdit({ ...q, difficulty: q.difficulty ?? '' })}>Edit</button>
-              <button className="btn-secondary" onClick={() => toggle(q)}>{q.active ? 'Turn off' : 'Turn on'}</button>
+              <button className="rec-linkbtn" onClick={() => setPreview(q)}>Preview</button>
+              <button className="rec-linkbtn" onClick={() => setEdit({ ...q, difficulty: q.difficulty ?? '' })}>Edit</button>
+              <button className="rec-linkbtn rec-linkbtn--muted" onClick={() => toggle(q)}>{q.active ? 'Turn off' : 'Turn on'}</button>
               {!q.used && <button className="rec-btn-danger" onClick={() => remove(q)}>Delete</button>}
             </div></td>
           </tr>)) : <tr><td colSpan={5} className="rec-empty">No questions for {roleName} yet.</td></tr>}</tbody>
@@ -879,12 +973,18 @@ function Settings() {
     <div className="rec-field"><label>{label}</label><input className="form-input" type="number" min={min} max={max} value={s[k]} onChange={(e) => setS({ ...s, [k]: e.target.value })} /><span className="rec-muted">{hint}</span></div>
   );
   return (
-    <div className="rec-card rec-card--pad" style={{ maxWidth: 640 }}>
+    <div className="rec-card rec-card--pad" style={{ maxWidth: 680 }}>
+      <h3 className="rec-set-h">Video interview</h3>
       <div className="rec-grid2">
-
         {field('seconds_per_question', 'Seconds per question', '20 to 900', 20, 900)}
         {field('interview_link_days', 'Interview link valid for (days)', 'After admin approval', 1, 60)}
+      </div>
+      <h3 className="rec-set-h">Recordings</h3>
+      <div className="rec-grid2">
         {field('recording_retention_days', 'Keep recordings for (days)', 'Recordings are deleted after this', 7, 3650)}
+      </div>
+      <h3 className="rec-set-h">Integrity rules</h3>
+      <div className="rec-grid2">
         {field('max_warnings', 'Interview warnings before a pause', 'One more after this pauses the interview for review (1 to 10)', 1, 10)}
         {field('warning_away_seconds', 'Time away from the page that counts (s)', 'Shorter absences are logged, not warned (3 to 600)', 3, 600)}
         <div className="rec-field"><label>Fullscreen required</label><select className="form-input" value={String(s.fullscreen_required)} onChange={(e) => setS({ ...s, fullscreen_required: Number(e.target.value) })}><option value="0">No (leaving it is only logged)</option><option value="1">Yes (leaving it gives a warning)</option></select></div>

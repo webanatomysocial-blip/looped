@@ -233,3 +233,43 @@ test('case: cancelling the interview or the final decision stops every reminder'
   await enqueueInterviewNotices(db(), new Date(d.end + 61 * MIN));
   assert.equal((await keysFor(d.s.id, 'after60')).length, 0);
 });
+
+test('an admin taking an interview sees the other interviewers\' feedback and decides; employees never see each other\'s', async () => {
+  const F = await import('./interviewFeedback');
+  const [aid] = await db()('users').insert({ name: 'Ada Admin', email: 'ada@iv.t', password_hash: 'x', role: 'admin' });
+  const ada = { id: Number(aid), role: 'admin', name: 'Ada Admin' };
+  const [role] = await db()('rec_roles').insert({ name: 'admin iv role' });
+  await db()('rec_questions').insert({ department_id: role, category: 'G', text: 'Q1', active: true });
+  await db()('rec_jobs').insert({ public_id: 'adm-job', title: 'Designer', role_id: role, status: 'published' });
+  const { ref } = await R.submitApplication(db(), 'adm-job', { name: 'Decide Me', email: 'decide@x.test', phone: '9855555555', experience_years: 2, current_ctc: '4', expected_ctc: '6', interview_mode: 'walkin' }, { file: 'd.pdf', name: 'd.pdf', mime: 'application/pdf' }, noMail);
+  const app = await db()('rec_applications').where({ ref }).first();
+  await db()('rec_applications').where({ id: app.id }).update({ status: 'prelim_approved' });
+  await R.schedule(db(), ada as any, app.id, { type: 'walkin', date: '2030-10-01', start_time: '10:00', end_time: '10:30', address: 'Office', interviewer_ids: [ada.id, U.iv] }, noMail);
+  const s = await db()('rec_schedules').where({ application_id: app.id }).first();
+  await F.submitFeedback(db(), { id: U.iv, role: 'employee', name: 'Ravi Interviewer' }, s.id, { rating: 2, recommendation: 'reject', notes: 'Weak portfolio' });
+  const mine = (await F.myInterviews(db(), ada as any)).find((x: any) => x.schedule_id === s.id)!;
+  assert.deepEqual(mine.team?.feedback.map((f: any) => [f.by, f.rating, f.recommendation]), [['Ravi Interviewer', 2, 'reject']]);
+  const emp = (await F.myInterviews(db(), { id: U.iv, role: 'employee', name: 'Ravi Interviewer' })).find((x: any) => x.schedule_id === s.id)!;
+  assert.equal(emp.team, null, 'employees do not see the team');
+  // The admin evaluates and decides (their decision overrides the recommendation)
+  await F.submitFeedback(db(), ada as any, s.id, { rating: 5, recommendation: 'approve', notes: 'Strong in person' });
+  assert.equal((await R.act(db(), ada as any, app.id, 'approve', 'Strong in person', noMail)).status, 'selected');
+  assert.equal((await F.myInterviews(db(), ada as any)).find((x: any) => x.schedule_id === s.id)!.decision, 'Shortlisted');
+});
+
+test('feedback progress per candidate: who responded, who is awaited; ready for decision once everyone has', async () => {
+  const F = await import('./interviewFeedback');
+  const c = await twoOn('2030-11-01');
+  let p = (await F.feedbackProgress(db(), [c.app.id])).get(c.app.id)!;
+  assert.deepEqual(p, { done: [], waiting: ['Ravi Interviewer', 'Sita Interviewer'] });
+  assert.ok(!(await F.readyToDecide(db())).includes(c.app.id));
+  await F.submitFeedback(db(), ravi(), c.s.id, { rating: 4, recommendation: 'approve', notes: 'ok' });
+  p = (await F.feedbackProgress(db(), [c.app.id])).get(c.app.id)!;
+  assert.deepEqual(p, { done: ['Ravi Interviewer'], waiting: ['Sita Interviewer'] });
+  assert.ok(!(await F.readyToDecide(db())).includes(c.app.id), 'still waiting for Sita');
+  await F.reportIssue(db(), sita(), c.s.id, { reason: 'interviewer_unavailable' });
+  assert.ok((await F.readyToDecide(db())).includes(c.app.id), 'everyone responded (a personal problem counts)');
+  const d = await twoOn('2030-11-02');
+  await F.reportIssue(db(), ravi(), d.s.id, { reason: 'no_show' });
+  assert.deepEqual((await F.feedbackProgress(db(), [d.app.id])).get(d.app.id)!.waiting, [], 'a no-show covers everyone');
+});
